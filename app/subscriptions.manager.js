@@ -83,11 +83,12 @@ window.SubscriptionsManager = (function () {
   ].join('\n');
 
   const QUICK_RUN_CONFERENCES = [
-    'NIPS',
+    'NeurIPS',
     'ICML',
   ];
   const CONFERENCES_WITH_PENDING_CURRENT_YEAR = new Set([
     'NIPS',
+    'NEURIPS',
     'ICML',
   ]);
 

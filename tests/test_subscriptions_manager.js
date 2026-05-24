@@ -150,8 +150,10 @@ function testConferenceCurrentYearDisabledForPendingSources() {
   const currentYear = String(new Date().getFullYear());
   const previousYear = String(new Date().getFullYear() - 1);
 
+  assert.equal(isConferenceYearSelectable('NeurIPS', currentYear), false);
   assert.equal(isConferenceYearSelectable('NIPS', currentYear), false);
   assert.equal(isConferenceYearSelectable('ICML', currentYear), false);
+  assert.equal(isConferenceYearSelectable('NeurIPS', previousYear), true);
   assert.equal(isConferenceYearSelectable('NIPS', previousYear), true);
   assert.equal(isConferenceYearSelectable('ICML', previousYear), true);
 }
