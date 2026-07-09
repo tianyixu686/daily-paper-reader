@@ -1,0 +1,548 @@
+Title: Homer: Understanding Long-form Videos with Hierarchical Memory and Agentic Reasoning
+
+URL Source: https://arxiv.org/pdf/2607.02588v1
+
+Published Time: Tue, 07 Jul 2026 00:03:05 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# HOMER : Understanding Long-form Videos with Hierarchical Memory and Agentic Reasoning 
+
+Yixin Ji 1, Fanghua Ye 2, Juntao Li 1∗
+
+, Bo Zhao 2, Zexuan Qiu 2,Zhaopeng Tu 2∗
+
+, Liefeng Bo 2, Min Zhang 11Soochow University 
+
+> 2
+
+Tencent Hunyuan Multimodal Department 
+
+{jiyixin169, fanghua.ye.21}@gmail.com {ljt, minzhang}@suda.edu.cn 
+
+Abstract 
+
+Multimodal large language models excel on short clips but struggle on hour-long videos in an online setting, where frames are pro-cessed incrementally under limited memory. Existing online methods either retain com-pact visual representations that lack seman-tic structure, or build higher-level memory stores organized around temporal proxim-ity rather than explicit causal links, leaving multi-hop narrative reasoning to be recon-structed by the LLM at every query. We bridge this gap with H OMER , a Hierarchical Online Memory Exploration and Reasoning framework. H OMER ’s memory mirrors the multi-scale structure of long videos, rang-ing from raw perception, to recurring enti-ties, to events connected by explicit temporal and causal relations. Its agentic reasoner then explores this memory the way humans do, locating the relevant scene, looking up details, and composing the answer through multi-round memory retrieval, with a harness that verifies and corrects each step. H OMER 
+
+outperforms the previous best agent method by +5 .5, +10 .8, and +4 .4 points on M3-Bench-robot, M3-Bench-web, and Video-MME-Long, and consistently lifts three var-ious LLM backbones, indicating a model-agnostic structural capability for grounded retrieval over long videos. 1
+
+1 Introduction 
+
+Reasoning over long-form videos is a basic re-quirement for multimodal large language models (MLLMs) used in embodied intelligence (Shen et al., 2026; Pai et al., 2025), autonomous agents (Chen et al., 2025a), and world model-ing (Ren et al., 2025), yet MLLMs that handle short clips fluently still struggle on such long-form      
+
+> ∗Corresponding authors.
+> 1Code is available at https://github.com/ Dereck0602/Homer
+
+content (Zou et al., 2024; Bai et al., 2025). Videos spanning tens of minutes to hours contain thou-sands of visually redundant frames, complex narra-tive structures, and dense interactions among char-acters. The resulting token count far exceeds the context window of current models, and even with sufficient context length, critical details are dis-persed across the timeline, making it difficult for attention mechanisms to locate and integrate rele-vant evidence (Tang et al., 2025b; Dou et al., 2026). Long-video understanding therefore demands both compressing redundancy to fit the model’s context and pinpointing fine-grained evidence dispersed across that context. Existing approaches address these demands from different angles. To reduce the token count, sparse frame selection methods (Wang et al., 2025b; Tang et al., 2025a) subsample a small set of represen-tative frames, trading temporal coverage for ef-ficiency, while token compression methods (Li et al., 2024; Shen et al., 2025a) reduce the num-ber of visual tokens per frame so that more frames fit within the context window, though aggressive compression may discard fine-grained details. To improve evidence localization, agentic reasoning methods (Wang et al., 2024; Shen et al., 2025b) equip MLLMs with visual tools to iteratively ma-nipulate and reason over videos, achieving stronger multi-hop reasoning performance. Most of these methods, however, assume an offline setting where the full video is available at query time and seg-ments can be re-retrieved on demand when the first evidence is insufficient. Many real-world applications instead require an online setting where frames arrive as a continuous stream and storing the full video is infeasible, de-manding to incrementally accumulate and organize information as the video progresses. Prior online memory approaches adopt visual token compres-sion (Wang et al., 2025a; Xie et al., 2026) or textual memory banks (Song et al., 2024; He et al., 2024; 
+
+> arXiv:2607.02588v1 [cs.CV] 1 Jul 2026
+
+Long et al., 2026) to maintain memory-efficient representations. While these methods successfully control memory size, they face a fundamental ten-sion between information coverage and retrieval difficulty. Coarse-grained memories are easy to search but discard fine details, while fine-grained memories preserve detail but become hard to navi-gate at hour scales. Moreover, none of these meth-ods explicitly model the temporal and causal rela-tionships between events, making multi-hop narra-tive reasoning particularly challenging. The limitations above motivate two principles for online long-video understanding. First, the memory should separate broad narrative coverage from fine-grained perceptual detail and treat the temporal and causal relations between events as first-class, rather than leave multi-hop reasoning to be reconstructed by the LLM at every query. Second, the reasoning loop should be able to de-tect when the first retrieval is insufficient and re-cover, instead of committing to a single retrieval pass that cannot self-correct. We address both with HOMER , a Hierarchical Online Memory Explo-ration and Reasoning framework that pairs a hierar-chical memory with an agentic reasoner. The mem-ory consists of three complementary layers, namely a Perceptual Buffer retaining visual keyframes for revisit, an EntityGraph organizing episodic and se-mantic memories around identified characters, and an EventGraph adding explicit temporal and causal edges between event segments to support multi-hop narrative reasoning. On top of this memory, the agentic reasoner decomposes each question into focused subtasks and runs multi-round retrieval su-pervised by a harness that verifies and corrects each step, while a self-evolution mechanism accumu-lates reusable retrieval skills across questions. We summarize our contributions as follows. • We introduce H OMER , an online long-video un-derstanding framework whose hierarchical mem-ory separates narrative coverage from perceptual detail and adds explicit temporal-causal edges, addressing both the coverage-retrieval tension and the absence of structured event reasoning in prior online memories. • We design an agentic reasoning loop driven by a verify-and-correct harness and a self-evolution mechanism, letting the agent recover from in-correct retrievals and accumulate reusable skills across questions. • Across M3-Bench-robot, M3-Bench-web, and Video-MME-Long, H OMER outperforms the pre-vious best agent method by +5 .5, +10 .8, and 
+
++4 .4 points. The gain is structural and model-agnostic, letting an open-source agentic back-bone match a closed-source multimodal model without additional training. 
+
+2 Related Work 
+
+Existing approaches to long-video reasoning can be broadly divided along the processing paradigm axis into offline methods that access the entire video before answering and online methods that process frames incrementally under causality and memory constraints. 
+
+Offline Long-Video Reasoning. Offline meth-ods either compress the visual input or invoke tools on demand. Sparse frame selection re-duces the input to a small set of representa-tive frames. For example, VideoTree (Wang et al., 2025b) progressively refines a hierarchi-cal tree of frames conditioned on the query, and AKS (Tang et al., 2025a) formulates key frame selection as a budget-constrained opti-mization that maximizes visual-textual relevance. FOCUS (Zhu et al., 2025), FocusGraph (Zem-skova et al., 2026) and LongVLM (Weng et al., 2024) extend this idea with region-level scor-ing, graph-structured dependencies, and multi-granularity aggregation. Agentic reasoning instead equips an MLLM with tool-use and planning to iteratively retrieve relevant segments. VideoA-gent (Wang et al., 2024) treats the LLM as a central agent that aggregates evidence through VLM and CLIP tools, while VideoMind (Liu et al., 2026) introduces role-based Planner-Grounder-Verifier-Answerer reasoning. DrVideo (Ma et al., 2025), LongVT (Yang et al., 2025b), Vgent (Shen et al., 2025b) and VLog (Lin and Shou, 2025) further explore document-style retrieval, native tool call-ing, graph-based RAG, and narration-vocabulary indexing. With full-video access, these methods can reduce the context through sampling, indexing, or retrieval, and then return to the source video to localize fine-grained evidence, thereby balancing context reduction and evidence localization in the offline setting. 
+
+Online Long-Video Reasoning. In streaming scenarios, frames arrive sequentially and the model cannot freely rewind to arbitrary past content, so Video Stream Timeline       
+
+> Alice enters Meeting starts Discussion
+> Time Stamp 1
+> [Episodic Memory]
+> <voice_1> says: "Sorry, I'm late."
+> <voice_2> says: "Never mind, Alice."
+> ... ....
+> [Semantic Memory]
+> <face 1> is late for the meeting.
+> <face 1> and <face 2> are colleagues.
+
+Entity Graph   
+
+> Project
+> Kickoff Meeting
+> Task A
+> Task
+> Assignment Deadline
+> enables
+> before
+> causes
+> enables
+
+Event Graph 
+
+> Alice
+
+Key Frames  Group shot Reading report               
+
+> Relationship
+> Event Node
+> [Semantic Memory]
+> Alice <voice_1> <face_1>
+> Bob <voice_2> <face_2>
+> Step 1: Plan
+> Sub-task 1
+> Sub-task 2
+> ... ...
+> Sub-task n
+> Step 2: Retrieving Memories
+> Q1: Sub-task 1
+> Q2: Sub-task 2
+> Search the Event "Meeting"
+> Sub-task 1
+> Search the Neighbor
+> Event "Task Assignment"
+> Sub-task 2
+> I need detailed memory,
+> drill down the entity graph
+> in "Task Assignment"
+> Sub-task n
+> Step 3: Answer According to memories.
+> my answer is ... ...
+> overlap
+> before
+> Time Stamp n
+> Time Stamp 3
+> Time Stamp 2
+> [Episodic Memory]
+> <voice_2> says: "Let's start the meeting."
+> <voice_1> says: "What is the theme of
+> the meeting?." ... ....
+> [Semantic Memory]
+> They are getting ready for the meeting Qn: Sub-task n
+> Bob
+
+Figure 1: Overview of H OMER . Each incoming clip is processed online into a Perceptual Buffer of key frames, an Entity Graph of character-centric episodic and semantic memories, and an Event Graph of narrative segments linked by temporal and causal edges. At question time, an agentic reasoner decomposes the query and performs multi-turn retrievals at progressively finer granularity to produce the final answer. 
+
+the online long-video reasoning methods com-press history into limited storage for evidence lo-cation. One line of work retains compact visual to-kens. LLaMA-VID (Li et al., 2024) represents each frame with two tokens, while LongVU (Shen et al., 2025a) and FluxMem (Xie et al., 2026) adaptively remove spatiotemporal redundancy. Streaming-TOM (Chen et al., 2025b) and StreamMem (Yang et al., 2025a) further bound online computa-tion through causal temporal reduction, KV-cache merging, and query-agnostic KV memory. Vide-oLLaMB (Wang et al., 2025a) uses recurrent mem-ory bridges to encode long streaming videos with bounded memory. These methods achieve strong compression and can preserve fine-grained visual cues, but offer limited semantic structure for navi-gating evidence across distant segments. Another line builds higher-level memory stores over the video stream. MovieChat (Song et al., 2024) con-verts dense visual tokens into sparse short- and long-term memories, MA-LMM (He et al., 2024) stores past video information in an online memory bank, and Flash-VStream (Zhang et al., 2025) com-bines a low-capacity context memory for tempo-ral abstraction with a high-capacity augmentation memory for spatial detail retrieval. StreamFor-est (Zeng et al., 2025) further organizes history as an event-level memory forest guided by tempo-ral distance and content similarity. Recent work begins to combine richer memory with agentic con-trol. M3-Agent (Long et al., 2026) organizes an entity-centric multimodal memory around face and voice anchors and performs multi-round retrieval, yet its graph lacks explicit event-level causal links. MM-Mem (Lian et al., 2026) introduces a pyra-midal memory grounded in Fuzzy-Trace Theory and optimizes compression via a Semantic Infor-mation Bottleneck, but relies on a fixed retrieval strategy without adaptive planning. Concurrent work PyraVid (Yan et al., 2026) also constructs a hierarchical memory pyramid, but aggregates evidence through automatic graph expansion and pruning. Our framework differs by employing an agent that actively plans retrieval at each step and accumulates reusable reasoning skills across questions via self-evolution. Our work follows this online memory-based paradigm, but organizes streaming video history as a hierarchical memory with explicit temporal and causal links between events. This design brings the multi-hop evidence localization ability of offline agentic reasoning into an online setting, where reasoning must rely on incrementally constructed and limited memory. 
+
+3 Method 
+
+We introduce H OMER (Hierarchical Online Mem-ory Exploration and Reasoning), a framework for online long video understanding inspired by how humans perceive and reason about extended tem-poral experiences. Cognitive science suggests that human memory operates at multiple levels: a per-ceptual level that retains raw visual impressions, an entity level where episodic and semantic memories are organized around specific individuals, and an event level that links episodes into narrative struc-tures (Tulving et al., 1972; Zacks et al., 2007; Ha-hamy et al., 2023). In this section, we model three complementary memory components (Figure 1): • A Perceptual Buffer P that retains visual keyframes as raw visual snapshots of each clip; • An Entity Graph GEnt that organizes entity-level episodic and semantic memories around identi-fied characters; • An Event Graph GE that captures the high-level narrative structure through event segments linked by temporal and causal relations. An agentic control process then navigates this three-layer memory through multi-turn retrieval and reasoning to answer questions. 
+
+3.1 Perceptual Buffer: Key Frame Extraction 
+
+Given a continuous video stream segmented into fixed-length clips {c1, c 2, . . . }, the Perceptual Buffer retains a small set of representative key frames per clip as visual snapshots. Analogous to the Perceptual Representation System (Schacter, 1990), these key frames provide raw visual evi-dence that can be revisited during reasoning when high-level memories alone are insufficient. 
+
+Shot Boundary Detection. A video clip often spans several camera shots with visually distinct content. To ensure that the selected key frames cover this visual diversity, we segment each clip into shots and extract at least one key frame per shot. We adopt a lightweight frame-differencing approach for shot boundary detection. During a single decoding pass, the detector computes the mean absolute pixel intensity difference between consecutive sampled grayscale frames. Let Ii de-note the grayscale image at sample index i. A hard cut is declared at frame i when 
+
+di = 1
+
+HW 
+
+X
+
+> x,y
+
+|Ii(x, y ) − Ii−1(x, y )| > τ scene ,
+
+(1) where H and W are the height and width of the frame, and τscene is a fixed threshold. This parti-tions the clip into shots {S1, S 2, . . . , S K }.
+
+Quality Score and Selection. Within each shot, we select the frame that best represents the vi-sual content. An uniform sampling strategy often yields blurry transitional frames or uninformative static frames (e.g., black screens, title cards). We therefore design a sharpness-entropy joint quality score that combines two complementary signals. Sharpness is measured by the Laplacian variance Sharp (f ) = Var (∇2If ), which yields high values for frames rich in edges and fine details but low values for out-of-focus or motion-blurred frames. Color entropy H(f ) = − PBb=1 hb log 2 hb quanti-fies color diversity through the information entropy of the HSV hue histogram, where hb is the normal-ized frequency of the b-th bin. Frames dominated by a single color (solid backgrounds, text over-lays) yield near-zero entropy and are effectively down-weighted. The two signals are combined as: 
+
+Q(f ) = Sharp (f ) ·  1 + w · H(f ), (2) where w controls the relative importance of color diversity. Key frames are then selected in two stages to balance diversity and quality. In the first stage, the highest-scoring frame from each shot is selected to ensure that every visually distinct seg-ment is represented. If the target number of key frames n exceeds the number of shots, the second stage fills remaining slots by greedily selecting the globally highest-scoring frames from the candidate pool, subject to a minimum temporal separation 
+
+δmin that prevents redundant nearby frames. The resulting key frames Pt = {p1, p 2, . . . , p n} are indexed by clip ID and stored alongside the Entity-Graph memories for that clip. 
+
+3.2 EntityGraph: Entity-Centric Episodic and Semantic Memory 
+
+Many questions about long videos require reason-ing about specific characters, such as tracking their actions, attributes, or relationships across scenes. This motivates an identity-centric memory that or-ganizes observations around recognized charac-ters. Following M3-Agent (Long et al., 2026), we construct the EntityGraph GEnt = ( N , EEnt ) incre-mentally as clips are processed. The graph main-tains two types of identity anchors: image nodes that store face embeddings, and voice nodes that store speaker embeddings. For each clip ct, a face module detects and clusters faces, and matches each cluster to existing image nodes by embedding similarity. An audio module extracts speaker em-beddings from ASR segments with speaker-turn boundaries, and matches them to existing voice nodes. Around these identity anchors, two types of textual memories are accumulated. Episodic memory nodes store clip-level observations, while semantic memory nodes store high-level knowl-edge, such as character identities, attributes, rela-tionships, and general facts. For each clip, a VLM generates episodic and semantic memories from the clip video, character identity tags, and diarized dialogue transcripts. Each text memory node is connected to the identity anchors it mentions, so that retrieval can follow these links to gather all observations about a given character. Cross-modal equivalences stated in semantic memories further unify image and voice tags into shared character identifiers, enabling identity-based retrieval even when a character is recognized through different modalities across clips. 
+
+3.3 EventGraph: Event-Centric Narrative Memory 
+
+The EntityGraph organizes memories around in-dividual characters, but many questions require reasoning about the relationships between events. For example, understanding why a character acts in a certain way may require tracing a causal chain across multiple scenes. Research in event cognition shows that humans naturally segment experience into discrete event units linked by temporal and causal dependencies (Zacks et al., 2007; Hahamy et al., 2023). To capture this narrative structure, we introduce the EventGraph GE = ( S, R), a directed graph whose nodes are event-level segments and whose edges encode temporal and causal relations. 
+
+Event Segments. Each segment node stores a short descriptive label (e.g., “Kitchen Preparation”), a natural-language summary of the event, and the set of clip IDs it spans. The clip set also serves as a pointer into the lower memory layers. All entity-level memories and keyframes whose clip ID falls within the segment are accessible through it, enabling retrieval from coarse event context down to fine-grained details. 
+
+Temporal-Causal Edges. Each directed edge con-nects two segments and carries a relation type (temporal or causal), a natural-language descrip-tor, evidence clip IDs, and a short rationale. Tem-poral edges capture ordering, while causal edges capture dependencies (e.g., “enables” or “pre-vents”). Edges are not restricted to adjacent seg-ments. Long-range links are allowed whenever supported by evidence, which is important for cap-turing event-level dependencies across distant clips. 
+
+Incremental Construction. The EventGraph is constructed online as new clips arrive, without access to future content. After every consecu-tive group of clips, an LLM receives the most re-cently added segments and edges together with the newly extracted clip-level memories, and produces a structured graph update. The update supports three operations. Create introduces a new seg-ment for an emergent event. Extend appends new clip IDs to an existing segment whose event is still ongoing and updates its summary. Connect 
+
+adds, modifies, or removes edges as new depen-dencies become apparent. After each update is applied, a subset absorption step merges any seg-ment whose clip set is a strict subset of another into the larger segment and removes its edges. This prevents fragmentation and keeps the graph com-pact as the video progresses. Passing only the most recent update rather than the full graph bounds the context length seen by the LLM while providing sufficient local structure for coherent continuation. The incremental design also allows the graph to evolve with the narrative, as early segments can be refined, merged, or re-connected when more context becomes available. 
+
+3.4 Agentic Reasoning over Hierarchical Memory 
+
+When understanding long videos, humans do not scan their memory linearly. They first localize the relevant event, then retrieve finer details within it, and finally synthesize evidence from multiple sources. Our agentic reasoner follows the same strategy: it decomposes each question into focused subtasks and retrieves evidence from the appropri-ate memory level through multi-round interaction. Algorithm 1 summarizes the full procedure, which we detail below. 
+
+Subtask Decomposition and Context Manage-ment. Answering a question about a long video often requires collecting evidence across differ-ent time spans or modalities. A single retrieval query may miss evidence that is spread across dis-tant scenes or encoded in different modalities. The reasoner therefore decomposes the question into several focused subtasks, each targeting a specific aspect of the required evidence. To manage the rea-soning context across multiple retrieval rounds, we maintain a structured task ledger L that records the dependencies, status, attempts, retrieved evidence, and provisional answer for every subtask. A sched-uler selects one unresolved subtask at each round, and the selected subtask becomes the current focus injected into the prompt. Because the ledger makes the reasoning state explicit and persistent, useful evidence is not lost even when the dialogue his-tory grows beyond the model’s effective attention span. The final synthesis also reads from the ledger rather than from the full conversation, so the an-swer is grounded in compact, task-aligned evidence regardless of how many rounds were needed. 
+
+Multilevel Retrieval with Harness Engineering. 
+
+At each round, the reasoner selects one of two ac-tions: issuing a retrieval query to gather additional evidence, or producing a final answer when the ac-cumulated evidence is deemed sufficient. Retrieval queries are routed to the three-layer memory hier-archy through four modes that operate at progres-sively finer granularity. An EVENT query searches the EventGraph and returns the best matching event segment together with its one-hop temporal-causal neighbors, providing coarse narrative context. A 
+
+VIDEO query drills down within the current focus event and retrieves EntityGraph memories from the corresponding clips, surfacing entity-level de-tails such as dialogue, actions, and character at-tributes. A NEIGHBOR query shifts the focus to a related event segment by following Event-Graph edges, enabling multi-hop evidence gath-ering across causally or temporally linked events. A KEYFRAME query loads representative frames from the focused clips when the question requires visual evidence such as appearance, spatial layout, or on-screen text. The agent iterates through these modes until the evidence is sufficient. To ensure that this multi-round retrieval loop ex-ecutes reliably, we adopt the harness engineering 
+
+paradigm, which wraps the model with infrastruc-ture that informs, constrains, verifies, and corrects its behavior throughout execution. We instantiate this paradigm through four complementary mecha-nisms, and show a case in Table 6. 
+
+Inform. Each retrieval information is trans-formed into a structured text summary before being appended to the dialogue. The formatter extracts the matched event segment, its temporal-causal neighbors, and any entity-level details, while fil-tering out metadata irrelevant to reasoning. In ad-dition, a snapshot of the task ledger is injected alongside each retrieval result, presenting the cur-rent status of all subtasks, accumulated evidence, and the currently focused subtask. The model thus receives both the full dialogue history and a com-pact, up-to-date view of the reasoning state at every round. This dual view allows the model to revisit raw evidence from any prior round while staying oriented toward the current subtask, preventing at-tention drift as the context grows. 
+
+Constrain. The harness enforces determinis-tic guardrails on every model output. An output format validator rejects malformed responses that lack a valid action structure or contain an illegal answer option, triggering an immediate retry. A query deduplication module computes word-level Jaccard similarity against the search history and blocks near-duplicate queries, forcing the model to diversify its retrieval strategy rather than repeat-ing ineffective searches. A resource budget caps both wall-clock time and token consumption per question, and triggers early termination when con-secutive retrieval rounds return no useful results. 
+
+Verify. After each retrieval round, a lightweight sufficiency signal estimates whether the accumu-lated evidence is adequate. Each payload is reduced to a keyword fingerprint, and the fraction of previ-ously unseen keywords measures how much new information the round contributed. When this frac-tion stays below a fixed threshold for consecutive rounds, the signal declares information saturation and advises the model to stop searching. This pre-vents the model from wasting retrieval rounds on diminishing returns while also providing the Cor-rect mechanism with a trigger to intervene when progress stalls. 
+
+Correct. When a failure is detected, the harness intervenes at the appropriate level. Invalid outputs are fed back with the specific error for in-context retry. When the sufficiency signal fires, a grace round injects strategy suggestions before forcing an answer. When a subtask makes no progress after repeated attempts, the planner performs incremen-tal repair, rewriting the stuck subtask or abandoning unproductive branches while preserving already-resolved ones. This graduated response matches each failure to the minimal intervention needed. 
+
+Self-Evolving. Beyond controlling a single rea-soning trajectory, the harness also accumulates ex-perience across questions. After each question is answered, a learning capture module automatically extracts structured observations from the trajectory and evaluation outcome, recording which retrieval strategies succeeded or failed for each question type. Once observations of the same pattern ac-cumulate beyond a threshold within a batch, they are promoted into a reusable skill equipped with specific instructions for decomposition, mode se-lection, or answer calibration. At inference time, a skill router matches incoming questions to exist-ing skills by embedding similarity and injects the matched instructions into the agent’s prompt. Skills that degrade downstream accuracy are automati-cally disabled. Because this loop operates entirely on the reasoning policy, the underlying memory graphs remain unchanged and the system improves without retraining any model. 
+
+4 Experiments 
+
+4.1 Experimental Details Benchmarks. We evaluate the long video un-derstanding on challenging benchmarks. Video-MME-long (Fu et al., 2025) consists of 900 ques-tions based on 300 videos ranging from 30–60 min. M3-Bench consists of robot and web sub-sets, drawn from robot-perspective real-life sce-nario videos and YouTube videos respectively. The robot subset contains 1,276 questions over 100 videos averaging 35 minutes in length. The web subset contains 3,214 questions over 900 videos averaging 27 minutes in length. M3-Bench uses open-ended questions. We adopt Gemini-2.5-Flash as an LLM judge. The other two datasets use multiple-choice questions. We adopt rule-based evaluation for them. In addition, to evaluate omni-modal video understanding, we do not use external subtitle information. 
+
+Baselines. We compare our method with the fol-lowing competitive online long video understand-ing methods: • MovieChat (Song et al., 2024) extracts short-term and long-term visual features using a sliding window, then projects the visual representations to an LLM for video understanding. • MA-LMM (He et al., 2024) employs a long-term visual memory bank that extracts frame features online and compresses visual tokens through temporal modeling to maintain memory capacity. • Flash-VStream (Zhang et al., 2025) introduces a Flash Memory module for efficient long video understanding. The module pairs a low-capacity context memory that aggregates temporal infor-mation and information density with a augmen-tation memory that retrieves spatial details con-ditioned on the density distribution. • M3-Agent (Long et al., 2026) introduces a multi-modal agent framework equipped with long-term memory. The framework organizes episodic and semantic memories in an entity-centric manner, builds and updates them from real-time visual and auditory inputs, and enables autonomous multi-turn reasoning and memory retrieval to complete tasks. • Gemini-Agent & Gemini-GPT4o-Hybrid adopt the same memory-control agent framework as M3-Agent. Gemini-Agent uses Gemini-1.5-pro for both memory construction and control. Gemini-GPT4o-Hybrid uses GPT4o as the con-trol model. 
+
+Implementation details. Videos are segmented into 30-second clips. For each clip, the Percep-tual Buffer retains 3 keyframes selected by the hy-brid shot-boundary and quality scoring procedure described in Section 3.1. Face detection and em-bedding use InsightFace. Speaker diarization and ASR are performed by Qwen3-Omni, and speaker embeddings are extracted with ERes2NetV2. En-tityGraph episodic and semantic memories are then generated by M3-Agent-Memorization, a fine-tuned Qwen2.5-Omni model that receives the clip video, detected face tags, and diarized dialogue transcripts. The EventGraph is constructed incre-mentally with Gemini-3-Flash-Preview, updating every 10 clips using the sliding-window patch pro-tocol described in Section 3.3. At question time, the reasoning agent uses Gemini-3-Flash-preview with temperature 0.8. The task ledger allows up to 5 sub-tasks, each with at most 3 retrieval attempts, and the round budget is set to 10. Each KEYFRAME re-trieval returns at most 5 images. For self-evolution, trajectories are accumulated within batches of 64 questions. A pattern is promoted to a reusable skill when it recurs at least 8 times, and skills are routed to new questions when the embedding similarity exceeds 0.45. Apart from the fine-tuned memo-rization model, the entire reasoning framework is training-free. 
+
+4.2 Main Results 
+
+Table 1 compares H OMER with online video un-derstanding methods and agent-based methods on M3-Bench and Video-MME-Long. The five M3-Bench categories are abbreviated as ME for multi-evidence reasoning, MH for multi-hop reasoning, CM for cross-modal reasoning, PU for person un-derstanding, and GK for general knowledge ex-traction. H OMER achieves the best result on every benchmark, reaching 42 .8% on M3-Bench-robot, 
+
+56 .4% on M3-Bench-web, and 75 .1% on Video-Method M3-Bench-robot M3-Bench-web Video-MME-L ME MH CM PU GK All ME MH CM PU GK All                                                                                                                       
+
+> Online Video Understanding Methods
+> MovieChat 13.3 9.8 12.2 15.7 7.0 11.2 12.2 6.6 12.5 17.4 11.1 12.6 19.4 MA-LMM 25.6 23.4 22.7 39.1 14.4 24.4 26.8 10.5 22.4 39.3 15.8 24.3 17.3 Flash-VStream 21.6 19.4 19.3 24.3 14.1 19.4 24.5 10.3 24.6 32.5 20.2 23.6 25.0
+> Agent Method
+> Gemini-Agent 15.8 17.1 15.3 20.0 15.5 16.9 29.3 20.9 33.8 34.6 45.0 34.1 55.1 Gemini-GPT-Hybrid 21.3 25.5 22.7 28.8 23.1 24.0 35.9 26.2 37.6 43.8 52.2 41.2 56.5 M3-Agent 32.8 29.4 31.2 43.3 19.1 30.7 45.9 28.4 44.3 59.3 53.9 48.9 61.8 M3-Agent-Gemini25 24.6 40.0 23.3 32.1 19.9 24.6 37.0 26.5 39.2 47.9 53.1 43.0 55.5 M3-Agent-Gemini3 38.5 37.7 35.1 48.5 27.2 37.3 40.3 29.3 37.7 50.7 55.3 45.6 70.7 HOMER (Gemini3) 43.7 42.4 43.3 60.4 28.1 42.8 55.3 42.0 50.7 65.0 59.1 56.4 75.1
+
+Table 1: Main results on M3-Bench and Video-MME-Long. We compare H OMER with online video understanding models and agent-based baselines. ME, MH, CM, PU, GK denote multi-evidence reasoning, multi-hop reasoning, cross-modal reasoning, person understanding, and general knowledge extraction question types, respectively. All numbers are accuracy in %, and All reports the overall accuracy on the full split. 
+
+MME-Long, which corresponds to +5 .5, +10 .8,and +4 .4 points over the previous best agent method M3-Agent-Gemini3. The lift is largest on M3-Bench-web, whose videos span broader topics and longer narratives, suggesting that the hierar-chical memory and the harness pay off more as the search space grows and questions demand ev-idence from more distant moments. MovieChat, MA-LMM, and Flash-VStream represent online methods that maintain compact visual or KV-level memories, and their accuracy on M3-Bench-robot stays between 11 .2% and 24 .4% , leaving a gap of at least 18 points to H OMER . The gap is most pro-nounced on person understanding and cross-modal reasoning, since compressed visual features cannot recover entity identities or align visual evidence with dialogue once they have been squeezed out of the representation. For long-form videos with com-plex narrative structure, semantic-level abstractions over the stream rather than raw feature compression are what enable fine-grained evidence retrieval. Compared with M3-Agent-Gemini3, which shares the same memory construction pipeline and Gemini-3-Flash backbone but lacks the Event-Graph and the harness, H OMER ’s per-category gains on M3-Bench-robot concentrate on person understanding with +11 .9 and cross-modal rea-soning with +8 .2. The former reflects the En-tityGraph, which keeps a persistent identity for each character and accumulates appearance, di-alogue, and action evidence across scenes. The latter reflects the hierarchical memory storing vi-sual frames alongside diarized speech and ASR                               
+
+> Memory ME MH CM PU GK All
+> EntityGraph only 39.6 41.5 36.2 49.0 22.2 37.8 + Event Nodes 41.8 51.2 39.8 56.6 27.0 41.2 + Event Graph 46.1 43.9 43.3 59.9 28.6 44.5 + Perceptual Buffer 45.6 43.9 44.1 57.3 27.8 44.0
+
+Table 2: Memory ablation on M3-Bench-robot. 
+
+transcripts, so that the agent retrieves from either modality without a separate alignment step. By contrast, general knowledge extraction lifts by only 
+
++0 .9, indicating that H OMER contributes structure for organizing what the video itself provides rather than additional knowledge on top of the language model. 
+
+5 Analysis 
+
+5.1 How Much Does Each Memory Layer Contribute? 
+
+We isolate each memory layer by incrementally building H OMER from the EntityGraph upward, evaluating on a random subset of 600 questions from M3-Bench-robot (Table 2). Starting from the EntityGraph baseline ( 37 .8 overall), we examine how each additional layer introduced by H OMER 
+
+reshapes the performance profile. Adding event nodes on top of the EntityGraph produces the largest single gain, lifting multi-hop reasoning from 41 .5 to 51 .2. Event segments give the agent explicit temporal anchors for chaining ev-idence across scenes. Promoting these nodes into a full Event Graph by adding temporal and causal edges then shifts the gain pattern: multi-evidence and cross-modal reasoning improve, while multi-hop drops by 7.3 points. The edges introduce graph-walk retrieval, which expands the agent’s reachable context per round. This benefits ques-tions with a clear causal chain but introduces a lo-cality bias, where the agent preferentially traverses nearby edges rather than issuing a fresh seman-tic query to reach distant target events. Stacking the Perceptual Buffer on top of the Event Graph produces a targeted effect. Cross-modal reasoning rises by 0.8 points because some questions demand raw visual evidence, while other categories drift by less than a point. The textual hierarchy of entity and event memory already covers most of the reasoning surface, and the buffer serves as a safety net for visually grounded questions rather than a default retrieval channel. In summary, the EventGraph contributes the dominant structural gain introduced by H OMER , with causal edges trading exploratory breadth for precision on causally structured ques-tions. The Perceptual Buffer complements this with selective visual grounding. 
+
+5.2 Does H OMER Generalize across Backbones? 
+
+We replace the reasoning agent with three alter-native LLMs and compare each against the corre-sponding M3-Agent baseline on M3-Bench-robot. Two of them, Deepseek-v4-Flash and Qwen3-Coder-480B-A35B, are text-only and never see a frame from the Perceptual Buffer. As shown in Table 5.2, H OMER lifts every backbone, taking Gemini-2.5-Flash from 24 .6 to 30 .6, Deepseek-v4-Flash from 25 .1 to 33 .9, and Qwen3-Coder from 
+
+19 .4 to 23 .8. The per-category profile is consis-tent across all three: person understanding receives the largest gain while general knowledge extrac-tion barely moves. Because this profile persists on text-only backbones, the gain comes from the hierarchical memory itself rather than the LLM’s visual capability, making H OMER ’s contribution structural and model-agnostic. The relative ordering of backbones also shifts under H OMER : Gemini-2.5-Flash and Deepseek-v4-Flash are tied as M3-Agent baselines ( 24 .6 vs. 
+
+25 .1), yet within H OMER Deepseek pulls ahead to 33 .9 while Gemini-2.5 reaches 30 .6, indicat-ing that the bottleneck is not the LLM’s raw video understanding but its ability to drive a structured retrieval-and-reasoning loop. Without any video-specific fine-tuning, the mid-scale open-source                                            
+
+> Backbone ME MH CM PU GK All
+> Gemini-2.5-Flash 24.6 40.0 23.3 32.1 19.9 24.6 + H OMER 31.0 35.3 30.9 44.2 21.1 30.6
+> Deepseek-v4-Flash 25.7 24.7 23.5 30.3 22.0 25.1 + H OMER 34.4 31.8 33.8 47.5 22.3 33.9
+> Qwen3-Coder-480B 18.8 16.5 19.5 22.6 19.6 19.4 + H OMER 24.1 21.2 22.7 34.5 17.1 23.8
+> Table 3: Effect of H OMER on M3-Bench-robot under three different reasoning backbones.
+
+Qwen3-Coder reaches 23 .8 overall and 34 .5 on person understanding inside H OMER , matching the closed-source multimodal Gemini-2.5-Flash. 
+
+5.3 How Does the Agent Evolve over Time? 
+
+To examine whether HOMER ’s self-evolution mechanism accumulates useful retrieval skills, we compare two H OMER variants on the full M3-Bench-robot with the same Gemini-2.5-Flash back-bone and identical memory: self-evolution dis-abled and batch-level self-evolution enabled. Af-ter each batch of 64 questions, the harness con-solidates failure- and success-mode signals into a question-type-aware skill library available to subse-quent batches. Overall accuracy rises from 27 .4% 
+
+to 30 .6% (+11 .7% relative), and Figure 2(a) shows that the evolving run pulls clear of the static base-line as more batches are processed, with the gap widening rather than closing in the second half, in-dicating that the gain arises from the accumulated library rather than from easier later questions. The skill library captures reusable patterns rather than memorized question–answer pairs. Raw tra-jectories are consolidated into 14 reusable skills along two axes, question type and signal type. The signal-type axis comprises calibration skills that sharpen confidence on systematically over-confident answers, hard-win skills that capture successful retrieval patterns, search-fail skills that record alternatives when retrieval saturates, and an error skill for repeated synthesis mistakes. The har-ness tracks downstream success rates and retires ineffective skills automatically. Figure 2(b) shows two dominant active skills: a person-understanding calibration skill triggered 100 times at a 42 .0% 
+
+success rate, and a cross-modal hard-win skill trig-gered 135 times at 39 .3% . These question types coincide with the largest per-category gains in Ta-ble 1, which traces the macro improvement to spe-cific reusable skills. By contrast, every skill mined for general knowledge extraction falls below the 3 6 9 12 15 18     
+
+> Batch Index
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> 0.40
+> Cumulative Accuracy
+> 27.4%
+> 30.6%
+> w/o Self-Evolution
+> w/ Self-Evolution
+> hard-win
+> CM
+> calib
+> PU
+> fail
+> GK
+> hard-win
+> GK
+> calib
+> CM
+> calib
+> ME
+> calib
+> MH
+> fail
+> ME
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> 120
+> 140
+> Usage Count
+> 135
+> 100
+> 80 78
+> 29 26
+> 15 13
+> Active skill
+> Banned skill
+> Success rate
+> 0%
+> 10%
+> 20%
+> 30%
+> 40%
+> 50%
+> Success Rate
+> 39%
+> 42%
+> 12%
+> 15%
+> 28%
+> 19%
+> 33%
+> 8%
+> (a) Cumulative Accuracy over Batches (b) Per-Skill Usage and Success Rate
+
+Figure 2: Self-evolution behaviour of H OMER on M3-Bench-robot, processed in batches of 64 questions. (a) Cumulative accuracy with and without self-evolution; (b) per-skill usage and downstream success rate, where green skills remain active and grey ones are automatically banned once their success rate falls below the running baseline. Memory    
+
+> (absent)
+> Memory
+> (coarse)
+> Event
+> localization
+> Answer
+> synthesis
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> Proportion of failures (%)
+> 41% 44%
+> 8% 7%
+> 32%
+> 45%
+> 12% 12%
+> Robot
+> Web
+
+Figure 3: Failure attribution by LLM-as-judge on M3-Bench-robot and M3-Bench-web. 
+
+running baseline and is automatically banned, con-sistent with the negligible GK gain in Table 1 and confirming that retrieval skills cannot substitute for general knowledge. The library therefore remains compact and self-correcting even after thousands of trajectories, allowing the agent to keep improving without retraining the underlying LLM. 
+
+5.4 Where Does the System Fail? 
+
+To understand the remaining errors, we attribute each of the 2,131 incorrect trajectories on M3-Bench to the first stage where the trajectory went wrong. The pipeline has four stages: memory construction, retrieval, event localization, and an-swer synthesis. An LLM judge inspects the ques-tion, ground-truth answer, model prediction, search queries, per-round retrieval excerpts, and harness signals, then assigns one of four labels: Memory (absent) , Memory (coarse) , Event localization , and 
+
+Answer synthesis .As shown in Figure 3, the two memory-related labels together account for over 80% of errors on robot and 77% on web. Roughly half are cases where the agent searched the right region of mem-ory but the stored representation lacked the decisive fine-grained detail, and the rest are cases where the relevant fact was never written into memory in the first place. Both sub-types point to the same conclusion: the agent’s search behavior is largely correct, and the real bottleneck lies upstream in what gets written into memory. The remaining two categories account for a much smaller share of errors. Event localization ( 8% / 12% ) reflects the agent persistently focusing on the wrong event segment, while answer synthesis errors ( 7% / 12% )arise when sufficient evidence is retrieved but the fi-nal response confuses entities or adds unsupported details. Future gains should therefore prioritize denser and more accurate episodic summaries dur-ing memory construction, with secondary improve-ments from constraining the final synthesis to stay faithful to retrieved evidence. 
+
+6 Conclusion 
+
+We presented H OMER , a hierarchical online mem-ory framework for long-form video understand-ing that pairs a perceptual–entity–event memory with an agentic reasoner supervised by a verify-and-correct harness. Across M3-Bench and Video-MME-Long, H OMER consistently surpasses prior agent methods, with the gain transferring to three reasoning backbones and letting an open-source agent match a closed-source multimodal model. Our failure analysis shows that the dominant re-maining bottleneck lies in memory construction rather than downstream reasoning, suggesting that richer episodic representations offer the most direct path to further gains. 
+
+References 
+
+Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, et al. 2025. Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 .Dongping Chen, Yue Huang, Siyuan Wu, Jingyu Tang, Huichi Zhou, Qihui Zhang, Zhigang He, Yilin Bai, Chujie Gao, Liuyi Chen, et al. 2025a. Gui-world: A video benchmark and dataset for multimodal gui-oriented understanding. In In-ternational Conference on Learning Represen-tations , volume 2025, pages 22812–22864. Xueyi Chen, Keda Tao, Kele Shao, and Huan Wang. 2025b. Streamingtom: Streaming token compression for efficient video understanding. 
+
+arXiv preprint arXiv:2510.18269 .Shihan Dou, Yujiong Shen, Chenhao Huang, Jun-jie Ye, Jiayi Chen, Junzhe Wang, Qianyu He, Shichun Liu, Changze Lv, Jiahang Lin, et al. 2026. Cl-bench life: Can language models learn from real-life context? arXiv preprint arXiv:2604.27043 .Chaoyou Fu, Yuhan Dai, Yongdong Luo, Lei Li, Shuhuai Ren, Renrui Zhang, Zihan Wang, Chenyu Zhou, Yunhang Shen, Mengdan Zhang, et al. 2025. Video-mme: The first-ever compre-hensive evaluation benchmark of multi-modal llms in video analysis. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 24108–24118. Avital Hahamy, Haim Dubossarsky, and Timo-thy EJ Behrens. 2023. The human brain reacti-vates context-specific past information at event boundaries of naturalistic experiences. Nature neuroscience , 26(6):1080–1089. Bo He, Hengduo Li, Young Kyun Jang, Menglin Jia, Xuefei Cao, Ashish Shah, Abhinav Shri-vastava, and Ser-Nam Lim. 2024. Ma-lmm: Memory-augmented large multimodal model for long-term video understanding. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 13504–13514. Yanwei Li, Chengyao Wang, and Jiaya Jia. 2024. Llama-vid: An image is worth 2 tokens in large language models. In European Conference on Computer Vision , pages 323–340. Springer. Niu Lian, Yuting Wang, Hanshu Yao, Jinpeng Wang, Bin Chen, Yaowei Wang, Min Zhang, and Shu-Tao Xia. 2026. From verbatim to gist: Distilling pyramidal multimodal memory via se-mantic information bottleneck for long-horizon video agents. arXiv preprint arXiv:2603.01455 .Kevin Qinghong Lin and Mike Zheng Shou. 2025. Vlog: Video-language models by generative re-trieval of narration vocabulary. In Proceedings of the IEEE/CVF Conference on Computer Vi-sion and Pattern Recognition , pages 3218–3228. Ye Liu, Kevin Qinghong Lin, Chang Wen Chen, and Mike Zheng Shou. 2026. Videomind: A chain-of-loRA agent for temporal-grounded video reasoning. In The Fourteenth Interna-tional Conference on Learning Representations .Lin Long, Yichen He, Wentao Ye, Yiyuan Pan, Yuan Lin, Hang Li, Junbo Zhao, and Wei Li. 2026. Seeing, listening, remembering, and rea-soning: A multimodal agent with long-term memory. In The Fourteenth International Con-ference on Learning Representations .Ziyu Ma, Chenhui Gou, Hengcan Shi, Bin Sun, Shutao Li, Hamid Rezatofighi, and Jianfei Cai. 2025. Drvideo: Document retrieval based long video understanding. In Proceedings of the Computer Vision and Pattern Recognition Con-ference , pages 18936–18946. Jonas Pai, Liam Achenbach, Victoriano Mon-tesinos, Benedek Forrai, Oier Mees, and Elvis Nava. 2025. mimic-video: Video-action mod-els for generalizable robot control beyond vlas. 
+
+arXiv preprint arXiv:2512.15692 .Zhongwei Ren, Yunchao Wei, Xun Guo, Yao Zhao, Bingyi Kang, Jiashi Feng, and Xiaojie Jin. 2025. Videoworld: Exploring knowledge learning from unlabeled videos. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 29029–29039. Daniel L Schacter. 1990. Perceptual representation systems and implicit memory: Toward a reso-lution of the multiple memory systems debate. 
+
+Annals of the New York Academy of Sciences .Xiaoqian Shen, Yunyang Xiong, Changsheng Zhao, Lemeng Wu, Jun Chen, Chenchen Zhu, Zechun Liu, Fanyi Xiao, Balakrishnan Varadara-jan, Florian Bordes, Zhuang Liu, Hu Xu, Hyun-woo J. Kim, Bilge Soran, Raghuraman Kr-ishnamoorthi, Mohamed Elhoseiny, and Vikas Chandra. 2025a. LongVU: Spatiotemporal adaptive compression for long video-language understanding. In Forty-second International Conference on Machine Learning .Xiaoqian Shen, Wenxuan Zhang, Jun Chen, and Mohamed Elhoseiny. 2025b. Vgent: Graph-based retrieval-reasoning-augmented generation for long video understanding. In The Thirty-ninth Annual Conference on Neural Information Processing Systems .Yichao Shen, Fangyun Wei, Zhiying Du, Yaobo Liang, Yan Lu, Jiaolong Yang, Nanning Zheng, and Baining Guo. 2026. Videovla: Video gen-erators can be generalizable robot manipulators. 
+
+Advances in neural information processing sys-tems , 38:95597–95621. Enxin Song, Wenhao Chai, Guanhong Wang, Yucheng Zhang, Haoyang Zhou, Feiyang Wu, Haozhe Chi, Xun Guo, Tian Ye, Yanting Zhang, et al. 2024. Moviechat: From dense token to sparse memory for long video understanding. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 18221–18232. Xi Tang, Jihao Qiu, Lingxi Xie, Yunjie Tian, Jian-bin Jiao, and Qixiang Ye. 2025a. Adaptive keyframe sampling for long video understand-ing. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 29118– 29128. Zecheng Tang, Baibei Ji, Juntao Li, Lijun Wu, Haijia Gui, and Min Zhang. 2025b. Revisiting long-context modeling from context denoising perspective. arXiv preprint arXiv:2510.05862 .Endel Tulving et al. 1972. Episodic and seman-tic memory. Organization of memory , 1(381-403):1. Xiaohan Wang, Yuhui Zhang, Orr Zohar, and Ser-ena Yeung-Levy. 2024. Videoagent: Long-form video understanding with large language model as agent. In European Conference on Computer Vision , pages 58–76. Springer. Yuxuan Wang, Yiqi Song, Cihang Xie, Yang Liu, and Zilong Zheng. 2025a. Videollamb: Long streaming video understanding with re-current memory bridges. In Proceedings of the IEEE/CVF International Conference on Com-puter Vision , pages 24170–24181. Ziyang Wang, Shoubin Yu, Elias Stengel-Eskin, Jaehong Yoon, Feng Cheng, Gedas Bertasius, and Mohit Bansal. 2025b. Videotree: Adap-tive tree-based video representation for llm rea-soning on long videos. In Proceedings of the Computer Vision and Pattern Recognition Con-ference , pages 3272–3283. Yuetian Weng, Mingfei Han, Haoyu He, Xiaojun Chang, and Bohan Zhuang. 2024. Longvlm: Efficient long video understanding via large lan-guage models. In European Conference on Computer Vision , pages 453–470. Springer. Yiweng Xie, Bo He, Junke Wang, Xiangyu Zheng, Ziyi Ye, and Zuxuan Wu. 2026. Fluxmem: Adaptive hierarchical memory for streaming video understanding. arXiv preprint arXiv:2603.02096 .Sikuan Yan, Sicheng Dong, Haotong Wang, Er-cong Nie, Yilun Liu, Jinhe Bi, Yingjie Xu, Susanna Schwarzmann, Riccardo Trivisonno, Volker Tresp, et al. 2026. Pyravid: Hierarchi-cal multimodal memory for long-horizon video reasoning. arXiv preprint arXiv:2605.17065 .Yanlai Yang, Zhuokai Zhao, Satya Narayan Shukla, Aashu Singh, Shlok Kumar Mishra, Lizhu Zhang, and Mengye Ren. 2025a. Stream-mem: Query-agnostic kv cache memory for streaming video understanding. arXiv preprint arXiv:2508.15717 .Zuhao Yang, Sudong Wang, Kaichen Zhang, Kem-ing Wu, Sicong Leng, Yifan Zhang, Bo Li, Chengwei Qin, Shijian Lu, Xingxuan Li, et al. 2025b. Longvt: Incentivizing" thinking with long videos" via native tool calling. arXiv preprint arXiv:2511.20785 .Jeffrey M Zacks, Nicole K Speer, Khena M Swal-low, Todd S Braver, and Jeremy R Reynolds. 2007. Event perception: a mind-brain perspec-tive. Psychological bulletin , 133(2):273. Tatiana Zemskova, Solomon Andryushenko, Ilya Obrubov, Viktoriia Khoruzhaia, Ekate-rina Eroshenko, Ekaterina Derevyanka, and Dmitry Yudin. 2026. Focusgraph: Graph-structured frame selection for embodied long video question answering. arXiv preprint arXiv:2603.04349 .Xiangyu Zeng, Kefan Qiu, Qingyu Zhang, Xin-hao Li, Jing Wang, Jiaxin Li, Ziang Yan, Kun Tian, Meng Tian, Xinhai Zhao, Yi Wang, and Limin Wang. 2025. Streamforest: Efficient on-line video understanding with persistent event memory. In The Thirty-ninth Annual Conference on Neural Information Processing Systems .Haoji Zhang, Yiqin Wang, Yansong Tang, Yong Liu, Jiashi Feng, and Xiaojie Jin. 2025. Flash-vstream: Efficient real-time understanding for long video streams. In Proceedings of the IEEE/CVF international conference on com-puter vision , pages 21059–21069. Zirui Zhu, Hailun Xu, Yang Luo, Yong Liu, Kan-chan Sarkar, Zhenheng Yang, and Yang You. 2025. Focus: Efficient keyframe selection for long video understanding. arXiv preprint arXiv:2510.27280 .Heqing Zou, Tianze Luo, Guiyang Xie, Fengmao Lv, Guangcong Wang, Junyang Chen, Zhuochen Wang, Hansheng Zhang, Huaijian Zhang, et al. 2024. From seconds to hours: Reviewing mul-timodal large language models on comprehen-sive long video understanding. arXiv preprint arXiv:2409.18938 .Algorithm 1 Agentic Reasoning over Hierarchical Memory 
+
+Input: question q, answer choices A, hierarchical memory M, round budget R
+
+Output: final answer y
+
+Prepare memory state Mq for the current video. Route relevant skills and initialize task ledger L from q.Initialize progress ledger Π and focus event s ← ∅.
+
+for r = 1 to R do 
+
+Evaluate the progress signal of Π over L.
+
+if the signal calls for replanning then 
+
+Repair L: rewrite, add, or abandon unresolved subtasks. 
+
+else if all subtasks are resolved, none is schedulable, or the budget is exhausted then break end if 
+
+Schedule an unresolved subtask u from L as the current focus. Generate action a ∈ { Answer , Search } conditioned on q, u, and L.Validate a with the harness guardrails (format, deduplication), retrying on violation. 
+
+if a = Answer then return the answer parsed from a.
+
+end if 
+
+Parse search query z and retrieval mode m.
+
+if m = EVENT then 
+
+Retrieve event segment s and its temporal-causal neighbors from GE .
+
+else if m = VIDEO then 
+
+Retrieve entity-level memories from clips covered by s.
+
+else if m = NEIGHBOR then 
+
+Move s to a related event through edges in GE .
+
+else if m = KEYFRAME then 
+
+Retrieve keyframes from the perceptual buffer P within clips covered by s.
+
+end if 
+
+Attach retrieved evidence to u and update L.Assess information sufficiency and inject a strategy hint when saturated. Record the round outcome into Π.
+
+if s stays locked on with no new evidence then 
+
+Force the next retrieval mode ( VIDEO , then NEIGHBOR ). 
+
+end if end for 
+
+Synthesize y from the final task ledger L.Record the trajectory and outcome for self-evolution. # Agent action Harness intervention Mechanism 1 Search: Ray engaged in work or professional activities outside of school. Returns event 
+
+Teacher Reunion and Cultural Gift Exchange (score = 0.48). The raw payload is rendered as a structured card listing the focus event, its temporal-causal neighbors ( Arrival and Meeting Ray at Taiwan Airport , Basketball Court Chal-lenges ), and edge labels. A task ledger snapshot with two subtasks (t1: identify work-related visual clues; t2: deter-mine the associated industry) is prepended. Inform 2 Search: Ray involved in business work or professional activities outside of school. Focus unchanged (same event, score = 0.45). The sufficiency assessor computes an information increment of 0% (no new keywords beyond Round 1) and appends a low-increment hint: “ The last search added limited new information. Consider whether you have enough to answer. ”Verify 3 Search: Ray working at a shop or store behind the counter selling items. Returns a new event Exploring the In-School Convenience Store 
+
+(score = 0.43). The focus shifts to a different event; the sufficiency assessor resets its consecutive-low counter because the new payload contributes fresh keywords (increment > 15%). The struc-tured card and updated ledger snapshot are injected normally. Inform 4 Search: Ray’s family shop or Ray working at a store counter outside school. Fo-cus unchanged (same event, score = 0.53). Increment drops to 0% (same event, same keywords); the sufficiency assessor appends a second low-increment hint. The agent decides to switch retrieval mode. Verify 5 VIDEO: Ray working behind the counter, handling transactions, or wearing a uniform at the convenience store. Drills into Video-Graph within the focus event. The VIDEO prefix triggers a video drilldown : instead of searching the EventGraph, the harness routes the query to the EntityGraph of clips 59–61. Fine-grained memo-ries are returned (e.g., “ <character_0> walks through a convenience store. . . purchases items at the checkout counter. . . tells the cashier to keep the change”). The suf-ficiency assessor grants a first-drilldown immunity (new modality layer), so the low-increment counter is not in-cremented despite lexical overlap with the event summary. Inform, Constrain 6 Search: Ray and his family business or Ray working in a shop outside of school. 
+
+Returns a new event Dinner and Family Time at Ray’s Home 
+
+(score = 0.51). The focus shifts again; the payload contains the de-cisive clue: “They also spend time looking through Ray’s. . . streaming setup.” The sufficiency assessor records high increment ( > 30%) and resets the low counter. The structured card and updated ledger snapshot are injected. Inform 7 Answer: Ray is involved in the live-streaming or content creation industry, as evidenced by the streaming setup found in his home. 
+
+— —Table 4: Harness engineering workflow on a real M3-Bench-web (“What other industry might Ray be involved in besides attending school?”; ground truth: online content creation / live streaming). The rightmost column indicates which harness mechanism fires at each step. EventGraph Construction Prompt 
+
+[System Prompt] 
+
+You are a video narrative analyst. Your job is to consolidate fragmented clip-level memories into higher-level temporal and causal structures that can be used for retrieval and reasoning. 
+
+INPUT You will receive: (1) PREVIOUS_GRAPH: an existing segment-level graph built from earlier clips (may be empty on the first call). (2) NEW_MEMORIES: a list of memories extracted every ~30s from a long video. Each item is either: [episodic] clip_id=<int> | <list of strings describing visible actions / spoken content> or [semantic] clip_id=<int> | <list of strings describing high-level meanings / themes> .
+
+GOAL Maintain a compact directed graph: Nodes are higher-level SEGMENTS (each segment groups multiple clips). Edges connect SEGMENTS with explicit TEMPORAL and CAUSAL relations. Each segment stores: segment_label, summary, clip_ids. Each edge stores: from, to, relation_type, relation, evidence_clips, explicitness, confidence, rationale. This is a sliding-window refinement task: use BOTH the new memories AND the existing graph. Long-range dependencies are allowed and encouraged; temporal/causal edges do NOT need to connect adjacent segments. 
+
+PATCH-ONLY OUTPUT Do NOT output the full graph. Output ONLY the changes needed to update PREVIOUS_GRAPH using NEW_MEMORIES. “segments” must contain ONLY: (a) newly created segments, and/or (b) existing segments that you MODIFY (typically by appending new clip_ids and updating the summary). “edges” must contain ONLY: (a) newly created edges, (b) existing edges that you MODIFY (updated rationale/explicitness/confidence), and/or (c) edges you want to REMOVE (with "remove": true ). If nothing changes, output {“segments”: [], “edges”: []}. 
+
+INITIALIZATION If PREVIOUS_GRAPH is empty, initialize the graph from NEW_MEMORIES. The output is still in patch format (the patch becomes the initial graph). Otherwise, update the existing graph with minimal changes: (1) assign every new clip_id to a segment (extend or create); (2) update summaries ONLY for segments that receive new clip_ids; (3) add temporal/causal edges supported by new evidence; (4) revise or remove old edges only if contradicted by new evidence. 
+
+SEGMENTATION RULES Group adjacent clips sharing the same topic/scene/goal. Prefer 3–8 segments per batch. Each label ≤ 8words, unique, natural language. Reuse and extend existing segments; do not create duplicates. Max 40 clip_ids per segment. 
+
+SUMMARY For each segment in the patch, write a detailed summary (4–8 sentences): (1) what happens (major actions/events); (2) who is involved and what they do; (3) high-level description (not step-by-step). No invented information. Do NOT rewrite summaries for segments you are not modifying. 
+
+EDGE RULES Temporal edges: relation ∈ {“before”, “overlap”, “concurrent”, “contains”}. “before”: from-segment happens before to-segment (do NOT use “after”; reverse the direction instead). “overlap”: partial time overlap. “concurrent”: roughly simultaneous. “contains”: from-segment temporally contains to-segment. Causal edges: relation ∈ {“causes”, “enables”, “requires”, “prevents”}. “causes”: direct causation. “enables”: makes possible. “requires”: precondition. “prevents”: blocks occurrence. Explicitness: “explicit” if directly stated/shown, otherwise “inferred”. Confidence: a number in [0,1]. Rationale: 1 short sentence grounded in the memories. Long-range edges encouraged. Do not assume adjacency implies causality. Prefer fewer, stronger edges. 
+
+EDGE REVISION Keep old edges unchanged if still supported (do not output them). If new memories strengthen an inferred edge, output a modified version with updated evidence/rationale/confidence. If new memories weaken an edge, remove it. 
+
+EDGE REMOVAL To remove an existing edge, output an edge object with the same identifiers (from, to, relation_type, relation) and set 
+
+"remove": true .
+
+NON-AGGRESSIVE EDITING Do not modify segments without new clip_ids. Prefer extending over duplicating. Merge/split only when clearly necessary. Maintain sufficient granularity; do not merge distinct events due to over-abstraction. 
+
+COVERAGE Every clip_id in NEW_MEMORIES must appear in some segment after the update. 
+
+CLIP EVIDENCE Every segment must list all clip_ids it covers (including previously covered ones if updated). Every edge must include evidence_clips that justify the relation. Each segment should cover no more than 40 clip_ids. 
+
+CONSTRAINTS Use ONLY the provided memories; do not invent entities/events/places/dates. Output strict JSON only (no markdown, no extra text). Segment references in edges must match segment labels exactly. 
+
+OUTPUT SCHEMA (STRICT JSON) 
+
+{"segments": [{"segment_label": "...", "summary": "...", "clip_ids": [...]}], "edges": [{"from": "...(segment_label)", "to": "...(segment_label)", "relation_type": "temporal|causal", "relation": "before|overlap|concurrent|contains|causes|enables|requires|prevents", "evidence_clips": [...], "explicitness": "explicit|inferred", "confidence": 0.0, "rationale": "...", "remove": false}]} 
+
+[User Template] 
+
+PREVIOUS_GRAPH {graph} 
+
+MEMORIES {memory} 
+
+Figure 4: The full prompt for incremental Event Graph construction. Subtask Decomposition Prompt (Planner Stage) 
+
+[System Prompt] 
+
+You are a task planner. The user will answer a question about a video by searching a memory bank (EventGraph + VideoGraph). Before search begins, decompose the question into atomic sub-questions to guide retrieval. 
+
+INPUT Question: {question}; Options: {options} (for MCQ) or omitted (for open-ended). 
+
+DECOMPOSITION GUIDELINES 
+
+1. Each sub-question must be ATOMIC — ask ONE fact, one entity, one relation, one event. 2. Use stable ids t1, t2, t3, ... in generation order. 3. If a later sub-question depends on the answer of an earlier one, declare this via depends_on .4. Sub-questions should collectively be sufficient to answer the ORIGINAL question — no gaps, no overlap. 
+
+QUESTION-TYPE-SPECIFIC RULES 
+
+A) YES/NO or TRUE/FALSE: Decompose into 2–3 subtasks (supporting evidence, contradicting evidence, optional temporal scope). B) “Which/What” MCQ with multiple options: One subtask per option that needs verification, or subtasks that gather discriminating facts. C) MULTI-DETAIL questions (“What are the drinks for three people?”): One subtask per detail/entity mentioned. D) REASON/CAUSE questions (“Why does X ...?”): Two subtasks — the observable behavior (what) and the context/prior event explaining the cause (why). E) TRULY ATOMIC (single-entity, single-attribute): Output exactly 1 subtask. This is the ONLY case where a single subtask is acceptable. F) All other: Default to 2–3 subtasks that break the question into independent retrieval targets. 
+
+OUTPUT SCHEMA {"subtasks": [{"id": "t1", "question": "<atomic sub-question>", "depends_on": []}, ...], "rationale": "..."} 
+
+Incremental Replan Prompt (Triggered on Stall) 
+
+[System Prompt] 
+
+You are the outer-loop planner for an ongoing multi-round video-QA task. The inner loop is stuck and needs you to repair the task plan — NOT rewrite it from scratch. 
+
+INPUT Original question: {question}; Current TaskLedger state (id / status / best_answer / last evidence): {ledger_snapshot}; Why replan was triggered: {reasons}. 
+
+RULES 
+
+1. Preserve already-resolved subtasks verbatim. Do NOT re-add or rewrite them. 2. Only modify the plan when evidence has revealed the original assumption is wrong or unreachable. If the plan looks fine and we are just querying badly, prefer empty edits. 3. Prefer minimal edits: abandon a sub-branch, merge redundant siblings, or rewrite one subtask’s text. 4. Any new subtask id MUST NOT collide with existing ones. Use t{N+1} style. 5. update_subtasks[*].new_question should be DECLARATIVE (matchable to an event summary). 
+
+OUTPUT SCHEMA 
+
+{"update_subtasks": [{"id": "t2", "new_question": "...", "reason": "..."}], "abandon_subtasks": [{"id": "t3", "reason": "..."}], "new_subtasks": [{"id": "t5", "question": "...", "depends_on": []}], "rationale": "<one short sentence>"} 
+
+If no edit is warranted, return empty arrays and set rationale to “no-op”. 
+
+Figure 5: Task planning prompts. Multi-Round Retrieval System Prompt 
+
+[System Prompt] 
+
+You are given a question and some relevant knowledge. Your task is to reason about whether the provided knowledge is sufficient to answer the question. If sufficient, output [Answer]. If not, output [Search] and generate a query to retrieve additional information from a memory bank. 
+
+OUTPUT FORMAT Reason: {reason}; Action: [Answer] or [Search]; Content: {content} 
+
+SEARCH MODES (Content must follow one of these patterns) (1) EVENT (plain query): Content: <query> — searches the EventGraph for the most similar event segment node; returns the focus node plus its 1-hop temporal-causal neighbors and edges. (2) VIDEO : Content: VIDEO: <query> — retrieves fine-grained entity-level memories (actions, dialogues, attributes) from the VideoGraph within the current focus event’s clips. (3) NEIGHBOR : Content: NEIGHBOR: <segment_label> — shifts focus to a related event by following EventGraph edges. The label must be copied exactly from the returned neighbor list. (4) KEYFRAME : Content: KEYFRAME: <query> — loads representative keyframe images from the current focus event’s clips for visual inspection. 
+
+DECISION GUIDELINES 
+
+- Start with a plain query when no focus event exists. - After retrieving an EVENT node, answer only if the summary directly distinguishes the correct answer. - If the event is relevant but lacks specific details (name, dialogue, count, attribute), use VIDEO: before answering. - Use NEIGHBOR: when the current event is off-target or adjacent events are more relevant. - Use KEYFRAME: when remaining uncertainty is visual (color, layout, clothing, object state). - Do not repeat near-duplicate queries. Switch modes or add more predicates. 
+
+QUERY WRITING Shape: <subject> + <predicate/action/attribute> + <optional context> . A single token or bare interrogative is NOT acceptable. NEVER copy a subtask’s interrogative text verbatim; TRANSFORM it into a declarative scene description. 
+
+LEDGER AWARENESS The system automatically tracks evidence and updates subtask status. Each round, the system injects: (1) the current TaskLedger snapshot; (2) the scheduler-selected focus subtask; (3) optional strategy hints. 
+
+Final Synthesis Prompt 
+
+[System Prompt] 
+
+You are given a question, the final state of a TaskLedger, and ALL raw retrieved knowledge from previous search rounds. 
+
+TWO SOURCES OF INFORMATION 
+
+1. TaskLedger Final State : structured sub-question decomposition with best answers and top evidence snippets (may be incomplete if evidence binding failed). 2. All Retrieved Knowledge : the COMPLETE raw retrieval results from every search round, containing full event summaries, videograph details, and keyframe descriptions. This is the ground-truth information source. 
+
+IMPORTANT : The TaskLedger is a summary that may have lost details. When the ledger says “no evidence collected” or provides only partial answers, ALWAYS check the raw retrieved knowledge for relevant information that was retrieved but not properly bound to subtasks. 
+
+EVIDENCE UTILISATION RULES (CRITICAL) 
+
+- Scan BOTH the ledger AND the raw retrieved knowledge. The raw retrieval often contains answers that the ledger missed. - If ANY event summary, videograph hit, or keyframe description contains an entity that could plausibly answer the question, use THAT entity as the answer. - When multiple candidates appear, answer with the most contextually relevant one. - For yes/no questions, answer “Yes” if ANY positive evidence exists; answer “No” only when evidence explicitly contradicts it. - Do NOT reply with “no evidence found” when the raw retrieval contains relevant information. 
+
+MCQ DECISION RULES 
+
+- Compare ALL options before choosing. Use BOTH the ledger summary AND the raw retrieved knowledge. - Prefer direct evidence from raw retrieval quotes and event summaries. - MUST pick exactly one option with the strongest direct support after eliminating distractors. 
+
+OUTPUT Reason: <brief option comparison citing specific evidence>; Action: [Answer]; Content: <option letter and content> 
+
+Do NOT output [Search]. Do NOT output any LedgerOps. Use real character names. 
+
+Figure 6: Retrieval and synthesis prompts.
