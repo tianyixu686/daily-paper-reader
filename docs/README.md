@@ -6,74 +6,71 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-09
-- 运行时间：2026-07-09 21:05:00 UTC
+- 最新运行日期：2026-07-10
+- 运行时间：2026-07-10 20:58:19 UTC
 - 运行状态：成功
-- 本次总论文数：18
-- 精读区：7
+- 本次总论文数：17
+- 精读区：6
 - 速读区：11
 
 ### 今日简报（AI）
-今日精读聚焦多模态上下文学习与长文档层次推理，速读涵盖多跳推理、无监督跨模态检索及视频检索迭代优化。最值得关注的是训练自由的多模态上下文学习通过检索图像弥补开放-闭集差距，以及层次证据驱动推理提升长文档理解表现。普通读者可进一步关注多模态与层次推理在开放域任务中的结合应用。
-- 详情：[/202607/09/README](/202607/09/README)
+今日精选17篇论文，6篇精读，2篇获9分高分，聚焦前沿突破。 重点推荐零样本组合图像检索（DiCE-CIR）与知识图谱多跳逻辑查询（InductWave），前者实现高效直接组合学习，后者完成归纳式多跳推理。 建议读者优先关注精读列表中的高分工作，下周可深入探索视觉推理中的状态更新机制（DeltaV）及结构化RAG框架（PolyUQuest）。
+- 详情：[/202607/10/README](/202607/10/README)
 
 ### 精读区论文标签
-1. [Retrieved Images as Visual Thought: Training-Free Multimodal In-Context Learning for the Open-vs-Closed Gap](/202607/09/2607.00606v1-retrieved-images-as-visual-thought-training-free-multimodal-in-context-learning-for-the-open-vs-closed-gap)  
+1. [DiCE-CIR: Direct Composition Learning for Efficient Zero-Shot Composed Image Retrieval](/202607/10/2607.04665v1-dice-cir-direct-composition-learning-for-efficient-zero-shot-composed-image-retrieval)  
    标签：评分：9.0/10、query:mr
-   evidence：多模态检索增强的上下文学习
-2. [Hierarchical Evidence-Driven Reasoning for Long Document Understanding](/202607/09/2607.04625v1-hierarchical-evidence-driven-reasoning-for-long-document-understanding)  
+   evidence：通过直接组合学习的零样本组合图像检索
+2. [InductWave: Inductive Multi-Hop Logical Query Answering on Knowledge Graphs](/202607/10/2607.07422v1-inductwave-inductive-multi-hop-logical-query-answering-on-knowledge-graphs)  
    标签：评分：9.0/10、query:mr
-   evidence：层次化多跳多模态RAG文档理解
-3. [Modality Relevance is not Modality Utility: Post-hoc Selective Modality Escalation for Cost-Aware Multimodal RAG](/202607/09/2607.05438v1-modality-relevance-is-not-modality-utility-post-hoc-selective-modality-escalation-for-cost-aware-multimodal-rag)  
-   标签：评分：9.0/10、query:mr
-   evidence：多模态RAG中的选择性模态升级以达到成本效益
-4. [SearchEyes: Towards Frontier Multimodal Deep Search Intelligence via Search World Simulation](/202607/09/2607.05943v1-searcheyes-towards-frontier-multimodal-deep-search-intelligence-via-search-world-simulation)  
-   标签：评分：9.0/10、query:mr
-   evidence：使用类型化知识图谱进行多跳推理的多模态搜索
-5. [Uncertainty-Aware Cross-Modal Remote Sensing Image-Text Retrieval via Evidential Learning](/202607/09/2607.06032v1-uncertainty-aware-cross-modal-remote-sensing-image-text-retrieval-via-evidential-learning)  
-   标签：评分：9.0/10、query:mr
-   evidence：提出不确定性感知的跨模态遥感图像-文本检索
-6. [DynaKRAG: A Unified Framework for Learnable Evidence Control in Multi-Hop Retrieval-Augmented Generation](/202607/09/2607.06507v1-dynakrag-a-unified-framework-for-learnable-evidence-control-in-multi-hop-retrieval-augmented-generation)  
-   标签：评分：9.0/10、query:mr
-   evidence：多跳检索增强生成的可学习证据控制
-7. [MMAgent-R$^2$: Learning to Rerank and Reject for Agentic mRAG](/202607/09/2607.07383v1-mmagent-r2-learning-to-rerank-and-reject-for-agentic-mrag)  
-   标签：评分：9.0/10、query:mr
-   evidence：用于知识型VQA的智能体多模态RAG，包含重排和拒绝机制
+   evidence：知识图谱上的多跳查询推理
+3. [Bayesian Uncertainty Propagation for Agentic RAG Pipelines: A Proof-of-Concept Study on Multi-Hop Question Answering](/202607/10/2607.00972v1-bayesian-uncertainty-propagation-for-agentic-rag-pipelines-a-proof-of-concept-study-on-multi-hop-question-answering)  
+   标签：评分：8.0/10、query:mr
+   evidence：代理型RAG中的多跳问答
+4. [CheckRLM: Effective Knowledge-Thought Coherence Checking in Retrieval-Augmented Reasoning](/202607/10/2607.02262v1-checkrlm-effective-knowledge-thought-coherence-checking-in-retrieval-augmented-reasoning)  
+   标签：评分：8.0/10、query:mr
+   evidence：基于检索增强的推理链事实错误检查，支持多跳推理
+5. [Incentivizing Vision Language Models to Search for Long Video Question Answering](/202607/10/2607.02959v1-incentivizing-vision-language-models-to-search-for-long-video-question-answering)  
+   标签：评分：8.0/10、query:mr
+   evidence：面向长视频问答的多模态检索增强推理
+6. [Retrieving a Set, Not Independent Passages: Set-Level Compatibility Learning for Efficient Set Exploration](/202607/10/2607.05712v1-retrieving-a-set-not-independent-passages-set-level-compatibility-learning-for-efficient-set-exploration)  
+   标签：评分：8.0/10、query:mr
+   evidence：面向多跳推理的集合级检索
 
 ### 速读区论文标签
-1. [DiscoLoop: Looping Discrete Embeddings and Continuous Hidden States for Multi-hop Reasoning](/202607/09/2607.00341v1-discoloop-looping-discrete-embeddings-and-continuous-hidden-states-for-multi-hop-reasoning)  
+1. [RSF-GLLM: Bridging the Semantic Gap in Multi-Hop Knowledge Graph QA via Recurrent Soft-Flow and Decoupled LLM Generation](/202607/10/2607.06527v1-rsf-gllm-bridging-the-semantic-gap-in-multi-hop-knowledge-graph-qa-via-recurrent-soft-flow-and-decoupled-llm-generation)  
    标签：评分：8.0/10、query:mr
-   evidence：单次前向传播内的多跳推理
-2. [Attribute-Prompted Kernel Hashing for Unsupervised Data-Efficient Cross-Modal Retrieval](/202607/09/2607.00379v1-attribute-prompted-kernel-hashing-for-unsupervised-data-efficient-cross-modal-retrieval)  
+   evidence：知识图谱多跳推理
+2. [PolyUQuest: Verifiable Structure-Aware Web RAG over Heterogeneous Graphs](/202607/10/2607.08269v1-polyuquest-verifiable-structure-aware-web-rag-over-heterogeneous-graphs)  
    标签：评分：8.0/10、query:mr
-   evidence：跨模态检索
-3. [VideoSearch-R1: Iterative Video Retrieval and Reasoning via Soft Query Refinement](/202607/09/2607.00446v1-videosearch-r1-iterative-video-retrieval-and-reasoning-via-soft-query-refinement)  
+   evidence：基于异构图的Web RAG，支持多跳实体推理
+3. [DeltaV: Thinking with Visual State Updates in Unified Large Multimodal Models](/202607/10/2607.08434v1-deltav-thinking-with-visual-state-updates-in-unified-large-multimodal-models)  
    标签：评分：8.0/10、query:mr
-   evidence：迭代视频检索与推理
-4. [When RAG Meets Query Planning: Logical Query Trees for Resolving Exploratory Reasoning Problems](/202607/09/2607.00508v2-when-rag-meets-query-planning-logical-query-trees-for-resolving-exploratory-reasoning-problems)  
-   标签：评分：8.0/10、query:mr
-   evidence：RAG结合多跳推理
-5. [Towards Developing a Multimodal Chat Assistant for University Stakeholders: RAG-based Approach](/202607/09/2607.01115v1-towards-developing-a-multimodal-chat-assistant-for-university-stakeholders-rag-based-approach)  
+   evidence：用于多步多模态推理的视觉状态更新
+4. [ProLaViT: Learning Progressive Latent Visual Thoughts in Structured Latent Space](/202607/10/2607.02907v1-prolavit-learning-progressive-latent-visual-thoughts-in-structured-latent-space)  
    标签：评分：7.0/10、query:mr
-   evidence：面向大学领域的多模态RAG聊天机器人
-6. [Homer: Understanding Long-form Videos with Hierarchical Memory and Agentic Reasoning](/202607/09/2607.02588v1-homer-understanding-long-form-videos-with-hierarchical-memory-and-agentic-reasoning)  
+   evidence：基于潜思维的多步视觉推理
+5. [Bridging Interleaved Multi-Modal Reasoning as a Unified Decision Process](/202607/10/2607.03748v1-bridging-interleaved-multi-modal-reasoning-as-a-unified-decision-process)  
    标签：评分：7.0/10、query:mr
-   evidence：长视频多跳叙事推理
-7. [Probe, Don't Prompt: A Hidden-State Probe for Metadata Filtering in Multi-Meta-RAG](/202607/09/2607.03929v1-probe-dont-prompt-a-hidden-state-probe-for-metadata-filtering-in-multi-meta-rag)  
+   evidence：交错多模态推理统一决策过程
+6. [Scene Graph Thinking: Reinforcing Structured Visual Reasoning for Multimodal Large Language Models](/202607/10/2607.05716v2-scene-graph-thinking-reinforcing-structured-visual-reasoning-for-multimodal-large-language-models)  
    标签：评分：7.0/10、query:mr
-   evidence：通过元数据过滤改进多跳RAG检索
-8. [QSVideo: Query-Conditioned Semantic Temporal Retrieval for Video Understanding](/202607/09/2607.04559v1-qsvideo-query-conditioned-semantic-temporal-retrieval-for-video-understanding)  
+   evidence：场景图作为结构化知识支持多模态推理
+7. [CMDR: Contextual Multimodal Document Retrieval](/202607/10/2607.05927v1-cmdr-contextual-multimodal-document-retrieval)  
    标签：评分：7.0/10、query:mr
-   evidence：跨模态视频检索
-9. [Dual-Confidence Contrastive Decoding for Retrieval-Augmented Generation](/202607/09/2607.00570v1-dual-confidence-contrastive-decoding-for-retrieval-augmented-generation)  
+   evidence：多模态文档检索任务与基准
+8. [Multimodal Video-to-Music Recommendation via Semantic Retrieval and Temporal Reranking](/202607/10/2607.05971v1-multimodal-video-to-music-recommendation-via-semantic-retrieval-and-temporal-reranking)  
+   标签：评分：7.0/10、query:mr
+   evidence：多模态语义检索与重排序
+9. [Understanding Axes of Difficulty For Long Context Tasks Via PredicateLongBench](/202607/10/2607.08284v1-understanding-axes-of-difficulty-for-long-context-tasks-via-predicatelongbench)  
+   标签：评分：7.0/10、query:mr
+   evidence：面向长上下文的多跳推理基准
+10. [ReContext: Recursive Evidence Replay as LLM Harness for Long-Context Reasoning](/202607/10/2607.02509v1-recontext-recursive-evidence-replay-as-llm-harness-for-long-context-reasoning)  
    标签：评分：6.0/10、query:mr
-   evidence：RAG中的多文档推理
-10. [MultAttnAttrib: Training-Free Multimodal Attribution in Long Document Question Answering](/202607/09/2607.01420v2-multattnattrib-training-free-multimodal-attribution-in-long-document-question-answering)  
+   evidence：递归证据重放提升推理
+11. [Interpretable Uncertainty for Adaptive Retrieval and Reasoning in Question Answering](/202607/10/2607.07380v1-interpretable-uncertainty-for-adaptive-retrieval-and-reasoning-in-question-answering)  
    标签：评分：6.0/10、query:mr
-   evidence：RAG中用于基于证据问答的训练免费多模态归因
-11. [Temporal and Cross-Modal Alignment for Enhanced Audiovisual Video Captioning](/202607/09/2607.01667v1-temporal-and-cross-modal-alignment-for-enhanced-audiovisual-video-captioning)  
-   标签：评分：6.0/10、query:mr
-   evidence：音视频字幕的跨模态对齐
+   evidence：基于不确定性估计的自适应RAG
 
 
 <div class="dpr-home-promo-card">
