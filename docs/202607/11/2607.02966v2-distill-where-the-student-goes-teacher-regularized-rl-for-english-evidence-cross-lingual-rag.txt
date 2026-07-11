@@ -1,0 +1,1620 @@
+Title: Distill Where the Student Goes: Teacher-Regularized RL for English-Evidence Cross-Lingual RAG
+
+URL Source: https://arxiv.org/pdf/2607.02966v2
+
+Published Time: Fri, 10 Jul 2026 00:28:03 GMT
+
+Number of Pages: 42
+
+Markdown Content:
+# Distill Where the Student Goes: Teacher-Regularized RL for English-Evidence Cross-Lingual RAG 
+
+Haotian Zhou 1,2,∗‡ Weiran Huang 1,3,∗ Siqi Liu 2,4,‡ Xiting Wang 4
+
+Xin Zhang 2 Zhihao Wen 2,†
+
+> 1
+
+School of Computer Science, Shanghai Jiao Tong University 2Ant International, Ant Group 
+
+> 3
+
+Shanghai Innovation Institute 4Gaoling School of Artificial Intelligence, Renmin University of China 
+
+## Abstract 
+
+Cross-lingual retrieval-augmented generation (RAG) is often deployed in an 
+
+English-evidence regime, where users query in diverse languages but retrieved passages remain English. In this setting, generation can fail despite strong base models: English evidence induces language drift (English or code-switching out-puts) and models use evidence unreliably when producing non-English answers. We attribute these failures to two post-training challenges: (i) errors are prefix-dependent , so fixed-trajectory supervision suffers from prefix mismatch ; and (ii) sequence-level (partly discrete / judge-based) rewards yield noisy credit assignment and high-variance updates. We propose TR-RAG , a teacher-regularized RL recipe that couples reward optimization with on-policy distillation on student-visited prefixes. A compact student samples on-policy answers, while a stronger frozen 
+
+teacher is queried only on those prefixes and provides a prefix-wise student-to-teacher reverse-KL anchor. We further introduce a reward decomposition for English-evidence multilingual generation, combining language consistency, char-acter 3-gram recall, and an LLM-judge score for evidence-grounded correctness. Across three benchmarks (BioASQ-ENKB5, Hotpot-ENKB5, and naturally multi-lingual MKQA) and two backbones, TR-RAG improves the composite of language adherence and evidence-grounded correctness over strong baselines. Crucially, the teacher anchor acts as a safety net : on in-domain languages it prevents the large language-consistency collapses (up to ∼27 percentage points) that reward-only RL can suffer by drifting below even the base model, while on distant out-of-distribution languages, where reward-only RL stalls at the base model’s ceiling, it still improves evidence grounding; and on character 3-gram recall the compact student sometimes surpasses its 70B teacher. 
+
+## 1 Introduction 
+
+Retrieval-augmented generation (RAG) grounds LLMs in external evidence and enables rapid knowl-edge updates [ 26 , 10 ]. Many deployments are cross-lingual: users query and expect answers in diverse languages, while knowledge bases remain predominantly English [ 6 , 2 , 63 ]. We study this practical regime ( English-evidence cross-lingual RAG ), where queries and answers are non-English but retrieved passages are English. When retrieval is reasonably strong, the main bottleneck shifts to the generation side [38 ]: the model must use English evidence while producing a fluent, correct 
+
+non-English response: selecting, aggregating, and realizing evidence in the target language within a single decoding trajectory. We therefore hold retrieval fixed and focus on generator post-training.    
+
+> *Equal contribution. Contact: haotianzhou@sjtu.edu.cn ,weiran.huang@outlook.com .
+> †Corresponding author. Contact: z.wen@ant-intl.com .
+> ‡This work was done during the authors’ internship at Ant International, Ant Group. Preprint. arXiv:2607.02966v2 [cs.CL] 9 Jul 2026
+
+Industrial motivation. This setting is a recurring production bottleneck. In cross-border merchant assistants and global customer-service systems, documentation and policy text are often English-only while users query in their native languages [ 28 , 5], so the retriever returns English passages and the generator must respond fluently in the user’s language. A common failure is language drift : the model switches output language even when the underlying answer is correct [ 27 , 34 ]. This motivates our problem formulation, reward design, and prefix-wise teacher anchor. 
+
+Two generation-stage challenges and their shared optimization bottleneck. With English passages injected into context, LLMs face two salient issues: ❶ Language drift under English evidence. 
+
+Models often answer in English or code-switch under query–evidence language mismatch [ 28 ]; English evidence shifts next-token probabilities toward English continuations, a pull that reasoning-style decoding can further amplify [ 57 , 27 ]. ❷ Cross-lingual evidence use with non-English answers. Models must identify relevant spans, aggregate across documents, and express conclusions faithfully in the target language; in practice they may attend to irrelevant evidence, aggregate it unreliably, or introduce unsupported details [ 5]. Both failures are strongly prefix-dependent (an early wrong-language token or partial mistake compounds later errors), exposing two training bottlenecks: 
+
+(i) Prefix mismatch : SFT/offline KD provides gradients only on reference trajectories, so once the student deviates it visits failure prefixes with no direct supervision ( exposure bias ) [ 4, 44 , 1]. (ii) Noisy credit assignment : language adherence and evidence correctness are judged at the sequence level (partly discrete / judge-based), yielding high-variance policy-gradient updates [58, 52, 32, 21]. 
+
+Our approach. We propose TR-RAG , a teacher-regularized on-policy post-training recipe that directly targets (i)–(ii). A compact student generates answers on-policy, while a stronger frozen 
+
+teacher is queried on student-visited prefixes to provide dense token-level guidance (no teacher rollouts) via a prefix-wise reverse-KL anchor KL( πθ (·| st)∥πT (·| st)) [1]. This discourages unlikely continuations, mitigating prefix mismatch and stabilizing reward optimization. On top of this anchor, we optimize a cross-lingual task reward combining language consistency [ 28 , 27 ], character 3-gram recall [36, 23], and an LLM-judge score [68]. Our main contributions: • We study English-evidence cross-lingual RAG from a generation-centric perspective and identify two prefix-dependent failure modes: language drift and brittle evidence use. • We introduce TR-RAG, which combines sequence-level rewards with on-policy distillation 
+
+via a dense prefix-wise reverse-KL anchor on student-visited prefixes. • Across three benchmarks (BioASQ-ENKB5, Hotpot-ENKB5, and naturally multilingual MKQA) and two backbones, TR-RAG attains the best composite score and, unlike reward-only RL, acts as a safety net : it prevents the large (up to ∼27pp) in-domain language-consistency collapses that reward-only RL can suffer by drifting below the base model, and still improves grounding on distant out-of-distribution languages (Norwegian, Khmer) where reward-only RL stalls at the base ceiling, while sometimes surpassing its 70B teacher on character 3-gram recall. 
+
+## 2 Preliminaries 
+
+Task: English-evidence cross-lingual RAG. We study a practical cross-lingual RAG regime where the knowledge base is English-only. Given a user query q written in a target language ℓ, a retriever returns a set of top-M English passages D = {dk}Mk=1 . The generator must produce an answer 
+
+y = ( y1, . . . , y L) of length L in the same target language ℓ, grounded in D.
+
+Policies and decoding states. Let x = ( q, D ) denote the conditioning input. We denote the student/policy model by πθ (y | x) and a stronger teacher model by πT (y | x). Generation is autoregressive: 
+
+πθ (y | x) = 
+
+> L
+
+Y
+
+> t=1
+
+πθ (yt | x, y <t ). (1) We use st = ( x, y <t ) = ( q, D, y <t ) to denote the decoding state at step t.
+
+On-policy RL fine-tuning. We consider on-policy fine-tuning of πθ with a sequence-level task reward r(x, y ), where y ∼ πθ (· | x) is a sampled rollout. When using policy-gradient updates, a 2(a) Problem Setting (b) Failure Modes (c) Approaches                                          
+
+> Query
+> Retriever
+> Model
+> Top -K
+> Docs
+> Answer
+> +EN evidence
+> Query :
+> Query :
+> Model :
+> 에릭시 …?
+> Gold :
+> Model :
+> Gold :
+> …coagulation factor
+> 신규 경구용 …
+> 티로나 …?
+> 티로나민이 …
+> 네, ** 티로나민은 …
+> (1) Language drift
+> (2) Reasoning fails
+> prefix0 𝑦 !
+> "
+> tok1 tok2 tok3 tok4
+> Teacher -Trajectory Distillation (Off -Policy )
+> KD signal
+> (teacher states) 𝒚 𝟑
+> 𝑺 ≠𝒚 𝟑
+> 𝑻 (Prefix mismatch)
+> prefix0
+> Teacher
+> Advice
+> 𝑦 &
+> "𝒚 𝟑
+> 𝑻 𝑦 '
+> "
+> 𝑦 !
+> (𝑦 &
+> (𝑦 )
+> (𝑦 '
+> (
+> 𝒚 𝟑
+> 𝑺
+> Ours: Teacher -Regularized RL
+> English documents English documents English documents
+> 에릭시스의 …
+> 신규 경구용 …
+> •Prefix -dependent errors
+> ⇒prefix mismatch under fixed -
+> trajectory supervision
+> •Sequence -level ( partially
+> discrete / judge -based ) rewards
+> ⇒noisy credit assignment and
+> high -variance updates
+> + EN evidence
+> + EN evidence
+> T. A. T. A. T. A.
+> prefix0 𝑦 !
+> (𝑦 &
+> (𝑦 )
+> (𝑦 '
+> (Sequence
+> reward 𝒓
+> noisy / high -variance updates
+> Reward -only RL
+> Sequence reward 𝒓
+> Frozen
+> No rollouts
+
+Figure 1: Overview. (a) English-evidence cross-lingual RAG : queries/answers are in a target language while retrieved passages are English. (The panel labels the retrieved documents “Top-K” in the generic retrieval sense; throughout the text their count is denoted M , as K is reserved for the number of on-policy rollouts per input.) (b) Two prefix-dependent failure modes ( language drift and evidence-use failures ) induce two training obstacles: prefix mismatch under fixed-trajectory supervision and high-variance optimization under sequence-level rewards. (c) TR-RAG couples on-policy RL with on-policy distillation: a frozen teacher is queried on student-visited prefixes to produce a dense reverse-KL anchor KL( πθ ∥πT ) (no teacher rollouts). “T.A.” denotes this teacher anchor .standard objective is 
+
+max  
+
+> θ
+
+Ex Ey∼πθ (·| x)
+
+r(x, y ), (2) typically implemented with a variance-reduction baseline. Our implementation adopts a GRPO-style [48 , 7] on-policy update, which estimates advantages using K rollouts per input and a group mean baseline. 
+
+Positioning w.r.t. related work. TR-RAG couples this reward optimization with on-policy distillation 
+
+[1 ]. Two contrasts locate our contribution. (i) Unlike pure on-policy distillation (GKD/OPD), which uses the teacher anchor as the sole training signal, we combine the anchor with sequence-level task rewards in a single objective, and show the combination strictly dominates either alone on the composite metric (Section 4.3). (ii) Unlike concurrent RL recipes for cross-lingual RAG (LcRL [ 39 ], CroSearch-R1 [ 40 ]) that optimize the retrieval side over multilingual corpora, we hold retrieval fixed and target generation under English-only evidence, with a cross-lingual reward decomposition (Section 3.2). A comprehensive discussion is deferred to Appendix E. 
+
+## 3 Methodology 
+
+3.1 Overview 
+
+We study English-evidence cross-lingual RAG generation, where retrieved evidence D is English but the required answer must follow the user language ℓ. As shown in Fig. 2, given inputs (q, D ) we (i) sample on-policy answers and compute task rewards, (ii) query a stronger teacher on the student-visited prefix states, and (iii) update the student by maximizing a reward–regularizer objective. Additional theoretical notes appear in Appendix B. 
+
+3.2 Reward Decomposition 
+
+In the English-evidence cross-lingual RAG setting, we need training signals that jointly encourage (i) strict adherence to the target language, (ii) high answer accuracy relative to reference answers, and (iii) faithful grounding in retrieved evidence. To this end, we decompose the task reward into three complementary components, each designed to capture a distinct aspect of generation quality in multilingual contexts: 
+
+r(q, D, y ) = λlang rlang (y, a ⋆) + λ3g r3g (y, a ⋆) + λjudge rjudge (q, D, a ⋆, y ), (3) 3where a⋆ is the reference answer (only available during training) and λlang , λ 3g , λ judge ≥ 0 control the relative importance of each signal. 1
+
+Language-consistency reward. A key failure mode in multilingual RAG is language drift : once English evidence is injected, models may output English or mixed-language text even when the query is in another language [ 28 , 27 ]. To directly counteract this, we include an explicit language-consistency signal: 
+
+rlang (y, a ⋆) = I[LID( y) = LID( a⋆)] , (4) where LID( ·) is a lightweight language identification (LID) classifier (the fastText lid.176 model [19 , 11 ]) and a⋆ is the reference answer. Since we ensure that the reference answer language matches the query language during dataset construction (Appendix D.1), this is equivalent to checking 
+
+LID( y) = ℓ(q) in practice, up to LID errors on very short reference strings (see Appendix D.5). 
+
+Character 3-gram recall reward. Quantifying answer-level accuracy in multilingual contexts is challenging due to morphological variation and tokenization issues. Prior work in machine translation and multilingual evaluation demonstrates that character-level n-gram metrics such as chrF/chrF++ correlate better with human judgments than token-level scores [ 36 , 37 ], especially across diverse languages. This is especially relevant for our target languages: Thai lacks whitespace word boundaries, Korean is agglutinative with rich morphological inflection, and Vietnamese carries tone-bearing diacritics; in all three, token-level F1/EM is fragile to tokenization choices, while character n-grams are not. Inspired by this, we include a character 3-gram recall term as a lightweight lexical proxy: 
+
+r3g (y, a ⋆) = |G 3(y) ∩ G 3(a⋆)||G 3(a⋆)| , (5) where G3(·) denotes the multiset of character 3-grams. For multisets, |G 3(y) ∩ G 3(a⋆)| =P 
+
+> g
+
+min {cy (g), c a⋆ (g)}, where cy (g) is the count of 3-gram g in y. This reward captures partial surface overlap and morphological variants that are common in multilingual generation, provid-ing a continuous signal that complements strict match metrics without requiring language-specific tokenization. 2
+
+LLM-judge reward. Lexical proxies capture surface overlap but cannot fully reflect semantic correctness or evidence grounding. Recent work shows that LLMs can act as effective context-conditioned evaluators [68]. We therefore introduce an LLM-as-a-judge signal: 
+
+rjudge (q, D, a ⋆, y ) ∈ [0 , 1] , (6) where the evaluator scores how well y (i) answers the query, (ii) is supported by evidence D,and (iii) matches the reference a⋆ in meaning and completeness. This continuous signal provides nuanced feedback when exact matches are rare in multilingual QA. We use rjudge only as one term in our reward decomposition and verify its reliability via an alternative judge on a sampled subset (Appendix D.2.2). Together, these complementary rewards encourage TR-RAG to generate responses that are linguistically correct, evidence-grounded, and semantically accurate across languages. 
+
+3.3 RL Fine-tuning with On-policy Distillation (Fig. 2c–d) We combine reward-driven RL (Fig. 2b) with prefix-wise teacher regularization (Fig. 2c), and optimize the objective in Fig. 2(d). In English-evidence cross-lingual RAG, errors are highly 
+
+prefix-dependent : an early wrong-language token or incorrect partial claim can push later states 
+
+(x, y <t ) away from the support of standard supervision. We therefore regularize the student on the prefixes it actually visits, directly addressing the prefix mismatch in Fig. 2(c). Because our reward is sequence-level and partly discrete (e.g., LID), teacher guidance on student prefixes also provides a dense, low-variance token-level stabilizer.             
+
+> 1We fix λlang =0 .5, λ 3g =λjudge =1 in all runs. The deployed reward also carries two implementation details described in Appendix D.4.4: a bounded length penalty rlen folded into the language term to discourage runaway-length outputs, and a rule that skips the LID check for strings shorter than 10 characters, on which LID is unreliable. Because these terms leave r
+> bounded (albeit no longer in [0 ,1] ), our stability bounds hold up to the reward range (Appendix B.5).
+> 2When the reference answer has fewer than 3 characters, |G 3(a⋆)|= 0 ; we define r3g = 0 in this edge case to avoid division by zero.
+
+4(a) Inputs                                                       
+
+> Query 𝒒
+> 에릭시스 …
+> English
+> documents
+> EN docs 𝑫
+> (b) Policy Rollout & Task Reward
+> On -policy rollout:
+> 𝑦 ~𝜋 !('|𝑞 ,𝐷 )
+> (d) Optimization
+> Maximize:
+> 𝒓 (𝒒 ,𝑫 ,𝒚 )−𝜷 ·𝑳 𝒓𝒆𝒗𝑲𝑳
+> policy gradient
+> for 𝒓
+> direct gradient
+> for revKL
+> Language reward
+> Char 3 -gram recall
+> LLM judge
+> 𝒓 𝒍𝒂𝒏𝒈 =𝐼 𝐿𝐼𝐷 𝑦 =ℓ(𝑞 )
+> 𝒓 𝟑𝒈 =𝑅𝑒𝑐𝑎𝑙𝑙 @3𝑔𝑟𝑎𝑚 (𝑦 ,𝑎 ∗)
+> 𝒓 𝒋𝒖𝒅𝒈𝒆 𝑞 ,𝐷 ,𝑎 ∗,𝑦 ∈[0,1]
+> Reward: 𝒓 𝒒 ,𝑫 ,𝒚 =𝝀 𝒍𝒂𝒏𝒈 𝒓 𝒍𝒂𝒏𝒈 +𝝀 𝟑𝒈 𝒓 𝟑𝒈 +𝝀 𝒋𝒖𝒅𝒈𝒆 𝒓 𝒋𝒖𝒅𝒈𝒆
+> (c) Teacher guidance on student -visited prefixes
+> Queried on student prefixes:
+> 𝑺 𝒕 =(𝑞 ,𝐷 ,𝑦 12)𝑳 𝒓𝒆𝒗𝑲𝑳 =J𝒕 3𝟏
+> 𝑻
+> 𝑲𝑳 (𝝅 𝜽 ('|𝒔 𝒕 )||𝝅 𝑻 ('|𝒔 𝒕 ))
+> Prefix states 𝑺 𝒕 Reverse KL regularizer
+> English
+> documents English
+> documents
+> 𝝅 𝜽
+> 𝝅 𝑻
+> Notes
+> •𝑎 ∗: the gold answer
+> •𝑦 : the sampled output
+> •No teacher rollouts
+
+Figure 2: Framework. (a) Inputs: a multilingual query q and English-only evidence D. (b) The student samples on-policy rollouts and receives the task reward. (c) The teacher is queried only on student prefixes to compute a KL anchor (no teacher rollouts). (d) The student is updated with policy gradients and a frozen-teacher reverse-KL anchor. 
+
+Student rollouts (on-policy trajectories). (Fig. 2b) For each training instance x = ( q, D ), we sample K on-policy student rollouts: 
+
+y(i) ∼ πθ (· | x), i = 1 , . . . , K. (7) Both task reward and teacher regularization are computed on these trajectories, so training matches the prefix distribution encountered at test time. 
+
+Teacher guidance on student-visited prefixes. (Fig. 2c) Let y(i) = ( y(i)1 , . . . , y (i) 
+
+> Li
+
+) and define the student prefix state as s(i) 
+
+> t
+
+= ( x, y (i)
+
+> <t
+
+) = ( q, D, y (i)
+
+> <t
+
+). Instead of asking the teacher to generate its own rollouts, we query it only on the states actually visited by the student: 
+
+πT (· | s(i) 
+
+> t
+
+) for i = 1 , . . . , K, t = 1 , . . . , L i. (8) This directly addresses prefix mismatch : even after an early deviation (e.g., language drift), the teacher still provides a corrective distribution on that state, where offline KD would offer no supervision. 3
+
+These teacher queries also provide a low-variance token-level learning signal that complements the higher-variance reward. 
+
+“Reverse KL” as a teacher anchor. (Fig. 2c) We anchor the student to the teacher on student-visited prefixes with a length-normalized student-to-teacher KL: 
+
+LrevKL (x, y (i)) = 1
+
+LiLiX
+
+> t=1
+
+KL 
+
+
+
+πθ (· | s(i) 
+
+> t
+
+) πT (· | s(i) 
+
+> t
+
+)
+
+
+
+, (9) where Li is the number of generated tokens in y(i), including the terminal EOS token. Relative to the standard distillation form KL( πT (·| s)∥πθ (·| s)) , we refer to this as the “reverse” direction. It penalizes probability mass on tokens the teacher deems unlikely under the same prefix, acting as a local trust region that stabilizes reward-driven updates while preserving exploration. This loss requires a shared tokenizer and vocabulary, which holds in our experiments because student and teacher are paired within the same family (e.g., Qwen-4B and Qwen-30B). 
+
+Final objective (instantiation of Section 3.2). Let B denote the training distribution over (x, a ⋆).We optimize a teacher-regularized objective that trades off task reward and teacher anchoring: 
+
+max  
+
+> θ
+
+J(θ) = E(x,a ⋆)∼B Ey∼πθ (·| x)
+
+(1 − α) r(x, y ) − α LrevKL (x, y ), (10) where α ∈ [0 , 1] trades off task reward (Section 3.2) and teacher anchoring. For α ∈ [0 , 1) , this is equivalent up to a positive constant to: 
+
+max 
+
+> θ
+
+˜J(θ) = E(x,a ⋆)∼B Ey∼πθ (·| x)
+
+r(x, y ) − β LrevKL (x, y ), (11) 
+
+> 3
+
+The teacher is never used for rollouts; it only provides token distributions on student-generated prefixes. 
+
+5where β = α/ (1 − α) ≥ 0.
+
+Optimization. (Fig. 2d) We optimize Eq. (11) with GRPO-style on-policy updates: for each input x,we sample K rollouts {y(i)}Ki=1 (we use K=8 ), compute rewards r(i) = r(x, y (i)), and form group-wise advantages A(i) = ( r(i) − ¯r)/(σ + ϵ) (with ϵ=10 −6). The teacher anchor LrevKL enters as a differentiable loss with a frozen teacher and direct gradients with respect to θ; in implementation, the per-token KL is estimated with a low-variance sampled-token estimator rather than a full-vocabulary summation (Appendix B.4). The full procedure is in Algorithm 1 (Appendix C). 
+
+Efficiency analysis. Relative to standard RL, TR-RAG’s only extra computation is a single teacher forward pass over student-visited prefixes; crucially, we never sample teacher rollouts. The overhead therefore scales with the teacher’s forward cost: it is small for compact or MoE teachers (e.g., 
+
+Qwen3-30B-A3B , matching Naive-RL/OPD in wall-clock) and more noticeable, though still a single forward pass, for a large dense teacher (e.g., Llama-3.3-70B ). We report measured per-setting training times in Section 4.3 (Figures 5 and 17). 
+
+## 4 Experiments 
+
+We evaluate TR-RAG 4 on English-evidence cross-lingual RAG, comparing against strong baselines and then making in-depth model analysis. More details are in Appendix D. 
+
+4.1 Experimental Setup Datasets. Our setting requires an English-only knowledge base, which existing multilingual QA benchmarks do not directly satisfy: MKQA [ 29 ] pairs with multilingual Wikipedia, XOR-QA [ 2]includes non-English evidence, and TyDi QA [ 6] is monolingual per language. We therefore adopt two English QA benchmarks, rag-mini-bioasq [ 53 ] (40k biomedical passages, 4.7k single-hop questions, 80/20 split) and HotpotQA [ 61 ] (multi-hop Wikipedia; 4.4k/1.1k bridge 5 train/test), and machine-translate only the questions and short reference answers into five non-English languages (id /ko /th /vi /ja ) using Qwen3-235B-A22B-Instruct-2507 [ 59 ], while leaving evidence passages untouched in English; this is the most controlled construction at scale for our English-evidence regime. We refer to these multilingual variants as BioASQ-ENKB5 and Hotpot-ENKB5 (train on 
+
+id /ko /th /vi ; held-out ja and the original en ). To verify that gains are not artifacts of translationese, we additionally evaluate on MKQA (Section 4.4), whose questions are authored by native speakers rather than machine-translated [ 29 ]; we pair them with English Wikipedia as the sole evidence source, preserving the same English-evidence regime (train on ko /th /vi ;6 OOD en /ja /no , with Norwegian as a deliberately distant stress test). Additional details are in Appendix D.1. 
+
+Metrics. Because English-evidence cross-lingual RAG can fail by switching language, missing key content across scripts, or producing fluent but weakly grounded answers, we evaluate with three complementary normalized metrics in [0 , 1] rather than a single score: language consistency 
+
+I[LID( y) = LID( a⋆)] from the fastText lid.176 model [ 19 , 11 ] checks whether the response stays in the target language; char 3-gram recall (Eq. (5) ) provides a tokenization-robust lexical overlap measure for multilingual free-form answers; unlike token-level exact match or F1, it remains stable across scripts, word-segmentation conventions, inflection, and minor orthographic variation, making it especially necessary for English-evidence cross-lingual RAG where correctness often hinges on preserving translated or transliterated entities from English passages; and a graded LLM-judge 
+
+score following the LLM-as-a-judge protocol [ 68 ] measures evidence-grounded semantic correctness beyond surface overlap. Because our primary judge ( Qwen3-Next-80B ) is the same model that supplies the training reward rjudge , we guard against within-family self-preference by additionally reporting a cross-size ( Qwen3-235B ) and a cross-family ( Llama-3.3-70B ) judge (Appendices D.2.2 and D.2.4); the other two metrics (LC, char 3-gram) are judge-independent by construction. We also report Composite to summarize the overall trade-off: for ENKB-RAG-5 , it is the mean of the three         
+
+> 4Anonymous code and data are available at https://anonymous.4open.science/r/TR-RAG for review.
+> 5We keep only bridge -type questions (excluding comparison questions): bridge questions require genuine multi-hop entity bridging and give a cleaner, more homogeneous multi-hop generation signal.
+> 6We drop Indonesian for MKQA because MKQA has no Indonesian split: it covers Malay ( ms ) instead, so ENKB-RAG-5 ’s
+> id has no MKQA counterpart.
+
+6Table 1: Performance comparison in BioASQ-ENKB5, with Llama-3.2-3B-Instruct as the backbone, and Llama-3.3-70B-Instruct as the teacher. Bold is the best, and underline is the runner-up. The teacher ( Llama-3.3-70B-Instruct ) and base ( Llama-3.2-3B-Instruct ) rows are reference-only and are not included in the best/runner-up ranking. 
+
+Methods In-Domain Languages Out-of-Domain Languages ALL-AVG id ko th vi ID-AVG en ja OOD-AVG 
+
+Metric: language consistency (LC, %) 
+
+Llama-3.3-70B-Instruct 90.78 98.51 99.25 98.41 96.74 99.78 99.36 99.57 97.68 
+
+Llama-3.2-3B-Instruct 87.71 95.76 98.72 97.66 94.96 99.78 98.41 99.10 96.34 Translate 87.92 91.10 97.67 97.88 93.64 99.78 93.54 96.66 94.65 Prompt-Control 88.77 96.39 99.04 98.30 95.63 99.78 98.83 99.31 96.85 DIT 90.25 89.83 99.25 97.66 94.25 99.78 98.94 99.36 95.95 SFT 84.22 95.66 97.03 95.44 93.09 99.68 97.35 98.52 94.90 Knowledge distillation 89.08 97.35 98.62 97.66 95.68 99.47 99.04 99.26 96.87 SDFT 89.61 97.77 98.41 98.19 96.00 99.57 99.15 99.36 97.12 Naive-RL 89.83 96.61 99.15 98.20 95.95 99.58 98.73 99.16 97.02 On-Policy Distillation 90.25 97.56 98.20 98.09 96.03 99.58 99.26 99.42 97.16 TR-RAG 90.99 97.03 99.15 98.41 96.40 99.68 99.25 99.47 97.42 
+
+Metric: char 3-gram recall (%) 
+
+Llama-3.3-70B-Instruct 69.66 38.13 42.61 65.62 54.01 76.58 35.28 55.93 54.65 
+
+Llama-3.2-3B-Instruct 56.16 26.42 29.62 52.83 41.26 70.56 25.68 48.12 43.55 Translate 61.40 21.12 29.38 55.68 41.90 70.56 20.43 45.50 43.10 Prompt-Control 60.78 28.61 33.85 58.41 45.41 74.31 28.23 51.27 47.37 DIT 62.95 26.24 31.55 59.41 45.04 75.78 27.05 51.42 47.16 SFT 37.16 21.62 26.44 36.35 30.39 47.09 22.29 34.69 31.83 Knowledge distillation 62.22 28.73 35.30 57.41 45.92 71.40 26.86 49.13 46.99 SDFT 62.84 29.10 35.73 57.60 46.32 72.13 27.10 49.62 47.42 Naive-RL 75.62 22.66 39.82 69.47 51.89 79.44 23.63 51.54 51.77 On-Policy Distillation 63.84 29.51 35.72 59.84 47.23 72.45 26.70 49.58 48.01 TR-RAG 80.16 29.55 48.69 73.54 57.99 85.14 31.46 58.30 58.09 
+
+Metric: LLM-judge (%) 
+
+Llama-3.3-70B-Instruct 76.83 73.98 75.27 76.57 75.66 78.78 76.42 77.60 76.31 
+
+Llama-3.2-3B-Instruct 63.79 47.34 54.52 63.11 57.19 72.61 48.94 60.78 58.39 Translate 63.11 34.06 40.06 56.52 48.44 72.61 41.18 56.90 51.26 Prompt-Control 63.60 41.95 52.23 61.77 54.89 71.79 49.41 60.60 56.79 DIT 60.83 42.44 45.83 57.46 51.64 67.91 47.79 57.85 53.71 SFT 66.10 54.45 57.84 60.70 59.77 75.32 61.86 68.59 62.71 Knowledge distillation 66.70 50.97 57.61 64.77 60.01 74.76 58.66 66.71 62.25 SDFT 67.27 53.77 58.06 65.98 61.27 74.50 58.13 66.32 62.95 Naive-RL 71.50 70.11 60.38 68.04 69.57 74.94 69.03 71.99 70.38 
+
+On-Policy Distillation 68.66 55.75 61.00 67.17 63.15 75.74 60.80 68.27 64.85 TR-RAG 71.94 66.44 66.36 70.35 68.77 75.08 63.97 69.53 69.02 
+
+Metric: Composite (%) 
+
+Llama-3.3-70B-Instruct 79.09 70.21 72.38 80.20 75.47 85.05 70.35 77.70 76.21 
+
+Llama-3.2-3B-Instruct 69.22 56.51 60.95 71.20 64.47 80.98 57.68 69.33 66.09 Translate 70.81 48.76 55.70 70.03 61.33 80.98 51.72 66.35 63.00 Prompt-Control 71.05 55.65 61.71 72.83 65.31 81.96 58.82 70.39 67.00 DIT 71.34 52.84 58.88 71.51 63.64 81.16 57.93 69.55 65.61 SFT 62.49 57.24 60.44 64.16 61.08 74.03 60.50 67.27 63.14 Knowledge distillation 72.67 59.02 63.84 73.28 67.20 81.88 61.52 71.70 68.70 SDFT 73.24 60.21 64.07 73.92 67.86 82.07 61.46 71.77 69.16 Naive-RL 78.98 63.13 69.00 78.77 72.47 84.65 63.80 74.23 73.06 On-Policy Distillation 74.25 60.94 64.97 75.03 68.80 82.59 62.25 72.42 70.01 TR-RAG 81.03 64.34 71.40 80.77 74.38 86.63 64.89 75.76 74.84 
+
+metrics; for MKQA, where we report two judges, it is the mean of all four signals. Appendix D.2 gives full details. 
+
+Models and baselines. We study two compact backbones, Qwen3-4B-Instruct-2507 
+
+[ 59 ] and Llama-3.2-3B-Instruct [ 8 ], and pair them with larger teachers, 
+
+Qwen3-30B-A3B-Instruct-2507 and Llama-3.3-70B-Instruct [ 59 , 8]. Baselines in-clude Translate [2 ], Prompt-Control [56 ], discourse-cue prompting ( DIT [30 ]), supervised fine-tuning ( SFT ), Knowledge Distillation (KD) [ 13 ], self-distillation fine-tuning ( SDFT [60 ]), 
+
+Naive-RL [7], and pure On-Policy Distillation (OPD) [1]. More details are in Appendix D.3. 
+
+4.2 Main Results 
+
+We use Table 1 (BioASQ-ENKB5 with Llama-3.2-3B-Instruct as the student) as the representa-tive example in the main text; results for the Qwen-4B backbone on BioASQ-ENKB5 and for both backbones on Hotpot-ENKB5 (Tables 9 to 11, Appendix D.5) show the same trend that TR-RAG consistently outperforms strong baselines. 
+
+Language Consistency. Across settings, TR-RAG ranks among the top methods on language con-sistency, substantially mitigating response-language drift under English evidence. The gain over 7Table 2: Ablation studies ( composite ALL-AVG metric, %). RL-only is TR-RAG without the teacher anchor ( β=0 ), i.e., identical to the Naive-RL baseline; OPD-only uses the teacher anchor alone (no task reward). Bold /underline denote best/runner-up.                                                                     
+
+> Variants Language Char 3-gram LLM-judge On-Policy BioASQ-ENKB5 Hotpot-ENKB5 Average Reward Reward Reward Distillation Llama 3BQwen 4BLlama 3BQwen 4B
+> RL-only ✓✓✓×73.06 81.98 72.66 74.79 75.62 OPD-only ×××✓70.01 79.52 71.15 76.49 74.29 No language reward ×✓✓✓74.14 83.73 73.07 79.70 77.66 No 3-gram reward ✓×✓✓69.79 75.28 70.10 76.01 72.80 No LLM-judge reward ✓✓×✓72.55 81.42 71.19 78.46 75.91 TR-RAG ✓✓✓✓74.84 82.85 73.88 79.68 77.81
+
+SFT-style fine-tuning is clearest on in-domain languages (e.g., +3 .3pp ID-AVG on BioASQ-ENKB5, Table 1, where offline supervision can even push LC below the base model), indicating that TR-RAG’s on-policy teacher regularization preserves language adherence more robustly than offline supervision. 
+
+Character 3-gram Recall. TR-RAG is the top performer on char 3-gram recall, sometimes even surpassing the 70B teacher, giving direct, judge-independent evidence that it transfers the right lexical content across languages with fewer dropped, mistranslated, or corrupted strings (we motivate this tokenization-robust metric in the Metrics paragraph above). This matches our design: the char 3-gram reward applies dense pressure against missing entities and keywords, while the teacher anchor stabilizes decoding under early prefix deviations, so source-supported content is preserved even when generation begins to drift. 
+
+LLM-judge. On the evidence-grounded LLM-judge metric, TR-RAG achieves the second-best performance overall, closely trailing Naive-RL. This suggests strong evidence-grounded reasoning beyond surface-form overlap, while highlighting that our main gains arise from balanced improve-ments across complementary objectives rather than maximizing a single metric. Part of this small gap is a length–conciseness artifact of the judge rubric (the char 3-gram reward promotes more complete, longer answers that the conciseness criterion penalizes) rather than a correctness regression, as we isolate in Appendix D.2.3. 
+
+Composite Metric. The composite score offers the clearest summary of end-to-end utility: TR-RAG delivers the best overall trade-off among language adherence, lexical faithfulness, and evidence-grounded correctness, and is the top method on both in-domain and out-of-domain languages. This indicates that the gains are not restricted to seen languages, but transfer robustly under language shift, a key requirement in English-evidence deployments. In contrast, prompt-based control yields only marginal improvements, suggesting that prompt engineering alone is insufficient to resolve generation-side failures once English passages are injected. 
+
+Additional observations. The Translate pipeline attains high language consistency but degrades other metrics and the composite score, reflecting compounding translation-induced mismatches that distort rare entities and weaken evidence anchoring. SFT is a revealing outlier: its char 3-gram recall drops well below the untuned base model ( 43 .55 → 31 .83 on BioASQ), because teacher-forcing on short gold answers instills an ultra-terse extractive style that under-covers the reference content; full-parameter SFT is worse still (Appendix D.4.6, Table 8). On-policy distillation also clearly beats its offline counterpart: querying the teacher on student-visited prefixes provides corrective guidance exactly where the student drifts, yielding stronger composite performance under both ID and OOD 
+
+settings. Finally, the compact TR-RAG matches or even exceeds its teacher in composite perfor-mance (e.g., 79.68 vs. 78.10 for the Qwen-4B/30B pair on Hotpot-ENKB5, Table 11), indicating effective compression of cross-lingual RAG generation quality into small models. 
+
+4.3 In-depth Model Analysis Ablation Studies. After establishing strong end-to-end gains in the main results, we ask which ingredients drive the improvements . Table 2 reports ablations on our composite ALL-AVG metric. The full TR-RAG achieves the best score ( 77.81 ), and its gains come from combining reward optimization with on-policy distillation rather than either alone: RL-only reaches 75.62 and OPD-only reaches 74.29, while TR-RAG improves by +2.19 and +3.52 , respectively, consistent with teacher anchoring stabilizing on-policy updates on student-visited prefixes. The reward components contribute unequally. Removing character 3-gram recall causes the largest drop (77.81 →72.80, −5.01 ), indicating this dense, language-robust signal is critical in the English-evidence multilingual regime. Removing the LLM-judge also hurts ( −1.90 ), suggesting complementary semantic/evidence-grounding feedback. In contrast, removing the language reward barely moves the aggregate composite ( −0.15 ) or aggregate 80.0002 0.002 0.02 0.2 
+
+> β
+> 78
+> 79
+> 80
+> 81
+> ALL-AVG (%)
+
+Figure 3: Teacher weight        
+
+> β(Hotpot-ENKB5, Qwen-4B). Moderate β(0.002 –0.02 ) is best; β=0 .2over-regularizes. We use β=0 .02 .Llama 3BQwen 4B
+> 70
+> 80
+> 90
+> ALL-AVG(%)  Weak
+> Teacher
+> Strong
+> Teacher
+
+Figure 4: Teacher quality (Hotpot-ENKB5): strong vs. same-size weak teacher. A stronger teacher helps most; a weak teacher still per-forms competitively. BioASQ-ENKB5 Hotpot-ENKB5 0 
+
+> 20
+> 40
+> 60
+> Training Time (Hours)
+> Naive-RL
+> OPD TR-RAG
+
+Figure 5: Training time (Qwen-4B backbone, BioASQ + Hotpot). TR-RAG ≈ Naive-RL/OPD (compact/MoE teacher). 0 100 200 
+
+> Steps
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> Reward
+
+Figure 6: Task re-ward r(x, y ) (Llama, Hot-pot): rises then plateaus (∼250 steps). 0 100 200 
+
+> Steps
+> 0.0
+> 0.5
+> 1.0
+> KL Loss
+
+Figure 7: Reverse-KL LrevKL (Llama, Hotpot): drops early, stays bounded. 
+
+LC (91.66 vs. 91.92): on these largely high-resource ENKB-RAG-5 splits the teacher anchor and char 3-gram reward already keep outputs in-language, so the explicit language reward contributes little here . We stress that this ablation covers only the ENKB-RAG-5 splits; whether the language reward is more valuable on extreme low-resource OOD languages is not separately isolated, and we make no such claim. The two overlap-oriented signals also interact: removing the char 3-gram reward yields the highest LC (94.31 vs. 91.92 for full TR-RAG; Table 12), consistent with the char 3-gram term rewarding overlap with English-derived entities and thereby mildly pulling outputs toward English. More results are in Appendix D.6. 
+
+Sensitivity to the Teacher Weight β. Having confirmed that teacher regularization is a key ingredient, we examine how strongly it should be applied. Fig. 3 varies β (Eq. (11) ) on Hotpot-ENKB5 with the Qwen-4B backbone. Language consistency and char 3-gram recall improve as β increases from very small values and remain stable over a moderate range ( 0.002 –0.02 ); the LLM-judge score, however, peaks at smaller β and decreases monotonically as β grows (Figure 21), reflecting a metric-specific trade-off between teacher alignment and judge optimization. Overall, moderate β provides useful token-level stabilization without overly restricting reward-driven exploration. However, overly large 
+
+β (e.g., 0.2) degrades performance, consistent with over-regularization that keeps the student too close to the frozen teacher and limits task-specific adaptation. This suggests a practical sweet spot where the teacher anchor is strong enough to prevent drift but light enough to allow reward-driven gains. Based on this sweep, we fix β=0 .02 for every backbone–teacher pair in all main experiments (Appendix D.7). 
+
+Impact of Teacher Quality. Beyond the weight of the anchor, we ask whether TR-RAG depends on a particularly strong teacher. We replace the default teacher with a weaker frozen base model of the same size (Fig. 4; full results in Appendix D.8). TR-RAG remains consistently beneficial under the weak-teacher setting, while stronger teachers yield the best performance. This suggests that teacher quality mainly affects the achievable ceiling rather than being a strict prerequisite for gains: even a modest teacher can stabilize on-policy updates and prevent language drift, making the recipe applicable when only same-scale models are available. 
+
+Efficiency. Figures 5 and 17 compare end-to-end training time. TR-RAG’s only extra cost over standard RL is a single teacher forward pass on student-visited prefixes (never teacher rollouts). With a compact or MoE teacher ( Qwen3-30B-A3B ) this is essentially free: wall-clock matches Naive-RL/OPD. With a large dense teacher ( Llama-3.3-70B ) the extra forward pass is visible in Figure 17 but remains bounded (it is one forward pass, not additional generation), which we consider a worthwhile cost for the robustness gains reported below. 
+
+Training Dynamics. Figure 6 plots the training-time evolution of the mean task reward r(x, y ) over the ∼250 update steps of a run: it increases steadily and then plateaus, suggesting stable improvement of our multilingual objective. We evaluate the final checkpoint (Appendix D.4). Figure 7 shows 
+
+LrevKL drops early and remains bounded, indicating improved alignment with the frozen teacher on student-visited prefixes while still allowing reward-driven deviations. Together, these curves match TR-RAG’s design goal: improving task performance under a stable anchor without uncontrolled policy drift. 
+
+Qualitative Case Study. Figure 8 makes the earlier metric gains concrete at the example level. Under English evidence, baseline systems exhibit two recurring failures: language drift , where the answer begins in Indonesian but slips into copied English spans from the retrieved passages, and 
+
+evidence misuse , where the model latches onto a salient but unsupported entity instead of the one justified by the full evidence chain. By contrast, TR-RAG stays in fluent Indonesian, preserves the key lexical content needed for the answer, and selects the correct entity, suggesting that the teacher anchor improves both response-language control and evidence-faithful generation. This qualitative 9Question Ketua Organisasi Kesatuan Afrika mana yang didukung oleh Sams’K Le Jah?                                                                                                                        
+
+> GroundtruthHaileSelassie
+> Llama-3.2-3B-InstructSams’KLeJahdidukungOrganisasiKesatuanAfrika(OrganisationofAfricanUnity)
+> Llama-3.3-70B-Instruct
+> Berdasarkaninformasiyangdiberikan,Sams'KLeJahadalahseorangmusisireggae,pembawaacararadio,danaktivis
+> politikdariBurkinaFaso.IamendukungHaileSelassie,yangpernahmenjabatsebagaiKetuaOrganisasiKesatuanAfrika
+> (OrganisationofAfricanUnity).Jadi,jawabanataspertanyaantersebutadalahHaileSelassie.
+> Llama-3.2-3B-Instruct+
+> DIT
+> !SayaakanmembantuAndamenemukaninformasiyangrelevan.Berdasarkandokumenyangdiberikan,Sams’KLeJah
+> didukungolehOrganisasiKesatuanAfrika(OrganisationofAfricanUnity)yangdikepalaiolehbeberapatokoh-tokohseperti
+> MobutuSeseSeko,HaileSelassie,danSeewoosagurRamgoolam.
+> Llama-3.2-3B-Instruct+
+> PromptControlKetuaOrganisasiKesatuanAfrikayangdidukungolehSams’KLeJahadalahJosephArthurAnkrah.
+> TR-RAGKetuaOrganisasiKesatuanAfrikayangdidukungolehSams'KLeJahadalahHaileSelassieI.
+
+Figure 8: Qualitative case study ( Llama-3.2-3B-Instruct backbone, Indonesian, Hotpot-ENKB5). Highlighting is consistent across panels: red marks language drift (Indonesian slipping into copied English spans) or evidence-unsupported content, and green marks correct, evidence-grounded content in the target language. Baseline systems drift and latch onto a salient but unsupported entity, whereas TR-RAG stays in fluent Indonesian and returns the entity justified by the full evidence chain. Best viewed in color. Table 3: Generalization to naturally multilingual MKQA with English-evidence (Llama-3.2-3B-Instruct backbone). Per-language Composite, Qwen3-Next-80B Judge, and cross-family Llama-3.3-70B Judge are reported. Bold /underline denote best/runner-up. 
+
+Methods In-Domain Languages Out-of-Domain Languages ALL-AVG ko th vi ID-AVG en ja no OOD-AVG 
+
+Metric: Composite (%) 
+
+Base 49.72 50.62 53.55 51.30 67.35 53.62 47.36 56.11 53.70 Naive-RL 50.80 55.83 58.00 54.87 70.27 55.54 52.62 59.48 57.18 TR-RAG 50.11 57.62 58.67 55.47 69.57 55.95 55.00 60.17 57.82 
+
+Metric: Qwen3-Next-80B Judge (%) 
+
+Base 58.35 63.58 73.13 65.02 68.96 62.93 67.16 66.35 65.69 Naive-RL 62.35 71.45 78.50 70.77 73.10 67.83 74.38 71.77 71.27 TR-RAG 60.05 74.40 77.05 70.50 72.80 69.63 77.93 73.45 71.98 
+
+Metric: cross-family Llama-3.3-70B Judge (%) 
+
+Base 52.50 62.85 71.77 62.37 70.86 60.70 63.80 65.12 63.75 Naive-RL 57.90 71.25 77.95 69.03 76.90 67.35 72.15 72.13 70.58 TR-RAG 58.10 74.60 79.15 70.62 75.20 68.05 75.45 72.90 71.76 
+
+pattern mirrors the quantitative gains in language consistency, char 3-gram recall, and composite score. Parallel ja/ko/th/vi cases are in Appendix D.10. 
+
+4.4 Generalization to Naturally Multilingual MKQA 
+
+We evaluate on the natively multilingual MKQA setup defined in Section 4.1. We additionally report a cross-family Llama-3.3-70B-Instruct judge to rule out within-family reward hacking. 
+
+Results. The trends carry over to native MKQA queries: TR-RAG wins ALL-AVG on Com-posite ( 57.82 vs. 57.18), the Qwen judge ( 71.98 vs. 71.27), and the cross-family Llama judge (71.76 vs. 70.58), the wider Llama margin ruling out within-family reward hacking, while matching or slightly improving on the judge-independent signals (LC 44.50 vs. 44.00, char 3-gram 43.05 vs. 42.85; Appendix D.9). On the hardest split, Norwegian (base LC only 7%), TR-RAG gains 
+
++2.38 /+3.55 /+3.30 (composite/Qwen/Llama) over Naive-RL. Conversely, Naive-RL only edges TR-RAG in “safe” settings (e.g., the BioASQ Llama-3B judge, by 1–1.5pp) but collapses elsewhere: on Hotpot-ENKB5/Qwen-4B its Indonesian LC drops to 28.27% (vs. 55.60% for TR-RAG), and on Khmer (an extreme-script stress test beyond the MKQA languages in Section 4.1; App. D.9.1), where 
+
+both methods remain capped at the base model’s 18% LC ceiling, TR-RAG is nonetheless slightly better on grounding ( +0 .66 /+0 .50 /+1 .85 on char 3-gram / Qwen / Llama judge over Naive-RL). The teacher anchor thus pays a small “insurance premium” in safe settings to prevent the large (up to 
+
+∼27pp) in-domain LC collapses that reward-only RL can suffer, and to keep improving grounding where reward-only RL stalls at the base ceiling on distant OOD languages (extended analysis in Appendix D.11). 10 5 Conclusion 
+
+We presented TR-RAG, a teacher-regularized RL post-training framework for English-evidence cross-lingual RAG that couples reward optimization with prefix-wise reverse-KL anchoring on student-visited prefixes. The frozen-teacher anchor supplies dense stabilization without teacher rollouts, enabling compact students to improve language adherence and evidence-grounded correctness; TR-RAG achieves the best overall composite performance across three benchmarks and consistently outperforms strong baselines. Future work will extend TR-RAG to multimodal multilingual settings and explore richer reward designs. 
+
+## References 
+
+[1] Rishabh Agarwal, Nino Vieillard, Yongchao Zhou, Piotr Stanczyk, Sabela Ramos Garea, Matthieu Geist, and Olivier Bachem. On-policy distillation of language models: Learning from self-generated mistakes. In The Twelfth International Conference on Learning Representations, ICLR 2024, Vienna, Austria, May 7-11, 2024 . OpenReview.net, 2024. [2] Akari Asai, Jungo Kasai, Jonathan H Clark, Kenton Lee, Eunsol Choi, and Hannaneh Hajishirzi. XOR QA: Cross-lingual open-retrieval question answering. In Proceedings of the 2021 confer-ence of the North American chapter of the association for computational linguistics: human language technologies , pages 547–564, 2021. [3] Akari Asai, Xinyan Yu, Jungo Kasai, and Hanna Hajishirzi. One question answering model for many languages with cross-lingual dense passage retrieval. In Marc’Aurelio Ranzato, Alina Beygelzimer, Yann N. Dauphin, Percy Liang, and Jennifer Wortman Vaughan, editors, Advances in Neural Information Processing Systems 34: Annual Conference on Neural Information Processing Systems 2021, NeurIPS 2021, December 6-14, 2021, virtual , pages 7547–7560, 2021. [4] Samy Bengio, Oriol Vinyals, Navdeep Jaitly, and Noam Shazeer. Scheduled sampling for sequence prediction with recurrent neural networks. Advances in neural information processing systems , 28, 2015. [5] Nadezhda Chirkova, David Rau, Hervé Déjean, Thibault Formal, Stéphane Clinchant, and Vassilina Nikoulina. Retrieval-augmented generation in multilingual settings. CoRR ,abs/2407.01463, 2024. doi: 10.48550/ARXIV.2407.01463. [6] Jonathan H. Clark, Jennimaria Palomaki, Vitaly Nikolaev, Eunsol Choi, Dan Garrette, Michael Collins, and Tom Kwiatkowski. Tydi QA: A benchmark for information-seeking question answering in typologically diverse languages. Trans. Assoc. Comput. Linguistics , 8:454–470, 2020. [7] DeepSeek-AI. DeepSeek-R1: Incentivizing reasoning capability in LLMs via reinforcement learning. CoRR , abs/2501.12948, 2025. doi: 10.48550/ARXIV.2501.12948. [8] Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Amy Yang, Angela Fan, et al. The llama 3 herd of models. arXiv preprint arXiv:2407.21783 , 2024. [9] Ahmed Elhady, Eneko Agirre, and Mikel Artetxe. Cross-lingual self-consistency for multilingual reasoning with language models. arXiv preprint arXiv:2606.01464 , 2026. [10] Yunfan Gao, Yun Xiong, Xinyu Gao, Kangxiang Jia, Jinliu Pan, Yuxi Bi, Yi Dai, Jiawei Sun, Qianyu Guo, Meng Wang, and Haofen Wang. Retrieval-augmented generation for large language models: A survey. ArXiv , abs/2312.10997, 2023. [11] Edouard Grave, Piotr Bojanowski, Prakhar Gupta, Armand Joulin, and Tomáš Mikolov. Learning word vectors for 157 languages. In Proceedings of the eleventh international conference on language resources and evaluation (LREC 2018) , 2018. [12] Yuxian Gu, Li Dong, Furu Wei, and Minlie Huang. MiniLLM: Knowledge distillation of large language models. arXiv preprint arXiv:2306.08543 , 2023. 11 [13] Geoffrey E. Hinton, Oriol Vinyals, and Jeffrey Dean. Distilling the knowledge in a neural network. CoRR , abs/1503.02531, 2015. [14] Junjie Hu, Sebastian Ruder, Aditya Siddhant, Graham Neubig, Orhan Firat, and Melvin John-son. Xtreme: A massively multilingual multi-task benchmark for evaluating cross-lingual generalisation. In International conference on machine learning , pages 4411–4421. PMLR, 2020. [15] Zhiqiang Hu, Lei Wang, Yihuai Lan, Wanyu Xu, Ee-Peng Lim, Lidong Bing, Xing Xu, Soujanya Poria, and Roy Ka-Wei Lee. Llm-adapters: An adapter family for parameter-efficient fine-tuning of large language models. In Houda Bouamor, Juan Pino, and Kalika Bali, editors, Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing, EMNLP 2023, Singapore, December 6-10, 2023 , pages 5254–5276. Association for Computational Linguistics, 2023. doi: 10.18653/V1/2023.EMNLP-MAIN.319. [16] Jerry Huang, Siddarth Madala, Risham Sidhu, Cheng Niu, Hao Peng, Julia Hockenmaier, and Tong Zhang. RAG-RL: Advancing retrieval-augmented generation via RL and curriculum learning. arXiv preprint arXiv:2503.12759 , 2025. [17] Jaedong Hwang, Kumar Tanmay, Seok-Jin Lee, Ayush Agrawal, Hamid Palangi, Kumar Ayush, Ila Fiete, and Paul Pu Liang. Learn globally, speak locally: Bridging the gaps in multilingual reasoning. arXiv preprint arXiv:2507.05418 , 2025. [18] Xiaoqi Jiao, Yichun Yin, Lifeng Shang, Xin Jiang, Xiao Chen, Linlin Li, Fang Wang, and Qun Liu. TinyBERT: Distilling BERT for natural language understanding. In Findings of the association for computational linguistics: EMNLP 2020 , pages 4163–4174, 2020. [19] Armand Joulin, Edouard Grave, Piotr Bojanowski, and Tomas Mikolov. Bag of tricks for efficient text classification. In Proceedings of the 15th Conference of the European Chapter of the Association for Computational Linguistics (EACL): Volume 2, Short Papers , pages 427–431, 2017. [20] Ehsan Kamalloo, Nouha Dziri, Charles L. A. Clarke, and Davood Rafiei. Evaluating open-domain question answering in the era of large language models. In Annual Meeting of the Association for Computational Linguistics , 2023. [21] Amirhossein Kazemnejad, Milad Aghajohari, Eva Portelance, Alessandro Sordoni, Siva Reddy, Aaron Courville, and Nicolas Le Roux. VinePPO: Refining credit assignment in RL training of LLMs. arXiv preprint arXiv:2410.01679 , 2024. [22] Yoon Kim and Alexander M Rush. Sequence-level knowledge distillation. In Proceedings of the 2016 conference on empirical methods in natural language processing , pages 1317–1327, 2016. [23] Artur Kulmizev, Bo Blankers, Johannes Bjerva, Malvina Nissim, Gertjan van Noord, Barbara Plank, and Martijn Wieling. The power of character n-grams in native language identification. In Joel R. Tetreault, Jill Burstein, Claudia Leacock, and Helen Yannakoudakis, editors, Proceed-ings of the 12th Workshop on Innovative Use of NLP for Building Educational Applications, BEA@EMNLP 2017, Copenhagen, Denmark, September 8, 2017 , pages 382–389. Association for Computational Linguistics, 2017. doi: 10.18653/V1/W17-5043. [24] Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph Gonzalez, Hao Zhang, and Ion Stoica. Efficient memory management for large language model serving with pagedattention. In Jason Flinn, Margo I. Seltzer, Peter Druschel, Antoine Kaufmann, and Jonathan Mace, editors, Proceedings of the 29th Symposium on Operating Systems Principles, SOSP 2023, Koblenz, Germany, October 23-26, 2023 , pages 611–626. ACM, 2023. doi: 10.1145/3600006.3613165. [25] Patrick Lewis, Barlas Oguz, Ruty Rinott, Sebastian Riedel, and Holger Schwenk. MLQA: Evaluating cross-lingual extractive question answering. In Proceedings of the 58th annual meeting of the association for computational linguistics , pages 7315–7330, 2020. 12 [26] Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, Sebastian Riedel, and Douwe Kiela. Retrieval-augmented generation for knowledge-intensive NLP tasks. In Hugo Larochelle, Marc’Aurelio Ranzato, Raia Hadsell, Maria-Florina Balcan, and Hsuan-Tien Lin, editors, Advances in Neural Information Processing Systems 33: Annual Conference on Neural Information Processing Systems 2020, NeurIPS 2020, December 6-12, 2020, virtual , 2020. [27] Bo Li, Zhenghua Xu, and Rui Xie. Language drift in multilingual retrieval-augmented gen-eration: Characterization and decoding-time mitigation. arXiv preprint arXiv:2511.09984 ,2025. [28] Wei Liu, Sony Trenous, Leonardo F. R. Ribeiro, Bill Byrne, and Felix Hieber. XRAG: cross-lingual retrieval-augmented generation. CoRR , abs/2505.10089, 2025. doi: 10.48550/ARXIV. 2505.10089. [29] Shayne Longpre, Yi Lu, and Joachim Daiber. MKQA: A linguistically diverse benchmark for multilingual open domain question answering. Trans. Assoc. Comput. Linguistics , 9:1389–1406, 2021. [30] Wenyang Luo, Wayne Xin Zhao, Jing Sha, Shijin Wang, and Ji-Rong Wen. Mmath: A multilingual benchmark for mathematical reasoning. arXiv preprint arXiv:2505.19126 , 2025. [31] Erfan Nourbakhsh, Rocky Slavin, Ke Yang, and Anthony Rios. When retrieval doesn’t help: A large-scale study of biomedical RAG, 2026. URL https://arxiv.org/abs/2606.04127 .[32] Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et al. Training language models to follow instructions with human feedback. Advances in neural information processing systems ,35:27730–27744, 2022. [33] Tej Deep Pala, Vernon Toh, and Soujanya Poria. GRAIL: Gradient-reweighted advantages for reinforcement learning with verifiable rewards, 2026. URL https://arxiv.org/abs/2606. 04889 .[34] Jeonghyun Park and Hwanhee Lee. Investigating language preference of multilingual RAG systems. ArXiv , abs/2502.11175, 2025. [35] Patomporn Payoungkhamdee, Tinnakit Udsa, Jian Gang Ngui, Sarana Nutanong, Alham Fikri Aji, and Peerat Limkonchotiwat. DuDi: Dual-signal distillation with cross-lingual verbalizer, 2026. URL https://arxiv.org/abs/2606.04694 .[36] Maja Popovi´ c. chrF: character n-gram F-score for automatic MT evaluation. In Ondˇ rej Bojar, Rajen Chatterjee, Christian Federmann, Barry Haddow, Chris Hokamp, Matthias Huck, Varvara Logacheva, and Pavel Pecina, editors, Proceedings of the Tenth Workshop on Statistical Machine Translation , pages 392–395, Lisbon, Portugal, September 2015. Association for Computational Linguistics. doi: 10.18653/v1/W15-3049. [37] Maja Popovi´ c. chrF++: words helping character n-grams. In Ondˇ rej Bojar, Christian Buck, Rajen Chatterjee, Christian Federmann, Yvette Graham, Barry Haddow, Matthias Huck, An-tonio Jimeno Yepes, Philipp Koehn, and Julia Kreutzer, editors, Proceedings of the Second Conference on Machine Translation , pages 612–618, Copenhagen, Denmark, September 2017. Association for Computational Linguistics. doi: 10.18653/v1/W17-4770. [38] Jirui Qi, Raquel Fernández, and Arianna Bisazza. On the consistency of multilingual context utilization in retrieval-augmented generation. ArXiv , abs/2504.00597, 2025. [39] Rui Qi, Fengran Mo, Yufeng Chen, Xue Zhang, Shuo Wang, Hongliang Li, Jinan Xu, Meng Jiang, Jian-Yun Nie, and Kaiyu Huang. Language-coupled reinforcement learning for multilin-gual retrieval-augmented generation. arXiv preprint arXiv:2601.14896 , 2026. [40] Rui Qi, Fengran Mo, Sijin Lu, Yufeng Chen, Jian-Yun Nie, and Kaiyu Huang. CroSearch-R1: Better leveraging cross-lingual knowledge for retrieval-augmented generation. arXiv preprint arXiv:2604.25182 , 2026. 13 [41] Zihan Qiu, Zekun Wang, Bo Zheng, Zeyu Huang, Kaiyue Wen, Songlin Yang, Rui Men, Le Yu, Fei Huang, Suozhi Huang, et al. Gated attention for large language models: Non-linearity, sparsity, and attention-sink-free. arXiv preprint arXiv:2505.06708 , 2025. [42] Rafael Rafailov, Archit Sharma, Eric Mitchell, Stefano Ermon, Christopher D. Manning, and Chelsea Finn. Direct preference optimization: Your language model is secretly a reward model. In Advances in Neural Information Processing Systems (NeurIPS) , 2023. [43] Leonardo Ranaldi, Barry Haddow, and Alexandra Birch. Multilingual retrieval-augmented generation for knowledge-intensive task. CoRR , abs/2504.03616, 2025. doi: 10.48550/ARXIV. 2504.03616. [44] Marc’Aurelio Ranzato, Sumit Chopra, Michael Auli, and Wojciech Zaremba. Sequence level training with recurrent neural networks. arXiv preprint arXiv:1511.06732 , 2015. [45] Victor Sanh, Lysandre Debut, Julien Chaumond, and Thomas Wolf. DistilBERT, a distilled version of BERT: Smaller, faster, cheaper and lighter. arXiv preprint arXiv:1910.01108 , 2019. [46] John Schulman. Approximating KL divergence. http://joschu.net/blog/kl-approx. html , 2020. Blog post. [47] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. [48] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. DeepSeekMath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. [49] Yiyang Shen, Lifu Tu, and Weiran Wang. Reinforcement learning-based knowledge distillation with LLM-as-a-judge. arXiv preprint arXiv:2604.02621 , 2026. [50] Guangming Sheng, Chi Zhang, Zilingfeng Ye, Xibin Wu, Wang Zhang, Ru Zhang, Yanghua Peng, Haibin Lin, and Chuan Wu. Hybridflow: A flexible and efficient RLHF framework. 
+
+CoRR , abs/2409.19256, 2024. doi: 10.48550/ARXIV.2409.19256. [51] Siqi Sun, Yu Cheng, Zhe Gan, and Jingjing Liu. Patient knowledge distillation for BERT model compression. arXiv preprint arXiv:1908.09355 , 2019. [52] Richard S Sutton, David McAllester, Satinder Singh, and Yishay Mansour. Policy gradient meth-ods for reinforcement learning with function approximation. Advances in neural information processing systems , 12, 1999. [53] George Tsatsaronis, Georgios Balikas, Prodromos Malakasiotis, Ioannis Partalas, Matthias Zschunke, Michael R Alvers, Dirk Weissenborn, Anastasia Krithara, Sergios Petridis, Dimitris Polychronopoulos, et al. An overview of the bioasq large-scale biomedical semantic indexing and question answering competition. BMC bioinformatics , 16(1):138, 2015. [54] Wenhui Wang, Furu Wei, Li Dong, Hangbo Bao, Nan Yang, and Ming Zhou. MiniLM: Deep self-attention distillation for task-agnostic compression of pre-trained transformers. Advances in neural information processing systems , 33:5776–5788, 2020. [55] Xuekang Wang, Zhuoyuan Hao, Shuo Hou, Hao Peng, Juanzi Li, and Xiaozhi Wang. Repro-ducing, analyzing, and detecting reward hacking in rubric-based reinforcement learning, 2026. URL https://arxiv.org/abs/2606.04923 .[56] Yiming Wang, Pei Zhang, Jialong Tang, Haoran Wei, Baosong Yang, Rui Wang, Chenshu Sun, Feitong Sun, Jiran Zhang, Junxuan Wu, Qiqian Cang, Yichang Zhang, Fei Huang, Junyang Lin, Fei Huang, and Jingren Zhou. Polymath: Evaluating mathematical reasoning in multilingual contexts. CoRR , abs/2504.18428, 2025. doi: 10.48550/ARXIV.2504.18428. [57] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, et al. Chain-of-thought prompting elicits reasoning in large language models. 
+
+Advances in neural information processing systems , 35:24824–24837, 2022. 14 [58] Ronald J Williams. Simple statistical gradient-following algorithms for connectionist reinforce-ment learning. Machine learning , 8(3):229–256, 1992. [59] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, et al. Qwen3 technical report. arXiv preprint arXiv:2505.09388 , 2025. [60] Zhaorui Yang, Tianyu Pang, Haozhe Feng, Han Wang, Wei Chen, Minfeng Zhu, and Qian Liu. Self-distillation bridges distribution gap in language model fine-tuning. In Lun-Wei Ku, Andre Martins, and Vivek Srikumar, editors, Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 1028–1043, Bangkok, Thailand, August 2024. Association for Computational Linguistics. doi: 10.18653/ v1/2024.acl-long.58. [61] Zhilin Yang, Peng Qi, Saizheng Zhang, Yoshua Bengio, William Cohen, Ruslan Salakhutdinov, and Christopher D Manning. Hotpotqa: A dataset for diverse, explainable multi-hop question answering. In Proceedings of the 2018 conference on empirical methods in natural language processing , pages 2369–2380, 2018. [62] Xianhui Zhang, Chengyu Xie, Linxia Zhu, Yonghui Yang, Weixiang Zhao, Zifeng Cheng, Cong Wang, Fei Shen, and Tat-Seng Chua. Who transfers safety? identifying and targeting cross-lingual shared safety neurons, 2026. URL https://arxiv.org/abs/2602.01283 .[63] Xinyu Zhang, Nandan Thakur, Odunayo Ogundepo, Ehsan Kamalloo, David Alfonso-Hermelo, Xiaoguang Li, Qun Liu, Mehdi Rezagholizadeh, and Jimmy Lin. MIRACL: A multilingual re-trieval dataset covering 18 diverse languages. Transactions of the Association for Computational Linguistics , 11:1114–1131, 2023. doi: 10.1162/tacl_a_00595. [64] XiuYu Zhang, Yi Shan, Junfeng Fang, and Zhenkai Liang. Self-evaluation is already there: Eliciting latent judge calibration in base LLMs with minimal data, 2026. URL https://arxiv. org/abs/2606.05122 .[65] Xue Zhang, Yunlong Liang, Fandong Meng, Songming Zhang, Kaiyu Huang, Yufeng Chen, Jinan Xu, and Jie Zhou. Think natively: Unlocking multilingual reasoning with consistency-enhanced reinforcement learning. arXiv preprint arXiv:2510.07300 , 2025. [66] Zhaoyang Zhang, Shuli Jiang, Yantao Shen, Yuting Zhang, Dhananjay Ram, Shuo Yang, Zhuowen Tu, Wei Xia, and Stefano Soatto. Reinforcement-aware knowledge distillation for LLM reasoning. arXiv preprint arXiv:2602.22495 , 2026. [67] Siyan Zhao, Zhihui Xie, Mengchen Liu, Jing Huang, Guan Pang, Feiyu Chen, and Aditya Grover. Self-distilled reasoner: On-policy self-distillation for large language models. arXiv preprint arXiv:2601.18734 , 2026. [68] Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric P. Xing, Hao Zhang, Joseph E. Gonzalez, and Ion Stoica. Judging LLM-as-a-judge with MT-Bench and chatbot arena. In Alice Oh, Tristan Naumann, Amir Globerson, Kate Saenko, Moritz Hardt, and Sergey Levine, editors, Advances in Neural Information Processing Systems 36: Annual Conference on Neural Information Processing Systems 2023, NeurIPS 2023, New Orleans, LA, USA, December 10 - 16, 2023 , 2023. 15 Appendices A Limitations and Future Work 
+
+We focus on a specific but practically important setting: English-evidence cross-lingual generation, where questions and answers are non-English but retrieved evidence is English. This leaves several extensions for future work, including multilingual or mixed-language evidence, cross-lingual retrieval, and tighter joint optimization of retrieval and generation. Our method also relies on stronger teachers and an LLM-based judge during training, which introduces additional cost and potential evaluator bias even though neither is required at inference time. One specific overlap deserves note: for the Llama backbone, our cross-family evaluation judge ( Llama-3.3-70B-Instruct ) coincides with the distillation teacher, so its scores are not fully independent of the teacher anchor. We partly control for this by reporting judge-independent signals (language consistency and character 3-gram recall) and by the Qwen backbone, whose teacher and primary judge come from different families; a fully neutral third-family judge (e.g., Gemma or Mistral) on an MKQA subset would further strengthen the evaluation and is left to future work. In addition, part of our training data is derived from translated benchmarks, so broader validation on natively authored cross-lingual RAG datasets would strengthen the conclusions. Finally, our current language-consistency reward is intentionally simple, and richer language-control signals may further improve robustness, especially for low-resource languages. 
+
+## B Extended Proofs for Teacher-Regularized RL 
+
+B.1 Notation and Setup 
+
+Let x denote an input instance (query–evidence pair) drawn together with a reference answer 
+
+a⋆ from a training distribution B. Given x, the student policy πθ generates an output sequence 
+
+y = ( y1, . . . , y L(y)) with a (possibly trajectory-dependent) length L(y), using the autoregressive factorization 
+
+πθ (y | x) = 
+
+> L(y)
+
+Y
+
+> t=1
+
+πθ (yt | st), st = ( x, y <t ). (12) Here st denotes the prefix state induced by the realized student trajectory. The teacher policy πT
+
+is frozen and is evaluated on the same student-visited prefix states, i.e., we query πT (· | st) for 
+
+st = ( x, y <t ) where y ∼ πθ .We use a length-normalized (token-mean) reverse-KL teacher anchor along the student trajectory: 
+
+LrevKL (x, y ) = 1
+
+L(y)
+
+> L(y)
+
+X
+
+> t=1
+
+KL 
+
+
+
+πθ (· | st) πT (· | st)
+
+
+
+. (13) This normalization decouples the regularization strength from output length, while remaining well-defined when L(y) varies (e.g., EOS-terminated generation). Our teacher-regularized objective is 
+
+max 
+
+> θ
+
+˜J(θ) = E(x,a ⋆)∼B Ey∼πθ (·| x)
+
+h
+
+r(x, y ) − β LrevKL (x, y )
+
+i
+
+, (14) where r(x, y ) is the task reward and β > 0 controls the strength of the teacher anchor. All statements below are written to remain valid when L(y) is random. 
+
+B.2 Reverse KL Decomposition: Teacher Likelihood + Entropy Lemma B.1 (Per-token reverse KL identity) . For any prefix state s and distributions π(· | s) and 
+
+πT (· | s),
+
+−KL  π(· | s) πT (· | s) = Ea∼π(·| s)[log πT (a | s)] + H π(· | s), (15) 
+
+where H(π) = −Ea∼π [log π(a)] is entropy. Proof. By definition, KL( π∥πT ) = Ea∼π [log π(a) − log πT (a)] . Negating both sides gives 
+
+−KL( π∥πT ) = Ea∼π [log πT (a)] − Ea∼π [log π(a)] = Ea∼π [log πT (a)] + H(π).16 Corollary B.2 (Token-mean reverse KL decomposition on student prefixes) . For a sampled trajectory 
+
+y ∼ πθ (· | x),
+
+−L revKL (x, y ) = 1
+
+L(y)
+
+> L(y)
+
+X
+
+> t=1
+
+
+
+Ea∼πθ (·| st)[log πT (a | st)] + H(πθ (· | st)) 
+
+
+
+. (16) 
+
+Implication. Eq. (16) shows the teacher anchor has two effects: (i) it increases teacher-consistency 
+
+by encouraging student actions that the teacher assigns high probability; (ii) it adds a local entropy bonus that stabilizes exploration under reward optimization. 
+
+Important note on realizations vs. expectations. In general, when L(y) is trajectory-dependent, one should not claim that 
+
+Ey∼πθ
+
+ 1
+
+L(y)
+
+> L(y)
+
+X
+
+> t=1
+
+Ea∼πθ (·| st)[log πT (a | st)] 
+
+
+
+is exactly equivalent to replacing the inner expectation by the realized token log πT (yt | st). The realized-token form is a Monte Carlo estimator of the per-state expectation, but the presence of the random normalization 1/L (y) means additional care is needed when rewriting objectives. We therefore use the decomposition in Eq. (16) as the mathematically correct identity, and treat realized-token quantities only as estimators when discussing implementation. 
+
+B.3 Closed-form Optimum in a Simplified Bandit View (Sum-KL Variant) 
+
+To build intuition, consider a contextual bandit abstraction where an “action” is the entire sequence y,and consider a sum-KL regularizer (no length normalization). Define a sequence-level teacher “prior” by evaluating the teacher on the same prefix states induced by y, i.e., 
+
+πT (y | x) ≜
+
+> L(y)
+
+Y
+
+> t=1
+
+πT (yt | st). (17) Define the sequence-level reverse KL 
+
+KL  π(· | x) πT (· | x) = Ey∼π(·| x)
+
+ log π(y | x) − log πT (y | x). (18) 
+
+Lemma B.3 (Autoregressive KL chain rule) . If π and πT share the same autoregressive factorization on the same prefix states, then the sequence-level KL equals the expected sum of per-token KL terms: 
+
+KL  π(· | x) πT (· | x) = Ey∼π(·| x)
+
+> L(y)
+
+X
+
+> t=1
+
+KL  π(· | st) πT (· | st). (19) 
+
+Proof. By the shared autoregressive factorization on identical prefix states st = ( x, y <t ),
+
+log π(y | x)
+
+πT (y | x) =
+
+> L(y)
+
+X
+
+> t=1
+
+log π(yt | st)
+
+πT (yt | st) .
+
+Taking Ey∼π(·| x) of the left-hand side gives KL( π(· | x)∥πT (· | x)) by definition (Eq. (18) ). For the right-hand side, group the summands by time step and apply the tower property: for each t,conditioning on the prefix st generated by π, the realized token obeys yt ∼ π(· | st), so 
+
+Ey∼π
+
+
+
+log π(yt | st)
+
+πT (yt | st)
+
+
+
+= Ey∼π
+
+
+
+Ea∼π(·| st)log π(a | st)
+
+πT (a | st)
+
+
+
+= Ey∼π
+
+KL  π(· | st) ∥ πT (· | st) .
+
+Summing over t = 1 , . . . , L (y) yields Eq. (19) . Treating the end-of-sequence marker as a terminal token in the shared vocabulary makes the factorization (and hence this identity) exact even when the length L(y) varies across trajectories. 17 Proposition B.4 (Closed-form optimum for teacher-regularized bandit objective (sum-KL)) . Fix an input x. Consider optimizing over all distributions π(· | x):
+
+max  
+
+> π(·| x)
+
+Ey∼π(·| x)[r(x, y )] − β KL  π(· | x) πT (· | x). (20) 
+
+Assuming πT (y | x) > 0 for all y in the support, an optimal solution is 
+
+π⋆(y | x) = πT (y | x) exp  r(x, y )/β P 
+
+> y′
+
+πT (y′ | x) exp  r(x, y ′)/β  . (21) 
+
+Proof. Introduce Lagrangian with constraint P 
+
+> y
+
+π(y | x) = 1 :
+
+L(π, λ ) = X
+
+> y
+
+π(y | x)r(x, y ) − β X
+
+> y
+
+π(y | x) log π(y | x)
+
+πT (y | x) + λ
+
+ X 
+
+> y
+
+π(y | x) − 1
+
+
+
+.
+
+Take derivative w.r.t. π(y | x) and set to zero: 
+
+r(x, y ) − β
+
+
+
+log π(y | x) − log πT (y | x) + 1 
+
+
+
++ λ = 0 .
+
+Rearrange to obtain log π(y | x) = log πT (y | x) + r(x, y )/β + c, where c absorbs constants. Exponentiate and normalize over y to obtain Eq. (21). 
+
+Remark (standard result). Eq. (21) is the standard closed form of a KL-regularized (maximum-entropy) objective and recurs throughout the RLHF / control-as-inference literature (e.g., the DPO reward–policy correspondence [ 42 ]); we state it as a proposition, included for self-containedness, rather than as a novel result. 
+
+Scope clarification (sum-KL vs. mean-KL). Proposition B.4 provides intuition for a sum-KL 
+
+regularized objective. Our method uses the token-mean regularizer in Eq. (13) . When L is fixed, sum- and mean-normalized variants differ only by a constant scaling of β. When L(y) is trajectory-dependent, they are not identical; the bandit analysis should therefore be interpreted as a simplified view rather than an exact characterization of Eq. (14). 
+
+B.4 Gradients: Reward Term vs. Teacher Anchor 
+
+We derive the gradient estimators for Eq. (14) and then describe the practical approximation used in our implementation. For brevity, omit expectation over (x, a ⋆).
+
+Reward term (REINFORCE). Using the score-function identity, 
+
+∇θ Ey∼πθ (·| x)[r(x, y )] = Ey∼πθ (·| x)
+
+h
+
+r(x, y )
+
+> L(y)
+
+X
+
+> t=1
+
+∇θ log πθ (yt | st)
+
+i
+
+. (22) A baseline b(x) can be subtracted from r(x, y ) to reduce variance without bias. 
+
+Teacher anchor gradient (analytic full-vocabulary form). For a fixed state s, define g(θ; s) = KL( πθ (· | s)∥πT (· | s)) . Since πT is fixed, g(θ; s) is a differentiable function of the student logits. Expanding the KL over the vocabulary V,
+
+g(θ; s) = X
+
+> a∈V
+
+πθ (a | s)
+
+
+
+log πθ (a | s) − log πT (a | s)
+
+
+
+. (23) Therefore ∇θ g(θ; s) can be computed by standard automatic differentiation through the student softmax probabilities (and does not require backpropagating through sampling). The full token-mean regularizer gradient is 
+
+∇θ LrevKL (x, y ) = 1
+
+L(y)
+
+> L(y)
+
+X
+
+> t=1
+
+∇θ g(θ; st). (24) 18 Note on the omitted score-function term. Because the KL penalty LrevKL (x, y ) appears inside the expectation over y ∼ πθ in Eq. (14) , the exact policy gradient of that term includes an additional score-function (REINFORCE) contribution: −β Ey∼πθ
+
+LrevKL (x, y ) P 
+
+> t
+
+∇θ log πθ (yt | st). Following standard practice in RL fine-tuning of LLMs [ 1 ], we intentionally omit this high-variance term and apply the KL penalty exclusively through its direct gradient as an auxiliary loss (cf. Eq. (24) ). This yields a surrogate gradient estimator rather than the exact gradient of Eq. (14) ; the resulting update is equivalent to optimizing a modified objective in which the KL penalty is treated as an auxiliary loss rather than a term inside the policy expectation. This approximation is widely adopted (e.g., in PPO-style KL penalties and GKD) and empirically effective, as verified by our training dynamics (Figures 6 and 7). 
+
+Implementation note (sampled-token approximation). Our implementation does not use the analytic full-vocabulary form in Eq. (23) but a sampled-token approximation, in the consideration of efficiency. Concretely, following the low-variance k3 KL estimator of Schulman [46] (as implemented in veRL [50]), the per-token KL at state st is estimated only at the sampled token yt:
+
+ˆg(θ; st) = exp(∆ t) − ∆t − 1, ∆t = log πT (yt | st) − log πθ (yt | st), (25) which is non-negative and satisfies Eyt∼πθ (·| st)[ˆ g(θ; st)] = g(θ; st), i.e., it is an unbiased estimate of the per-token KL value. Gradients are taken directly through log πθ (yt | st), consistent with the direct-gradient treatment above (the score-function correction is again omitted, as discussed in the preceding paragraph). 
+
+Optional alternative (score-function estimator; not required here). If one instead chooses to 
+
+estimate KL terms by sampling fresh actions a ∼ πθ (· | s), a score-function form exists (cf. standard KL-gradient identities); we mention it only for completeness. 
+
+B.5 Stability: Bounding Deviation from the Teacher via KL 
+
+We formalize a simple implication of the KL anchor: small KL limits distributional drift. 
+
+Lemma B.5 (Pinsker-style bound on bounded payoffs) . Let f (y) ∈ [0 , 1] be any bounded function. Then for any two distributions P, Q over y,
+
+Ey∼P [f (y)] − Ey∼Q[f (y)] ≤ TV( P, Q ) ≤
+
+q 12 KL( P ∥Q). (26) 
+
+Proof. The first inequality is standard: sup 0≤f ≤1 |EP f − EQf | = TV( P, Q ). The second follows from Pinsker’s inequality. 
+
+Corollary B.6 (Teacher-anchor limits reward deviation (sequence-level)) . Fix x and assume r(x, y ) ∈
+
+[0 , 1] . Then 
+
+Ey∼πθ (·| x)[r(x, y )] − Ey∼πT (·| x)[r(x, y )] ≤
+
+q 12 KL( πθ (· | x) ∥ πT (· | x)) . (27) 
+
+Remark (general bounded reward). The unit-interval assumption is only a normalization. For any reward bounded in [rmin , r max ], applying Lemma B.5 to f = ( r − rmin )/(rmax − rmin ) gives the same bound scaled by the range: Eπθ [r] − EπT [r] ≤ (rmax − rmin )
+
+q 12 KL( πθ ∥πT ). This is the relevant form for our deployed reward, whose weighting ( λlang =0 .5, λ 3g =λjudge =1 ) and length term (Appendix D.4.4) put r in a bounded range with rmax ≈ 3.5 rather than 1; the qualitative conclusion (small teacher KL bounds reward drift) is unchanged. 
+
+Relating token-mean KL to sequence-level KL (when length varies). By Lemma B.3, the sequence-level KL corresponds to an expected sum of per-token KL terms: 
+
+KL( πθ (· | x)∥πT (· | x)) = Ey∼πθ (·| x)
+
+h L(y)
+
+X
+
+> t=1
+
+KL t
+
+i
+
+= Ey∼πθ (·| x)
+
+h
+
+L(y) · L revKL (x, y )
+
+i
+
+,
+
+where KL t = KL( πθ (· | st)∥πT (· | st)) . If generation uses a maximum length Lmax (as in standard decoding), then 
+
+KL( πθ (· | x)∥πT (· | x)) ≤ Lmax · Ey∼πθ (·| x)
+
+LrevKL (x, y ). (28) Thus controlling the expected token-mean KL still provides a meaningful stability control under bounded-length decoding. 19 B.6 Why Token-Mean Normalization Helps (Length Bias) 
+
+A practical issue in sequence optimization is length bias : a token-sum penalty scales with L and can undesirably favor shorter outputs. We show a simple relationship between sum- and mean-normalized forms at the trajectory level. 
+
+Lemma B.7 (Sum vs. mean reverse KL (trajectory level)) . Let Lsum (x, y ) = PL(y) 
+
+> t=1
+
+KL( πθ (· | 
+
+st)∥πT (· | st)) and Lmean (x, y ) be Eq. (13) . Then 
+
+Lsum (x, y ) = L(y) · L mean (x, y ). (29) 
+
+Proof. Immediate from definitions. 
+
+Implication. With a fixed β, a sum penalty yields an effective regularization strength βL (y), which couples optimization to output length. The mean normalization decouples the anchor from length and yields more stable tuning of β across datasets/backbones and decoding settings. 
+
+B.7 Optional: Entropy-Regularized RL View (Identity + Estimator) 
+
+Using Lemma B.1 inside Eq. (13) , the teacher anchor can be expressed as a sum of two per-state 
+
+terms: 
+
+−β LrevKL (x, y ) = βL(y)
+
+> L(y)
+
+X
+
+> t=1
+
+
+
+Ea∼πθ (·| st)[log πT (a | st)] + H(πθ (· | st)) 
+
+
+
+. (30) This highlights an entropy-regularized RL interpretation plus an additional teacher log-likelihood shaping term. 
+
+Implementation note (realized-token estimator). In practice, one may estimate the expectation 
+
+Ea∼πθ (·| st)[log πT (a | st)] with the realized token yt ∼ πθ (· | st), i.e., log πT (yt | st). This is a Monte Carlo estimator of the per-state expectation; however, when L(y) is trajectory-dependent, we avoid claiming that substituting realized tokens yields an equivalent rewritten objective. We use Eq. (30) as the correct identity and treat realized-token quantities only as estimators for optimiza-tion/intuition. 
+
+## C Pseudocode 
+
+We outline the training procedure of TR-RAG in Algorithm 1. 
+
+## D Experiments 
+
+D.1 ENKB-RAG-5: Multilingual Variants of rag-mini-bioasq and HotpotQA Overview and motivation. We release BioASQ-ENKB5 and Hotpot-ENKB5 , multilingual vari-ants of rag-mini-bioasq and HotpotQA constructed for the English-evidence cross-lingual RAG regime studied in this work: the user query and required answer are in a target language, while retrieved evidence passages remain English. For each example, we keep evidence passages in English and translate the question q and reference answer a⋆ into five target languages: Indonesian ( id ), Korean ( ko ), Thai ( th ), Vietnamese ( vi ), and Japanese ( ja ). We treat id/ko/th/vi as in-domain (ID) training languages and evaluate generalization on held-out Japanese ( ja ) as well as the original English ( en ). 7
+
+We adopt translation-based construction as a pragmatic compromise between task difficulty and 
+
+setting fidelity . While several existing cross-lingual/multilingual QA benchmarks are valuable, many are primarily designed for extractive or short factual QA and can be less diagnostic for the generation-side failures we target (language drift and brittle evidence use under injected English passages) with modern instruction-tuned LLMs. In contrast, rag-mini-bioasq and HotpotQA provide more challenging open-domain questions (domain-specific terminology and multi-hop reasoning), where we observe substantial headroom and clear failure modes in English-evidence deployments. 
+
+> 7We will release the data, preprocessing scripts, and documentation upon publication.
+
+20 Algorithm 1 TRAINING PROCEDURE OF TR-RAG 
+
+Input: Training distribution B over (x, a ⋆) with x = ( q, D ); student policy πθ ; frozen teacher πT ; weights 
+
+λlang , λ 3g , λ judge ; teacher weight β; rollouts per input K; minibatch size b; advantage-normalization constant 
+
+ϵ=10 −6.
+
+Output: Trained student policy parameters θ.Initialize θ;
+
+while not converged do 
+
+sample a minibatch {(xi, a ⋆i )}bi=1 ∼ B ;
+
+for each instance (xi, a ⋆i ) in the minibatch do for k = 1 to K do 
+
+sample on-policy rollout y(k) 
+
+> i
+
+∼ πθ (· | xi); ▷ Eq. (7) 
+
+rlang ← I[LID( y(k) 
+
+> i
+
+) = LID( a⋆i )] ; ▷ Eq. (4) 
+
+r3g ← Recall@3gram( y(k) 
+
+> i
+
+, a ⋆i ); ▷ Eq. (5) 
+
+rjudge ← Judge( qi, D i, a ⋆i , y (k) 
+
+> i
+
+); ▷ Eq. (6) 
+
+r(k) 
+
+> i
+
+← λlang rlang + λ3g r3g + λjudge rjudge ; ▷ Eq. (3) query teacher on student prefixes πT (· | s(k) 
+
+> i,t
+
+) for t = 1 , . . . , L (k) 
+
+> i
+
+; ▷ no teacher rollouts 
+
+L(k) 
+
+> revKL ,i
+
+← 1
+
+> L(k)
+> i
+
+PL(k) 
+
+> i
+> t=1
+
+KL  πθ (· | s(k) 
+
+> i,t
+
+) ∥ πT (· | s(k) 
+
+> i,t
+
+); ▷ Eq. (9) 
+
+end for 
+
+¯ri ← 1
+
+> K
+
+PKk=1 r(k) 
+
+> i
+
+, σi ←
+
+q 1
+
+> K
+
+PKk=1 (r(k) 
+
+> i
+
+− ¯ri)2;
+
+A(k) 
+
+> i
+
+← r(k)  
+
+> i−¯ri
+> σi+ϵ
+
+for k = 1 , . . . , K ;
+
+end for 
+
+update θ by optimizing the GRPO objective with advantages {A(k) 
+
+> i
+
+} and adding the teacher-anchor loss 
+
+β · 1
+
+> bK
+
+P 
+
+> i,k
+
+L(k) 
+
+> revKL ,i
+
+(direct gradients); 
+
+end while return θ.
+
+Source data and splits. BioASQ-ENKB5 is derived from rag-mini-bioasq [ 53 ], containing 4.7k single-hop questions and 40k biomedical passages. We use the same 80/20 random split over questions (train/test) as in the main paper. Hotpot-ENKB5 is derived from HotpotQA [ 61 ]; we sample 4.4k bridge-type questions for training and 1.1k for testing. We preserve original example identifiers to enable traceability to the source benchmarks. 
+
+Translation pipeline. We translate (q, a ⋆) using Qwen3-235B-A22B-Instruct-2507 [ 59 ]. To reduce translation artifacts that may affect evidence grounding (e.g., entity/term drift), the prompt enforces: (i) faithful meaning preservation, (ii) no added or dropped facts, (iii) verbatim preservation 
+
+of numbers, dates, abbreviations, and salient entities/terms whenever possible, and (iv) output in the target language only (no explanations). We decode deterministically with temperature=0.0 ,
+
+top_p=1.0 , and max_tokens=4096 . This translation is a one-time, offline preprocessing step, run once per dataset; it is not part of the TR-RAG training loop or of inference, and therefore adds no recurring cost to the method itself. Post-processing normalizes whitespace/punctuation, strips surrounding quotes when present, and removes obvious boilerplate (non-target-language meta text, if any). The translation prompts are shown in Figures 9 to 12; the Vietnamese prompt follows the same template with the target language set to Vietnamese. 
+
+Potential artifacts and why they matter. Constructing multilingual instances via translation can introduce two classes of distribution shift relative to “native” multilingual queries: (a) transla-tionese/style shift , where phrasing becomes more literal or unnatural; and (b) entity/terminology perturbations , where rare entities, abbreviations, or biomedical terms may be inconsistently translit-erated or normalized. Both can, in principle, interact with our targeted phenomena: for example, unnatural phrasing may change the model’s tendency to copy English spans, and term drift can weaken lexical anchoring between the (translated) query/answer and the English evidence, affecting both grounding and overlap-based signals. We therefore treat translation artifacts as a known limitation 
+
+of this construction and explicitly include sanity checks and reporting to mitigate and quantify their impact. 
+
+Quality mitigation and known risks. To mitigate translation artifacts, we rely primarily on prompt-level quality control during translation: the translation prompt explicitly enforces faithful meaning 21 preservation, verbatim retention of numbers/dates/abbreviations/entities, and target-language-only output (see Figures 9 to 12), combined with deterministic decoding ( temperature=0.0 ). Post-processing normalizes whitespace/punctuation, strips surrounding quotes, and removes obvious boilerplate. We additionally performed a manual spot-check on a randomly sampled subset of 10 examples per target language to assess (i) fluency/naturalness, (ii) whether entities/terms remain semantically consistent, and (iii) whether the qualitative failure modes studied in the paper (language drift and evidence misuse under English passages) persist beyond a small number of translation outliers. However, we did not apply systematic automatic post-translation filtering (e.g., LID-based filtering, number-preservation checks, or entity-consistency heuristics) on the final training data beyond the prompt-level and post-processing controls described above. This means that residual translation errors (such as occasional language mixing, entity transliteration inconsistencies, or dropped numeric details) may remain in the dataset. We acknowledge this as a limitation and note that applying such automatic filters in future work could further improve data quality. For reproducibility, we release (i) the translation prompts and decoding parameters and (ii) the post-processing scripts. 
+
+Discussion: relation to native multilingual-query benchmarks. An important complementary evaluation is to test on benchmarks where the original questions are authored in non-English languages while evidence remains English. Existing datasets in this direction (e.g., XOR-TyDi QA [ 2] and related cross-lingual QA resources[ 29 ] ) are valuable but often differ in task structure and difficulty (e.g., emphasis on retrieval or short-answer extraction), which may make them less diagnostic for the open-domain generation-side failures we target with strong instruction-tuned models. We therefore focus our main experiments on challenging open-domain QA where we observe substantial headroom, while treating native multilingual-query benchmarks as a complementary axis for future and expanded evaluation. We also make our construction pipeline modular so that the same training recipe can be applied to other English-evidence cross-lingual datasets as they become available or as difficulty-matched suites emerge. 
+
+Limitations. Because no systematic automatic post-translation filtering was applied, ENKB-RAG-5 may exhibit translationese, residual terminology inconsistencies, and occasional translation errors. Accordingly, we interpret results as evidence about the English-evidence cross-lingual genera-tion problem under a controlled construction , and we encourage follow-up evaluations on native multilingual-query settings when suitable difficulty-matched benchmarks are available. 
+
+D.2 Metrics 
+
+To align with our reward decomposition (Eq. (3) ), we evaluate three complementary criteria for each generated answer y given (q, D ), all mapped to [0 , 1] . Language consistency measures target-language adherence under English evidence: we apply the fastText lid.176 language identification model [ 19 , 11 ] and use a binary indicator rlang (y) = I[LID( y) = LID( a⋆)] ∈ { 0, 1}, matching the training reward (Eq. (4) ). Character 3-gram recall follows Eq. (5) and quantifies lightweight lexical faithfulness to the reference answer a⋆ via character n-gram overlap; this choice is motivated by char-acter n-gram MT metrics such as chrF [ 36 ], which are less sensitive to tokenization and morphology. 
+
+LLM-judge evaluates answer quality with access to the question q, retrieved context D, reference answer a⋆, and student answer y; it outputs a graded score rjudge (q, D, a ⋆, y ) ∈ [0 , 1] according to a rubric emphasizing (i) faithfulness to D (hallucination checking), (ii) correctness/alignment with a⋆
+
+(including entity-level accuracy for BioASQ and reasoning completeness for HotpotQA), and (iii) conciseness. Our primary judge is Qwen3-Next-80B-A3B-Instruct [ 59 , 41 ] with deterministic decoding (temperature = 0 ); we parse the scalar score from the XML <score> field, following prior work on using strong LLMs as evaluators [ 68 ]. To rule out within-family reward hacking (the training reward also uses a Qwen-family model), we additionally report a cross-family judge, 
+
+Llama-3.3-70B-Instruct [ 8], evaluated under the same rubric and prompt (see Section D.2.4 for detailed comparison). The LLM-judge prompt is shown in Figure 14. Finally, since all metrics lie in 
+
+[0 , 1] , we define a single summary metric. For the ENKB-RAG-5 benchmarks (which use a single Qwen judge), Composite = 13 (rlang + r3g + rjudge ). For the MKQA benchmark, where we additionally report a cross-family Llama judge to rule out within-family reward hacking (Section D.2.4), we include both judges in the summary: Composite MKQA = 14 (rlang + r3g + rQwen judge + rLlama judge ). We report the composite alongside the individual metrics to avoid masking trade-offs. 22 Figure 9: Indonesian translation prompt. Prompt template used to translate English queries into Indonesian ( id ) when constructing BioASQ-ENKB5 and Hotpot-ENKB5 .
+
+D.2.1 On the inadequacy of exact match for free-form cross-lingual RAG. 
+
+A natural question is why we do not report Exact Match (EM) against the gold answer. The reason is that our setup is open-domain, free-form generation: instruction-tuned student models almost always wrap the answer entity in a full sentence, so a single string match against a short gold answer is uninformative. Table 4 reports zero-shot EM (%) across all three datasets ( Llama-3.2-3B-Instruct 
+
+backbone): every method (Base, Naive-RL, TR-RAG) collapses to (near-)zero EM regardless of generation quality. Table 4: Zero-shot Exact Match (%) across MKQA, HotpotQA, and BioASQ (Llama-3.2-3B-Instruct backbone). EM is uninformative for free-form RAG because all methods generate full sentences rather than extractive spans. Method MKQA HotpotQA BioASQ ID OOD ALL ID OOD ALL ID OOD ALL Base 0.33 0 0.17 0 0 0 0 0 0Naive-RL 0 0 0 0 0 0 0 0 0TR-RAG 0 0 0 0 0 0 0 0 0This pattern matches prior observations that EM under-estimates open-ended generative QA [ 20 ]and motivates recent multilingual RAG evaluations to adopt character-level overlap and language-consistency metrics instead [ 5 ]. We therefore report char 3-gram recall (a chrF-style character n-gram signal), the soft language-ID probability, and an LLM-judge, the same trio used as our reward decomposition. 23 Figure 10: Japanese translation prompt. Prompt template used to translate English queries into Japanese ( ja ) when constructing BioASQ-ENKB5 and Hotpot-ENKB5 .
+
+D.2.2 LLM-judge reliability and potential overfitting. 
+
+We use an LLM-judge ( Qwen3-Next-80B-A3B-Instruct ) in two roles: (i) as a training reward component rjudge to encourage evidence-grounded correctness, and (ii) as one of the evaluation metrics reported in the tables. This dual use raises a natural concern that models could overfit to the particular judge and obtain inflated judge scores without corresponding improvements in actual factual correctness. 
+
+Mitigations in our training setup. First, rjudge is only one component in our reward decomposition; optimization is jointly constrained by the language-adherence and char 3-gram rewards, and, for TR-RAG, by the reverse-KL anchor to the frozen teacher on student-visited prefixes (Section 3.3). To avoid confusion: this teacher anchor is the only KL term we use (we do not add any separate KL-to-initial-policy penalty), and Naive-RL (TR-RAG with β=0 ) therefore has no KL term at all, so the “Naive-RL collapse” we report is not an artifact of a hidden reference-policy regularizer. Second, the judge is queried on student-generated outputs but does not provide gradients; the reward is combined with other signals and does not directly train the model to mimic the judge’s textual style. Third, we report multiple complementary metrics beyond the judge score (e.g., correctness/overlap and language adherence), and our main conclusions do not rely on the judge metric alone. 
+
+Cross-judge consistency. We additionally evaluate the same outputs with an alternative judge model, Qwen3-235B-A22B-Instruct-2507 [59 ]. Table 5 reports the ALL-AVG judge score on Hotpot-ENKB5 (100 samples/language; Llama-3.2-3B-Instruct backbone). The two Qwen judges produce identical rankings, and the larger 235B judge assigns a wider margin to TR-RAG (+1.27 vs. +0.70), suggesting that our reported improvements are not artifacts of a particular judge. 24 Figure 11: Korean translation prompt. Prompt template used to translate English queries into Korean ( ko ) when constructing BioASQ-ENKB5 and Hotpot-ENKB5 .Table 5: Two Qwen judges on Hotpot-ENKB5 ( Llama-3.2-3B-Instruct backbone, ALL-AVG %). Identical method ranking; the larger judge assigns a wider gap to TR-RAG. Method Qwen3-Next-80B Qwen-235B Base 56.51 56.41 Naive-RL 75.88 76.50 TR-RAG 76.58 77.77 D.2.3 Conciseness as a confounder for the 3-gram–judge tension. 
+
+A subtle interaction arises between our character-3-gram reward and the LLM-judge: the 3-gram reward encourages more complete (and therefore longer) responses, while the judge’s rubric explic-itly rewards conciseness . To quantify this confound, we re-evaluate TR-RAG outputs on MKQA (Llama-3.2-3B-Instruct backbone) with two judge variants: (i) the original prompt that includes correctness, faithfulness, and conciseness; and (ii) an ablated prompt that drops the conciseness criterion while keeping the rest unchanged. Table 6: Conciseness ablation on the LLM judge (MKQA, TR-RAG outputs, 
+
+Llama-3.2-3B-Instruct backbone). Removing the conciseness criterion increases the judge score, indicating that the original judge actively penalizes the more complete responses promoted by the 3-gram reward rather than reflecting lower correctness/faithfulness. Judge variant Qwen judge Llama judge Original (correctness + faithfulness + conciseness) 71.50 70.45 Ablated (conciseness removed) 73.35 (+1.85 ) 71.80 (+1.35 )25 Figure 12: Thai translation prompt. Prompt template used to translate English queries into Thai (th ) when constructing BioASQ-ENKB5 and Hotpot-ENKB5 .Removing the conciseness criterion lifts the judge score by +1 .85 (Qwen) and +1 .35 (Llama), confirming that the small 3-gram–judge gap is largely a length-conciseness artifact rather than a correctness/faithfulness regression. 
+
+D.2.4 Cross-family judge: full comparison. 
+
+To rule out within-family reward hacking against our Qwen training judge, Table 7 pairs every condition with a cross-family Llama-3.3-70B-Instruct judge under the same rubric, broken down by ID/OOD/ALL on MKQA. Table 7: Qwen3-Next-80B (within-family) vs. Llama-3.3-70B-Instruct (cross-family) judges on the MKQA English-evidence setup, by ID/OOD/ALL (%). Method rankings are identical across both judges; the cross-family judge assigns a larger ALL-AVG gap to TR-RAG. Method ID-AVG OOD-AVG ALL-AVG Qwen Llama Qwen Llama Qwen Llama Base 65.02 62.37 66.35 65.12 65.69 63.75 Naive-RL 70.77 69.03 71.77 72.13 71.27 70.58 TR-RAG 70.50 70.62 73.45 72.90 71.98 71.76 
+
+Table 7 shows the within- and cross-family judges produce identical rankings (TR-RAG > Naive-RL 
+
+> Base) on every aggregated split. On ALL-AVG, TR-RAG leads Naive-RL by +0 .71 under Qwen and +1 .18 under Llama; the cross-family judge actually widens the gap, ruling out judge-family-specific reward hacking. The only minor flip is on ID, where Naive-RL edges TR-RAG on Qwen (70.77 vs. 70.50) but TR-RAG leads under Llama (70.62 vs. 69.03); both gaps are small ( ≤ 1.6pp) and do not affect the overall conclusion. 26 Figure 13: Vietnamese translation prompt. Prompt template used to translate English queries into Vietnamese ( vi ) when constructing BioASQ-ENKB5 and Hotpot-ENKB5 .
+
+D.3 Baselines 
+
+The description for baselines is shown below: • Translate . This baseline reduces the cross-lingual generation problem to a pivot-English 
+
+pipeline. Specifically, given a user query q in language ℓ, we first translate it into English (ˆqen ), concatenate ˆqen with the retrieved English context D, and prompt the LLM to produce an English answer ˆyen . We then translate ˆyen back into the target language to obtain the final response ˆyℓ. Both the query →en and answer → ℓ steps use the same 
+
+Qwen3-235B-A22B-Instruct-2507 translator as in dataset construction (Appendix D.1) with deterministic decoding (temperature 0, top-p 1.0), so that any degradation reflects the pivot-translation design rather than a weak translator. Translate is a commonly used heuristic [25 , 14 , 2] in cross-lingual QA/RAG systems as it avoids direct multilingual decoding under English evidence, but it can introduce compounding translation errors (query intent shifts and answer mistranslations) and may weaken evidence-groundedness due to information loss across two translation steps. • Prompt-Control . Following Wang et al. [56] , we append language-specific control direc-tives to the input prompts, ensuring that the model produces outputs in the same language as the original query. For specific language control directives used for each language, it is shown in Figure 15. • DIT . DIT [ 30 ] proposes a lightweight prompt-based control for multilingual reasoning. The original method places discourse markers right after the <think> token in reason-ing models that natively support extended thinking (e.g., QwQ, DeepSeek-R1). Since 
+
+Qwen3-4B-Instruct-2507 natively supports a thinking mode with <think> tokens, we apply DIT as designed for this backbone. For Llama-3.2-3B-Instruct , which does not 27 Figure 14: LLM-judge prompt. We use a rubric-based evaluator prompt to score student answers for RAG, conditioned on the question q, retrieved English context D, reference answer a⋆ (training only), and student output y. The prompt instructs the judge to assess (i) faithfulness (hallucination checking against D), (ii) correctness (alignment with a⋆, with entity focus for BioASQ and multi-hop completeness for HotpotQA), and (iii) conciseness . The judge returns a scalar score in [0 , 1] 
+
+following a strict rubric (e.g., 1.0/0.8/0.5/0.2/0.0) and outputs it in a constrained XML format for reliable parsing. natively emit <think> tokens, we adapt DIT by prepending the same discourse markers at the beginning of the model’s response, thereby providing an equivalent language-steering cue without introducing out-of-distribution formatting. The used multilingual discourse marks are shown in Figure 16. • Knowledge Distillation . Following Hinton et al. [13] , we train a compact student model to imitate a stronger teacher by learning from soft targets rather than only one-hot labels. Given an input x, the teacher produces logits zT (x) and the student produces logits zS (x); we compute softened distributions p(T ) 
+
+> T
+
+= softmax( zT /T ) and p(T ) 
+
+> S
+
+= softmax( zS /T ) with 28 'id': "Gunakan bahasa Indonesia untuk berpikir dan menjawab.",        
+
+> 'ko': " 한국어로 생각하고 답변하세요 .",
+> 'th': " ใช้ภาษาไทยในการคิดและตอบคําถาม .",
+> 'vi': "S ửdụng ti ếng Vi ệtđểsuy ngh ĩvà tr ảlời.",
+> 'en': "Use English to think and answer.",
+> 'ja': " ⽇本語を使って考え、回答してください 。",
+
+Figure 15: The language control instructions of the Prompt-Control baseline [56, 65]. temperature T > 1. The KD objective minimizes the divergence between the two softened distributions, and when gold labels are available we linearly combine this distillation loss with the standard cross-entropy. At inference time, the student uses the normal temperature 
+
+T = 1 . Concretely, this is an offline , token-level scheme: teacher and student logits are compared on the gold (teacher-forced) answer trajectory: soft-target matching on the reference answer, not sequence-level distillation (SeqKD) on teacher-generated text. This is exactly the offline counterpart that OPD and TR-RAG improve on by instead querying the teacher on student-generated prefixes. • SDFT . SDFT (Self-Distillation Fine-Tuning [ 60 ]) attributes the instability of LLM fine-tuning (especially the trade-off between downstream gains and retaining general instruction-following abilities) to a distribution gap between task-specific datasets and the pre-trained/instruction-tuned model’s original data distribution. To bridge this gap, SDFT constructs a distilled dataset by having the model (as teacher) generate supervision that is closer to its own original distribution, and then uses this distilled data to guide fine-tuning of the target model. Empirically, the paper reports that SDFT reduces catastrophic forget-ting and can maintain helpfulness/safety alignment, while achieving comparable or better downstream results than vanilla fine-tuning. • Naive-RL . This baseline applies standard reward optimization without any teacher-based anchoring. Given an input x = ( q, D ), the student policy πθ (initialized from 
+
+Qwen3-4B-Instruct-2507 or Llama-3.2-3B-Instruct [ 59 , 8]) generates on-policy rollouts y ∼ πθ (· | x). We then update θ with policy-gradient using only our task reward 
+
+r(x, y ) (language consistency + char 3-gram recall + LLM-judge), while disabling the teacher regularizer (equivalently setting β = 0 in Eq. (11) ). RL-only serves as a strong refer-ence for evaluating whether reward shaping alone can address English-evidence multilingual generation issues such as language drift and brittle evidence use. • On-Policy Distillation (OPD) [ 1]. This baseline uses teacher guidance as the sole training signal, without task-level rewards. The student (initialized from 
+
+Qwen3-4B-Instruct-2507 or Llama-3.2-3B-Instruct [ 59 , 8]) generates on-policy rollouts y ∼ πθ (· | x). For each prefix state st = (x, y <t ), we query a higher-capacity teacher, Qwen3-30B-A3B-Instruct-2507 (30.5B total / 3.3B activated MoE) or Llama-3.3-70B-Instruct [ 59 , 8 ], to obtain πT (· | st), and update the student by minimizing the same length-normalized reverse-KL anchor LrevKL (x, y ) used by TR-RAG (Eq. (9) ), the token-mean reverse KL over the student’s own prefixes. Importantly, the teacher is never used to generate rollouts; it only provides prefix-wise distributions on the trajectories produced by the student. OPD-only provides a clean reference for assessing how far prefix-conditioned teacher supervision alone can improve multilingual generation under English evidence, independent of explicit reward optimization. Note that OPD does not use a task reward (hence no β teacher-anchor hyperparameter); it trains purely by minimizing 
+
+LrevKL .
+
+D.4 Implementation details. D.4.1 Training recipe (no task-specific SFT by default). 
+
+Unless otherwise specified, we do not apply an additional supervised fine-tuning (SFT) stage on our task data before reinforcement learning (RL). Instead, we start RL directly from an off-the-shelf instruction-tuned checkpoint (e.g., Llama-3.2-3B-Instruct ), i.e., an instruction-following model without any task-specific warm-start. This design follows recent evidence that large-scale 29 'id': "Baiklah, Oke", 
+
+> 'ko': " 좋아 ",
+> 'th': " โอเค ",
+> 'vi': "Đ ược r ồi, Đ ầu tiên",
+> 'en': "Alright, Okay",
+> 'ja': " まず ",
+
+Figure 16: The multilingual discourse marks for each language of the DIT baseline. [30, 65]. RL can be effective without an explicit SFT stage [e.g., 7 ], and we find it particularly suitable for 
+
+English-evidence cross-lingual RAG .
+
+D.4.2 Why task-SFT may underperform in our setting. 
+
+Empirically, adding a task-specific SFT stage before RL can underperform the original instruction-tuned checkpoint in our setting. A key reason is exposure bias (prefix mismatch): SFT optimizes token-level likelihood under teacher forcing and thus primarily trains on ground-truth prefixes. At inference time, however, the model conditions on its own generated prefixes; early deviations (e.g., language drift or suboptimal evidence usage) shift the state distribution, causing subsequent decoding to operate out-of-distribution and compounding errors. Consequently, improving likelihood on gold prefixes does not necessarily yield better behavior on the student-visited prefixes that dominate actual generation. This motivates our default recipe: direct on-policy RL with teacher regularization on student-visited prefixes . TR-RAG queries a frozen teacher only on student-generated prefixes and applies a prefix-wise reverse-KL anchor, providing dense stabilization exactly where the student policy operates during rollout and mitigating exposure-bias-induced compounding errors. We still include task-SFT as a baseline, but do not rely on it as a warm-start in our main recipe. 
+
+D.4.3 Systems and optimization. 
+
+We implement our method using the open-source veRL [ 50 ] framework on a single node with 8×
+
+NVIDIA H100 (80GB) GPUs. Unless otherwise specified, we set the maximum prompt/response lengths to 8,192 / 2,048 tokens, filter overlong prompts, and enforce strict truncation (raise an error on overflow). We use GRPO with K = 8 rollouts per prompt, sampling temperature 0.9, and a PPO-style clipping ratio of 0.2 (the veRL default); the advantage-normalization constant is ϵ = 10 −6. The student (actor) is full fine-tuned with learning rate 1 × 10 −6 and a 10% warmup ratio, using PPO-style updates with micro-batch size 2 per GPU (mini-batch size 32). Each run is trained for approximately 250 GRPO update steps (the mean task reward plateaus by then; see Figure 6), and we evaluate the final checkpoint rather than selecting on a development metric. At evaluation , student models decode greedily (temperature 0) with up to 2,048 new tokens. We enable gradient checkpointing and train the actor with FSDP (no parameter/optimizer offloading), while the teacher model uses FSDP with parameter offloading enabled. Rollouts are generated with vLLM [ 24 ] (tensor model parallel size 1), using a maximum of 81,920 batched tokens and GPU memory utilization 0.3. For log-prob computation, we use micro-batch size 8 per GPU for the actor and 16 per GPU for the teacher model. We disable padding removal in the model implementation and use sequence parallel size 1. The teacher-anchor coefficient β (Eq. (11)) controls the weight on the LrevKL loss term. 
+
+D.4.4 Reward weights. 
+
+Our total reward combines three components (Eq. (3) ): rlang , r3g , and rjudge . We choose weights to (i) keep the three terms on comparable scales and (ii) avoid over-optimizing any single proxy. 
+
+Practical heuristic. All three reward components are bounded in [0 , 1] by construction. We start from equal weights (1 , 1, 1) and adjust only λlang downward to prevent the language-adherence term from dominating early training (which can reduce evidence usage), while keeping the grounding-related terms balanced. We validate this choice with a small sanity check on a held-out development split by comparing a few candidate settings, λlang ∈ { 0.25 , 0.5, 1.0} with λ3g =λjudge =1 , under the same training budget. 30 Table 8: SFT with different tuning approaches, in BioASQ-ENKB5, ALL-AVG as metric. Tuning approach/Backbone Llama-3.2-3B-Instruct Qwen3-4B-Instruct-2507 
+
+SFT (LoRA) 63.14 68.46 SFT ( Full fine-tuning ) 60.84 66.55 TR-RAG 74.84 82.85 
+
+Final choice. We use λlang =0 .5, λ3g =1 , λjudge =1 for all experiments, which provides a stable trade-off between language adherence and evidence-grounded correctness. 
+
+Length penalty. A length penalty is incorporated into the language consistency reward aiming to control the length of LLM’s answer. Concretely, the implemented language-consistency component is 
+
+λlang rlang (y, a ⋆) + rlen (y), where the bounded length score rlen (y) = max {0, 1 − 10 −4 max(0 , |y| − 
+
+3500) } equals 1 for answers within 3,500 characters and decays linearly beyond this threshold, discouraging excessively long outputs while leaving shorter responses unaffected. 
+
+Language-consistency check on short texts. When computing the training reward rlang (Eq. (4) ), the fastText LID comparison between the generated answer and the reference answer is skipped for very short strings, on which LID is unreliable: if either text is shorter than 10 characters, the response is treated as language-consistent. 
+
+D.4.5 Compute and randomness reporting. 
+
+All large-scale RL runs are computationally expensive; following common practice in recent LLM RL work [1, 7, 65], we report point estimates from a single (default) random seed. 
+
+D.4.6 Baseline hyperparameters and tuning Shared setup. Unless otherwise specified, we keep the data preprocessing, decoding/truncation rules, context lengths, and the RL rollout configuration consistent across RL-based methods, and we report any method-specific coefficients explicitly. 
+
+Teacher-anchor coefficient β. The coefficient β (Eq. (11) ) controls the strength of the reverse-KL teacher anchor LrevKL . We select β via the grid described in Appendix D.7; this yields β = 0 .02 ,which we use for all backbone–teacher pairs and in every reported TR-RAG run. 
+
+OPD baseline (no β). Our OPD baseline uses only the teacher-distillation loss LrevKL and does not 
+
+use a task reward (hence no β teacher-anchor hyperparameter). OPD follows the same shared RL optimization/rollout configuration as other RL baselines, with its method-specific objective defined in the main text. 
+
+SFT baselines. When we include a task-SFT baseline, we fine-tune the same instruction-tuned checkpoint using LoRA with learning rate 1 × 10 −4, LoRA rank r = 16 and α = 32 , for 3 epochs, with per-device batch size 2 on 8 GPUs (single node), using the same tokenizer and data preprocessing pipeline as other methods. We use this configuration as it follows standard hyperparameter choices widely adopted in instruction-tuning practice for LoRA-based SFT [ 15 ]. The SFT results reported in our tables are obtained by fine-tuning a separate model on the training split of each in-domain language (one specialized model per language), rather than training a single model jointly on the mixture of all in-domain languages; we leave a systematic comparison with joint multilingual SFT to future work. Where feasible, we additionally run a full-parameter SFT baseline in a representative setting (BioASQ-ENKB5 with Llama-3.2-3B-Instruct and Qwen3-4B-Instruct-2507 ), using the same set of hyperparameters as that of TR-RAG. As shown in Table 8, its performance is even worse and does not alter the trends reported in the main tables. 
+
+KD baselines. For the knowledge distillation baseline, we adopt standard soft-target KD hy-perparameters, distillation temperature T =2 and an equal ( α=0 .5) mixing of the distillation and cross-entropy losses, commonly used in the distillation literature [ 13 , 51 ], adapted to our decoder-only generative setting, and keep them fixed across datasets/backbones. 31 D.5 Main experiments 
+
+For space reasons, only Table 1 is kept in the main text. We provide here the remaining three of the four BioASQ/Hotpot main-experiment tables: BioASQ-ENKB5 with the Qwen-4B student (Table 9), and Hotpot-ENKB5 with both the Llama-3B and Qwen-4B students (Tables 10 and 11). All three reproduce the qualitative conclusions reported in the main text. 
+
+On the language-consistency plateau in Hotpot-ENKB5 (a LID artifact). A striking pattern in Tables 10 and 11 is that every method (including the frozen 70B/30B teachers) clusters at almost identical LC values on several languages (e.g., id ≈ 55%, vi ≈ 71%, and en pinned at 92.90/92.91). Ten systems agreeing to two decimal places cannot reflect genuine model differences; it is a systematic artifact of the fastText LID classifier on this data. Two well-documented fastText failure modes explain it: Indonesian is frequently confused with Malay ( id /ms ), and short answers that contain Latin-script English entities (common for HotpotQA bridge answers) are often mislabeled as English. Because we construct the data so that the reference-answer language equals the query language (LID( a⋆) ≡ ℓ(q); Section 3.2), a cleaner alternative that sidesteps LID noise on short gold strings is to score I[LID( y) = ℓ(q)] against the known query language directly (optionally with light manual verification); we report the LID( a⋆) form for consistency with the training reward and treat this Hotpot LC column as saturated/uninformative rather than as evidence of method parity. It does not affect the char 3-gram, judge, or Composite comparisons, on which the methods separate clearly. 32 Table 9: Performance comparison in BioASQ-ENKB5, with Qwen3-4B-Instruct-2507 as the backbone, and Qwen3-30B-A3B-Instruct-2507 as the teacher. Bold is the best, and underline is the runner-up. The teacher ( Qwen3-30B-A3B-Instruct-2507 ) and base (Qwen3-4B-Instruct-2507 ) rows are reference-only and are not ranked. 
+
+Methods In-Domain Languages Out-of-Domain Languages ALL-AVG id ko th vi ID-AVG en ja OOD-AVG 
+
+Metric: language consistency (LC, %) 
+
+Qwen3-30B-A3B-Instruct-2507 88.45 97.88 99.15 97.24 95.68 99.78 99.25 99.52 96.96 
+
+Qwen3-4B-Instruct-2507 89.30 95.76 99.25 98.09 95.60 99.78 99.25 99.52 96.91 Translate 90.04 98.52 99.26 98.41 96.56 99.78 99.26 99.52 97.55 
+
+Prompt-Control 90.25 96.93 99.26 98.41 96.21 99.79 99.36 99.58 97.33 DIT 88.67 97.25 99.26 97.99 95.79 99.79 98.62 99.21 96.93 SFT 84.75 96.93 97.14 95.97 93.70 99.05 98.62 98.84 95.41 Knowledge distillation 88.24 97.35 98.94 97.46 95.50 99.79 97.88 98.84 96.61 SDFT 87.81 97.35 98.94 97.45 95.39 99.78 98.30 99.04 96.61 Naive-RL 90.15 98.20 99.26 98.31 96.48 99.58 99.36 99.47 97.48 On-Policy Distillation 89.61 97.24 99.25 96.92 95.76 99.68 98.62 99.15 96.89 TR-RAG 90.15 98.52 99.26 98.20 96.53 99.58 99.36 99.47 97.51 
+
+Metric: char 3-gram recall (%) 
+
+Qwen3-30B-A3B-Instruct-2507 81.10 48.74 59.19 77.17 66.55 82.43 45.66 64.05 65.72 
+
+Qwen3-4B-Instruct-2507 75.06 42.66 52.82 69.65 60.05 77.56 38.50 58.03 59.38 Translate 72.76 37.37 47.84 69.52 56.87 77.56 35.75 56.66 56.80 Prompt-Control 76.02 43.36 53.01 72.55 61.24 77.91 39.42 58.67 60.38 DIT 77.98 44.35 52.67 73.00 62.00 84.05 40.29 62.17 62.06 SFT 41.57 26.17 32.83 41.55 35.53 50.43 25.89 38.16 36.41 Knowledge distillation 80.06 46.54 58.01 76.97 65.40 82.30 42.31 62.31 64.37 SDFT 79.60 45.59 56.88 75.49 64.39 81.74 41.36 61.55 63.44 Naive-RL 81.14 46.02 58.70 76.94 65.70 82.83 42.49 62.66 64.69 On-Policy Distillation 80.80 47.62 58.83 77.28 66.13 84.50 40.45 62.48 64.91 TR-RAG 85.15 49.73 62.72 81.51 69.78 87.43 45.93 66.68 68.75 
+
+Metric: LLM-judge (%) 
+
+Qwen3-30B-A3B-Instruct-2507 79.65 76.63 79.17 79.01 78.62 81.21 76.62 78.92 78.72 
+
+Qwen3-4B-Instruct-2507 79.50 73.82 77.34 80.24 77.73 83.61 76.41 80.01 78.49 Translate 77.74 64.49 71.33 75.72 72.32 83.61 70.06 76.84 73.83 Prompt-Control 78.81 73.74 76.96 78.62 77.03 83.96 75.65 79.81 77.96 DIT 75.49 73.31 75.16 74.52 74.62 76.27 73.32 74.80 74.68 SFT 75.74 70.02 70.23 72.67 72.17 79.45 73.31 76.38 73.57 Knowledge distillation 76.78 72.06 75.66 76.89 75.35 81.04 74.23 77.64 76.11 SDFT 77.55 72.49 75.78 77.16 75.75 80.41 74.32 77.37 76.29 Naive-RL 86.26 80.30 82.86 84.82 83.56 86.72 81.72 84.22 83.78 
+
+On-Policy Distillation 77.28 73.60 76.12 77.54 76.14 80.12 75.87 78.00 76.76 TR-RAG 83.97 79.83 80.73 83.21 81.94 85.91 80.19 83.05 82.31 
+
+Metric: Composite (%) 
+
+Qwen3-30B-A3B-Instruct-2507 83.07 74.42 79.17 84.47 80.28 87.81 73.84 80.83 80.46 
+
+Qwen3-4B-Instruct-2507 81.29 70.75 76.47 82.66 77.79 86.98 71.39 79.19 78.26 Translate 80.18 66.79 72.81 81.22 75.25 86.98 68.36 77.67 76.06 Prompt-Control 81.69 71.34 76.41 83.19 78.16 87.22 71.48 79.35 78.56 DIT 80.71 71.64 75.70 81.84 77.47 86.70 70.74 78.72 77.89 SFT 67.35 64.37 66.73 70.06 67.13 76.31 65.94 71.13 68.46 Knowledge distillation 81.69 71.98 77.54 83.77 78.75 87.71 71.47 79.59 79.03 SDFT 81.65 71.81 77.20 83.37 78.51 87.31 71.33 79.32 78.78 Naive-RL 85.85 74.84 80.27 86.69 81.91 89.71 74.52 82.12 81.98 On-Policy Distillation 82.56 72.82 78.07 83.91 79.34 88.10 71.65 79.87 79.52 TR-RAG 86.42 76.03 80.90 87.64 82.75 90.97 75.16 83.07 82.85 
+
+33 Table 10: Performance comparison in Hotpot-ENKB5, with Llama-3.2-3B-Instruct as the backbone, and Llama-3.3-70B-Instruct as the teacher. Bold is the best, and underline is the runner-up. The teacher ( Llama-3.3-70B-Instruct ) and base ( Llama-3.2-3B-Instruct ) rows are reference-only and are not ranked. See the note in Section D.5 on the language-consistency plateau in this table. 
+
+Methods In-Domain Languages Out-of-Domain Languages ALL-AVG id ko th vi ID-AVG en ja OOD-AVG 
+
+Metric: language consistency (%) 
+
+Llama-3.3-70B-Instruct 55.00 99.22 99.09 70.40 80.93 92.63 99.59 96.11 85.99 
+
+Llama-3.2-3B-Instruct 56.72 99.63 99.27 72.09 81.93 92.90 99.81 96.36 86.54 
+
+Translate 55.72 97.27 98.91 70.91 80.70 92.90 99.55 96.23 85.88 Prompt-Control 55.09 99.63 99.81 71.18 81.43 92.90 99.90 96.40 86.42 DIT 55.81 99.36 99.81 70.72 81.43 92.90 99.72 96.32 86.39 SFT 63.73 90.00 95.18 70.55 79.87 89.64 92.00 90.82 83.52 Knowledge distillation 55.55 99.72 99.81 71.18 81.57 92.90 99.90 96.40 86.51 SDFT 55.00 99.54 99.72 71.09 81.34 92.90 99.90 96.40 86.36 Naive-RL 54.64 99.73 99.82 71.00 81.30 92.91 99.91 96.41 86.34 On-Policy Distillation 54.73 99.64 99.82 71.09 81.32 92.91 99.91 96.41 86.35 TR-RAG 54.45 99.72 99.81 71.18 81.29 92.90 99.90 96.40 86.37 
+
+Metric: char 3-gram recall (%) 
+
+Llama-3.3-70B-Instruct 78.89 44.26 44.57 71.21 59.73 90.66 49.73 70.20 63.22 
+
+Llama-3.2-3B-Instruct 44.99 18.81 24.18 44.38 33.09 56.22 25.16 40.69 35.62 Translate 40.06 11.37 18.28 35.13 26.21 56.22 18.07 37.15 29.86 Prompt-Control 48.67 20.73 26.20 49.60 36.30 62.57 27.99 45.28 39.29 DIT 50.37 17.83 19.85 51.89 34.99 58.25 24.19 41.22 37.06 SFT 57.21 34.02 39.31 56.14 46.67 75.12 42.16 58.64 50.66 Knowledge distillation 63.04 27.72 34.63 59.10 46.12 76.16 35.37 55.77 49.34 SDFT 67.25 29.87 35.37 64.87 49.34 81.00 38.09 59.55 52.74 Naive-RL 69.87 29.58 43.15 66.87 52.37 83.15 37.56 60.36 55.03 On-Policy Distillation 70.01 31.98 35.61 65.42 50.76 79.72 39.39 59.56 53.69 TR-RAG 72.20 33.77 45.37 68.50 54.96 83.47 43.47 63.47 57.80 
+
+Metric: LLM-judge (%) 
+
+Llama-3.3-70B-Instruct 83.74 81.25 81.31 85.13 82.86 87.06 84.30 85.68 83.80 
+
+Llama-3.2-3B-Instruct 54.87 49.50 50.60 57.65 53.16 59.53 50.33 54.93 53.75 Translate 44.83 19.93 25.47 39.62 32.46 59.53 27.35 43.44 36.12 Prompt-Control 56.93 46.84 49.11 58.96 52.96 62.09 49.44 55.77 53.90 DIT 52.53 43.15 35.40 55.62 46.68 60.15 45.97 53.06 48.80 SFT 69.03 52.35 57.19 69.57 62.04 81.77 59.13 70.45 64.84 Knowledge distillation 72.40 60.79 64.29 73.22 67.68 79.11 63.69 71.40 68.92 SDFT 75.02 65.99 70.53 77.74 72.32 82.61 68.90 75.76 73.47 Naive-RL 79.72 69.80 72.38 80.44 75.59 84.91 72.43 78.67 76.61 On-Policy Distillation 76.31 66.10 69.41 78.15 72.49 82.29 68.24 75.27 73.42 TR-RAG 79.66 69.74 73.65 81.52 76.14 85.68 74.76 80.22 77.50 
+
+Metric: Composite (%) 
+
+Llama-3.3-70B-Instruct 72.54 74.91 74.99 75.58 74.51 90.12 77.87 84.00 77.67 
+
+Llama-3.2-3B-Instruct 52.19 55.98 58.02 58.04 56.06 69.55 58.43 64.00 58.70 Translate 46.87 42.86 47.55 48.55 46.46 69.55 48.32 58.94 50.62 Prompt-Control 53.56 55.73 58.37 59.91 56.90 72.52 59.11 65.82 59.87 DIT 52.90 53.45 51.69 59.41 54.36 70.43 56.63 63.53 57.42 SFT 63.32 58.79 63.89 65.42 62.86 82.18 64.43 73.30 66.34 Knowledge distillation 63.66 62.74 66.24 67.83 65.12 82.72 66.32 74.52 68.25 SDFT 65.76 65.13 68.54 71.23 67.67 85.50 68.96 77.23 70.86 Naive-RL 68.08 66.37 71.78 72.77 69.75 86.99 69.97 78.48 72.66 On-Policy Distillation 67.02 65.91 68.28 71.55 68.19 84.97 69.18 77.08 71.15 TR-RAG 68.77 67.74 72.94 73.73 70.80 87.35 72.71 80.03 73.88 
+
+34 Table 11: Performance comparison in Hotpot-ENKB5, with Qwen3-4B-Instruct-2507 as the backbone, and Qwen3-30B-A3B-Instruct-2507 as the teacher. Bold is the best, and underline is the runner-up. The teacher ( Qwen3-30B-A3B-Instruct-2507 ) and base (Qwen3-4B-Instruct-2507 ) rows are reference-only and are not ranked. See the note in Sec-tion D.5 on the language-consistency plateau in this table. 
+
+Methods In-Domain Languages Out-of-Domain Languages ALL-AVG id ko th vi ID-AVG en ja OOD-AVG 
+
+Metric: language consistency (%) 
+
+Qwen3-30B-A3B-Instruct-2507 55.54 99.63 99.81 71.09 81.52 92.90 99.99 96.45 86.49 
+
+Qwen3-4B-Instruct-2507 55.45 99.72 99.81 70.90 81.47 92.90 99.72 96.31 86.42 Translate 55.09 99.73 99.82 71.18 81.46 92.90 99.91 96.41 86.44 Prompt-Control 56.54 99.72 99.81 70.81 81.72 92.90 99.81 96.36 86.60 
+
+DIT 56.00 99.18 99.81 71.27 81.57 92.90 99.54 96.22 86.45 SFT 69.36 93.09 95.18 77.45 83.77 91.09 90.91 91.00 86.18 Knowledge distillation 54.81 99.72 99.81 71.00 81.34 92.90 99.90 96.40 86.36 SDFT 54.90 99.72 99.81 71.09 81.38 92.90 99.81 96.36 86.37 Naive-RL 28.27 92.55 92.00 50.55 65.84 82.18 93.00 87.59 73.09 On-Policy Distillation 54.90 99.45 99.81 71.00 81.29 92.90 99.90 96.40 86.33 TR-RAG 55.60 99.73 99.82 71.09 81.41 92.91 99.91 96.41 86.51 
+
+Metric: char 3-gram recall (%) 
+
+Qwen3-30B-A3B-Instruct-2507 83.02 54.37 53.03 78.16 67.15 91.46 57.45 74.46 69.58 
+
+Qwen3-4B-Instruct-2507 79.75 44.46 43.27 74.42 60.48 89.36 49.88 69.62 63.52 Translate 78.41 40.43 43.81 72.59 58.81 89.36 48.34 68.85 62.16 Prompt-Control 82.93 45.23 44.10 77.86 62.53 90.88 50.10 70.49 65.18 DIT 86.57 44.78 43.01 79.10 63.37 96.76 47.69 72.23 66.32 SFT 65.71 43.24 45.11 64.56 54.66 76.02 46.41 61.22 56.84 Knowledge distillation 80.20 45.97 47.33 74.75 62.06 89.43 51.20 70.32 64.81 SDFT 80.60 46.15 47.88 75.72 62.59 90.32 52.13 71.23 65.47 Naive-RL 79.70 50.12 55.40 73.53 64.69 89.67 53.34 71.51 66.96 On-Policy Distillation 80.25 48.09 48.78 76.39 63.38 91.30 51.37 71.34 66.03 TR-RAG 79.96 51.41 55.22 74.80 65.35 90.83 55.54 73.19 67.96 
+
+Metric: LLM-judge (%) 
+
+Qwen3-30B-A3B-Instruct-2507 79.98 74.78 76.64 79.52 77.73 84.23 74.21 79.22 78.23 
+
+Qwen3-4B-Instruct-2507 76.32 69.39 73.14 77.09 73.98 81.59 72.11 76.85 74.94 Translate 75.53 57.49 65.03 73.68 67.93 81.59 64.85 73.22 69.70 Prompt-Control 74.86 69.21 71.24 75.09 72.60 80.13 71.15 75.64 73.61 DIT 74.67 70.72 72.14 74.58 73.03 77.50 71.33 74.42 73.49 SFT 77.79 63.61 65.49 78.40 71.32 86.23 66.84 76.54 73.06 Knowledge distillation 77.85 69.24 72.52 79.08 74.67 83.88 71.36 77.62 75.66 SDFT 77.96 69.84 73.18 79.06 75.01 83.90 71.80 77.85 75.96 Naive-RL 86.41 79.68 80.90 87.15 83.54 90.07 81.61 85.84 84.30 On-Policy Distillation 78.53 73.22 74.25 79.48 76.37 84.31 72.90 78.61 77.12 TR-RAG 85.74 80.27 81.88 86.79 83.67 91.42 81.94 86.68 84.67 
+
+Metric: Composite (%) 
+
+Qwen3-30B-A3B-Instruct-2507 72.85 76.26 76.49 76.26 75.46 89.53 77.22 83.37 78.10 
+
+Qwen3-4B-Instruct-2507 70.51 71.18 72.07 74.14 71.97 87.95 73.90 80.93 74.96 Translate 69.68 65.88 69.55 72.48 69.40 87.95 71.03 79.49 72.76 Prompt-Control 71.44 71.39 71.72 74.59 72.28 87.97 73.69 80.83 75.13 DIT 72.41 71.56 71.65 74.98 72.65 89.05 72.85 80.95 75.42 SFT 70.95 66.65 68.59 73.47 69.92 84.45 68.05 76.25 72.03 Knowledge distillation 70.95 71.64 73.22 74.94 72.69 88.74 74.15 81.45 75.61 SDFT 71.15 71.90 73.62 75.29 72.99 89.04 74.58 81.81 75.93 Naive-RL 64.79 74.12 76.10 70.41 71.36 87.31 75.98 81.65 74.79 On-Policy Distillation 71.23 73.59 74.28 75.62 73.68 89.50 74.72 82.11 76.49 TR-RAG 73.57 77.14 78.97 77.56 76.81 91.72 79.13 85.43 79.68 
+
+35 Table 12: Ablation studies ( Language Consistency , ALL-AVG metric, %). Variants Language Char 3-gram LLM-judge On-Policy BioASQ-ENKB5 Hotpot-ENKB5 Average Reward Reward Reward Distillation Llama 3B Qwen 4B Llama 3B Qwen 4B                                                      
+
+> RL-only ✓✓✓×97.02 97.48 86.34 73.09 88.48 OPD-only ×××✓97.16 96.89 86.35 86.37 91.69 No language reward ×✓✓✓96.54 97.46 86.40 86.24 91.66 No 3-gram reward ✓×✓✓96.44 96.05 92.29 92.44 94.31
+> No LLM-judge reward ✓✓×✓97.37 97.55 86.56 86.62 92.03 TR-RAG ✓✓✓✓97.42 97.51 86.33 86.41 91.92
+
+Table 13: Ablation studies ( char 3-gram recall , ALL-AVG metric, %). Variants Language Char 3-gram LLM-judge On-Policy BioASQ-ENKB5 Hotpot-ENKB5 Average Reward Reward Reward Distillation Llama 3B Qwen 4B Llama 3B Qwen 4B                                                      
+
+> RL-only ✓✓✓×51.77 64.69 55.03 66.96 59.61 OPD-only ×××✓48.01 64.91 53.69 66.03 58.16 No language reward ×✓✓✓55.23 69.27 55.74 67.66 61.98 No 3-gram reward ✓×✓✓34.49 43.06 41.71 49.85 42.28 No LLM-judge reward ✓✓×✓62.99 71.76 65.98 75.30 69.01
+> TR-RAG ✓✓✓✓58.09 68.75 57.80 67.96 63.15
+
+D.6 Ablation studies 
+
+More ablation studies of other three metrics: language consistency , char 3-gram recall , and LLM-judge score are shown in Tables 12 to 14. 
+
+D.7 Sensitivity to the teacher weight β
+
+The main hyperparameter in TR-RAG is the teacher-anchor weight β (Eq. (11) ), which trades off task reward optimization against the reverse-KL teacher anchor computed on student-generated prefixes. Intuitively, larger β enforces closer alignment to the teacher and typically stabilizes training under early prefix deviations (e.g., language drift), while smaller β allows more reward-driven exploration but may increase variance. We select β on a held-out development split from the in-domain training languages by grid search over β ∈ { 0.2, 0.02 , 0.002 , 0.0002 }, and use the same β for all runs within a backbone–teacher pair. Unless stated otherwise, we keep all remaining hyperparameters fixed across baselines and variants, including the rollout budget ( K samples per prompt for GRPO), maximum generation length, optimizer and learning-rate schedule, and the reward weights (λlang , λ 3g , λ judge ).We conduct this experiment, using Qwen3-4B-Instruct-2507 as backbone, in Hotpot-ENKB5. Results are shown in Figures 3 and 19 to 21. As can be seen, language consistency (Figure 19) and char 3-gram recall (Figure 20) improve as we increase β from very small values and remain stable in a moderate range (e.g., 0.002 –0.02 ). The LLM-judge score (Figure 21), however, peaks at smaller β values and strictly decreases as β grows, reflecting a metric-specific trade-off: stronger teacher anchoring improves lexical faithfulness and language adherence at a small cost to the judge’s preferred output style. A large β (e.g., 0.2) degrades all metrics, consistent with over-regularization that keeps the student too close to the frozen teacher and limits task-specific adaptation. Overall, TR-RAG is not overly sensitive within a broad mid-range of β, while avoiding excessively large values is important. Guided by these curves, we set β = 0 .02 for every backbone–teacher pair in all reported experiments. Table 14: Ablation studies ( LLM-judge , ALL-AVG metric, %). Variants Language Char 3-gram LLM-judge On-Policy BioASQ-ENKB5 Hotpot-ENKB5 Average Reward Reward Reward Distillation Llama 3B Qwen 4B Llama 3B Qwen 4B                                                      
+
+> RL-only ✓✓✓×70.38 83.78 76.62 84.30 78.77 OPD-only ×××✓64.85 76.76 73.42 77.12 73.04 No language reward ×✓✓✓70.63 84.45 77.08 85.20 79.34 No 3-gram reward ✓×✓✓78.46 86.73 76.32 85.74 81.81
+> No LLM-judge reward ✓✓×✓57.28 74.95 61.03 73.47 66.68 TR-RAG ✓✓✓✓69.02 82.31 77.50 84.67 78.38
+
+36 Llama 3B Qwen 4B 
+
+> 0
+> 20
+> 40
+> 60
+> Training Time (Hours)
+> Naive-RL
+> OPD TR-RAG
+
+Figure 17: Training time (Llama-3.2-3B & Qwen3-4B back-bones), Hotpot-ENKB5. Llama 3B Qwen 4B
+
+70 
+
+80 
+
+90 
+
+> ALL-AVG(%)  Weak
+> Teacher
+> Strong
+> Teacher
+
+Figure 18: Teacher choice comparison, in BioASQ-ENKB5. 0.0002 0.002 0.02 0.2 
+
+> β
+> 84
+> 86
+> 88
+> 90
+> LC (%)
+
+Figure 19: Teacher weight β
+
+in TR-RAG, language consis-tency as metric 0.0002 0.002 0.02 0.2 
+
+> β
+> 64
+> 66
+> 68
+> 70
+> char 3-gram
+> recall (%)
+
+Figure 20: Teacher weight β in TR-RAG, char 3-gram recall 
+
+as metric 0.0002 0.002 0.02 0.2 
+
+> β
+> 82
+> 84
+> 86
+> 88
+> LLM-judge (%)
+
+Figure 21: Teacher weight β in TR-RAG, LLM-judge score as metric 
+
+D.8 Impact of Teacher Quality. 
+
+To probe the boundary of TR-RAG’s reliance on teacher quality, we run a controlled ablation that replaces the frozen teacher with weaker base (non–instruction-tuned) checkpoints while keeping the student backbone and training recipe fixed. Concretely, for the Llama-3.2-3B-Instruct student, we compare a weak teacher (frozen Llama-3.2-3B) against a strong teacher (Llama-3.3-70B-Instruct); for the Qwen3-4B-Instruct-2507 student, we compare a weak teacher (frozen Qwen3-4B) against a strong teacher (Qwen3-30B-A3B-Instruct-2507). As shown in Figures 4 and 18, across both backbones, TR-RAG remains beneficial under the weak-teacher setting and improves over non-teacher baselines, while stronger teachers systematically yield larger gains, indicating that reverse-KL anchoring is not purely “teacher-capability transfer” but also a stabilizing regularizer on student-visited prefixes. At the same time, these results clarify the method’s limits: if the teacher is severely misaligned in the target language (e.g., hallucinations or poor cross-lingual competence), the anchor could propagate bias; in practice, we recommend selecting teachers with at least reasonable target-language reliability and, when feasible, validating with a small held-out subset or an alternative teacher/judge to guard against teacher-induced errors. 
+
+D.9 Naturally Multilingual MKQA: Detailed Results and Stress Tests 
+
+This appendix provides the supporting numbers for the MKQA generalization experiments referenced in Section 4.4 and serves the low-resource OOD discussion in the main text. We use the original native-speaker MKQA questions [ 29 ] paired with English Wikipedia as the sole evidence source, with the same Llama-3.2-3B-Instruct backbone and reward configuration as our ENKB-RAG-5 runs. 
+
+Aggregated metrics (ALL-AVG). Beyond the per-language Composite, Qwen judge, and Llama judge already reported in Table 3, Table 15 reports the two judge-independent signals (language consistency and char 3-gram recall) averaged over all 6 MKQA evaluation languages. 
+
+D.9.1 Stress tests on extremely low-resource OOD languages. 
+
+The most informative MKQA splits for assessing teacher anchoring are languages on which the base Llama-3.2-3B-Instruct model itself nearly fails. We highlight two such cases: Norwegian (no) , a Germanic language typologically distant from all training languages (Koreanic, Tai–Kadai, 37 Table 15: Aggregated MKQA results (ALL-AVG over ko/th/vi/en/ja/no, %; 
+
+Llama-3.2-3B-Instruct backbone). TR-RAG matches or improves Naive-RL on every metric, including the two judge-independent signals (LC and char 3-gram). Method Composite LC Char 3-gram Qwen judge Llama judge Base 53.70 44.00 41.39 65.69 63.75 Naive-RL 57.18 44.00 42.85 71.27 70.58 TR-RAG 57.82 44.50 43.05 71.98 71.76 
+
+Austroasiatic) with base LC of only 7% ; and Khmer (km) , an Austroasiatic language with a unique Khmer script that is severely underrepresented in standard LLM pre-training corpora, where the base model achieves only 18% LC and 2.20% char 3-gram recall. Table 16: Low-resource OOD stress tests on MKQA: Norwegian (no, base LC 7% ) and Khmer (km, base LC 18% , unique script). Llama-3.2-3B-Instruct backbone. TR-RAG is the only method that improves grounding (char 3-gram, both judges) on both stress tests; on Norwegian it also lifts LC.                              
+
+> Language Method LC (%) Char 3-gram (%) Qwen judge (%) Llama judge (%) Norwegian (no) Base 751.46 67.16 63.80 Naive-RL 756.96 74.38 72.15 TR-RAG 957.63 77.93 75.45
+> Khmer (km) Base 18 2.20 10.70 15.95 Naive-RL 18 12.97 30.25 31.75 TR-RAG 18 13.63 30.75 33.60
+
+Two observations are consistent across both languages: (i) Naive-RL stalls at the base LC ceiling. 
+
+On Norwegian it remains at 7% LC and on Khmer at 18% , indicating that unconstrained reward optimization cannot recover language adherence when the base model lacks the underlying linguistic competence. (ii) The teacher anchor stabilizes grounding even when LC is capacity-bottlenecked. 
+
+TR-RAG achieves the largest OOD composite gain among all evaluated languages on Norwegian (+2.38 over Naive-RL) and the largest cross-family Llama-judge gain on Khmer (+1.85), without dragging the model further toward English. The Khmer ceiling at 18% LC reflects a hard capacity limit of the 3B backbone for that script; nonetheless, content quality (char 3-gram, judge scores) still improves under the prefix-wise anchor. 
+
+D.10 Qualitative Case Study 
+
+The main text presents the Indonesian case (Figure 8); Figures 22 to 25 give parallel Japanese, Korean, Thai, and Vietnamese examples on Hotpot-ENKB5 with the Llama-3.2-3B-Instruct 
+
+backbone. Highlighting follows the same convention as Figure 8: red marks language drift or evidence-unsupported content, and green marks correct, evidence-grounded content in the target language. Across languages, the same two patterns recur. (i) Language drift. Baseline systems start in the target language but slip into copied English spans from the retrieved passages (most conspicuously for Korean and Thai, whose non-Latin scripts make the switch obvious), whereas TR-RAG sustains the target language throughout the answer. (ii) Evidence misuse. Baselines tend to latch onto a salient-but-unsupported entity, while TR-RAG follows the full evidence chain to the entity the question actually asks about. These qualitative differences mirror the aggregate gains in language consistency and char 3-gram recall. 
+
+A case where the student surpasses its teacher. The Japanese example (Figure 22) is especially instructive: the frozen 70B teacher abstains (it declines to commit to an answer), yet the TR-RAG student, anchored to that same teacher only on its own visited prefixes, produces the correct, evidence-grounded Japanese answer. This concretely shows that the reverse-KL anchor acts as a stabilizer on student-visited prefixes rather than as pure capability transfer: the student can exceed the teacher on a given instance, consistent with our teacher-quality ablation (Section D.8), where even a same-size weak teacher still yields gains. 38 Question アテネオ・デ・マニラ⼤学とクワズールー＝ナタール⼤学が共通して所有している⼟地の種類は何ですか？
+
+Ground truth キャンパス
+
+Llama-3.2-3B-Instruct
+
+アテネオ・デ・マニラ⼤学とクワズールー＝ナタール⼤学が共有する⼟地の種類は、以下の通りです。 1. カ
+
+ampus（キャンパス） 2. アーカイブ（アーカイブ） 3. アートギャラリー（アートギャラリー） 4. ドミトリ
+
+（ドミトリ） 5. ライブラリ（ライブラリ） 6. クラークホール（クラークホール） 7. クラークホール（クラ
+
+ークホール） 8. クラークホール（クラークホール） 9. クラークホール（クラークホール） 10. クラークホー
+
+ル（クラークホール） 11. クラークホール（クラークホール） 12. クラークホール（クラークホール） 13. ク
+
+ラークホール（クラークホール） 14. クラークホール（クラークホール） 15. クラークホール（クラークホー
+
+ル） 16. クラークホール（クラークホール） 17. クラークホール（クラークホール） 18. クラークホール（ク
+
+ラークホール） 19. クラークホール（クラークホール） 20. クラークホール（クラークホール）
+
+Llama-3.3-70B-Instruct アテネオ・デ・マニラ⼤学とクワズールー＝ナタール⼤学が共通して所有している⼟地の種類については、提供
+
+された情報には記載がありません。
+
+Llama-3.2-3B-Instruct+
+
+DIT
+
+、提供された資料から、クワズールー＝ナタール⼤学とアテネオ・デ・マニラ⼤学が共有する⼟地の種類は、以
+
+下の通りです。 * カ ampus
+
+Llama-3.2-3B-Instruct+
+
+Prompt Control
+
+アテネオ・デ・マニラ⼤学とクワズールー＝ナタール⼤学が共有する⼟地の種類は、以下の通りです。 1. **キャ
+
+ンパス**：アテネオ・デ・マニラ⼤学とクワズールー＝ナタール⼤学は、2 つの⼤学が共有するキャンパスを有
+
+することはありません。ただし、両⼤学はそれぞれ独⾃のキャンパスを有しています。 2. **アーカイブ**：アテ
+
+ネオ・デ・マニラ⼤学のアーカイブは、クワズールー＝ナタール⼤学のアーカイブとは異なるものです。アテネ
+
+オ・デ・マニラ⼤学のアーカイブは、クワズールー＝ナタール⼤学のアーカイブとは関連付けられていないもの
+
+です。 3. **図書館**：アテネオ・デ・マニラ⼤学の図書館は、クワズールー＝ナタール⼤学の図書館とは異なる
+
+ものです。アテネオ・デ・マニラ⼤学の図書館は、クワズールー＝ナタール⼤学の図書館とは関連付けられてい
+
+ないものです。 4. **アートギャラリー**：アテネオ・デ・マニラ⼤学のアートギャラリーは、クワズールー＝ナ
+
+タール⼤学のアートギャラリーとは異なるものです。アテネオ・デ・マニラ⼤学のアートギャラリーは、クワズ
+
+ールー＝ナタール⼤学のアートギャラリーとは関連付けられていないものです。 5. **学部**：アテネオ・デ・マ
+
+ニラ⼤学とクワズールー＝ナタール⼤学は、共有する学部はありません。ただし、両⼤学はそれぞれ独⾃の学部
+
+を有しています。
+
+TR-RAG アテネオ・デ・マニラ⼤学とクワズールー＝ナタール⼤学が共通して所有している⼟地の種類は、⼤学キャンパ
+
+スです。Figure 22: Case study. Llama-3.2-3B-Instruct as the backbone, Japanese as language, in Hotpot-ENKB5. Question 숀 스콧과 휴 슐체가 공통적으로 속한 산업 분야는 무엇인가요?
+
+Ground truth 영화
+
+Llama-3.2-3B-Instruct
+
+숀 스콧과 휴 슐체가 공통적으로 속한 산업 분야는 다음과 같습니다. 1. **영화/영화 제작**: 숀 스콧은 영화
+
+감독, 감독, 편집자, 작가, 역사가입니다. 휴 슐체는 영화 감독, 감독, 영화 편집자, 작가입니다. 2.
+
+**자연과학**: 휴 슐체는 독일의 과학자로, cellulose 의 화학을 연구한 것으로 알려져 있습니다.
+
+Llama-3.3-70B-Instruct 숀 스콧과 휴 슐체는 모두 영화 및 텔레비전 산업과 관련이 있습니다. 숀 스콧은 배우이자 영화 감독이며,
+
+휴 슐체는 작가이자 감독입니다.
+
+Llama-3.2-3B-Instruct+
+
+DIT
+
+, 나는 도움이 될 것 같습니다. 숀 스콧과 휴 슐체가 공통적으로 속한 산업 분야는 다음과 같습니다. 1.
+
+**영화/영화 제작**: 숀 스콧은 영화 감독, 감독, 편집자, 작가, 역사가입니다. 휴 슐체는 영화 감독, 감독,
+
+감독입니다. 2. **자연과학**: 휴 슐체는 독일의 과학자였던 프란츠 에일하르트 슐체가 발견한 세포생물인
+
+**Placozoa**에 대한 연구에 관여했습니다.
+
+Llama-3.2-3B-Instruct+
+
+Prompt Control
+
+숀 스콧과 휴 슐체가 공통적으로 속한 산업 분야는 다음과 같습니다. 1. **영화/영화 제작**: 숀 스콧은 영화
+
+감독, 감독, 편집자, 작가, 역사가입니다. 휴 슐체는 영화 감독, 감독, 감독입니다. 2. **자연과학**: 휴 슐체는
+
+독일의 과학자였던 프란츠 에일하르트 슐체가 1904 년에 Monorhaphis chuni 라는 종을 발견했습니다.
+
+TR-RAG 숀 스콧과 휴 슐체가 공통적으로 속한 산업 분야는 영화 산업입니다.
+
+Figure 23: Case study. Llama-3.2-3B-Instruct as the backbone, Korean as language, in Hotpot-ENKB5. Question นายพลพลเรื ออากาศเอกของหน่ วยนาวิ กโยธิ นที6 เติ บโตมาในบ้ านบั ตเลอร์ มี อาชี พการงานยาวนานแค่ ไหน?
+
+Ground truth 34 ปี
+
+Llama-3.2-3B-Instruct ไม่ มี ข้ อมู ลที6 ระบุ ว่ านายพลพลเรื ออากาศเอกเติ บโตมาในบั ตเลอร์
+
+Llama-3.3-70B-Instruct นายพลพลเรื ออากาศเอกของหน่ วยนาวิ กโยธิ นที6 เติ บโตมาในบ้ านบั ตเลอร์ มี อาชี พการงานยาวนาน 34 ปี
+
+Llama-3.2-3B-Instruct+
+
+DIT ฉั นจะช่ วยคุ ณด้ วยคํ าตอบของคุ ณ นายพลพลเรื ออากาศเอกที6 เติ บโตมาในบั ตเลอร์ คื อ นายพลพลเรื ออากาศเอก สเม็ ดลี ย์ บั ตเลอร์ (Smedley Butler)
+
+Llama-3.2-3B-Instruct+
+
+Prompt Control ตามข้ อมู ลที6 ให้ มา ผู้ ที6 เติ บโตมาในบั ตเลอร์ คื อ นายพลพลเรื ออากาศเอกของหน่ วยนาวิ กโยธิ น คื อ นายสเม็ ดเลย์ บั ตเลอร์ (Smedley Butler)
+
+TR-RAG นายพลพลเรื ออากาศเอกของหน่ วยนาวิ กโยธิ นที6 เติ บโตมาในบ้ านบั ตเลอร์ มี อาชี พการงานยาวนานถึ ง 34 ปี
+
+Figure 24: Case study. Llama-3.2-3B-Instruct as the backbone, Thai as language, in Hotpot-ENKB5. Question Trường đại học nào bao gồm số lượng trường và khoa lớn nhất dưới tên của họ, Đại học Binghamton hay Đại học Quốc gia
+
+Mông Cổ?
+
+Ground truth Đại học Quốc gia Mông Cổ
+
+Llama-3.2-3B-Instruct Đáp án: Đại học Binghamton
+
+Llama-3.3-70B-Instruct Đại học Quốc gia Mông Cổ (National University of Mongolia) bao gồm số lượng trường và khoa lớn nhất dưới tên của họ
+
+với 12 trường và khoa, trong khi Đại học Binghamton (Binghamton University) có 8 trường và khoa.
+
+Llama-3.2-3B-Instruct+
+
+DIT
+
+tôi sẽ trích xuất thông tin liên quan đến số lượng trường và khoa của Đại học Binghamton và Đại học Quốc gia Mông Cổ. -
+
+Đại học Binghamton có 8 trường và 12 khoa. - Đại học Quốc gia Mông Cổ có 12 trường và 12 khoa.
+
+Llama-3.2-3B-Instruct+
+
+Prompt Control
+
+Cả hai trường đại học này đều có số lượng trường và khoa lớn, nhưng tôi sẽ trích xuất thông tin liên quan đến số lượng
+
+trường và khoa của mỗi trường để so sánh. **Đại học Binghamton** * Số lượng trường: 8 (bao gồm 8 trường và trường) *
+
+Số lượng khoa: Không có thông tin cụ thể về số lượng khoa, nhưng trường đại học này có 8 trường và trường. **Đại học
+
+Quốc gia Mông Cổ** * Số lượng trường: 12 (bao gồm 12 trường và trường) * Số lượng khoa: Không có thông tin cụ thể về
+
+số lượng khoa, nhưng trường đại học này có 12 trường và trường. Tuy nhiên, nếu tính cả số lượng trường và khoa, thì Đại
+
+học Quốc gia Mông Cổ có số lượng lớn hơn Đại học Binghamton.
+
+TR-RAG Trường đại học bao gồm số lượng trường và khoa lớn nhất dưới tên của họ là Đại học Quốc gia Mông Cổ, với 12 trường và
+
+khoa.
+
+Figure 25: Case study. Llama-3.2-3B-Instruct as the backbone, Vietnamese as language, in Hotpot-ENKB5. 39 D.11 Robustness as an Insurance Premium: Extended Discussion 
+
+A consistent observation across Tables 1, 3 and 9 to 11 is that Naive-RL occasionally edges TR-RAG on the LLM-judge metric in “safe” settings (e.g., BioASQ Llama-3B by 1–1.5pp), while TR-RAG wins on every other axis. This is a designed trade-off rather than a flaw: an unconstrained policy that is free to optimize the judge alone will, by construction, reach a marginally higher peak than the same policy under a teacher anchor, provided it does not collapse .But the same Naive-RL pipeline collapses outside this safe regime: on Hotpot-ENKB5 with Qwen-4B (Table 11), Naive-RL’s Indonesian LC drops to 28.27% (vs. 55.60% for TR-RAG), roughly 27 pp below both TR-RAG and the base model, and on the typologically distant Norwegian/Khmer stress tests (Table 16; Appendix D.9.1) the base LC is only 7%/18%, where Naive-RL stalls at that ceiling while TR-RAG still improves grounding. The teacher anchor therefore functions as a safety net whose cost is a small insurance premium : we give up 1–1.5pp on the judge in safe settings in exchange for protection against these large in-domain LC collapses and against base-ceiling stalls on distant OOD languages. A second, complementary effect is precision: on lexically demanding domains (e.g., BioASQ entities such as BRCA1 or Acetaminophen ) the judge’s smoother signal lets Naive-RL paraphrase, while the prefix-wise anchor keeps TR-RAG on the exact terminology, yielding consistently higher char 3-gram recall. 40 E Related Work 
+
+Cross-lingual RAG and generation-side failures. Retrieval-augmented generation (RAG) grounds LLMs with external evidence and is a standard recipe for knowledge-intensive generation [ 26 , 3, 10 ]. Recent biomedical RAG evidence further cautions that retrieval alone does not guarantee better answers: Nourbakhsh et al. [31] report small and inconsistent gains from retrieval across open-weight models and biomedical QA settings, pointing to the generator’s ability to use evidence as a central bottleneck. Cross-lingual open-retrieval QA [ 6, 2, 29 ] and multilingual IR benchmarks such as MIRACL [ 63 ] reveal the difficulty of retrieving and answering across languages, but most prior work focuses on retrieval quality ; we instead hold retrieval fixed and target generation-side post-training under English-only evidence. When the evidence language differs from the user language, multilingual RAG surfaces generation-side failures (response language drift, code-switching, and brittle evidence use [ 28 , 5, 27 ]), even if evidence is homogenized into a pivot language [ 43 , 38 ]. At the mechanistic level, Zhang et al. [62] show that multilingual LLMs route cross-lingual behavior through a tiny set of shared English-centric neurons; non-high-resource languages lack autonomous internal pathways and instead piggyback on English representations, a structural bias that helps explain why injecting English evidence amplifies language drift. Concurrent benchmarks XRAG [ 28 ]and CrossRAG [ 43 ] characterize these failures but do not propose training recipes. Recent concurrent work applies RL to multilingual or cross-lingual RAG: LcRL [ 39 ] introduces language-coupled group sampling and an anti-consistency penalty within GRPO for search-augmented multilingual generation; CroSearch-R1 [ 40 ] uses multi-turn cross-lingual retrieval with RL to dynamically integrate knowledge across languages; and RAG-RL [ 16 ] trains a reasoning reader with GRPO and curriculum learning for monolingual RAG. These methods focus on retrieval-side optimization or monolingual settings. In the broader multilingual RL space, BRIDGE [ 17 ] combines multilingual GRPO with a language-consistency reward for reasoning fidelity, and Elhady et al. [9] enforce cross-lingual self-consistency via unsupervised RL without parallel data; both target multilingual reasoning rather than RAG generation under language-mismatched evidence. Our work is, to our knowledge, the first to address cross-lingual generation-side failures via a dedicated post-training framework that couples reward optimization with on-policy distillation under English-only evidence .
+
+Reward-based RL, knowledge distillation, and on-policy distillation for LLMs. Preference optimization and RLHF fine-tune LLMs with reward signals [ 47 , 32 ]; recent on-policy variants stabilize training under noisy sequence-level rewards. A recurring challenge is that early decoding deviations cascade ( exposure bias / prefix mismatch), making offline SFT/KD unable to correct errors on student-visited prefixes, while sequence-level rewards (e.g., discrete language checks or judge scores) yield delayed, high-variance gradients. Knowledge distillation (KD) transfers capability from a larger teacher to a smaller student [ 13 ], with a classic token-level line (DistilBERT [ 45 ], TinyBERT [ 18 ], MiniLM [ 54 ]) and a sequence-level variant (SeqKD [ 22 ]). More recently, on-policy distillation addresses prefix mismatch by querying the teacher on student-generated prefixes: MiniLLM [ 12 ] optimizes a sequence-level reverse-KL objective; GKD [ 1] applies token-level KL regularization on on-policy samples without teacher rollouts. Subsequent work further explores the RL–distillation interface: RLAD [ 66 ] proposes Trust Region Ratio Distillation, replacing standalone KL regularization with a PPO/GRPO-style likelihood-ratio objective anchored to a teacher–student mixture, achieving advantage-aware distillation on student rollouts; OPSD [ 67 ] eliminates the need for an external teacher entirely by conditioning a single model on privileged information (e.g., verified reasoning traces) to supervise its own on-policy trajectories; and Shen et al. [49] leverage LLM-as-a-judge rewards for label-free RL-based knowledge distillation, enabling efficient distillation over unlabeled data. All three target monolingual reasoning benchmarks. For multilingual small models, Payoungkhamdee et al. [35] combine sequence-level and token-level distillation signals with a cross-lingual verbalizer; our setting instead embeds teacher anchoring inside reward-optimized RAG generation under language-mismatched evidence. Concurrent RLVR work also revisits credit assignment under sequence-level verifiable rewards: Pala et al. [33] propose gradient-reweighted advantages so that policy-gradient updates focus more on influential reasoning tokens rather than uniformly broadcasting one scalar advantage across the full response. Our method builds on GKD’s on-policy distillation principle but makes three key departures that, taken together, address a problem none of the above works target : (i) we combine the teacher anchor with GRPO-style task-reward optimization in a single objective rather than using distillation alone: the ablations in Table 2 confirm that this combination is strictly better than either component in isolation on the composite metric (+2.19 over RL-only, +3.52 over OPD-only); (ii) we design a cross-lingual reward 
+
+41 decomposition (language consistency + character 3-gram recall + LLM-judge) tailored to English-evidence multilingual generation, where the LC reward, script-agnostic char 3-gram metric, and cross-lingual teacher selection are all domain-specific design choices meaningless in the monolingual settings prior work considers; and (iii) we demonstrate empirically that the teacher anchor serves as a “safety net” against catastrophic language drift , i.e., large in-domain LC collapses (up to 
+
+∼27pp, where reward-only RL drifts below even the base model) and base-ceiling stalls on distant OOD languages that pure reward-only RL cannot prevent (Section D.11); a failure mode unique to cross-lingual generation under language-mismatched evidence. 
+
+Evaluation signals for cross-lingual generation. LLM-as-a-judge [ 68 ] provides graded, evidence-conditioned evaluation for open-ended generation; character n-gram metrics such as chrF/chrF++ [36 , 37 ] are robust across diverse scripts; and fastText-based language identification [ 19 , 11 ] monitors response-language adherence. Recent judge-calibration work shows that self-evaluation signals can be elicited from base LLMs with minimal data to predict external LLM-judge scores [ 64 ]. At the same time, rubric-based RL can expose policies to LLM-judge biases and reward hacking; CHERRL [ 55 ] provides a controlled environment for reproducing and detecting such failures. Unlike prior work that uses these signals only for offline evaluation , we repurpose all three as online reward components within a unified RL objective, providing complementary training pressure on language adherence, lexical faithfulness, and semantic correctness simultaneously. 42

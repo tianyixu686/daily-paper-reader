@@ -6,94 +6,77 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-02 ~ 2026-07-11
-- 运行时间：2026-07-11 14:52:21 UTC
+- 最新运行日期：2026-07-11
+- 运行时间：2026-07-11 21:17:44 UTC
 - 运行状态：成功
-- 本次总论文数：24
-- 精读区：13
-- 速读区：11
+- 本次总论文数：19
+- 精读区：7
+- 速读区：12
 
 ### 今日简报（AI）
-今天精读两篇高分论文，聚焦稀疏混合专家模型剪枝与大语言模型贝叶斯低秩适应不确定性估计。  
-最值得关注方向：通用专家覆盖剪枝框架（9.0/10）与贝叶斯Sparse LoRA不确定性量化（9.0/10），均具显著实用价值。  
-建议优先掌握MoE模型高效压缩技法和LLM输出可信度评估方法，对实际部署与风险控制大有裨益。
-- 详情：[/20260702-20260711/README](/20260702-20260711/README)
+今日精读7篇、速读12篇，重点覆盖持续多模态学习和LLM自蒸馏方法。最值得关注的两个方向：持续多模态学习中“隐性的遗忘”现象（精度无损但语义失联），以及无需标注的神经元感知数据选择自蒸馏技术。建议优先精读两篇8.0分论文，以理解多模态表征可靠性与高效训练方法的当前前沿。
+- 详情：[/202607/11/README](/202607/11/README)
 
 ### 精读区论文标签
-1. [Generic Expert Coverage for Pruning SparseMixture-of-Experts Language Models](/20260702-20260711/2607.01710v1-generic-expert-coverage-for-pruning-sparsemixture-of-experts-language-models)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：作为后训练压缩技术的MoE语言模型专家剪枝方法
-2. [Bayesian Sparse Low-Rank Adaptation for Large Language Model Uncertainty Estimation](/20260702-20260711/2607.02182v1-bayesian-sparse-low-rank-adaptation-for-large-language-model-uncertainty-estimation)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：用于微调大语言模型并估计不确定性的贝叶斯稀疏低秩适应
-3. [Spectral Rewiring for Exploration, Purification, and Model Merging](/20260702-20260711/2607.03065v1-spectral-rewiring-for-exploration-purification-and-model-merging)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：提出面向RLHF更新的事后编辑方法，保留推理增益
-4. [Unbiased Alignment for Large Language Models with Noisy Preferences](/20260702-20260711/2607.03248v1-unbiased-alignment-for-large-language-models-with-noisy-preferences)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：RLHF对齐；带噪偏好下的无偏对齐
-5. [WorldBagel: Uncovering the Power of Unified Multimodal Models for Vision-Language-Action-World Modeling](/20260702-20260711/2607.03461v1-worldbagel-uncovering-the-power-of-unified-multimodal-models-for-vision-language-action-world-modeling)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：用于视觉-语言-动作-世界建模的统一多模态模型
-6. [Aligning Language Models with Selective Prediction](/20260702-20260711/2607.03528v1-aligning-language-models-with-selective-prediction)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：后训练对齐阶段引入选择性预测指标提升LLM可靠性
-7. [Spinning Straw into Gold: Relabeling LLM Agent Trajectories in Hindsight for Successful Demonstrations](/20260702-20260711/2607.04235v1-spinning-straw-into-gold-relabeling-llm-agent-trajectories-in-hindsight-for-successful-demonstrations)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：基于事后重标注的LLM智能体后训练方法
-8. [RL Forgets! Towards Continual Policy Optimization](/20260702-20260711/2607.04364v1-rl-forgets-towards-continual-policy-optimization)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：使用强化学习对视觉语言模型进行持续后训练
-9. [LP-SFT: Local-Preserving Supervised Fine-Tuning via Multimodal Entropy Structure](/20260702-20260711/2607.04733v1-lp-sft-local-preserving-supervised-fine-tuning-via-multimodal-entropy-structure)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：保持预训练多模态熵结构的监督微调方法
-10. [CurateEvo: Data-Curation Evolving for Agentic Post-Training](/20260702-20260711/2607.06140v1-curateevo-data-curation-evolving-for-agentic-post-training)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：语言模型后训练技术；智能体后训练数据策展
-11. [MMAgent-R$^2$: Learning to Rerank and Reject for Agentic mRAG](/20260702-20260711/2607.07383v1-mmagent-r2-learning-to-rerank-and-reject-for-agentic-mrag)  
-   标签：评分：9.0/10、query:mr
-   evidence：面向知识库视觉问答的多模态检索增强生成，包含重新排序与拒绝机制
-12. [Structured Pruning of Large Language Models via Power Transformation and Sign-Preserving Score Aggregation with Adaptive Feature Retention](/20260702-20260711/2607.08027v1-structured-pruning-of-large-language-models-via-power-transformation-and-sign-preserving-score-aggregation-with-adaptive-feature-retention)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：提出大语言模型结构化剪枝方法，属于事后训练压缩技术
-13. [Switch-Reasoner: Learn When to Think in Multitask Mixtures via Reinforcement Learning](/20260702-20260711/2607.08572v1-switch-reasoner-learn-when-to-think-in-multitask-mixtures-via-reinforcement-learning)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：基于GRPO的后训练框架，用于多模态大语言模型自适应学习推理模式
+1. [Hidden Forgetting in Continual Multimodal Learning: When Accuracy Survives but Grounding Fails](/202607/11/2607.02020v1-hidden-forgetting-in-continual-multimodal-learning-when-accuracy-survives-but-grounding-fails)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：连续多模态学习中的对齐分析
+2. [Neuron-Aware Data Selection for Annotation-Free LLM Self-Distillation](/202607/11/2607.02460v1-neuron-aware-data-selection-for-annotation-free-llm-self-distillation)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：通过以数据为中心的自蒸馏实现无标注的大语言模型后训练方法
+3. [Gemma 4 Technical Report](/202607/11/2607.02770v1-gemma-4-technical-report)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：新的多模态模型系列，包含视觉和音频编码器及思考模式
+4. [TACO: TActile World Model as a Self-COrrector forScalable VLA Post-Training](/202607/11/2607.02840v1-taco-tactile-world-model-as-a-self-corrector-forscalable-vla-post-training)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：VLA后训练与触觉世界模型
+5. [Text as Partial Constraint: Core-Residual Alignment for Robust Vision-Language Learning](/202607/11/2607.03143v1-text-as-partial-constraint-core-residual-alignment-for-robust-vision-language-learning)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：提出核心-残差对齐的鲁棒视觉语言表示学习方法
+6. [PhenoNEST: A Neuro-Symbolic Framework for Ontology-Aware Multimodal Plant Phenotyping and Trait Discovery](/202607/11/2607.03245v1-phenonest-a-neuro-symbolic-framework-for-ontology-aware-multimodal-plant-phenotyping-and-trait-discovery)  
+   标签：评分：8.0/10、query:mr
+   evidence：构建多模态知识图谱用于植物表型分析
+7. [MatBind: A Shared Embedding Space for Multimodal Materials Characterization](/202607/11/2607.08470v1-matbind-a-shared-embedding-space-for-multimodal-materials-characterization)  
+   标签：评分：8.0/10、query:mr
+   evidence：对比学习框架对齐多种材料模态到统一嵌入空间
 
 ### 速读区论文标签
-1. [Temporal and Cross-Modal Alignment for Enhanced Audiovisual Video Captioning](/20260702-20260711/2607.01667v1-temporal-and-cross-modal-alignment-for-enhanced-audiovisual-video-captioning)  
+1. [SeeMe: Mitigating Hallucinations in Large Vision-Language Models through Effective Visual Token Engineering](/202607/11/2607.04163v1-seeme-mitigating-hallucinations-in-large-vision-language-models-through-effective-visual-token-engineering)  
    标签：评分：8.0/10、query:post-multi
-   evidence：音视频字幕中的跨模态对齐
-2. [LASER: A Corrective Lens for LVLMs via Visual Attention Preservation and Sink Suppression](/20260702-20260711/2607.01707v1-laser-a-corrective-lens-for-lvlms-via-visual-attention-preservation-and-sink-suppression)  
+   evidence：通过视觉标记工程减轻大视觉语言模型幻觉的训练无关框架
+2. [Transferability Between Understanding and Generation in Unified Multimodal Models](/202607/11/2607.04423v2-transferability-between-understanding-and-generation-in-unified-multimodal-models)  
    标签：评分：8.0/10、query:post-multi
-   evidence：针对大型视觉语言模型视觉遗忘问题的后训练框架
-3. [Denser $\neq$ Better: Limits of On-Policy Self-Distillation for Continual Post-Training](/20260702-20260711/2607.01763v1-denser-neq-better-limits-of-on-policy-self-distillation-for-continual-post-training)  
+   evidence：统一多模态模型中用于训练策略的可迁移性
+3. [Train Smarter, Not Longer: Memorization-Guided Data Reuse for Efficient LLM Training](/202607/11/2607.04969v1-train-smarter-not-longer-memorization-guided-data-reuse-for-efficient-llm-training)  
    标签：评分：8.0/10、query:post-multi
-   evidence：基础模型持续后训练中的在线自蒸馏方法
-4. [InduceKV: Fixed-Footprint Continual Adaptation of Multimodal LLMs via Inducing KV Memories](/20260702-20260711/2607.02010v1-inducekv-fixed-footprint-continual-adaptation-of-multimodal-llms-via-inducing-kv-memories)  
+   evidence：记忆引导的数据重用提升LLM训练效率
+4. [LongCrafter: Towards Diverse Long-Context Understanding via Evidence-Graph-Guided Instruction Synthesis](/202607/11/2607.06160v1-longcrafter-towards-diverse-long-context-understanding-via-evidence-graph-guided-instruction-synthesis)  
    标签：评分：8.0/10、query:post-multi
-   evidence：使用外部KV记忆的固定足迹多模态大语言模型持续适应方法
-5. [MMBench-Live: A Continuously Evolving Benchmark for Multimodal Models](/20260702-20260711/2607.01813v1-mmbench-live-a-continuously-evolving-benchmark-for-multimodal-models)  
+   evidence：证据图引导的长上下文指令合成用于SFT
+5. [Learning Taxonomic Trees with Hierarchical Representation Regularization for Large Multimodal Models](/202607/11/2607.02909v1-learning-taxonomic-trees-with-hierarchical-representation-regularization-for-large-multimodal-models)  
    标签：评分：7.0/10、query:post-multi
-   evidence：面向视觉语言模型的多模态基准
-6. [ProLaViT: Learning Progressive Latent Visual Thoughts in Structured Latent Space](/20260702-20260711/2607.02907v1-prolavit-learning-progressive-latent-visual-thoughts-in-structured-latent-space)  
+   evidence：大多模态模型的分层表示正则化
+6. [Amortising Bayesian Experimental Design for Sequential Information Gathering in LLMs](/202607/11/2607.03426v1-amortising-bayesian-experimental-design-for-sequential-information-gathering-in-llms)  
    标签：评分：7.0/10、query:post-multi
-   evidence：赋予多模态大语言模型结构化潜在视觉推理能力以处理复杂任务
-7. [$C^3$ASD: Multi-Level Consistency-Driven Representation Learning](/20260702-20260711/2607.03018v1-c3asd-multi-level-consistency-driven-representation-learning)  
+   evidence：使用贝叶斯实验设计奖励微调LLM以进行序列信息收集
+7. [Do Medical Vision Language Models Actually See? A Counterfactual Grounding Framework and Hard-Negative Contrastive Training for Visually-Reliant Medical VLMs](/202607/11/2607.03647v1-do-medical-vision-language-models-actually-see-a-counterfactual-grounding-framework-and-hard-negative-contrastive-training-for-visually-reliant-medical-vlms)  
+   标签：评分：7.0/10、query:mr
+   evidence：对比检索增强学习用于医学视觉语言模型
+8. [Attending to Multimodal Generation One Token at a Time](/202607/11/2607.03738v1-attending-to-multimodal-generation-one-token-at-a-time)  
    标签：评分：7.0/10、query:post-multi
-   evidence：多层级一致性约束用于鲁棒音视频表示学习
-8. [HyperParallel-Mpipe: A Composable Algebra System for Optimizing MLLM Training over Supernode Clusters](/20260702-20260711/2607.03229v1-hyperparallel-mpipe-a-composable-algebra-system-for-optimizing-mllm-training-over-supernode-clusters)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：优化MLLM训练的系统
-9. [ReQuest: Rethinking-based Question-Aware Frame Selection for Long-Form Video QA](/20260702-20260711/2607.01737v1-request-rethinking-based-question-aware-frame-selection-for-long-form-video-qa)  
+   evidence：多模态生成中的词元级注意力动态
+9. [Distill Where the Student Goes: Teacher-Regularized RL for English-Evidence Cross-Lingual RAG](/202607/11/2607.02966v2-distill-where-the-student-goes-teacher-regularized-rl-for-english-evidence-cross-lingual-rag)  
    标签：评分：6.0/10、query:post-multi
-   evidence：多模态学习方法；视频问答的关键帧选择
-10. [SAB-LVLM: Significance-Aware Binarization for Large Vision-Language Models](/20260702-20260711/2607.01876v1-sab-lvlm-significance-aware-binarization-for-large-vision-language-models)  
+   evidence：教师正则化强化学习用于跨语言RAG后训练
+10. [KARMA: Knowledge graph-based Automated Reasoning Materialization and Alignment](/202607/11/2607.03166v1-karma-knowledge-graph-based-automated-reasoning-materialization-and-alignment)  
+   标签：评分：6.0/10、query:mr
+   evidence：知识图谱用于对比推理和对齐
+11. [BVS: Bayesian Visual Search with Multimodal Large Language Model for Fine-grained Perception](/202607/11/2607.03184v1-bvs-bayesian-visual-search-with-multimodal-large-language-model-for-fine-grained-perception)  
    标签：评分：6.0/10、query:post-multi
-   evidence：针对大型视觉语言模型的二值化方法，降低部署成本
-11. [Video-Text Temporal Localization via Multi-Scale Convolution and Dynamic Routing](/20260702-20260711/2607.05093v2-video-text-temporal-localization-via-multi-scale-convolution-and-dynamic-routing)  
+   evidence：多模态大语言模型
+12. [USE: A Unified Self-Ensembling Framework for Test-Time Prompt Tuning](/202607/11/2607.03900v1-use-a-unified-self-ensembling-framework-for-test-time-prompt-tuning)  
    标签：评分：6.0/10、query:post-multi
-   evidence：用于视频-文本对齐和时间定位的多模态理解
+   evidence：视觉语言模型的测试时提示调优
 
 
 <div class="dpr-home-promo-card">
