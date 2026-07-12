@@ -6,77 +6,79 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-11
-- 运行时间：2026-07-11 21:17:44 UTC
+- 最新运行日期：2026-07-12
+- 运行时间：2026-07-12 20:26:03 UTC
 - 运行状态：成功
 - 本次总论文数：19
 - 精读区：7
 - 速读区：12
 
 ### 今日简报（AI）
-今日精读7篇、速读12篇，重点覆盖持续多模态学习和LLM自蒸馏方法。最值得关注的两个方向：持续多模态学习中“隐性的遗忘”现象（精度无损但语义失联），以及无需标注的神经元感知数据选择自蒸馏技术。建议优先精读两篇8.0分论文，以理解多模态表征可靠性与高效训练方法的当前前沿。
-- 详情：[/202607/11/README](/202607/11/README)
+今日精读19篇，聚焦视觉-语言多模态突破：ViPo-MLLM实现无词汇手语翻译，IRIS用主题树驱动眼科疾病VQA，均获8.0高分。  
+最值得关注方向：多模态大模型在专业场景（手语翻译、眼科诊断）中的零样本/弱监督应用。  
+下一步建议：优先精读这两篇高分论文，理解其模态对齐与场景结构化设计思路。
+- 详情：[/202607/12/README](/202607/12/README)
 
 ### 精读区论文标签
-1. [Hidden Forgetting in Continual Multimodal Learning: When Accuracy Survives but Grounding Fails](/202607/11/2607.02020v1-hidden-forgetting-in-continual-multimodal-learning-when-accuracy-survives-but-grounding-fails)  
+1. [ViPo-MLLM: Visual-Pose Multimodal LLM for Gloss-Free Sign Language Translation](/202607/12/2607.03657v1-vipo-mllm-visual-pose-multimodal-llm-for-gloss-free-sign-language-translation)  
    标签：评分：8.0/10、query:post-multi
-   evidence：连续多模态学习中的对齐分析
-2. [Neuron-Aware Data Selection for Annotation-Free LLM Self-Distillation](/202607/11/2607.02460v1-neuron-aware-data-selection-for-annotation-free-llm-self-distillation)  
+   evidence：多模态学习视觉语言手语翻译
+2. [IRIS: An Intelligent Vision-Language System for Ocular Surface Diseases via Topic Tree and Scene-Driven VQA Generation](/202607/12/2607.04344v1-iris-an-intelligent-vision-language-system-for-ocular-surface-diseases-via-topic-tree-and-scene-driven-vqa-generation)  
    标签：评分：8.0/10、query:post-multi
-   evidence：通过以数据为中心的自蒸馏实现无标注的大语言模型后训练方法
-3. [Gemma 4 Technical Report](/202607/11/2607.02770v1-gemma-4-technical-report)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：新的多模态模型系列，包含视觉和音频编码器及思考模式
-4. [TACO: TActile World Model as a Self-COrrector forScalable VLA Post-Training](/202607/11/2607.02840v1-taco-tactile-world-model-as-a-self-corrector-forscalable-vla-post-training)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：VLA后训练与触觉世界模型
-5. [Text as Partial Constraint: Core-Residual Alignment for Robust Vision-Language Learning](/202607/11/2607.03143v1-text-as-partial-constraint-core-residual-alignment-for-robust-vision-language-learning)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：提出核心-残差对齐的鲁棒视觉语言表示学习方法
-6. [PhenoNEST: A Neuro-Symbolic Framework for Ontology-Aware Multimodal Plant Phenotyping and Trait Discovery](/202607/11/2607.03245v1-phenonest-a-neuro-symbolic-framework-for-ontology-aware-multimodal-plant-phenotyping-and-trait-discovery)  
+   evidence：面向医学视觉问答的视觉语言系统，包含指令微调数据生成
+3. [Escaping the Procrustean Bed: Groupwise Orthogonal Connectors for Audio-Language Models](/202607/12/2607.06014v1-escaping-the-procrustean-bed-groupwise-orthogonal-connectors-for-audio-language-models)  
    标签：评分：8.0/10、query:mr
-   evidence：构建多模态知识图谱用于植物表型分析
-7. [MatBind: A Shared Embedding Space for Multimodal Materials Characterization](/202607/11/2607.08470v1-matbind-a-shared-embedding-space-for-multimodal-materials-characterization)  
+   evidence：通过连接器设计提升SAKURA多跳推理基准表现
+4. [What Images Cannot Say: Language-Guided Olfactory Representation Learning](/202607/12/2607.06402v1-what-images-cannot-say-language-guided-olfactory-representation-learning)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：语言引导的多模态嗅觉表征学习框架
+5. [General Incomplete Multimodal Learning via Dynamic Quality Perception](/202607/12/2607.06943v1-general-incomplete-multimodal-learning-via-dynamic-quality-perception)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：通过动态质量感知处理不完整多模态学习
+6. [KronQ: LLM Quantization via Kronecker-Factored Hessian](/202607/12/2607.07964v1-kronq-llm-quantization-via-kronecker-factored-hessian)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：面向LLM的后训练量化方法
+7. [Cognitive-structured Multimodal Agent for Multimodal Understanding, Generation, and Editing](/202607/12/2607.08497v1-cognitive-structured-multimodal-agent-for-multimodal-understanding-generation-and-editing)  
    标签：评分：8.0/10、query:mr
-   evidence：对比学习框架对齐多种材料模态到统一嵌入空间
+   evidence：多模态智能体，具备认知检索引擎用于跨轮记忆检索
 
 ### 速读区论文标签
-1. [SeeMe: Mitigating Hallucinations in Large Vision-Language Models through Effective Visual Token Engineering](/202607/11/2607.04163v1-seeme-mitigating-hallucinations-in-large-vision-language-models-through-effective-visual-token-engineering)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：通过视觉标记工程减轻大视觉语言模型幻觉的训练无关框架
-2. [Transferability Between Understanding and Generation in Unified Multimodal Models](/202607/11/2607.04423v2-transferability-between-understanding-and-generation-in-unified-multimodal-models)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：统一多模态模型中用于训练策略的可迁移性
-3. [Train Smarter, Not Longer: Memorization-Guided Data Reuse for Efficient LLM Training](/202607/11/2607.04969v1-train-smarter-not-longer-memorization-guided-data-reuse-for-efficient-llm-training)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：记忆引导的数据重用提升LLM训练效率
-4. [LongCrafter: Towards Diverse Long-Context Understanding via Evidence-Graph-Guided Instruction Synthesis](/202607/11/2607.06160v1-longcrafter-towards-diverse-long-context-understanding-via-evidence-graph-guided-instruction-synthesis)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：证据图引导的长上下文指令合成用于SFT
-5. [Learning Taxonomic Trees with Hierarchical Representation Regularization for Large Multimodal Models](/202607/11/2607.02909v1-learning-taxonomic-trees-with-hierarchical-representation-regularization-for-large-multimodal-models)  
+1. [Beyond Scene Priors: Fine-Grained Traffic Scene Reasoning with Benchmarking and Query-Guided Small-Object Focus](/202607/12/2607.04149v1-beyond-scene-priors-fine-grained-traffic-scene-reasoning-with-benchmarking-and-query-guided-small-object-focus)  
    标签：评分：7.0/10、query:post-multi
-   evidence：大多模态模型的分层表示正则化
-6. [Amortising Bayesian Experimental Design for Sequential Information Gathering in LLMs](/202607/11/2607.03426v1-amortising-bayesian-experimental-design-for-sequential-information-gathering-in-llms)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：使用贝叶斯实验设计奖励微调LLM以进行序列信息收集
-7. [Do Medical Vision Language Models Actually See? A Counterfactual Grounding Framework and Hard-Negative Contrastive Training for Visually-Reliant Medical VLMs](/202607/11/2607.03647v1-do-medical-vision-language-models-actually-see-a-counterfactual-grounding-framework-and-hard-negative-contrastive-training-for-visually-reliant-medical-vlms)  
+   evidence：细粒度多模态推理视觉问答
+2. [Exploiting Structural Properties for Efficient Constraint-Aware HNSW Hyperparameter Tuning](/202607/12/2607.04630v1-exploiting-structural-properties-for-efficient-constraint-aware-hnsw-hyperparameter-tuning)  
    标签：评分：7.0/10、query:mr
-   evidence：对比检索增强学习用于医学视觉语言模型
-8. [Attending to Multimodal Generation One Token at a Time](/202607/11/2607.03738v1-attending-to-multimodal-generation-one-token-at-a-time)  
+   evidence：面向RAG的HNSW超参数高效调优方法
+3. [Pretraining Curricula Enable Selective Fine-tuning](/202607/12/2607.04846v1-pretraining-curricula-enable-selective-fine-tuning)  
    标签：评分：7.0/10、query:post-multi
-   evidence：多模态生成中的词元级注意力动态
-9. [Distill Where the Student Goes: Teacher-Regularized RL for English-Evidence Cross-Lingual RAG](/202607/11/2607.02966v2-distill-where-the-student-goes-teacher-regularized-rl-for-english-evidence-cross-lingual-rag)  
+   evidence：预训练课程影响微调选择性，与指令微调相关
+4. [Segmentation before Answering: Pixel Grounding for MLLM Visual Reasoning](/202607/12/2607.05798v1-segmentation-before-answering-pixel-grounding-for-mllm-visual-reasoning)  
+   标签：评分：7.0/10、query:post-multi
+   evidence：MLLM像素级视觉推理
+5. [CAIRN: Cross-Room 3D Scene Understanding with Topology-Aware Large Multimodal Models](/202607/12/2607.06534v1-cairn-cross-room-3d-scene-understanding-with-topology-aware-large-multimodal-models)  
+   标签：评分：7.0/10、query:mr
+   evidence：跨房间3D场景理解，需在多互联房间中进行推理
+6. [Vision as Unified Multimodal Generation](/202607/12/2607.06560v1-vision-as-unified-multimodal-generation)  
+   标签：评分：7.0/10、query:post-multi
+   evidence：使用指令微调的统一多模态模型
+7. [Q-TriM: Question-Guided Tri-Modal Attention for Audio-Visual Question Answering](/202607/12/2607.03825v1-q-trim-question-guided-tri-modal-attention-for-audio-visual-question-answering)  
    标签：评分：6.0/10、query:post-multi
-   evidence：教师正则化强化学习用于跨语言RAG后训练
-10. [KARMA: Knowledge graph-based Automated Reasoning Materialization and Alignment](/202607/11/2607.03166v1-karma-knowledge-graph-based-automated-reasoning-materialization-and-alignment)  
+   evidence：用于问答的多模态融合
+8. [Aura: Consistent Multi-Subject Video Generation via VLM-Grounded Semantic Alignment](/202607/12/2607.04311v2-aura-consistent-multi-subject-video-generation-via-vlm-grounded-semantic-alignment)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：基于VLM的多模态视频生成学习
+9. [TORINO: Token Reduction via Interpretable Concept Overlap in Vision-Language Models](/202607/12/2607.04593v1-torino-token-reduction-via-interpretable-concept-overlap-in-vision-language-models)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：视觉语言模型token减少
+10. [Light-Omni: Reflex over Reasoning in Agentic Video Understanding with Long-Term Memory](/202607/12/2607.05511v1-light-omni-reflex-over-reasoning-in-agentic-video-understanding-with-long-term-memory)  
    标签：评分：6.0/10、query:mr
-   evidence：知识图谱用于对比推理和对齐
-11. [BVS: Bayesian Visual Search with Multimodal Large Language Model for Fine-grained Perception](/202607/11/2607.03184v1-bvs-bayesian-visual-search-with-multimodal-large-language-model-for-fine-grained-perception)  
+   evidence：基于双上下文状态的多模态检索增强视频理解
+11. [Propose and Attend: Training-free MLLM Grounding Confidence via Multi-Token Localized Attention](/202607/12/2607.05978v1-propose-and-attend-training-free-mllm-grounding-confidence-via-multi-token-localized-attention)  
    标签：评分：6.0/10、query:post-multi
-   evidence：多模态大语言模型
-12. [USE: A Unified Self-Ensembling Framework for Test-Time Prompt Tuning](/202607/11/2607.03900v1-use-a-unified-self-ensembling-framework-for-test-time-prompt-tuning)  
+   evidence：基于多token局部注意力的训练无关MLLM定位置信度度量
+12. [Bridging Physical Reasoning and Task Generalization via Visual Action Outcome Reasoning Alignment](/202607/12/2607.06522v1-bridging-physical-reasoning-and-task-generalization-via-visual-action-outcome-reasoning-alignment)  
    标签：评分：6.0/10、query:post-multi
-   evidence：视觉语言模型的测试时提示调优
+   evidence：针对物理推理的视觉语言模型训练奖励设计
 
 
 <div class="dpr-home-promo-card">

@@ -1,0 +1,791 @@
+Title: Q-TriM: Question-Guided Tri-Modal Attention for Audio-Visual Question Answering
+
+URL Source: https://arxiv.org/pdf/2607.03825v1
+
+Published Time: Tue, 07 Jul 2026 01:36:51 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# Q-TriM: Question-Guided Tri-Modal Attention for Audio–Visual Question Answering 
+
+SungHun Kim Dept. of Computer Science and Engineering Korea University Seoul, South Korea 
+
+sainthun12@korea.ac.kr 
+
+SeungJun Baek ⋆
+
+Dept. of Computer Science and Engineering Korea University Seoul, South Korea 
+
+sjbaek@korea.ac.kr 
+
+Abstract. Audio-Visual Question Answering (AVQA) extends classical VQA by requiring joint reasoning over video and synchronized audio. However, many AVQA systems rely on deeply stacked layers of self- and cross attention across text, video, and audio. Such sequential stacking may incur loss of information such as subtle inter-modal cues over the layers, causing errors to accumulate across sequential attention layers during the fusion. We introduce Q-TriM which performs multi-modal fu-sion in a shallow and parallel manner instead of a deep and sequential manner. For Q-TriM, we propose a novel framework for attention op-eration incorporating video and audio conditioned on text. As a result, we obtain not only standard cross attention outputs but also Tri-Modal Attention representations in which Query, Key, and Value come from dis-tinct modalities. These attention representations are combined in parallel at a single stage, thus avoiding the multi-modal fusion with deep stacks in order to mitigate error accumulation and depth-induced issues. Q-TriM achieves state-of-the-art performance on three AVQA benchmarks, including substantial gains on MUSIC-AVQA-R, which demonstrates its robustness and out-of-distribution generalization. Code is available at https://github.com/Sunghun95/Q-TriM 
+
+Keywords: Audio-Visual Question Answering · Attention Model · Mul-timodal Fusion 
+
+1 Introduction 
+
+AVQA(Audio-Visual Question Answering) is the task of answering a natural-language question given a video with synchronized audio, extending classical VQA [1] by jointly leveraging acoustic and visual streams [42]. AVQA spans many use cases: (1) scene-aware dialog/assistive agents that reason over live au-dio–video streams [37], (2) long-form egocentric “memory” systems that find evi-dence moments for open-ended questions [7], and (3) first-person action settings where EPIC-Fusion aligns sounds with egocentric visuals before answering [15].  
+
+> ⋆
+
+Corresponding author.   
+
+> arXiv:2607.03825v1 [cs.CV] 4 Jul 2026 2S. Kim and S. Baek
+> Fig. 1. Overview of Q-TriM. Given input video, audio, and text, Q-TriM combines representations from Tri-Modal Attention, together with cross attention, to perform a shallow, parallel fusion of the modalities for reasoning of the answer.
+
+In AVQA, extracting salient evidence from both video and audio is essen-tial. Most AVQA systems rely on stacked attention layers across text, video, and audio [16, 20, 25, 44] and deepen the attention stack to capture inter-modal dependencies. In general, neural layers perform the abstraction and compression of information. On the one hand, these operations are necessary to selectively extract essential information, e.g., Information Bottleneck (IB) principle [40]. On the other hand, they accompany the loss of information [13, 28, 36], which may be problematic for fusing information from many modalities. For example, a modality processed in earlier layers may lose important inter-modal cues, mak-ing them unavailable for fusion at deeper layers. A simple remedy is to design architectures that achieve similar effects with shallow attention layers. However, since AVQA must integrate three modalities, stacking attention is often unavoid-able. In standard cross-attention [41], only two modalities interact at a time; a Query attends to a single Key–Value source, and thus at most two modalities interact simultaneously. For example, prior methods [20, 21] first process text and video with cross-attention, and then combine its output with audio repre-sentation via another cross-attention. Thus, coordinating text, video, and audio typically requires multiple fusion stages in a sequential manner. In this paper, we propose Q-TriM (Question-guided Tri-Modal Attention and Modality Mixture) as illustrated in Figure 1. To avoid stacked attention, we go shallow and parallel rather than deep and sequential . Instead of sequen-tial layering of blocks, we adopt a parallel fusion step to compute mixed fea-tures across all three modalities. To this end, we propose a novel framework for multi-modal attention. Our framework induces a joint distribution of video and audio representations per frame conditional on the input text. The fused representation is computed as a conditional expectation from the distribution. Unrolling these expectations (see Sec. 3.3 for details) reveals not only standard Q-TriM 3
+
+cross-modal attention but also a new attention form in which the query, keys, and values are drawn from different modalities; we refer to this operator as 
+
+Tri-Modal attention . Importantly, Tri-Modal attention models the three-way interactions among text, video, and audio in a direct manner within a single stage, thereby avoiding potential loss of inter-modal cues during the fusion. Fi-nally, we compute a question-aware mixture of these outputs to produce the most relevant fused representation for reasoning. In addition, to ensure that only question-relevant patches participate in learning, we propose a question-guided token filtering module. Without introducing any extra attention, the token fil-tering module uses simple dot-product scoring and a straight-through estimator (STE) [4], thereby preventing further deepening of the attention stack. Con-sequently, our method achieves state-of-the-art performance on the standard AVQA benchmarks, MUSIC-AVQA [22] and MUSIC-AVQA-R [31]. On MUSIC-AVQA-2.0 [26], it further attains SoTA in three out of four evaluation categories. Our main contributions are summarized as follows: 
+
+– We present Q-TriM , an AVQA model that performs inter-modal attention in a shallow, parallel fusion stage rather than by deep, sequential stacks. By consolidating fusion horizontally, Q-TriM achieves the effect of deeper cross-modal pipelines while curbing error propagation through deep layers. 
+
+– We propose a new modality-fusion framework that produces a question-conditioned joint distribution of video and audio frame tokens. Within this framework, we derive a Tri-Modal attention operator that allows distinct Query, Key, and Value sources across modalities, enabling direct and explicit three-way fusion without resorting to deep or sequential stacks. 
+
+– Q-TriM achieves state-of-the-art performance across three representative AVQA benchmarks. Notably, on the MUSIC-AVQA-R dataset [31], Q-TriM achieves superior performance over baselines, demonstrating its robustness. 
+
+2 Related Work 
+
+We group prior Audio–Visual Question Answering (AVQA) research into three axes: question awareness, spatial perception, and temporal perception. These axes respectively target how text guides reasoning, where to look and listen in the scene, and when salient evidence occurs across time. 
+
+2.1 Question Awareness 
+
+In AVQA, it is important to condition the model on the question so that both fea-ture extraction and fusion remain text-guided. Co-attention and question-guided fusion from VQA (e.g., [23,29, 44]) inspire AVQA systems that ground sounding regions and fuse audio–visual cues under textual guidance (e.g., [18,22,24]). Re-cent work further strengthens conditioning via prompt reformulation or question-aware experts: TSPM turns questions into declaratives to align with visual 4 S. Kim and S. Baek 
+
+semantics before temporal/spatial selection [20], and [16] introduces question-aware Gaussian experts. Dialog-style conditioning also appears in scene-aware settings [37]. Overall, these methods filter modalities through question semantics to suppress irrelevant content and to guide cross-modal reasoning [20, 22, 25]. 
+
+2.2 Spatial Perception 
+
+Another line of work localizes question-relevant regions and sound sources, of-ten by coupling detection with cross-modal grounding. Panoramic grounding re-quires spherical spatial reasoning in 360 ° videos [45]. Progressive pipelines (e.g., PSTP-Net) first select key segments and then pick relevant patches with audio-guided visual attention [21]. Complementary strategies include object-aware learning [24], causal regularization against spurious cues [18], and parameter-efficient ViT-based learners [25]. In practice, many approaches pair these spa-tial modules with question-aware fusion to maintain textual guidance through-out [20, 22]. 
+
+2.3 Temporal Perception 
+
+Temporal perception targets frames or segments that matter for the question, ensuring that evidence is aggregated over the correct intervals. PSTP-Net ex-plicitly performs segment selection before spatial filtering [21], while TSPM adds a prompt-guided temporal module [20]. Earlier video-/audio-QA stud-ies explore temporal reasoning with recurrent or attention-based models (e.g., [9, 19, 23]), and dialog-style AV understanding leverages temporal context as well [37]. AVQA systems often integrate temporal selection with spatial ground-ing and question-aware fusion for end-to-end reasoning [22]. Overall, inter-modal attention is typically stacked in the aforementioned works (at least two layers). Notably, QA-TIGER [16], the state-of-the-art method at the time of writing, uses four cross-attention blocks which are sequentially connected. 
+
+3 Method 
+
+Q-TriM adopts a shallow and parallel architecture that combines cross-attention with Tri-Modal attention, instead of stacking attention blocks deeply. An overview of the architecture is shown in Figure 2. 
+
+Notations. A vector v is defined as a row vector by default. The dot-product between vectors u and v is thus uv ⊤. A matrix X = {xi}Ni=1 ∈ RN ×D can be viewed as having N rows of D-dimensional vectors xi, i = 1 , . . . , N . Define the conventional dot-product attention for representations Q, K, V of proper Q-TriM 5
+
+Fig. 2. Overall architecture of Q-TriM . First, question-guided token filter-ing keeps only the top tokens most relevant to the text and drops the rest. Next, Question-aware modality mixture computes four paths: TMA(Text,Audio,Video), TMA(Text,Video,Audio), CA(Text,Video,Video), and CA(Text,Audio,Audio). TMA stands for Tri-modal attention, and CA stands for cross-attention. Then question-conditioned weights are applied to the outputs. Finally, fused-feature reasoning com-bines these outputs and feeds the result to a classification layer to produce the answer. 
+
+dimensions 1:
+
+Attn (Q, K, V) := softmax  QK ⊤ V (1) 
+
+3.1 Input Representation 
+
+We project three modalities, i.e., text, video, and audio, into a common embed-ding space. Such aligned representations help modeling direct interactions across modalities via attention. Firstly, we project text and video into CLIP embedding spaces [34]. Secondly, we align audio with text and video; there are candidate methods extending CLIP to audio, e.g., AudioCLIP [12], ImageBind [10]. We choose a recent method: ImageBind. We segment each original video into  T
+
+contiguous 2-second clips and extract frame-aligned video and audio represen-tations per segment. The text consists of a single question for the entire video. The details of input representation is explained as follows. 
+
+Text representation. The question text t is encoded as a single sentence-level embedding from CLIP [34] given by 
+
+t ∈ RD .
+
+Video representation. We extract frame-level global video embeddings from CLIP given by 
+
+V = { vt }Tt=1 ∈ RT ×D. 
+
+> 1
+
+The attention originally contains normalization in the softmax, e.g., QK ⊤ is scaled by 1/√D if the dot-product is of dimension D. We omit 1/√D for notational sim-plicity, and assume that such normalization is performed whenever necessary for implementation. 6 S. Kim and S. Baek 
+
+Additionally, in order to retain spatial information, we obtain patch-level tokens using CLIP model given by 
+
+Vp = { vp 
+
+> t
+
+}Tt=1 ∈ RT ×P ×D.
+
+Audio representation. We extract frame-level audio embeddings aligned with text and image CLIP using ImageBind [10] given by 
+
+A = { at }Tt=1 ∈ RT ×D.
+
+3.2 Token Filtering Overview. The entire visual representation Vp from Sec. 3.1 may contain ir-relevant or redundant tokens [35, 43]. This can incur unnecessary computational overhead and produce noise. We therefore introduce a lightweight token-filtering module that, without any attention, retains only text-relevant patches and pre-serves salient evidence. Because the token selection is discrete, we train it end-to-end with a straight-through estimator (STE) [4], which allows gradients to pass through the hard selection mask. 
+
+Scoring and STE-based Top-K filtering. Let k ∈ (0 , 1] denote the keep ratio 
+
+defined as the fraction of patches to retain. Let K be the number of patches re-tained per frame. We first project the question to the patch channel and compute per-patch compatibility scores: 
+
+t′ = Wtt + bt, st = t′ (vp 
+
+> t
+
+)⊤
+
+√D′ ∈ RP ,
+
+We select the indices of the top-K scores: 
+
+It = TopK( st, K ),
+
+Next, we gather the corresponding patch tokens 
+
+Xhard  
+
+> t
+
+= vp 
+
+> t
+
+[It] ∈ RK×D′
+
+.
+
+To keep the forward path identical to the hard selection while allowing a gradient flow into the scoring path, we adopt a straight-through estimator (STE) [4]. Specifically, let τ > 0 be a temperature and define the soft weights and their top-K slice: 
+
+wt = softmax 
+
+ st
+
+> τ
+
+
+
+∈ RP , wtop  
+
+> t
+
+= wt[It] ∈ RK .
+
+We form a softly reweighted selection by broadcasting wtop  
+
+> t
+
+across feature di-mensions: 
+
+Xsoft  
+
+> t
+
+= Xhard  
+
+> t
+
+⊙ wtop  
+
+> t
+
+∈ RK×D′
+
+.
+
+where  ⊙ denotes elementwise multiplication. Finally, we use the STE composi-tion using stop-gradient sg (·):
+
+vp 
+
+> t
+
+= sg  Xhard 
+
+> t
+
+ +
+
+
+
+Xsoft  
+
+> t
+
+− sg  Xsoft 
+
+> t
+
+
+
+.Q-TriM 7
+
+Thus, the forward pass satisfies Xt ≡ Xhard  
+
+> t
+
+, whereas the backward pass routes gradients through wtop  
+
+> t
+
+into the scores st and ultimately into Wt. In all experi-ments, we set the keep ratio to k = 0 .5 (i.e., K = P/ 2). 
+
+Self-attention refinement. After the filtering stage, we enhance the represen-tations by applying self-attention to each stream—the selected patch-token set 
+
+Vp, the frame-level video  V, the audio  A, and the question  t.
+
+3.3 Attention Framework for Modality Fusion Overview. We propose a new framework for multi-modal attention which fuses video and audio frame representations conditional on the input text. The key task for AVQA is modeling the relation between video and audio given the input text (query). For that purpose, we define Conditional Similarity Score (CSS) as follows. The CSS between i-th video frame and j-th audio frame conditional on text query t is denoted by s(i, j |t) ∈ R. We define CSS matrix S ∈ RT ×T that has s(i, j |t) as the (i, j )-th element, i.e., 
+
+[S]i,j = s(i, j |t) (2) Thus, the row direction of S represents video frames, and column direction of S
+
+represents audio frames. We define a probability distribution from S by applying a 2-D softmax to S, i.e., 
+
+PS(i, j |t) = exp( s(i, j |t)) 
+
+P
+
+> i′
+
+P 
+
+> j′
+
+exp( s(i′, j ′|t))  (3) Thus, PS(i, j |t) can be considered as a relative probability mass (weight) encod-ing the importance of i-th video and j-th audio frame conditional on question t.We consider three types of CSS s(i, j |t) as follows. 
+
+1) Default CSS. Let V = {vk}Tk=1 and A = {ak}Tk=1 be T × D matrices of video and audio representations respectively. The first CSS s(i, j |t) for i-th video and 
+
+j-th audio frames is defined as 
+
+s(i, j |t) = vit⊤ + aj t⊤ (4) The CSS is a combination of the similarity between vi and query t and the sim-ilarity between aj and query t. We derive the video embedding as the weighted sum with respect to the distribution PS(i, j |t). Equivalently, it can be considered as a conditional expectation :
+
+E [V|t] := X
+
+> i,j
+
+PS(i, j |t) · vi (5) We have that 
+
+E [V|t] = Attn (t, V, V) (6) 8 S. Kim and S. Baek 
+
+because 
+
+E [V|t] = X
+
+> i,j
+
+vi · PS(i, j |t) (7) 
+
+= X
+
+> i,j
+
+vi exp( vit⊤ + aj t⊤)
+
+P
+
+> i′
+
+P 
+
+> j′
+
+exp( vi′ t⊤ + aj′ t⊤) (8) 
+
+=
+
+P 
+
+> i
+
+vi exp( vit⊤) · P 
+
+> j
+
+exp( aj t⊤)
+
+P 
+
+> i′
+
+exp( vi′ t⊤) · P 
+
+> j′
+
+exp( aj′ t⊤) (9) 
+
+= X
+
+> i
+
+vi · exp( vit⊤)
+
+P 
+
+> i′
+
+exp( vi′ t⊤) = Attn (t, V, V) (10) Similarly, we can show 
+
+E [A|t] = Attn (t, A, A) (11) Thus, with CSS given by (4), we obtain the conventional cross attention for video and audio with input text given by (6) and (11). 
+
+2) Cross-Reference CSS. The second type of CSS is 
+
+¯s(i, j |t) = ait⊤ + vj t⊤ (12) Importantly, we use i-th audio frame ai to represent the i-th video frame for similarity score. Similarly, we use j-th video frame vj to represent j-th audio 
+
+frame. The intuition is that, audio-visual questions are likely to address the 
+
+co-occurrence of video and audio events [2, 39]. If the i-th frame contains an important clue to the audio-visual question, both the video and audio information at the i-th frame will be important. In that case, the video information at i-th frame can be closely related to i-th audio ai given query t.The CSS matrix for (12) is simply the transpose of CSS matrix S in (2), because ¯s(i, j |t) = s(j, i |t). Thus, we will denote its CSS matrix by S⊤. We obtain the softmax distribution by applying 2D-softmax to S⊤ given by PS⊤ .The expected representations of video and audio under this distribution can be derived similarly to (10): 
+
+E [V|t] = Attn (t, A, V) (13) and 
+
+E [A|t] = Attn (t, V, A) (14) The attentions in (13) and (14) may appear somewhat unconventional; three dif-ferent modalities are input to Q, K and V connections of the attention function. However, we can interpret (13) as follows. The attention weights are derived from text and audio ( t and A are connected to Q and K of the attention function). The weights “select” important audio frames given the question. These weights are used to combine video frames. Thus, Attn (t, A, V) is a combination of video frames where the frames are considered important from the perspective of audio and text. We can expect these representations are useful for audio-visual queries. We call (13) and (14) Tri-Modal attention. Q-TriM 9
+
+3) Mixed CSS. The third type of CSS we use is 
+
+ˆs(i, j |t) = max( vit⊤ + aj t⊤, ait⊤ + vj t⊤) (15) (15) can be considered as mixing the previous CSSs (4) and (12) by taking their maximum. We chose the max function for mixing scores due the following reasons. The max function is widely adopted to combine or pool feature scores, e.g., max pooling [17] (keeps the most salient activation) or maxout [11] (outputs the maximum over multiple linear responses). In particular, the max function is effective for suppressing irrelevant noise. For example, suppose one of feature score is high (large positive number) and the other is low (large negative num-ber). Then this feature is potentially important, similar to a neuron output with a high activation value. However, if we mix the scores using sum or product, the irrelevant score can affect the result. Thus, the max operation is good at suppressing such irrelevant noise. An issue with the max function is that it is not a smooth function. Instead, we use Log-Sum-Exp [5] as a smooth approximation of the max function: 
+
+max( a, b ) ≈ log(exp( a) + exp( b))  (16) If we apply (16) to CSS (15) and compute the expectations of video and audio representations, we obtain the following (a derivation is provided in the Supple-mentary Materials): 
+
+E[V|t] ≈ 12 Attn (t, A, V) + 12 Attn (t, V, V) (17) and 
+
+E[A|t] ≈ 12 Attn (t, V, A) + 12 Attn (t, A, A). (18) Interestingly, these approximate representations can be obtained from the mix-ture of softmax distributions derived from previous CSSs. For example, (17) is equal to  X
+
+> i,j
+
+ PS(i, j |t) + PS⊤ (i, j |t)2
+
+
+
+vi
+
+which means that (17) is the expectation with respect to the mixture of distri-butions PS and PS⊤ .
+
+Implementation: Modality Mixture. We obtained representations which are cross attentions (Attn (t, V, V) and Attn (t, A, A) in (6) and (11)), Tri-Modal At-tentions (Attn (t, A, V) and Attn (t, V, A) in (13) and (14)), and their mixtures ((17) and (18)). Thus, these attentions constitute the main components of the proposed framework for modality fusion. For practical implementation, we com-bine these representations as follows: (i) compute the mixture weights for the four attention representations; (ii) concatenate the weighted attention represen-tations. The concatenated representation will be used for the final reasoning of the answer. This approach is consistent with our horizontal fusion of modali-ties; we compute four types of attentions directly from audio, video and text representations, and merge them in parallel without deep sequential stacking. 10 S. Kim and S. Baek 
+
+Denote these cross- and Tri-Modal attention outputs by r1 = Attn (t, Vp, Vp),
+
+r2 = Attn (t, A, A), r3 = Attn (t, A, Vp) and r4 = Attn (t, V, A), respectively. Note that we used patch-level representations of video (Vp) for the Value input to the attentions to better exploit spatial information. The attention outputs are fused using text-dependent weights. A precise weighting scheme is described as follows. For stability of those features, we modulate attention keys and values by text using FiLM [33]: 
+
+FiLM( X; t) = X ⊙ γ(t) + β(t)
+
+γ(t) = 1 + Wγ t, β(t) = Wβ t,
+
+(zero-initialized so initially identity). For r1, r2, r3, and r4, we use 
+
+K′ = FiLM( K; t), V ′ = FiLM( V ; t),
+
+and apply attention with (K′, V ′) in place of (K, V ) inside Attention Module. From t we produce four scalars 
+
+(q1, q 2, q 3, q 4) = Wg t + bg , gi = 1 + 12 tanh( qi).
+
+Each attention is gated by gi:
+
+hi = gi ri, i = 1 , . . . , 4.
+
+This approach allows the question  t to determine how much each attention result 
+
+ri should matter by assigning weights  gi that control their contribution. 
+
+3.4 Reasoning 
+
+For the reasoning of the answer, we begin with concatenating the text embedding and four gated attention representations: 
+
+H = t ; h1 ; h2 ; h3 ; h4
+
+ ∈ R5×D
+
+Next, we apply a self-attention block to allow global interaction among all results: 
+
+F = SA( H, H, H) ∈ R5×D
+
+Finally, the result passes through a classification layer to produce the answer: 
+
+ˆy = CLS (F) ∈ RC
+
+where CLS denotes the classifier layer and C denotes the number of classes. The model is trained by minimizing the cross-entropy between the predicted label ˆy
+
+and the ground-truth label y:
+
+LCE = −
+
+> C
+
+X
+
+> c=1
+
+yc log ˆ yc . (19) Q-TriM 11                  
+
+> Table 1: Dataset statistics.
+> Dataset Videos Train Valid QA Test QA
+> MUSIC-AVQA 9,288 31,927 4,568 9,129 MUSIC-AVQA-R 9,288 ––211,572 MUSIC-AVQA-v2.0 10,512 37,429 5,345 10,816
+
+4 Experiments 
+
+4.1 Datasets 
+
+We evaluate on MUSIC-AVQA [22], MUSIC-AVQA-R [31], and MUSIC-AVQA-v2.0 [26], adopting the official train/val/test splits as in Table 1. The base MUSIC-AVQA [22] provides a standard benchmark over 22 instruments with audio-only, visual-only, and audio-visual questions. MUSIC-AVQA-R [31] builds on MUSIC-AVQA and upgrades the setting by concentrating on rare and out-of-distribution cases (e.g., uncommon instruments and atypical contexts), ex-plicitly probing robustness beyond head-class priors and frequency-driven short-cuts. MUSIC-AVQA-v2.0 [26] upgrades the benchmark to address dataset biases by enriching ensemble and multi-instrument scenes, rebalancing question types (e.g., existence, location, temporal) across modalities. It provides paired bias-balanced evaluation splits, which enable controlled analysis of spurious correla-tions versus genuine cross-modal reasoning. 
+
+4.2 Implementation Details 
+
+We extract common-space representations by using CLIP [34] for video and text embeddings, and ImageBind [10] for audio embeddings. Video frames are sampled every 2 seconds with the hidden size given by  D = 1024 , and we obtain one CLIP embedding per frame. However, this frame-wise CLIP encoding may not fully represent spatial information. Thus, we additionally extract CLIP-based patch-level embeddings for video: for each frame,  P = 256  patch tokens with dimensionality  1280 . All attention modules use 8 heads. Dropout 0.1 is applied to every attention module and to the final classification layer. Optimization uses AdamW [27] with a step scheduler that multiplies the learning rate by  0.1 every 8 epochs. The loss employs label smoothing [38]  0.1. We apply gradient clipping of  0.1 (global norm). Training is performed on a single NVIDIA A6000 GPU. 
+
+4.3 Quantitative Results and Analysis MUSIC-AVQA-R. On the debiased MUSIC-AVQA-R [31] benchmark, our model attains 70.89% overall as in Table 2. It performs strongly on both fre-quent (Head) and rare (Tail) answer categories, e.g., Audio QA Count (H/T: 85.68/76.12%) and Visual QA Local (H/T: 89.45/78.95%). For Audio-Visual QA, Count (H/T: 81.43/44.21%) and Local (H/T: 66.27/63.51%) remain com-petitive, suggesting robust question-conditioned temporal–spatial reasoning even under long-tail distributions. 12 S. Kim and S. Baek 
+
+MUSIC-AVQA. Our model achieves an overall accuracy of 77.68% on the MUSIC-AVQA [22] test set, surpassing prior work such as QA-TIGER (77.62%) as shown in Table 3. By modality, we obtain a strong Visual QA average of 85.76% (Count 84.46%, Local 87.02%) and an Audio-Visual QA average of 73.78% (Exist 82.29%, Count 80.87%, Local 71.85%, Comp 62.58%, Temp 69.83%). Audio QA averages 77.84%. 
+
+MUSIC-AVQA-v2.0. We further evaluate on the MUSIC-AVQA-v2.0 [26] benchmark. When trained on the biased dataset, Q-TriM achieves state-of-the-art performance on both the bias test (78.40%) and the balanced test (75.31%). When trained on the balanced dataset, it remains state-of-the-art performance on the bias test (76.92%), but on the balanced test it falls short by a small margin (76.29%), as shown in Table 4. Overall, Q-TriM attains strong results across all three benchmarks. This sug-gests that adopting a shallow and parallel design, rather than deep and sequen-tial, for inter-modal attention can be effective for learning cross-modal interac-tions compared to deeper stacked architectures as in baseline methods. 
+
+4.4 Ablation Study 
+
+We conduct ablations to assess the contribution of each component of the pro-posed model (Table 5). 
+
+Token filtering. We first removed the token filtering component. Token filter-ing not only reduces computational cost, but also suppresses patches that are irrelevant to the question, thereby easing question grounding and answer selec-tion. Without this module, the model attends more to background regions and exhibits degraded accuracy. 
+
+Tri-Modal attention. Next, we removed the Tri-Modal attention. This module is particularly important for audio-visual question types in AVQA that require reasoning over all three modalities. Eliminating it forces the model to rely on cross attention layers only, which weakens cross-modal alignment and lowers performance. 
+
+Modality mixture. Next, we removed the modality mixture component. This module aggregates the text-conditioned attention outputs from different modali-ties into a coherent representation. Without this component, the model struggles to reconcile complementary cues across modalities, leading to a further drop in accuracy. 
+
+4.5 Keep ratio of Token Filtering 
+
+We conducted token filtering experiments to determine how many patches to retain, controlled by the hyperparameter k (Table 6). Using the MUSIC-AVQA-R dataset, we evaluated five values of the keep ratio:  0.1, 0.3, 0.5, 0.7, and  0.9.Here, a keep ratio of  0.5 means that only  50%  of the total patches are kept while the remaining ones are discarded. Consistent with the paper’s findings, a keep ratio of  0.5 yielded the best performance. Notably, when the keep ratio was set Q-TriM 13 
+
+Table 2: Experimental results (%) on the MUSIC-AVQA-R test set, with H and T representing performance on Head (frequent) and Tail (rare) answer categories, re-spectively. Bold denotes the best performance, and underline indicates the second-best performance. 
+
+Method Audio QA Visual QA Audio-Visual QA Avg 
+
+Count Comp Count Local Exist Count Local Comp Temp H T H T H T H T H T H T H T H T H TFCNLSTM [9] 66.23 36.48 64.78 51.24 61.75 5.31 54.86 51.06 64.76 78.52 62.69 7.23 46.66 57.30 43.13 71.67 37.02 30.78 54.12 BiLSTM [46] 73.68 46.32 21.51 77.58 64.30 0.00 53.92 42.01 87.51 21.14 62.85 2.18 35.16 43.75 27.61 74.38 17.58 31.32 48.84 HCAttn [29] 61.67 41.63 59.09 47.14 56.52 9.20 67.01 53.16 66.57 61.13 59.53 12.48 37.05 42.48 48.81 60.12 33.82 39.26 51.90 MCAN [44] 75.02 60.16 58.89 50.90 64.58 26.69 66.62 65.25 61.29 67.29 64.76 25.28 46.11 61.61 50.57 52.04 34.64 58.05 57.27 PSAC [23] 53.01 56.68 57.41 48.12 49.55 26.43 72.96 60.69 50.56 55.54 56.70 19.58 41.98 52.30 38.13 58.92 26.68 46.24 50.45 HME [8] 62.60 53.95 54.97 58.29 50.95 16.46 73.25 58.06 65.74 66.49 63.18 17.18 39.59 45.03 53.20 69.57 39.35 41.57 53.66 HCRN [19] 55.53 53.31 47.17 32.44 41.87 23.55 39.40 51.27 41.81 65.45 54.58 19.57 36.62 42.72 33.33 36.87 40.47 44.13 43.92 AVSD [37] 54.00 47.84 60.61 47.79 63.25 10.07 74.70 61.43 66.28 61.98 42.61 18.06 33.00 40.35 51.98 66.00 40.14 41.52 52.33 Pano-AVQA [45] 50.57 43.45 50.78 43.64 47.28 15.50 76.19 65.51 52.37 22.04 52.21 21.52 44.35 61.69 45.61 40.49 40.05 39.43 47.40 ST-AVQA [22] 56.40 41.48 62.22 55.79 59.86 12.94 63.31 54.00 49.78 56.41 38.11 19.41 35.05 44.09 53.30 62.44 40.42 35.85 52.80 LAVISH [25] 61.73 43.99 66.00 50.38 55.33 10.21 70.71 68.78 77.83 79.46 49.38 14.47 41.76 41.01 59.26 65.10 41.84 46.26 57.63 TSPM [20] 81.65 71.80 67.66 49.56 78.29 47.56 58.80 73.18 69.15 82.79 77.09 38.64 42.24 57.37 52.07 68.86 39.23 49.36 66.30 MCCD [31] 84.32 67.23 64.68 62.18 75.09 48.42 80.47 66.38 77.22 67.58 55.15 82.23 70.12 39.83 61.26 58.17 43.67 58.33 66.95 QA-Tiger [16] 82.67 75.82 71.75 43.11 81.30 54.59 84.76 75.59 72.84 78.56 76.70 33.55 64.65 64.65 37.55 80.47 36.85 62.96 67.99 
+
+Q-TriM 85.68 76.12 55.22 63.54 86.26 57.91 89.45 78.95 72.29 81.97 81.43 44.21 66.27 61.35 61.35 56.67 43.94 48.26 70.89 
+
+Table 3: Experimental results (%) on the MUSIC-AVQA test set. 
+
+Method Audio QA Visual QA Audio-Visual QA Avg 
+
+Count Comp Avg Count Local Avg Exist Count Local Comp Temp Avg FCNLSTM [9] 70.45 66.22 68.88 63.89 46.74 55.21 82.01 59.34 46.28 62.15 47.33 60.06 60.34 BiLSTM [46] 70.35 47.92 62.05 64.64 64.33 64.48 78.39 56.91 45.85 53.09 49.76 57.10 59.92 HCAttn [29] 70.25 54.91 64.57 64.05 66.37 65.22 79.10 59.97 49.51 55.25 56.43 60.19 62.30 MCAN [44] 77.50 55.24 69.25 71.56 70.93 71.24 80.40 64.91 54.48 57.22 47.57 61.58 65.49 PSAC [23] 75.64 66.06 72.09 68.64 69.79 69.22 77.59 63.42 55.02 61.17 59.47 63.52 66.54 HME [8] 74.76 63.56 70.61 67.97 69.46 68.76 80.30 63.19 53.18 62.69 59.83 64.05 66.45 HCRN [19] 68.59 50.92 62.05 64.39 61.81 63.08 54.47 53.38 41.53 52.11 47.69 50.26 55.73 AVSD [37] 72.41 61.90 68.52 67.39 74.19 70.83 81.61 63.89 58.79 61.52 61.41 65.49 67.44 Pano-AVQA [45] 74.36 64.56 70.73 69.39 75.65 72.56 81.21 64.91 59.33 64.22 63.23 66.64 68.93 ST-AVQA [22] 78.18 67.05 74.06 71.56 76.38 74.00 81.81 70.80 64.51 66.01 63.23 69.54 71.52 MCCD [31] 83.87 71.04 79.14 79.78 76.73 78.24 80.87 51.63 71.46 64.67 64.60 67.13 72.20 COCA [18] 79.35 67.68 75.42 75.10 75.43 75.23 83.50 66.63 69.72 64.12 65.57 69.96 72.33 PSTP-Net [21] 73.97 65.59 70.91 77.15 77.36 77.26 76.18 72.23 71.80 71.79 69.00 72.57 73.52 LAVISH [25] 82.09 65.56 75.97 78.98 81.43 80.22 81.71 75.51 66.13 63.77 67.96 71.26 74.46 APL [24] 82.40 70.71 78.09 76.52 82.74 79.69 82.99 73.29 66.68 64.76 65.95 70.96 74.53 TSPM [20] 84.07 64.65 76.91 82.29 84.90 83.61 82.19 76.21 71.85 65.76 71.17 73.51 76.79 QA-Tiger [16] 84.86 67.85 78.58 83.96 86.29 85.14 83.10 78.58 72.50 63.94 69.59 73.74 77.62 
+
+Q-TriM 85.05 65.49 77.84 84.46 87.02 85.76 82.29 80.87 71.85 62.58 69.83 73.78 77.68 
+
+to  0.1. Thus, by using only  10%  of the original patches, the model still achieved a reasonable  70 .11%  accuracy, indicating that token filtering effectively compresses patches. This suggests that, even without using attention in the filtering stage, the token-filtering module is effectively learned via simple scoring and a straight-through estimator (STE) [4] in order to retain only the question-relevant tokens. In addition, we explored a strategy that makes the keep-ratio adaptive, where the model dynamically selects how many video patches to retain conditioned on the question. Related discussion and experiments are provided in the Supplementary Materials. 
+
+5 Conclusion 
+
+We introduce Q-TriM, an AVQA model that replaces deeply stacked attention with a shallow, parallel inter-modal and question-aware fusion. The pipeline con-14 S. Kim and S. Baek 
+
+Table 4: Experimental results (%) on the MUSIC-AVQA-v2.0 for (a) bias and (b) balanced test sets. Each evaluation is conducted with models trained on bias and balanced training sets, respectively.                                            
+
+> Training Method A-QA V-QA AV-QA Avg
+> Bias ST-AVQA [22] 76.86 77.70 69.59 73.07 LAVISH [25] 76.73 80.96 70.80 74.59 QA-TIGER [16] 79.13 84.83 72.37 76.93
+> Ours 78.93 86.01 74.53 78.40
+> Balance ST-AVQA [22] 76.18 77.20 67.96 71.92 LAVISH [25] 75.56 80.83 69.27 73.51 LAST [26] 77.10 82.99 70.86 75.24 LAST-Att [26] 77.29 83.47 71.05 75.45 QA-TIGER 77.07 85.93 71.20 76.57
+> Ours 78.75 86.45 71.69 76.92
+
+(a) Bias test set                                            
+
+> Training Method A-QA V-QA AV-QA Avg
+> Bias ST-AVQA [22] 73.34 76.82 64.51 69.40 LAVISH [25] 73.14 79.70 65.01 70.39 QA-TIGER [16] 77.57 84.84 67.43 73.91
+> Ours 77.67 85.05 69.85 75.31
+> Balance ST-AVQA [22] 75.50 77.67 66.32 71.02 LAVISH [25] 76.15 81.32 68.28 73.18 LAST [26] 78.08 83.29 69.72 74.85 LAST-Att [26] 78.56 84.07 70.30 75.44 QA-TIGER [16] 79.90 86.95 70.22 76.43 Ours 80.14 86.63 70.03 76.29
+
+(b) Balance test set 
+
+Table 5: Ablation study of the proposed framework on MUSIC-AVQA-R dataset. Method A-QA V-QA AV-QA Avg 
+
+w/o All Modules(Base) 70.48 80.83 58.43 66.96 
+
+w/o Token Filtering 74.54 80.36 61.54 69.21 
+
+w/o Tri-Modal Attention 73.13 81.02 61.10 68.92 
+
+w/o Modality Mixture 72.08 78.21 60.96 67.85 Ours 74.74 83.64 62.85 70.89 
+
+sists of three stages. First, we apply token filtering to retain only the semantically meaningful patches that are relevant to the given question. Next, Tri-Modal At-tention and cross attention are applied in parallel to obtain text-relevant video and audio representations. Finally, a modality mixture head aggregates features with question-aware weights, yielding a compact representation that emphasizes information most pertinent to the query. Q-TriM attains state-of-the-art perfor-mance on three benchmark datasets. Especially, we demonstrate the robustness of our model by achieving a substantial performance margin over prior state-of-the-art methods on the MUSIC-AVQA-R dataset. As a direction for future work, we plan to explore various CSS scores in the proposed attention framework and extend them to various multi-modal tasks. 
+
+Acknowledgements 
+
+This work was partly supported by the Institute of Information & Communica-tions Technology Planning & Evaluation (IITP) grant funded by the Korea gov-ernment (MSIT) (IITP-2026-RS-2020-II201819, ICT Creative Consilience Pro-gram, 10%, and No.RS-2026-25507543, Development of AI Co-Scientist based on Scientific Causal World Model, 80%) and by the National Research Founda-tion of Korea (NRF) grant funded by the Korea government(MSIT)(RS-2022-NR070834,RS-2026-25482946). Q-TriM 15 
+
+Table 6: Evaluation of token filtering with varying keep ratios on MUSIC-AVQA-R. Consistent with prior findings, a keep ratio of  0.5 achieves the highest accuracy. Keep Ratio A-QA V-QA AV-QA Avg 0.1 75.28 82.60 61.79 70.11 0.3 75.30 83.05 62.37 70.56 0.5(ours) 74.74 83.64 62.85 70.89 
+
+0.7 74.28 82.71 62.56 70.39 0.9 75.35 83.22 62.15 70.50 
+
+References 
+
+1. Antol, S., Agrawal, A., Lu, J., Mitchell, M., Batra, D., Zitnick, C.L., Parikh, D.: Vqa: Visual question answering. In: ICCV. pp. 2425–2433 (2015) 2. Arandjelovic, R., Zisserman, A.: Look, listen and learn. In: ICCV. pp. 609–617 (2017) 3. Bai, S., Chen, K., et al.: Qwen2.5-VL Technical Report (2025) 4. Bengio, Y., Léonard, N., Courville, A.: Estimating or propagating gradi-ents through stochastic neurons for conditional computation. arXiv preprint arXiv:1308.3432 (2013) 5. Boyd, S., Vandenberghe, L.: Convex optimization. Cambridge university press (2004) 6. Cheng, Z., Leng, S., Zhang, H., Xin, Y., Li, X., Chen, G., Zhu, Y., Zhang, W., Luo, Z., Zhao, D., Bing, L.: VideoLLaMA 2: Advancing Spatial-Temporal Modeling and Audio Understanding in Video-LLMs (2024) 7. Datta, S., Dharur, S., Cartillier, V., Desai, R., Khanna, M., Batra, D., Parikh, D.: Episodic memory question answering. In: CVPR. pp. 19119–19128 (2022) 8. Fan, C., Zhang, X., Zhang, S., Wang, W., Zhang, C., Huang, H.: Heterogeneous memory enhanced multimodal attention model for video question answering. In: CVPR. pp. 1999–2007 (2019) 9. Fayek, H.M., Johnson, J.: Temporal reasoning via audio question answering. TASLP 28 , 2283–2294 (2020) 10. Girdhar, R., El-Nouby, A., Liu, Z., Singh, M., Alwala, K.V., Joulin, A., Misra, I.: Imagebind: One embedding space to bind them all. In: CVPR. pp. 15180–15190 (2023) 11. Goodfellow, I.J., Warde-Farley, D., Mirza, M., Courville, A., Bengio, Y.: Maxout networks. In: ICML. pp. 1319–1327 (2013) 12. Guzhov, A., Raue, F., Hees, J., Dengel, A.: Audioclip: Extending clip to image, text and audio. In: ICASSP. pp. 976–980 (2022) 13. Hayou, S., Doucet, A., Rousseau, J.: On the impact of the activation function on deep neural networks training. In: ICML. pp. 2672–2680 (2019) 14. Jang, E., et al.: Categorical reparameterization with gumbel-softmax. In: ICLR (2017) 15. Kazakos, E., Nagrani, A., Zisserman, A., Damen, D.: Epic-fusion: Audio-visual temporal binding for egocentric action recognition. In: ICCV. pp. 5492–5501 (2019) 16. Kim, H., Jung, I., Suh, D., Zhang, Y., Lee, S., Hong, S.: Question-aware gaussian experts for audio-visual question answering. In: CVPR. pp. 13681–13690 (2025) 17. Krizhevsky, A., Sutskever, I., Hinton, G.E.: Imagenet classification with deep con-volutional neural networks. In: NeurIPS. pp. 1097–1105 (2012) 16 S. Kim and S. Baek 18. Lao, M., Pu, N., Liu, Y., He, K., Bakker, E.M., Lew, M.S.: Coca: Collaborative causal regularization for audio-visual question answering. In: AAAI. pp. 12995– 13003 (2023) 19. Le, T.M., Le, V., Venkatesh, S., Tran, T.: Hierarchical conditional relation networks for video question answering. In: CVPR. pp. 9972–9981 (2020) 20. Li, G., Du, H., Hu, D.: Boosting audio visual question answering via key semantic-aware cues. In: ACM MM. pp. 5997–6005 (2024) 21. Li, G., Hou, W., Hu, D.: Progressive spatio-temporal perception for audio-visual question answering. In: ACM MM. pp. 7808–7816 (2023) 22. Li, G., Wei, Y., Tian, Y., Xu, C., Wen, J., Hu, D.: Learning to answer questions in dynamic audio-visual scenarios. In: CVPR. pp. 19108–19118 (2022) 23. Li, X., Song, J., Gao, L., Liu, X., Huang, W., He, X., Gan, C.: Beyond rnns: Positional self-attention with co-attention for video question answering. In: AAAI. pp. 8658–8665 (2019) 24. Li, Z., Guo, D., Zhou, J., Zhang, J., Wang, M.: Object-aware adaptive-positivity learning for audio-visual question answering. In: AAAI. pp. 3306–3314 (2024) 25. Lin, Y., Sung, Y., Lei, J., Bansal, M., Bertasius, G.: Vision transformers are parameter-efficient audio-visual learners. In: CVPR. pp. 2299–2309 (2023) 26. Liu, X., Dong, Z., Zhang, P.: Tackling data bias in music-avqa: Crafting a balanced dataset for unbiased question-answering. In: WACV. pp. 4478–4487 (2024) 27. Loshchilov, I., Hutter, F.: Decoupled weight decay regularization. In: ICLR (2019) 28. Lou, Y., Mingard, C.E., Hayou, S.: Feature learning and signal propagation in deep neural networks. In: ICML. pp. 14248–14282 (2022) 29. Lu, J., Yang, J., Batra, D., Parikh, D.: Hierarchical question-image co-attention for visual question answering. In: NeurIPS. pp. 289–297 (2016) 30. Ma, J., Gao, Z., Chai, Q., Liu, J., Wang, P., Tao, J., Su, Z.: FortisAVQA and MAVEN: A Benchmark Dataset and Debiasing Framework for Robust Multimodal Reasoning (2025) 31. Ma, J., et al.: Look, listen, and answer: Overcoming biases for audio-visual question answering. In: NeurIPS. pp. 1–25 (2024) 32. OpenAI: GPT-4o System Card (2024) 33. Perez, E., Strub, F., de Vries, H., Dumoulin, V., Courville, A.: Film: Visual rea-soning with a general conditioning layer. In: AAAI (2018) 34. Radford, A., Kim, J.W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G., Askell, A., Mishkin, P., Clark, J., Krueger, G., Sutskever, I.: Learning transferable visual models from natural language supervision. In: ICML. pp. 8748–8763 (2021) 35. Rao, Y., Zhao, W., Liu, B., Lu, J., Zhou, J., Hsieh, C.J.: Dynamicvit: Efficient vision transformers with dynamic token sparsification. In: NeurIPS. pp. 13937– 13949 (2021) 36. Schoenholz, S.S., Gilmer, J., Ganguli, S., Sohl-Dickstein, J.: Deep information propagation. In: ICLR (2017) 37. Schwartz, I., Schwing, A.G., Hazan, T.: A simple baseline for audio-visual scene-aware dialog. In: CVPR. pp. 12548–12558 (2019) 38. Szegedy, C., Vanhoucke, V., Ioffe, S., Shlens, J., Wojna, Z.: Rethinking the incep-tion architecture for computer vision. In: CVPR. pp. 2818–2826 (2016) 39. Tian, Y., Shi, J., Li, B., Duan, Z., Xu, C.: Audio-visual event localization in un-constrained videos. In: ECCV. pp. 247–263 (2018) 40. Tishby, N., Pereira, F.C., Bialek, W.: The information bottleneck method. In: Allerton. pp. 368–377 (1999) 41. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.N., Kaiser, L., Polosukhin, I.: Attention is all you need. In: NeurIPS. pp. 5998–6008 (2017) Q-TriM 17 42. Yang, P., Wang, X., Duan, X., Chen, H., Hou, R., Jin, C., Zhu, W.: Avqa: A dataset for audio-visual question answering on videos. In: Proceedings of the 30th ACM International Conference on Multimedia (ACM MM). pp. 3480–3491 (2022) 43. Yin, H., Vahdat, A., Alvarez, J.M., Mallya, A., Kautz, J., Molchanov, P.: A-vit: Adaptive tokens for efficient vision transformer. In: CVPR. pp. 10809–10818 (2022) 44. Yu, Z., Yu, J., Cui, Y., Tao, D., Tian, Q.: Deep modular co-attention networks for visual question answering. In: CVPR. pp. 6281–6290 (2019) 45. Yun, H., Yu, Y., Yang, W., Lee, K., Kim, G.: Pano-avqa: Grounded audio-visual question answering on 360deg videos. In: ICCV. pp. 2031–2041 (October 2021) 46. Zhou, P., Shi, W., Tian, J., Qi, Z., Li, B., Hao, H., Xu, B.: Attention-based bidi-rectional long short-term memory networks for relation classification. In: ACL. pp. 207–212 (2016) Q-TriM 1
+
+Q-TriM: Question-Guided Tri-Modal Attention for Audio-Visual Question Answering 
+
+Supplementary Material 
+
+F Derivation of Eq. (17) and Eq. (18) 
+
+We derive Eq. (17) and Eq. (18) by applying the Log-Sum-Exp approximation in Eq. (16) to the mixed CSS given in Eq. (15). We first derive the approximation for E[V | t] as follows. 
+
+E [V | t] = X
+
+> i,j
+
+vi · PS(i, j | t) (20) 
+
+≈ X
+
+> i,j
+
+vi
+
+e vit⊤
+
+e aj t⊤
+
++ e ait⊤
+
+e vj t⊤
+
+P
+
+> i′,j ′
+
+
+
+e vi′ t⊤ e aj′ t⊤
+
++ e ai′ t⊤ e vj′ t⊤
+
+ (21) 
+
+= (P 
+
+> i
+
+vie vit⊤
+
+)( P 
+
+> j
+
+e aj t⊤
+
+) + ( P 
+
+> i
+
+vie ait⊤
+
+)( P 
+
+> j
+
+e vj t⊤
+
+)(P 
+
+> i′
+
+e vi′ t⊤ )( P 
+
+> j′
+
+e aj′ t⊤
+
+) + ( P 
+
+> i′
+
+e ai′ t⊤ )( P 
+
+> j′
+
+e vj′ t⊤
+
+) (22) The two terms in the denominator of Eq. (22) are identical products. Thus, the denominator becomes 
+
+2 X
+
+> i′
+
+e vi′ t⊤
+
+· X
+
+> j′
+
+e aj′ t⊤
+
+. (23) Substituting Eq. (23) into Eq. (22) yields 
+
+E[V | t] ≈ 12
+
+P 
+
+> i
+
+vi exp( vit⊤)
+
+P 
+
+> i′
+
+exp( vi′ t⊤) + 12
+
+P 
+
+> i
+
+vi exp( ait⊤)
+
+P 
+
+> i′
+
+exp( ai′ t⊤) (24) 
+
+= 12 Attn (t, V, V) + 12 Attn (t, A, V). (25) Similarly, we obtain 
+
+E[A | t] ≈ 12 Attn (t, V, A) + 12 Attn (t, A, A). (26) 
+
+G Algorithm 
+
+A detailed description of Q-TriM is given in Algorithm 1. 
+
+H Additional Ablation Study 
+
+We provide an additional ablation study on the MUSIC-AVQA dataset [22]. Table 7 shows the results. We observe a trend similar to that on MUSIC-AVQA-R [31]: each component of Q-TriM contributes to the overall performance. 2 S. Kim and S. Baek 
+
+Algorithm 1: Q-TriM 
+
+Input: Frame-level video embeddings V = {vt}Tt=1 , patch-level video tokens 
+
+Vp = {vpt }Tt=1 , audio embeddings A = {at}Tt=1 , question embedding t,keep ratio k, number of patches P
+
+Output: Answer logits ˆy ∈ RC
+
+1. Token Filtering 
+
+K ← kP 
+
+for t = 1 to T do 
+
+vpt ← Top-K selection of vpt
+
+end 2. Self-Attention Refinement 
+
+vpt ← Attn (vpt , vpt , vpt )
+
+vt ← Attn (vt, vt, vt)
+
+at ← Attn (at, at, at)
+
+t ← Attn (t, t, t)
+
+3. Tri-Modal Attention and Cross Attention 
+
+r1 ← Attn (t, Vp, Vp)
+
+r2 ← Attn (t, A, A)
+
+r3 ← Attn (t, A, Vp)
+
+r4 ← Attn (t, V, A)
+
+4. Gating 
+
+q ← Wg t + bg , gi ← 1 + 12 tanh( qi)
+
+hi ← gi ri, i = 1 , . . . , 4
+
+5. Reasoning 
+
+H ← [ t; h1; h2; h3; h4 ] ∈ R5×D
+
+F ← Attn (H, H, H)ˆy ← classification layer (F) ∈ RC
+
+return ˆy
+
+Table 7: Ablation study of Q-TriM on MUSIC-AVQA dataset [22]. Method A-QA V-QA AV-QA Avg 
+
+w/o All Modules (Base) 73.56 84.23 70.86 74.88 
+
+w/o Token Filtering 76.60 82.58 71.94 75.58 
+
+w/o Tri-Modal Attention 76.78 82.78 71.47 75.41 
+
+w/o Tri-Modal Attention (replace with cross attention) 78.40 84.72 72.00 76.50 
+
+w/o Modality Mixture 74.55 82.62 71.55 75.01 Ours 77.84 85.76 73.78 77.68 Q-TriM 3
+
+I Qualitative Analysis of Token Filtering 
+
+To verify the effectiveness of the token filtering module, we visualize input frames before and after token filtering. The question is: 
+
+"What kind of musical instrument is it?" 
+
+For three different examples, we show the masked outputs. As shown in Fig-ures 3–5, the regions corresponding to musical instruments are more likely to remain after filtering, while potentially irrelevant regions are masked out. This indicates that the token filtering module preserves informative tokens relevant to the question. 4 S. Kim and S. Baek   
+
+> (a) Before filtering
+> (b) After filtering
+
+Fig. 3. Visualization of token filtering for Example 1. For the question "What kind of musical instrument is it?" , the regions corresponding to the flute and violin are mostly preserved, whereas potentially irrelevant regions are masked out. Q-TriM 5  
+
+> (a) Before filtering
+> (b) After filtering
+
+Fig. 4. Visualization of token filtering for Example 2. 6 S. Kim and S. Baek   
+
+> (a) Before filtering
+> (b) After filtering
+
+Fig. 5. Visualization of token filtering for Example 3. Q-TriM 7
+
+J Adaptive keep-ratio in token filtering 
+
+In general, it is difficult to make K directly learnable/adaptive in top-K se-lection operator for token filtering, because the hard top-K operation is non-differentiable preventing the gradient flow to K. Instead, we adopt the workaround proposed in [14] that uses soft top-K selection. Specifically, we adjust the tem-perature parameter in the softmax approximating hard max-K as follows. Let st ∈ RP denote the token scores at frame t, where P is the number of patch tokens. We define the soft assignment over tokens as 
+
+wt = softmax 
+
+ st
+
+τ
+
+
+
+.
+
+Here, the temperature parameter τ controls the sharpness of the distribution. When τ is small, the softmax becomes sharper and places most of its mass on a few high-score tokens; when τ is large, the distribution becomes smoother and gradients are spread across a broader set of tokens. Therefore, decreasing τ has an effect similar to reducing the effective keep ratio, whereas increasing τ has an effect similar to retaining more tokens during training. To make the selection input-dependent, we predict τ from the question and the visual content. Let t ∈ RD be the question embedding and ¯v ∈ RD be a pooled visual representation, e.g., the mean of frame-level video embeddings. We concatenate them and feed the result into a lightweight MLP: 
+
+z = [ t; ¯ v ], ˜τ = MLP( z).
+
+Brief explanation on MLP Since the temperature should remain in a stable positive range, we map it into a bounded interval: 
+
+τ = τmin + ( τmax − τmin ) σ(˜ τ ),
+
+where σ(·) is the sigmoid function, and τmin , τ max > 0 are predefined bounds. This parameterization allows the model to adapt the softness of token selection according to the input question and scene content, while preventing numerically unstable temperature values. Under this design, the gradient signal is modulated through the temperature-controlled soft weights. In effect, the model does not learn a discrete K directly; instead, it learns how concentrated or diffuse the token importance distribution should be for each sample. This serves as a continuous surrogate for adaptive keep-ratio control. Specifically, τ controls the strength of gradient flow to tokens according to their scores [14]. A smaller τ concentrates gradients on high-score tokens, effectively giving a smaller keep ratio. Conversely, a larger τ distributes gradients more evenly over tokens, which corresponds to a softer selection behav-ior and a larger effective keep ratio. Hence, τ can be interpreted as a differentiable proxy that governs the selectivity of the token-filtering module. This strategy was intended to let the model automatically decide whether a given question requires aggressive filtering or broader evidence retention. For example, ques-tions targeting a single salient object may benefit from a sharper distribution 8 S. Kim and S. Baek 
+
+Table 8: Fixed vs. adaptive keep ratio on MUSIC-AVQA dataset [22], MUSIC-AVQA-R dataset [31], MUSIC-AVQA-2.0 dataset [26] Method Accy Fixed 70.89 
+
+Adaptive 70.57  
+
+> (a) MUSIC-AVQA-R
+
+Method Accy Fixed 77.68 
+
+Adaptive 76.02  
+
+> (b) MUSIC-AVQA
+
+Method Accy Fixed 78.40 
+
+Adaptive 77.59  
+
+> (c) MUSIC-AVQA-2.0 (train: bias, test: bias)
+
+Method Accy Fixed 76.92 
+
+Adaptive 75.71  
+
+> (d) MUSIC-AVQA-2.0 (train: balance, test: bias)
+
+Method Accy Fixed 75.31 
+
+Adaptive 74.59  
+
+> (e) MUSIC-AVQA-2.0 (train: bias, test: balance)
+
+Method Accy Fixed 76.29 
+
+Adaptive 75.15  
+
+> (f ) MUSIC-AVQA-2.0 (train: balance, test: balance)
+
+Table 9: Additional Baselines 
+
+Method Accy 
+
+GPT-4o [32] 56.06 Qwen2.5-VL [3] 57.07 VideoLLaMA2 [6] 66.85 MAVEN [30] 76.21 
+
+Ours 77.68 
+
+with smaller τ , whereas questions requiring broader contextual cues may prefer a smoother distribution with larger τ .As shown in Table 8, the adaptive variant performed reasonably well, but slightly underperformed the original. One plausible explanation is that accu-rately predicting an appropriate temperature already requires a strong under-standing of the question semantics and multimodal evidence. The model must first understand which visual and auditory cues are important in order to decide how selectively it should retain tokens. However, acquiring such multimodal un-derstanding is itself the main objective of AVQA training, leading to a circular dependency. Another possible explanation is that, in early training stages, when representations are still immature, the predicted temperatures may be noisy or suboptimal, which can weaken the effectiveness of token selection and reduce overall robustness. 
+
+K Additional Baselines 
+
+We provide comparisons with additional closed- and open-source models on the MUSIC-AVQA dataset [22]. Table 9 shows the results where GPT-4o [32] and Qwen2.5-VL [3] are zero-shot results. Our model performs the best, where the second-best MAVEN [30] has a 35 × larger model size.

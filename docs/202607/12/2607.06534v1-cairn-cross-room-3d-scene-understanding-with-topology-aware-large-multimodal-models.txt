@@ -1,0 +1,648 @@
+Title: CAIRN: Cross-Room 3D Scene Understanding with Topology-Aware Large Multimodal Models
+
+URL Source: https://arxiv.org/pdf/2607.06534v1
+
+Published Time: Wed, 08 Jul 2026 01:23:47 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# CAIRN: Cross-Room 3D Scene Understanding with Topology-Aware Large Multimodal Models 
+
+He Liang 1 Chenyang Ma 1 Yiming Zhang 2,3 Sangyun Shin 1
+
+Andrew Markham 1 Niki Trigoni 1 Yuhang He 21University of Oxford 2Microsoft 3Simon Fraser University 
+
+{he.liang, chenyang.ma, sangyun.shin, andrew.markham, niki.trigoni}@cs.ox.ac.uk {yiming.zhang, yuhang.he}@microsoft.com 
+
+## Abstract 
+
+Existing 3D scene-grounded Large Language Models (3D-LLMs) focus on answer-ing questions grounded in simplified single-room 3D scenes, lacking the ability to reason over real-world household environments containing multiple interconnected rooms and diverse object categories. We introduce CAIRN , a topology-aware 3D-LLM for multi-room 3D scene understanding. CAIRN aligns transformer attention with scene hierarchy, giving the model explicit awareness of object-level relations and room-level connectivity. It enriches object tokens with room-local relational context via a graph neural network, introduces learned room tokens for room-level abstraction, and applies a hierarchical attention mask with geometric bias to route information according to scene topology. CAIRN is developed on CAIRN-MR , a benchmark we introduce on HM3D for multi-room 3D scene understanding, cover-ing grounding, captioning, and four question-answering tasks that progressively evaluate from intra-room perception to cross-room reasoning. Experiments show that CAIRN outperforms prior 3D-LLMs by a large margin across all CAIRN-MR tasks while remaining competitive on five single-room benchmarks. 
+
+## 1 Introduction 
+
+A capable home assistant agent should recall where an object was last seen in the kitchen and retrieve it from another room, or answer queries that relate objects across spaces (e.g., comparing furniture arrangements across bedrooms). This requires understanding the full 3D scene structure of a household and performing consistent reasoning over the entire multi-room environment. There has been a rich history of prior work on developing agents that answer questions grounded in 3D scenes, using large-language models (LLMs) augmented with structured 3D scene representations (i.e., 3D-LLMs) as the reasoning backbone [ 28 , 29 , 31 , 32 , 57 , 63 ]. However, these approaches largely restrict 3D scene understanding and spatial reasoning to a single room [ 8, 10 , 20 – 22 , 43 , 60 ], representing scenes as flat sequences of object tokens without modeling higher-level room structure. In this work, we aim to move beyond the single-room paradigm and develop 3D-LLMs that can understand full household settings [ 42 ], where multiple interconnected rooms contain hundreds of objects. This unlocks more challenging tasks such as grounding across spatial contexts, tracing relationships between rooms, and reasoning over a scene’s topological structure. To enable the study of multi-room 3D scene understanding, we first introduce CAIRN-MR , a benchmark for structured multi-room 3D scene understanding built on HM3D [ 44 ], as existing 3D scene-language datasets [ 1, 5, 11 , 37 , 61 ] are mostly limited to single-room scans. Unlike prior benchmarks where reasoning is confined to a single room with a limited candidate set, CAIRN-MR shifts the problem to full-scene reasoning over multi-room environments, where models must search         
+
+> Preprint. arXiv:2607.06534v1 [cs.CV] 7 Jul 2026 Answer: 10
+> Answer:
+> Yes
+> Answer: B Answer: B
+> 12
+> 1
+> 23
+> 4
+> 6
+> In the room with a L -shape sofa
+> facing a TV, how many chairs?
+> In the room with the washing machine,
+> what is between the wardrobe and the
+> water heater?
+> In the room with a toilet near a
+> washstand, is there a stool?
+> Room A: The room with a computer on the desk; Room B: A white
+> patterned bed is in the center. Which one have more stuffed toys?
+> Dense Captioning
+> Inter -Room Comparison
+> Existence Verification
+> Object Identification Object Counting
+> A. Basket B. Fridge
+> C. Stove D. Container
+> A bed with a floral duvet is in the
+> center of the room. A nightstand
+> is on each side. A pink cushioned
+> bench is at the foot. A large
+> painting is above the bed.
+> CAIRN
+> Task Prompts
+> Output Answers
+> Hierarchical Scene
+> Graph Tokenization
+> LLM with Masked
+> Attn and Geo -Bias
+> Grounding
+> Acc
+> Captioning
+> CIDEr
+> Count.
+> (MRA)
+> Ident.
+> EM Exist.
+> EM
+> Comp.
+> EM
+> 3DGraphLLM
+> Inst3D -LMM Chat -Scene
+> Cairn (ours)
+> 94.5
+> 25.8
+> 70.4
+> 76.1
+> 61.1
+> 62.1
+> 79.5 63.7
+> 20.4
+> 61.9
+> 58.9
+> 72.9
+> Visual Grounding
+> Find the picture that hangs over
+> the bed between two nightstand
+> and near a pink bench
+
+Figure 1: 3D-LLMs for multi-room scene understanding. We introduce CAIRN , a topology-aware 3D-LLM for multi-room scene understanding, along with CAIRN-MR , a multi-room 3D scene understanding benchmark with diverse tasks. By representing each scene as a hierarchical scene graph and aligning attention with scene topology through structured masking and geometric bias, CAIRN achieves substantial gains over prior 3D-LLMs. over larger spaces, handle similar object configurations, and resolve ambiguities across spatially separated regions. Crucially, the target region is not explicitly specified, requiring models to first localize the relevant room(s) from implicit object-level spatial constraints before performing down-stream reasoning. Motivated by these challenges, CAIRN-MR preserves grounding and captioning tasks from prior benchmarks for backward compatibility, while further introducing four question answering tasks that progressively evaluate multi-room reasoning under increasingly challenging settings, ranging from room-grounded perception to cross-room comparison. Developing 3D-LLMs for multi-room 3D scene understanding introduces challenges beyond the single-room setting. First, existing 3D-LLMs represent a scene as a flat set of object tokens with self-attention over all object pairs [ 8, 21 , 22 , 58 , 60 ]. While this design is adequate for single-room scenes, it is poorly suited to multi-room environments, where interactions are primarily intra-room, and cross-room dependencies are sparse and structured by room connectivity. Second, multi-room scenes contain geometric and topological priors, such as relative object poses, distances, and room adjacency, that should be explicitly modeled, but are not exploited by standard self-attention. To address these challenges, we propose CAIRN , a topology-aware 3D-LLM that explicitly models the hierarchical structure and topology of multi-room 3D scenes. CAIRN first encodes each scene as a hierarchical 3D scene graph, capturing both object-level relations and room-level connectivity. After tokenizing this graph into scene tokens that preserve both object- and room-level information, CAIRN uses masked attention to handle the sparse and structured interactions in multi-room scenes by constraining information flow according to scene topology. It further incorporates geometric bias into attention to encode explicit spatial priors, such as relative poses, distances, and room adjacency. In summary, our contributions are as follows: 
+
+• We present the first study of 3D-LLMs for multi-room scene understanding. We introduce CAIRN-MR , a benchmark for multi-room 3D scene understanding that covers grounding, captioning, and four question-answering task types spanning intra-room perception to cross-room comparison. 
+
+• We propose CAIRN , a topology-aware 3D-LLM for multi-room understanding that uses masked attention to align information flow with scene topology and route information across rooms, and uses geometric bias to inject explicit spatial priors into attention. 
+
+• Extensive experiments show that CAIRN outperforms prior methods by a large margin on CAIRN-MR across all tasks, while remaining effective on five single-room 3D scene understanding benchmarks without compromising fine-grained object-level understanding. We validate the quality of CAIRN-MR through human calibration and statistical baselines. 22 Related Work 
+
+3D-LLMs and Benchmarks. Most 3D-LLMs are developed on single-room benchmarks from ScanNet [ 1, 5, 11 , 13 , 37 , 61 ], and thus represent scenes as flat sets of object tokens with dense self-attention. Some adopt object-level tokenization with unique identifiers [ 10 , 20 , 21 ], while others improve scene reasoning through training strategies [ 8, 14 , 22 ], data [ 26 , 43 , 52 ], or input design [ 18 , 33 , 34 , 48 , 53 , 64 ]. Some incorporate spatial relations via graph networks [ 58 , 60 ]. However, none models rooms as semantic units or routes information by scene topology. While some recent efforts extend to larger scenes [ 64 ], they often construct queries with globally unique targets, effectively reducing the ambiguity inherent in multi-room environments. These settings primarily evaluate large-scale perception rather than structured multi-room reasoning, and do not capture key structural properties such as implicit room hierarchy, recurring object categories across rooms, and layout ambiguity. To our knowledge, CAIRN is the first 3D-LLM to introduce room-level abstraction and topology-aware attention, together with a multi-room benchmark for evaluation. 
+
+Multi-Room Embodied Tasks. Simulators that provide multi-room household environments [ 27 , 40 ,42 ] enable challenging multi-room tasks such as human-robot collaboration [ 4 , 41 ], long-horizon robot task planning [ 17 , 35 , 36 , 45 ], and navigation [ 51 , 55 ]. These works typically rely on ground-truth maps or pre-built scene graphs. Complementary efforts construct hierarchical 3D scene graphs from raw data [ 15 , 23 , 50 ], but do not study language-grounded reasoning over such representations. Our work bridges these two directions by building hierarchical representations from raw 3D data and enabling language-grounded multi-room scene understanding over them. 
+
+Attention with Structural Priors. Standard self-attention models dense pairwise interactions without structural awareness. Many works revise this by injecting domain-specific priors. Sparse attention methods [ 2, 12 , 59 ] restrict attention to local windows or global tokens for efficiency in long sequences. Others inject structural priors as additive biases, such as ALiBi [ 39 ], which penalizes attention by linear distance, and Graphormer-style models [ 6, 30 , 56 ], which encode shortest-path distances and node centrality. We instead design topology-aware attention for multi-room scenes, combining masks that constrain information flow with geometric biases that encode spatial relations. 
+
+## 3 CAIRN-MR: Multi-Room 3D Scene Understanding Benchmark 
+
+Most existing 3D scene understanding benchmarks confine reasoning to single-room scenes, yet real household environments contain multiple interconnected rooms with distinct spatial structure. To advance 3D-LLMs toward structured multi-room scene understanding, we introduce CAIRN-MR ,the first benchmark covering six cross-room reasoning tasks ( Fig. 2). These tasks capture challenges overlooked in single-room settings: objects of the same category may appear across different rooms, requiring disambiguation over spatially separated regions; reasoning must span both object-level details and room-level structure; and scene information grows substantially with the number of rooms, demanding more scalable understanding methods. 
+
+3.1 Multi-Room Reasoning and Task Design 
+
+CAIRN-MR presents three progressively more challenging forms of multi-room reasoning. It remains compatible with standard grounding and captioning tasks, while introducing question answering tasks that directly test room hierarchy, implicit room localization, and cross-room ambiguity. 
+
+1) Object Visual Grounding. Given a referring expression, the model localizes the target object among all objects in the scene. Unlike prior settings where the search is confined to a single region, disambiguation here must span the entire scene, and recurring object categories with similar layouts across rooms make multiple candidates plausible matches. 
+
+2) Dense Captioning. Given a target object, the model generates a referring expression that uniquely identifies it. Unlike single-room settings, the expression must distinguish the target from all same-category instances across the entire scene, not just those within one room. This requires the model to reason about which attributes or spatial relations remain discriminative at scene scale. 
+
+3) Object Identification. Given a spatial description that implicitly specifies a room, together with an additional cue about a target object inside it, the model predicts the target category from four candidates. This requires two-stage reasoning: the model must first localize the room from the spatial 3SFT Data            
+
+> 423K
+> 56%
+> 10%
+> 12% 8%
+> 7%
+> 7%
+> CAIRN -MR
+> 238K
+> 31%
+> 10%
+> 9%
+> 10%
+> 10%
+> 31%
+> Obj. Grounding
+> Dense Captioning
+> Inter -room Comparison QA
+> Room A: "The trash can is behind the clothes, and
+> above the trash can is the towel".
+> Room B: "there is a white toilet under the window
+> and next to a sink." which room have more towels ?
+> (A) Room A. (B) Room B.
+> A bed with a white patterned duvet is
+> placed in the center of the room. At the
+> foot of the bed, there is a pink tufted
+> bench. On both sides of the bed, there
+> are two small bedside cabinets.
+> Describe the location
+> and spatial context of
+> <OBJ042>.
+> Identify the object being
+> referred to: “there is a white
+> toilet under the window and
+> next to the sink.”
+> <OBJ57>
+> In the room described as "On the wall
+> between the white sink and the door,
+> there is a towel rack with white towels
+> hanging on it.", is there a window ?
+> Existence Verification QA Yes
+> ScanRefer Multi3DRefer
+> Scan2Cap SQA3D
+> ScanQA CAIRN -MR
+> Grounding Captioning
+> Identification Counting
+> Comparison Existence
+> Counting QA
+> In the room described as "The brown
+> basket near the white door panel of
+> the open laundry room cabinet." ,
+> how many wardrobes do you see ?
+> 3
+> Obj. Identification QA
+> In the room where the desk supports
+> the printer, while the cabinet is to the
+> left of the desk , what is behind the bed,
+> also to the left of the cabinet ?
+> (A) stool (B) mouse (C) chair (D) picture
+> A
+> A
+
+Figure 2: CAIRN-MR benchmark for multi-room 3D scene understanding. The benchmark includes grounding, captioning, and question answering tasks covering room localization, intra-room reasoning, and cross-room comparison. Colored boxes denote parsed room regions. Right: benchmark scale and task composition. description, and then identify the target object within that room. Errors in room localization therefore directly affect the final prediction. 
+
+4) Counting Question Answering. The model counts all instances of a queried category within the room implicitly specified by the spatial description. The main challenge is restricting the count to the correct room: same-category instances often appear in multiple rooms, so accurate counting depends on correct room localization. 
+
+5) Existence Verification Question Answering. The model determines whether a queried category is present in the room specified by the spatial description. Negative cases are particularly challenging, because the queried category may still appear elsewhere in the scene. To answer correctly, the model must reason over the localized room rather than relying on scene-level presence. 
+
+6) Inter-room Comparison Question Answering. Given two spatial descriptions that specify two different rooms, the model determines which room contains more instances of a queried category. This task introduces explicit cross-room reasoning: both rooms must be localized and counted separately, and an error in either room is sufficient to invalidate the comparison. 
+
+3.2 Benchmark Construction and Statistics 
+
+Tasks in CAIRN-MR require the model to infer the relevant room from object-level spatial descriptions rather than predefined room labels. This places a strong requirement on the referring expressions: they must be spatially discriminative enough to uniquely identify objects across the full scene and structurally rich enough to implicitly specify which room is being referenced. To achieve this, we construct the benchmark in three stages: scene assembly, expression generation, and task instantiation. We build on HM3D [ 44 ] residential environments and the object-level relational annotations from SceneVerse [ 24 ]. In the first stage, we assemble connected multi-room layouts from proximate rooms in each HM3D building, ensuring mutual reachability. In the second stage, we construct referring expressions from SceneVerse spatial relations in three forms–multi-reference, multi-hop chains, and branched chains–and retain those that are sufficiently informative to uniquely identify a single object across all rooms. A subset of expressions is further augmented with VLM-derived appearance modifiers (e.g., chair → wooden chair) to increase linguistic diversity. In the third stage, the validated expressions are used to instantiate all six tasks, including grounding, captioning, and four QA types via LLM rewriting and rule-based templates. Full details are provided in Appendix B. The resulting benchmark contains 673 scenes, with 479 for training and 194 for validation. Splits are partitioned at the building level with no scene overlap. On average, each scene contains 4.5 rooms and approximately 115 object instances. As summarized in Fig. 2, CAIRN-MR provides 238K task annotations spanning grounding, captioning, and question answering. 4Scene 
+
+> Decomposition
+
+Language Tokenizer Point Encoder   
+
+> (Uni3D)
+> Room Abstraction
+> Encoder
+> 3D Projection 2D Projection SG Projection
+> Object Relational
+> Encoder
+> Image Encoder
+> (DINO)
+> Room Projection
+
+# …
+
+LLM                            
+
+> Answer: A bed with patterned duvet is placed in the center. A pink tufted bench is at the foot of the bed. On both sides of the bed,
+> there are two small cabinets.
+> System: You are an
+> assistant situated in a 3D
+> scene.
+> User: Please describe ..
+> 𝑚 !!
+> 𝑚 "! /!"
+> 𝑚 ""
+> Bias 𝑩 𝜽
+> (Strength )
+> 𝑏 !!
+> 𝑏 "! /!"
+> 𝑏 ""
+> LoRA
+> Mask 𝑴 𝓗
+> (Visibility )
+> 𝑏𝑙𝑜𝑐𝑘𝑒𝑑
+> Graph Topology Attention Pattern
+> −
+> 𝑹 𝟏 𝑹 𝟐
+> 𝑶 𝟏 𝑶 𝟐 𝑶 𝟑 𝑶 𝟒
+> Information Routing
+> Object
+> Level
+> Room
+> Level
+> RGB -D
+> Reconstruction
+> Hierarchical
+> Scene Graph
+> ❄❄❄
+> 𝑡 '( 𝑡 )( 𝑡 *𝑡 !
+> 𝑡 !
+> 𝑡 +,
+> 𝑡 -( 𝑡 '( 𝑡 )( 𝑡 *
+
+# …   
+
+> 𝑶 𝟏 𝑹 𝟏 𝑶 𝟐 𝑶 𝟑 𝑹 𝟐 𝑶 𝟒
+> 𝑶 𝟏
+> 𝑹 𝟏
+> 𝑶 𝟐
+> 𝑶 𝟑
+> 𝑹 𝟐
+> 𝑶 𝟒
+
+Masked Attn. with Geo. Bias   
+
+> 𝐓 .
+> "𝐓 )
+> "𝐓 /
+> "
+
+Figure 3: Overview of CAIRN. Given a 3D scene, CAIRN constructs a hierarchical scene graph capturing object relations and room adjacencies (bottom), tokenizes it into object and room tokens (middle), and feeds them to an LLM with hierarchical masked attention and geometric bias (top). The mask routes information along scene topology, while learned bias terms inject spatial priors into attention logits, enabling topology-aware reasoning across rooms. 
+
+## 4 CAIRN: Hierarchical Topology-Aware 3D-LLM 
+
+Our goal is to enable 3D-LLMs to perform multi-room 3D scene understanding in full household environments. Our approach, CAIRN , explicitly models the hierarchical topology of multi-room 3D scenes, enabling 3D-LLMs to reason over both object-level and room-level structure, as illustrated in Fig. 3. We first describe how we represent a multi-room 3D scene as a hierarchical 3D scene graph, capturing both object relations and room adjacencies (Sec. 4.1). We then describe how this graph is encoded into scene tokens while preserving both object-level and room-level information (Sec. 4.2). Finally, we detail how CAIRN incorporates structured masked attention and geometric bias to make 3D-LLMs topology-aware by constraining information flow according to scene connectivity and injecting explicit spatial priors into attention (Sec. 4.3). 
+
+4.1 Multimodal Hierarchical Scene Graph Construction 
+
+CAIRN represents a multi-room 3D scene as a two-layer hierarchical scene graph GH. The lower layer encodes object-level structure (VO , EOO ), while the upper layer captures room-level topology 
+
+(VR, ERR ). Cross-layer edges EOR assign each object to its containing room, forming a graph as: 
+
+GH =  (VO , EOO ), EOR , (VR, ERR ). (1) The graph construction is agnostic to the scene source, and can be derived from RGB-D reconstruc-tions or simulator annotations. For the object-level graph, we follow Chat-Scene [ 21 ] and obtain object instances using Mask3D [ 46 ]. Each instance defines a node Oi ∈ V O with associated geometry and visual features. Edges EOO connect each object to its top-Kg nearest neighbors within the same room, with attributes encoding relative geometry and semantic relations [49]. For the room-level graph, room nodes VR = {R r }Mr=1 are obtained via bird’s-eye-view occupancy partitioning [ 50 ], and adjacent rooms are connected by edges ERR . Object-room edges EOR are induced by assigning each object to its corresponding room. The resulting hierarchical graph captures both local object arrangement and global scene topology, and is tokenized for LLM reasoning. 
+
+4.2 Hierarchical Scene Graph Tokenization Object-Level Tokenization. To bridge multimodal object information to the LLM token space, each object node Oi ∈ V O is mapped to a fixed token block 
+
+TOi = [ tid  
+
+> i
+
+, t 3Di , t 2Di , t Gi ], tid  
+
+> i
+
+, t 3Di , t 2Di , t Gi ∈ Rd, (2) 5which encodes identity, 3D geometry, 2D appearance, and relational context. The identifier token tid 
+
+> i
+
+is obtained from a unique textual tag (e.g. <OBJ_01> ) via the LLM tokenizer, while visual tokens are computed by projecting pretrained 3D and 2D features into the LLM space. The graph token tGi encodes relational context beyond per-object geometry and appearance, capturing spatial interactions between objects. To this end, we apply Lg layers of message passing over object-object edges EOO , where each object updates its representation by aggregating information from connected neighbors. The resulting representation is projected into the LLM space to obtain tGi .See Appendix C.2 for more details. 
+
+Room-Level Tokenization. While room nodes define the higher-level semantic structure of the scene, geometry alone is insufficient to capture semantic room content. We therefore obtain room tokens by aggregating object-level tokens within each room. For each room Rr , we introduce Kr learned queries {qr,k }Kr 
+
+> k=1
+
+that cross-attend to object tokens within the room: 
+
+tRr,k = WR CrossAttn ( qr,k , {ti}i∈O (r) ) . (3) Resulting room tokens TRr = [ tRr, 1, . . . , t Rr,K r ] summarize room-level content and enable cross-room communication. Object-room assignments and room adjacency are used for topology-aware attention. 
+
+4.3 Hierarchical Masked Attention with Geometric Bias 
+
+In our hierarchical scene graph GH (Sec. 4.1), the scene exhibits both object- and room-level structure. Standard self-attention ignores this structure, treating all tokens as fully connected. We instead formulate attention as information routing over the graph: a structured mask determines which routes are permitted, while a geometric bias modulates the strength of information flow along them. This design encodes scene topology and spatial priors directly into the attention mechanism, rather than learning them implicitly from data. Let T = [ Tlang ; Tscene ] ∈ RL×d denote the LLM input, where Tlang contains prompt tokens and 
+
+Tscene contains object and room tokens. The CAIRN attention operator is defined as 
+
+Attn( X) = Softmax 
+
+ QK ⊤
+
+√d + MH + Bθ
+
+
+
+V. (4) The two additive terms play complementary roles: MH enforces which token pairs may interact, while Bθ modulates their interaction strength based on geometry. The mask is applied only among object and room tokens (prompt tokens retain standard attention), with allowed pairs defined as 
+
+SH = SOO ∪ S OR ∪ S RR . (5) Each subset corresponds to edges in GH (Eq. (1)) and defines bidirectional token interactions. This induces a hierarchical routing pattern: object tokens interact only within their room, and cross-room communication is mediated through room tokens, which carry inter-room information flow. To modulate the strength of admitted interactions, the geometric bias adds a learned offset to the attention logits: 
+
+Bθ (u, v ) = bτ (u,v )(guv ), (6) where τ (u, v ) ∈ { OO , OR , RR } denotes the interaction type and bτ is a type-specific MLP. The descriptor guv captures the spatial relation at each level: relative position and distance for OO pairs, object-to-room location for OR pairs, and relative layout for RR pairs. 
+
+Bθ is applied to the first Lb layers and later layers only retain the structural sparsity induced by MH.This yields a block-sparse attention pattern (Fig. 3) that reduces object-object attention from O(N 2)
+
+to O P  
+
+> r
+
+|O (r)|2. Together, MH and Bθ turn attention into a structural operator over the scene hierarchy, where topology determines token visibility and geometry determines interaction strength. 
+
+## 5 Experiments 
+
+We evaluate CAIRN through four questions: 1) How is the quality of our constructed CAIRN-MR benchmark? 2) Does the hierarchical design of CAIRN 3D-LLM improve performance on cross-room reasoning tasks? 3) Does CAIRN remain effective on single-room scene understanding? 4) Which components of CAIRN are responsible for the observed gains, and for which task types? 65.1 Implementation Details 
+
+We use Qwen3-8B [ 47 ] as the LLM backbone, frozen and adapted via LoRA [ 19 ] (rank 16, all attention and MLP projections); input embedding and output head are unfrozen for object identifier tokens. The graph encoder uses Lg =2 message-passing layers, each room is summarized by Kr =4 
+
+learned queries, and geometric bias Bθ is applied to the first Lb=4 transformer layers. Training has two stages on 8×H200 GPUs ( ∼12 hours total): Stage 1 trains for 3 epochs on ScanNet tasks [ 1 , 5 , 11 , 37 , 61 ]; Stage 2 trains for 3 epochs on 30% ScanNet and 100% CAIRN-MR. Full hyperparameters and training details are provided in Appendix C.1. 
+
+5.2 Experiment Setup Datasets. For single-room evaluation, we use five ScanNet-based benchmarks: ScanRefer [ 5] and Multi3DRefer [ 61 ] (grounding), Scan2Cap [ 11 ] (captioning), ScanQA [ 1] (VQA), and SQA3D [ 37 ](situated QA). For multi-room evaluation, we use CAIRN-MR (Sec. 3.1). Splits are partitioned at the building level with no scene overlap. 
+
+Metrics. We follow standard protocols for ScanNet benchmarks: Acc@0.25/0.5 for ScanRefer, F1@0.25/0.5 for Multi3DRefer, CIDEr@0.5 and BLEU-4@0.5 for Scan2Cap, CIDEr and BLEU-4 for ScanQA, and exact match for SQA3D. For CAIRN-MR, grounding and captioning follow ScanRefer and Scan2Cap protocols. QA tasks use rule-based answer extraction, with malformed outputs scored as incorrect: Identification and Comparison are evaluated by option selection, Existence by binary accuracy, and Counting by Mean Relative Accuracy (MRA) [54]. 
+
+5.3 Benchmark Quality 
+
+We evaluate the quality of CAIRN-MR’s QA tasks along three dimensions: annotation reliability, task difficulty, and answer distribution, using three baselines (Tab. 1): Random (selects answers uniformly), Frequency (predicts the most frequent answer), and Human (3 annotators on a subset). We focus on QA tasks as they provide discrete, verifiable outputs for controlled calibration. 
+
+Annotation Quality. Human performance is consistently high across tasks (86.8%–93.5%), indicating that the annotations are reliable and that the tasks are well-defined. This suggests that performance gaps primarily reflect task difficulty rather than annotation noise. Table 1: Calibration of QA tasks in CAIRN-MR. Performance of random, frequency, and hu-man baselines across tasks.                       
+
+> Ident. Count. Exist. Comp. EM ↑EM ↑MRA ↑EM ↑EM ↑
+> Random 25.0 11.1 19.9 50.0 50.0 Frequency 25.3 54.7 62.6 50.0 48.9 Human 86.8 82.3 94.5 93.5 91.4
+
+Task Difficulty. Human performance substan-tially exceeds random and frequency baselines across all tasks, indicating that the tasks are non-trivial and require genuine spatial reasoning be-yond surface statistics. 
+
+Answer Distribution Balance. Random and fre-quency baselines are closely aligned on Identifi-cation, Existence, and Comparison, suggesting balanced answer distributions without dominant labels. Counting differs due to skew toward small integers (e.g., 2 accounts for 49.8%), allowing strong frequency performance (62.6% MRA) from numerical priors rather than reasoning. This skew is intrinsic to indoor scenes [ 1] and serves as a reference for interpreting the metric. 
+
+5.4 Performance on Multi-Room Scene Understanding 
+
+Tab. 2 compares CAIRN with three representative baselines on CAIRN-MR, all trained under the same two-stage protocol with Qwen3-8B. CAIRN achieves the largest gains on grounding and captioning: +5.4 Acc@0.25/+5.4 Acc@0.5 and +14.9 CIDEr (roughly 19% relative). These improvements reflect more accurate cross-room disambiguation enabled by topology-aware modeling of room-level structure. Across QA tasks, gains scale with reliance on room-level structure. Tasks requiring cross-room reasoning (Comparison, Existence) show the largest improvements (+6.7, +3.4 EM), as they depend on reasoning across room boundaries. Counting, which enumerates objects within a localized room, shows moderate gains (+2.2 MRA), benefiting from clearer room-level scope. Identification, which 7Table 2: CAIRN-MR multi-room performance comparison. Results on grounding, captioning, and question answering tasks. Best results are in bold .
+
+Method LLM Grounding Captioning Question Answering A@ 0.25 ↑
+
+A@ 0.5 ↑ C↑ B-4 ↑ Ident. EM ↑
+
+Count. MRA ↑
+
+Exist. EM ↑
+
+Comp. EM ↑
+
+Chat-Scene [21] Qwen3-8B 19.6 19.4 78.3 21.2 61.3 58.9 69.5 63.6 3DGraphLLM [60] Qwen3-8B 18.9 18.7 79.6 21.1 61.9 58.3 72.7 62.3 Inst3D-LMM [58] Qwen3-8B 20.4 20.0 79.5 21.3 61.8 58.5 71.6 63.7 CAIRN (ours) Llama-3.2-3B 24.2 23.8 91.0 22.2 60.9 59.8 75.5 70.0 Llama-3.1-8B 24.6 24.1 89.5 21.9 62.5 59.4 75.9 69.8 Qwen3-4B 24.3 23.9 89.7 22.0 61.9 60.8 75.7 68.2 Qwen3-8B 25.8 25.4 94.5 22.8 62.1 61.1 76.1 70.4 
+
+Table 3: Single-room performance comparison. Results on grounding, captioning, and question answering tasks. Best in bold ; second best underlined. 
+
+Method LLM ScanRefer Multi3DRefer Scan2Cap ScanQA SQA3D A@0.25 ↑ A@0.5 ↑ F1@0.25 ↑ F1@0.5 ↑ C@0.5 ↑ B-4@0.5 ↑ C↑ B-4 ↑ EM ↑
+
+> Expert Models
+
+3DVG-Trans [62] × 45.9 34.5 - - - - - - -ViL3DRel [7] × 47.9 37.7 - - - - - - -M3DRef-CLIP [61] × 51.9 44.7 42.8 38.4 - - - - -3D-VLP [25] × 51.4 39.5 - - 54.9 32.3 67.0 11.1 -3D-VisTA [66] × 50.6 45.8 - - 66.9 34.0 72.9 13.1 48.5 Vote2Cap-DETR++ [9] × - - - - 67.6 37.1 - - -PQ3D [67] × - 51.2 50.1 - 80.3 36.0 87.8 - 47.1 LLM-based Models 3D-LLM [18] Flamingo 21.2 - - - - - 59.2 7.2 -Scene-LLM [14] Llama-2-7B - - - - - - 80.0 12.0 54.2 LL3DA [8] OPT-1.3B - - - - 65.2 36.8 76.8 13.5 -LEO [22] Vicuna-7B-v1.1 - - - - 72.4 38.2 101.4 13.2 50.0 Grounded 3D-LLM [10] Tiny-Vicuna-1B 47.9 44.1 45.2 40.6 70.6 35.5 72.7 13.4 -GPT4Scene-HD [43] Qwen2-VL-7B 50.9 46.4 53.7 50.0 74.4 37.9 89.9 15.9 57.2 Chat-Scene [21] Vicuna-7B-v1.5 55.5 50.2 57.1 52.4 77.1 36.3 87.7 14.3 54.6 Qwen3-8B 57.5 51.9 61.3 56.7 75.4 34.5 90.3 13.1 55.8 3DGraphLLM [60] Qwen3-8B 58.4 53.1 62.9 58.1 78.1 35.2 91.2 13.1 56.1 Inst3D-LMM [58] Vicuna-7B-v1.5 57.8 51.6 58.3 53.5 79.7 38.3 88.6 14.9 -Qwen3-8B 58.9 52.7 62.4 57.9 80.9 38.0 91.5 13.6 -CAIRN (ours) Qwen3-8B 59.6 54.1 63.8 58.8 80.7 36.2 92.1 13.5 58.1 
+
+only requires recognizing an object within an already localized room, remains comparable across methods (62.1 vs. 61.9 EM). This trend, from cross-room reasoning to within-room enumeration to object recognition, shows that CAIRN’s gains scale with the level of room-level abstraction required. The improvements are consistent across backbones with strong performance even for smaller models, showing that CAIRN remains effective under reduced model capacity. (Tab. 2). Query 1: “ Find the object that matches this description: The table is to the right of the      
+
+> patterned armchair, to the left of the sofa, and near the tv stand. ”
+> Query 2: “Room A: the sofa is to the right of the table, below the stairs; Room B:The pink
+> stool is between the sofa and the TV, close to the table. Which room has more chairs? ”
+> 1
+> 1
+> 2
+> 3
+> 4
+> <OBJ_56>
+> <OBJ_34>
+> CAIRN
+> Q1 :<OBJ_56>
+> Q2 :B.
+> Inst3D -LMM
+> Q1 :<OBJ_34>
+> Q2 :A.
+
+Figure 4: Qualitative results on a multi-room scene with visually similar living rooms. Green denotes CAIRN; red denotes the best baseline. 
+
+5.5 Performance on Single-Room Setting 
+
+Tab. 3 reports results on five ScanNet-based single-room benchmarks. Since these scenes contain a single room, the hierarchical struc-ture reduces to a single level, leaving graph to-kens and geometric bias as the effective compo-nents. CAIRN matches or exceeds prior meth-ods across all benchmarks, achieving the best or second-best results on 7 of 9 metrics. These results indicate that CAIRN’s room-level com-ponents do not interfere with single-room perfor-mance. The gains are primarily driven by graph tokens and geometric bias, which encode local 8Table 4: Ablation of CAIRN. We start from the full model and progressively remove components: geometric attention bias, hierarchical attention mask, room-level tokens, and graph tokens.                                                                           
+
+> Variant GNN Room Mask Bias Grounding Captioning Question Answering A@ 0.25 ↑
+> A@ 0.5 ↑C↑B-4 ↑Ident. EM ↑
+> Count. MRA ↑
+> Exist. EM ↑
+> Comp. EM ↑
+> CAIRN (full) ✓✓✓✓25.8 25.4 94.5 22.8 62.1 61.1 76.1 70.4
+> −geometric bias ✓✓✓–24.5 24.1 92.4 22.4 62.1 60.6 74.5 69.8
+> −hierarchical mask ✓✓––21.6 21.1 85.7 21.8 61.8 59.3 72.6 64.3
+> −room tokens ✓–––20.8 20.6 82.3 21.5 62.3 57.9 73.0 62.2
+> −graph tokens (= flat) ––––19.6 19.4 78.3 21.2 61.3 58.6 69.5 63.6
+
+relational structure independent of room hierarchy, yielding improved grounding performance while maintaining competitive results across tasks. 
+
+5.6 Ablation Studies 
+
+Tab. 4 presents an ablation on CAIRN-MR to analyze component contributions. Starting from the full model, we remove topology-aware attention (hierarchical mask and geometric bias) and structured representations (room and graph tokens), resulting in a flat baseline. 
+
+Effectiveness of Topology-Aware Attention. Topology-aware attention is the primary driver of performance gains. Removing the hierarchical mask causes the largest drops across all metrics (e.g., 
+
+−5.5 EM on comparison, −6.7 CIDEr on captioning, −2.9 Acc@0.25 on grounding), as it enforces topology-aware routing of cross-room information. Without it, cross-room information flows become unconstrained, diluting room-level distinctions even when room tokens are present. The geometric bias provides consistent but smaller gains (e.g., +1 .3 Acc@0.25, +1 .6 EM) by injecting structure into attention. 
+
+Effectiveness of Structured Representations. Structured representations provide complementary gains by encoding global and local context. Room tokens aggregate room-level information into compact summaries, improving captioning ( +3 .4 CIDEr) and comparison ( +2 .1 EM), while graph tokens encode local object relations, contributing gains across captioning ( +4 .0 CIDEr), existence (+3 .5 EM), and grounding ( +1 .2 Acc@0.25), particularly in tasks where local context supports spatial reasoning. 
+
+Gains Increase with Room-Level Reasoning. Performance gains increase with the degree of room-level reasoning required. Identification remains largely unaffected (within 1 point), as it primarily relies on recognizing objects within a localized room. Counting shows moderate degradation ( ∼3points), reflecting its dependence on aggregating instances within a correctly identified room. In contrast, Existence and Comparison exhibit the largest drops ( ∼7–8 points), as they require reasoning across rooms and are more sensitive to disruptions in cross-room information flow. This pattern mirrors the graded trend observed in Tab. 2. 
+
+## 6 Conclusion 
+
+We introduce CAIRN, a topology-aware 3D-LLM for multi-room scene understanding, together with CAIRN-MR, a benchmark requiring both object- and room-level reasoning. By modeling hierarchical scene structure, CAIRN aligns information flow with scene topology via masked attention and encodes spatial priors through geometric bias. Experiments show that CAIRN consistently outper-forms prior methods across grounding, captioning, and question answering on CAIRN-MR, while generalizing effectively to single-room benchmarks. This suggests that topology-aware modeling enables structured 3D reasoning across complex multi-room environments. 
+
+Limitations and Future Work. Further scaling model capacity and training data may yield additional gains. Extending CAIRN-MR to more complex, multi-level environments would broaden the scope of structured reasoning. Another direction is to incorporate explicit reasoning processes for more interpretable multi-step reasoning over scene structure, potentially improving compositional generalization across more complex scene configurations. 9References 
+
+[1] Daichi Azuma, Taiki Miyanishi, Shuhei Kurita, and Motoaki Kawanabe. Scanqa: 3d question answering for spatial scene understanding. In proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 19129–19139, 2022. [2] Iz Beltagy, Matthew E Peters, and Arman Cohan. Longformer: The long-document transformer. arXiv preprint arXiv:2004.05150 , 2020. [3] Nicolas Carion, Laura Gustafson, Yuan-Ting Hu, Shoubhik Debnath, Ronghang Hu, Didac Suris, Chaitanya Ryali, Kalyan Vasudev Alwala, Haitham Khedr, Andrew Huang, Jie Lei, Tengyu Ma, Baishan Guo, Arpit Kalla, Markus Marks, Joseph Greer, Meng Wang, Peize Sun, Roman Rädle, Triantafyllos Afouras, Effrosyni Mavroudi, Katherine Xu, Tsung-Han Wu, Yu Zhou, Liliane Momeni, Rishi Hazra, Shuangrui Ding, Sagar Vaze, Francois Porcher, Feng Li, Siyuan Li, Aishwarya Kamath, Ho Kei Cheng, Piotr Dollár, Nikhila Ravi, Kate Saenko, Pengchuan Zhang, and Christoph Feichtenhofer. Sam 3: Segment anything with concepts, 2025. URL https://arxiv.org/abs/2511.16719 .[4] Matthew Chang, Gunjan Chhablani, Alexander Clegg, Mikael Dallaire Cote, Ruta Desai, Michal Hlavac, Vladimir Karashchuk, Jacob Krantz, Roozbeh Mottaghi, Priyam Parashar, et al. Partnr: A benchmark for planning and reasoning in embodied multi-agent tasks. arXiv preprint arXiv:2411.00081 , 2024. [5] Dave Zhenyu Chen, Angel X Chang, and Matthias Nießner. Scanrefer: 3d object localization in rgb-d scans using natural language. In European conference on computer vision , pages 202–221. Springer, 2020. [6] Dexiong Chen, Leslie O’Bray, and Karsten Borgwardt. Structure-aware transformer for graph representa-tion learning. In International conference on machine learning , pages 3469–3489. PMLR, 2022. [7] Shizhe Chen, Pierre-Louis Guhur, Makarand Tapaswi, Cordelia Schmid, and Ivan Laptev. Language conditioned spatial relation reasoning for 3d object grounding. Advances in Neural Information Processing Systems , 35:20522–20535, 2022. [8] Sijin Chen, Xin Chen, Chi Zhang, Mingsheng Li, Gang Yu, Hao Fei, Hongyuan Zhu, Jiayuan Fan, and Tao Chen. Ll3da: Visual interactive instruction tuning for omni-3d understanding, reasoning, and planning. 
+
+arXiv preprint arXiv:2311.18651 , 2023. [9] Sijin Chen, Hongyuan Zhu, Mingsheng Li, Xin Chen, Peng Guo, Yinjie Lei, YU Gang, Taihao Li, and Tao Chen. Vote2cap-detr++: Decoupling localization and describing for end-to-end 3d dense captioning. IEEE Transactions on Pattern Analysis and Machine Intelligence , 2024. [10] Yilun Chen, Shuai Yang, Haifeng Huang, Tai Wang, Ruiyuan Lyu, Runsen Xu, Dahua Lin, and Jiangmiao Pang. Grounded 3d-llm with referent tokens. arXiv preprint arXiv:2405.10370 , 2024. [11] Zhenyu Chen, Ali Gholami, Matthias Nießner, and Angel X Chang. Scan2cap: Context-aware dense captioning in rgb-d scans. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 3193–3203, 2021. [12] Rewon Child, Scott Gray, Alec Radford, and Ilya Sutskever. Generating long sequences with sparse transformers. arXiv preprint arXiv:1904.10509 , 2019. [13] Angela Dai, Angel X Chang, Manolis Savva, Maciej Halber, Thomas Funkhouser, and Matthias Nießner. Scannet: Richly-annotated 3d reconstructions of indoor scenes. In Proceedings of the IEEE conference on computer vision and pattern recognition , pages 5828–5839, 2017. [14] Rao Fu, Jingyu Liu, Xilun Chen, Yixin Nie, and Wenhan Xiong. Scene-llm: Extending language model for 3d visual understanding and reasoning. arXiv preprint arXiv:2403.11401 , 2024. [15] Qiao Gu, Ali Kuwajerwala, Sacha Morin, Krishna Murthy Jatavallabhula, Bipasha Sen, Aditya Agarwal, Corban Rivera, William Paul, Kirsty Ellis, Rama Chellappa, et al. Conceptgraphs: Open-vocabulary 3d scene graphs for perception and planning. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 5021–5028. IEEE, 2024. [16] Will Hamilton, Zhitao Ying, and Jure Leskovec. Inductive representation learning on large graphs. 
+
+Advances in neural information processing systems , 30, 2017. [17] Daniel Honerkamp, Martin Büchner, Fabien Despinoy, Tim Welschehold, and Abhinav Valada. Language-grounded dynamic scene graphs for interactive object search with mobile manipulation. IEEE Robotics and Automation Letters , 9(10):8298–8305, 2024. 
+
+10 [18] Yining Hong, Haoyu Zhen, Peihao Chen, Shuhong Zheng, Yilun Du, Zhenfang Chen, and Chuang Gan. 3d-llm: Injecting the 3d world into large language models. arXiv preprint arXiv:2307.12981 , 2023. [19] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. Lora: Low-rank adaptation of large language models. arXiv preprint arXiv:2106.09685 ,2021. [20] Haifeng Huang, Zehan Wang, Rongjie Huang, Luping Liu, Xize Cheng, Yang Zhao, Tao Jin, and Zhou Zhao. Chat-3d v2: Bridging 3d scene and large language models with object identifiers. arXiv preprint arXiv:2312.08168 , 2023. [21] Haifeng Huang, Yilun Chen, Zehan Wang, Rongjie Huang, Runsen Xu, Tai Wang, Luping Liu, Xize Cheng, Yang Zhao, Jiangmiao Pang, et al. Chat-scene: Bridging 3d scene and large language models with object identifiers. In The Thirty-eighth Annual Conference on Neural Information Processing Systems , 2024. [22] Jiangyong Huang, Silong Yong, Xiaojian Ma, Xiongkun Linghu, Puhao Li, Yan Wang, Qing Li, Song-Chun Zhu, Baoxiong Jia, and Siyuan Huang. An embodied generalist agent in 3d world. arXiv preprint arXiv:2311.12871 , 2023. [23] N. Hughes, Y. Chang, and L. Carlone. Hydra: A Real-time Spatial Perception System for 3D Scene Graph Construction and Optimization. In Robotics: Science and Systems (RSS) , 2022. [24] Baoxiong Jia, Yixin Chen, Huangyue Yu, Yan Wang, Xuesong Niu, Tengyu Liu, Qing Li, and Siyuan Huang. Sceneverse: Scaling 3d vision-language learning for grounded scene understanding. In European Conference on Computer Vision , pages 289–310. Springer, 2024. [25] Zhao Jin, Munawar Hayat, Yuwei Yang, Yulan Guo, and Yinjie Lei. Context-aware alignment and mutual masking for 3d-language pre-training. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 10984–10994, 2023. [26] Weitai Kang, Haifeng Huang, Yuzhang Shang, Mubarak Shah, and Yan Yan. Robin3d: Improving 3d large language model via robust instruction tuning. arXiv preprint arXiv:2410.00255 , 2024. [27] Mukul Khanna*, Yongsen Mao*, Hanxiao Jiang, Sanjay Haresh, Brennan Shacklett, Dhruv Batra, Alexan-der Clegg, Eric Undersander, Angel X. Chang, and Manolis Savva. Habitat Synthetic Scenes Dataset (HSSD-200): An Analysis of 3D Scene Scale and Realism Tradeoffs for ObjectGoal Navigation. arXiv preprint , 2023. [28] Xin Lai, Zhuotao Tian, Yukang Chen, Yanwei Li, Yuhui Yuan, Shu Liu, and Jiaya Jia. Lisa: Reasoning segmentation via large language model. arXiv preprint arXiv:2308.00692 , 2023. [29] KunChang Li, Yinan He, Yi Wang, Yizhuo Li, Wenhai Wang, Ping Luo, Yali Wang, Limin Wang, and Yu Qiao. Videochat: Chat-centric video understanding. Science China Information Sciences , 68(10): 200102, 2025. [30] Chuang Liu, Zelin Yao, Yibing Zhan, Xueqi Ma, Shirui Pan, and Wenbin Hu. Gradformer: Graph transformer with exponential decay. arXiv preprint arXiv:2404.15729 , 2024. [31] Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee. Improved baselines with visual instruction tuning. arXiv preprint arXiv:2310.03744 , 2023. [32] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. arXiv preprint arXiv:2304.08485 , 2023. [33] K. Lu, C. Ma, C. Hori, and D. Romeres. KitchenVLA: Iterative vision-language corrections for robotic execution of human tasks. In Proceedings of the IEEE International Conference on Robotics and Automa-tion Workshop on Safely Leveraging Vision-Language Foundation Models in Robotics (SafeLVMs@ICRA) ,2025. [34] Chenyang Ma, Kai Lu, Ta-Ying Cheng, Niki Trigoni, and Andrew Markham. Spatialpin: Enhancing spatial reasoning capabilities of vision-language models through prompting and interacting 3d priors. In 
+
+Proceedings of the Conference on Neural Information Processing Systems (NeurIPS) , 2024. [35] Chenyang Ma, Kai Lu, Ruta Desai, Xavier Puig, Andrew Markham, and Niki Trigoni. Coopera: Continual open-ended human-robot assistance. In Proceedings of the Conference on Neural Information Processing Systems (NeurIPS) , 2025. [36] Chenyang Ma, Guangyu Yang, Kai Lu, Shitong Xu, Bill Byrne, Niki Trigoni, and Andrew Markham. Cyclevla: Proactive self-correcting vision-language-action models via subtask backtracking and minimum bayes risk decoding. arXiv preprint arXiv:2601.02295 , 2026. 
+
+11 [37] Xiaojian Ma, Silong Yong, Zilong Zheng, Qing Li, Yitao Liang, Song-Chun Zhu, and Siyuan Huang. Sqa3d: Situated question answering in 3d scenes. arXiv preprint arXiv:2210.07474 , 2022. [38] Maxime Oquab, Timothée Darcet, Théo Moutakanni, Huy Vo, Marc Szafraniec, Vasil Khalidov, Pierre Fernandez, Daniel Haziza, Francisco Massa, Alaaeldin El-Nouby, et al. Dinov2: Learning robust visual features without supervision. arXiv preprint arXiv:2304.07193 , 2023. [39] Ofir Press, Noah A Smith, and Mike Lewis. Train short, test long: Attention with linear biases enables input length extrapolation. arXiv preprint arXiv:2108.12409 , 2021. [40] Xavier Puig, Kevin Ra, Marko Boben, Jiaman Li, Tingwu Wang, Sanja Fidler, and Antonio Torralba. Virtualhome: Simulating household activities via programs. In Proceedings of the IEEE conference on computer vision and pattern recognition , pages 8494–8502, 2018. [41] Xavier Puig, Tianmin Shu, Shuang Li, Zilin Wang, Yuan-Hong Liao, Joshua B Tenenbaum, Sanja Fidler, and Antonio Torralba. Watch-and-help: A challenge for social perception and human-ai collaboration. 
+
+arXiv preprint arXiv:2010.09890 , 2020. [42] Xavier Puig, Eric Undersander, Andrew Szot, Mikael Dallaire Cote, Tsung-Yen Yang, Ruslan Partsey, Ruta Desai, Alexander William Clegg, Michal Hlavac, So Yeon Min, et al. Habitat 3.0: A co-habitat for humans, avatars and robots. arXiv preprint arXiv:2310.13724 , 2023. [43] Zhangyang Qi, Zhixiong Zhang, Ye Fang, Jiaqi Wang, and Hengshuang Zhao. Gpt4scene: Understand 3d scenes from videos with vision-language models. arXiv preprint arXiv:2501.01428 , 2025. [44] Santhosh K Ramakrishnan, Aaron Gokaslan, Erik Wijmans, Oleksandr Maksymets, Alex Clegg, John Turner, Eric Undersander, Wojciech Galuba, Andrew Westbury, Angel X Chang, et al. Habitat-matterport 3d dataset (hm3d): 1000 large-scale 3d environments for embodied ai. arXiv preprint arXiv:2109.08238 ,2021. [45] Krishan Rana, Jesse Haviland, Sourav Garg, Jad Abou-Chakra, Ian Reid, and Niko Suenderhauf. Sayplan: Grounding large language models using 3d scene graphs for scalable robot task planning. arXiv preprint arXiv:2307.06135 , 2023. [46] Jonas Schult, Francis Engelmann, Alexander Hermans, Or Litany, Siyu Tang, and Bastian Leibe. Mask3d: Mask transformer for 3d semantic instance segmentation. In 2023 IEEE International Conference on Robotics and Automation (ICRA) , pages 8216–8223. IEEE, 2023. [47] Qwen Team. Qwen3 technical report, 2025. URL https://arxiv.org/abs/2505.09388 .[48] Hugues Thomas, Chen Chen, and Jian Zhang. Pts3d-llm: Studying the impact of token structure for 3d scene understanding with large language models. arXiv preprint arXiv:2506.05689 , 2025. [49] Ziqin Wang, Bowen Cheng, Lichen Zhao, Dong Xu, Yang Tang, and Lu Sheng. Vl-sat: Visual-linguistic semantics assisted training for 3d semantic scene graph prediction in point cloud. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 21560–21569, 2023. [50] Abdelrhman Werby, Chenguang Huang, Martin Büchner, Abhinav Valada, and Wolfram Burgard. Hier-archical open-vocabulary 3d scene graphs for language-grounded robot navigation. In Proceedings of Robotics: Science and Systems , 2024. [51] Pengying Wu, Yao Mu, Kangjie Zhou, Ji Ma, Junting Chen, and Chang Liu. Camon: Cooperative agents for multi-object navigation with llm-based conversations. arXiv preprint arXiv:2407.00632 , 2024. [52] Haomiao Xiong, Yunzhi Zhuge, Jiawen Zhu, Lu Zhang, and Huchuan Lu. 3ur-llm: An end-to-end multimodal large language model for 3d scene understanding. IEEE Transactions on Multimedia , 27: 2899–2911, 2025. doi: 10.1109/TMM.2025.3557620. [53] Jintang Xue, Ganning Zhao, Jie-En Yao, Hong-En Chen, Yue Hu, Meida Chen, Suya You, and C-C Jay Kuo. Descrip3d: Enhancing large language model-based 3d scene understanding with object-level text descriptions. arXiv preprint arXiv:2507.14555 , 2025. [54] Jihan Yang, Shusheng Yang, Anjali Gupta, Rilyn Han, Li Fei-Fei, and Saining Xie. Thinking in Space: How Multimodal Large Language Models See, Remember and Recall Spaces. In CVPR , 2025. [55] Sriram Yenamandra, Arun Ramachandran, Karmesh Yadav, Austin Wang, Mukul Khanna, Theophile Gervet, Tsung-Yen Yang, Vidhi Jain, Alexander William Clegg, John Turner, et al. Homerobot: Open-vocabulary mobile manipulation. arXiv preprint arXiv:2306.11565 , 2023. 
+
+12 [56] Chengxuan Ying, Tianle Cai, Shengjie Luo, Shuxin Zheng, Guolin Ke, Di He, Yanming Shen, and Tie-Yan Liu. Do transformers really perform badly for graph representation? Advances in neural information processing systems , 34:28877–28888, 2021. [57] Haoxuan You, Haotian Zhang, Zhe Gan, Xianzhi Du, Bowen Zhang, Zirui Wang, Liangliang Cao, Shih-Fu Chang, and Yinfei Yang. Ferret: Refer and ground anything anywhere at any granularity. arXiv preprint arXiv:2310.07704 , 2023. [58] Hanxun Yu, Wentong Li, Song Wang, Junbo Chen, and Jianke Zhu. Inst3d-lmm: Instance-aware 3d scene understanding with multi-modal instruction tuning. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 14147–14157, 2025. [59] Manzil Zaheer, Guru Guruganesh, Kumar Avinava Dubey, Joshua Ainslie, Chris Alberti, Santiago Ontanon, Philip Pham, Anirudh Ravula, Qifan Wang, Li Yang, et al. Big bird: Transformers for longer sequences. 
+
+Advances in neural information processing systems , 33:17283–17297, 2020. [60] Tatiana Zemskova and Dmitry Yudin. 3dgraphllm: Combining semantic graphs and large language models for 3d scene understanding. arXiv preprint arXiv:2412.18450 , 2024. [61] Yiming Zhang, ZeMing Gong, and Angel X Chang. Multi3drefer: Grounding text description to multiple 3d objects. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 15225– 15236, 2023. [62] Lichen Zhao, Daigang Cai, Lu Sheng, and Dong Xu. 3dvg-transformer: Relation modeling for visual grounding on point clouds. In Proceedings of the IEEE/CVF International Conference on Computer Vision ,pages 2928–2937, 2021. [63] Yang Zhao, Zhijie Lin, Daquan Zhou, Zilong Huang, Jiashi Feng, and Bingyi Kang. Bubogpt: Enabling visual grounding in multi-modal llms. arXiv preprint arXiv:2307.08581 , 2023. [64] Hongyan Zhi, Peihao Chen, Junyan Li, Shuailei Ma, Xinyu Sun, Tianhang Xiang, Yinjie Lei, Mingkui Tan, and Chuang Gan. Lscenellm: Enhancing large 3d scene understanding using adaptive visual preferences. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 3761–3771, 2025. [65] Junsheng Zhou, Jinsheng Wang, Baorui Ma, Yu-Shen Liu, Tiejun Huang, and Xinlong Wang. Uni3d: Exploring unified 3d representation at scale. arXiv preprint arXiv:2310.06773 , 2023. [66] Ziyu Zhu, Xiaojian Ma, Yixin Chen, Zhidong Deng, Siyuan Huang, and Qing Li. 3d-vista: Pre-trained transformer for 3d vision and text alignment. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 2911–2921, 2023. [67] Ziyu Zhu, Zhuofan Zhang, Xiaojian Ma, Xuesong Niu, Yixin Chen, Baoxiong Jia, Zhidong Deng, Siyuan Huang, and Qing Li. Unifying 3d vision-language understanding via promptable queries. In European Conference on Computer Vision , pages 188–206. Springer, 2024. 
+
+13 Appendix for CAIRN 
+
+## A Overview 
+
+This appendix provides supplementary materials supporting the main paper. Sec. B details the construction of the CAIRN-MR benchmark, including multi-room scene assembly from HM3D [ 44 ], the procedure for generating and validating spatial referring expressions, appearance-based noun augmentation via vision-language models, and the instantiation of grounding, captioning, and four QA task formats. Sec. C provides additional implementation details, including model hyperparameters and architectural details for object-level tokenization. 
+
+## B Benchmark Construction Details 
+
+B.1 Multi-Room Scene Assembly 
+
+CAIRN-MR is built on HM3D [ 44 ], a large-scale collection of realistic residential environments. We adopt the per-room annotations provided by SceneVerse [ 24 ], which include object identities, semantic labels, instance segmentations, and pairwise spatial relations for each room in the HM3D scenes. To construct multi-room scenes, we use the ground-truth room positions provided in HM3D. For each scene, we select a seed room whose spatial extent exceeds 30 m 2, then compute Euclidean distances from its center to all other rooms and select the 3–5 nearest rooms to form a multi-room layout. To ensure spatial connectivity, we obtain the ground-truth occupancy map between sampled rooms via Habitat simulator [ 42 ] and discard any sample that contains an isolated room unreachable from the rest. Since different seed rooms within the same base scene yield different multi-room combinations, a single HM3D scene can produce multiple distinct samples. The resulting benchmark comprises 479 training samples from 116 base scenes and 194 validation samples from 45 base scenes, partitioned at the building level with no scene overlap. 
+
+B.2 Referring Expression Construction 
+
+We construct object-level referring expressions from the pairwise spatial relations provided by SceneVerse [ 24 ], which cover 11 relation types including support, containment, proximity, and directional positioning (see Tab. 5 for the full inventory). Each relation is a triplet (oi, r, o j ) linking two objects within the same room. From these triplets, we construct referring expressions in three forms of increasing structural complexity. Table 5: Spatial relation types used for referring expression construction.            
+
+> Relation type Example phrases Support resting on, placed on Embedded embedded into Inside inside Hanging hanging on, mounted on Above / Below above, below Directional (near) to the left of, behind Directional (far) far from Proximity close to, next to Aligned aligned with In the middle of in the middle of
+
+1) Multi-reference. For a target object, we re-trieve 2–3 relations that each directly involve the target, and combine them into a single expression via conjunction templates. SceneVerse’s multi-object relations (e.g., aligned, in the middle of) naturally fall into this category. Example: “the table between the sofa and the bookshelf, next to the lamp.” 
+
+2) Multi-hop chain. We identify a chain of three consecutive relations within the same room, where the target object appears at any position along the chain. The chain provides progressively more spatial context for disambiguation. Exam-ple: “the chair next to the desk that supports 
+
+the monitor near the window.” 
+
+3) Chain with branch. We first identify a rela-tion chain of two or more hops (as in form 2), then connect the target object to any node on the chain via an additional relation. The chain serves as room-level context, while the branch relation localizes the target. Example: “the lamp above the nightstand, where the nightstand is next to the bed that faces the window.” 14 Prior to expression construction, we exclude objects with structurally ambiguous or overly generic labels (e.g., wall, floor, ceiling, object, furniture) and objects with fewer than 128 surface points in the reconstructed point cloud, ensuring that all participating instances are semantically specific and geometrically well-reconstructed. After construction, each expression is verified against the full multi-room scene to ensure it uniquely identifies the intended target. Specifically, for each expression targeting an object of class c with spatial constraints C = {(rk, c k)}Kk=1 (where each constraint specifies a relation type rk and a reference object class ck), we enumerate all objects of class c
+
+across the entire scene and check whether each candidate simultaneously satisfies all constraints in 
+
+C. An expression is retained only if exactly one object—the intended target—matches; all others are discarded. Since this verification is performed on the assembled multi-room scene, uniqueness is guaranteed at the full-scene level rather than within a single room. The verification procedure is formally described in Algorithm 1. 
+
+Algorithm 1: Full-scene uniqueness verification for a referring expression. 
+
+Input :Multi-room scene S with object set O;candidate expression e targeting object o⋆ ∈ O of class c;spatial constraints C = {(rk, c k)}Kk=1 parsed from e
+
+Output : Boolean R ETAIN (e) ∈ { true , false } 
+
+> 1
+
+M ← ∅ // matches across the full scene  
+
+> 2
+
+foreach o ∈ O with Class (o) = c do  
+
+> 3
+
+ok ← true  
+
+> 4
+
+foreach (rk, c k) ∈ C do  
+
+> 5
+
+if ∄ o′ ∈ O with Class (o′) = ck and Satisfies (o, r k, o ′) then  
+
+> 6
+
+ok ← false  
+
+> 7
+
+break  
+
+> 8
+
+end  
+
+> 9
+
+end  
+
+> 10
+
+if ok then M ← M ∪ { o} 
+
+> 11
+
+end  
+
+> 12
+
+if |M| = 1 and M = {o⋆} then  
+
+> 13
+
+return true // unique match: retain expression  
+
+> 14
+
+else  
+
+> 15
+
+return false // ambiguous or wrong match: discard  
+
+> 16
+
+end B.3 Appearance-Based Noun Augmentation 
+
+To increase linguistic diversity, we optionally augment object nouns with visually grounded appear-ance modifiers. This augmentation operates on a per-object basis and proceeds as follows. For each object instance, we render the assembled multi-room scene and select multi-view RGB frames in which the object is visible, based on its 3D position and camera coverage. We then run SAM 3 [ 3] on each frame using the object’s category label as the text prompt, and retain only frames in which the object is detected with confidence above 0.7. Objects with fewer than 3 qualifying frames are excluded from augmentation entirely, as insufficient high-confidence views indicate either poor reconstruction quality or heavy occlusion. For objects with more than 5 qualifying frames, we retain the 5 frames with the highest detection confidence to limit computational cost. The detected bounding boxes are used to crop tightly around the object in each selected frame, producing a set of 3–5 cropped views per eligible object. For each eligible object, we independently query Qwen3-VL-32B [ 47 ] on each of its 3–5 cropped views. The model is provided with the object’s category label and asked to identify a single clearly visible attribute from three types: color, material, or distinctive part. The model may also output “none” if no attribute is clearly identifiable. The full prompt template is shown in Fig. 5. To suppress hallucination, we apply multi-view consensus: an attribute is accepted only if it appears in at least half of the queried views for that object. Objects for which no attribute achieves consensus retain their original noun without modification. Under this procedure, 21.6% of object nouns in 15 Prompt Template for Appearance Augmentation     
+
+> You are given a cropped image of a {category}. Select ONE visual attribute that is clearly visible: - color (e.g., white, brown, black) - material (e.g., wooden, metal, glass) - shape (e.g., round, rectangular, L-shaped) If none is clearly identifiable, output: none Output format: [attribute] {category} Examples: wooden chair, black table, round rug, none
+
+Figure 5: Prompt template for querying Qwen3-VL-32B. {category} is replaced with the object’s semantic label at runtime. the benchmark are augmented with an appearance modifier. The augmentation does not alter target identity or spatial constraints in the associated expressions. 
+
+B.4 Task Instantiation 
+
+All benchmark tasks are instantiated from the validated referring expression pool described in Sec. B.2. We partition the expression pool into two equal halves per scene using a fixed random seed: one half is used for grounding, the other for captioning. 
+
+Grounding. Each sample maps a referring expression to its target object identifier. Queries are drawn from three prompt templates, where {description} is replaced by the referring expression at runtime:    
+
+> “Find the object that matches this description: "{description}"” “Which object in the scene is being described? "{description}"” “Identify the object being referred to: "{description}"”
+
+The expected answer is the object identifier (e.g., <OBJ041> ). 
+
+Captioning. Each sample maps an object identifier to a referring expression. Queries are drawn from four prompt templates, where {id} is replaced by the object identifier: 
+
+> “Explain the spatial position of <OBJ{id}>.” “How does <OBJ{id}> relate spatially to the surrounding objects?” “Describe the location and spatial context of <OBJ{id}>.” “Describe where <OBJ{id}> is relative to other objects in the scene.”
+
+The expected answer is the original referring expression. 
+
+QA-I (Object Identification). Each sample presents a room-identifying spatial description and asks the model to identify a target object’s class from four options. To construct the question, we prompt Qwen3-14B [ 47 ] to rewrite the target object’s referring expression into an interrogative form that masks the target class name. For example, “the chair between the sofa and the bookshelf, next to the lamp” becomes “what is between the sofa and the bookshelf, next to the lamp?”—a transformation that is difficult to achieve reliably with rule-based templates due to the varied syntactic structures of multi-reference expressions. The rewritten query is then concatenated with the room-identifying spatial description as a preamble, and three distractor classes are sampled from the same room; the four options are randomly shuffled to ensure uniform answer distribution across A/B/C/D. Generated questions are validated to ensure the target class name does not appear in any form within the question text. Up to 3 questions are generated per target object. The full prompt template is shown in Fig. 6. 
+
+QA-II (Counting). Each sample asks the model to count instances of a specified class within the room identified by the spatial description. Only classes with 2–10 instances in the target room are included. The spatial description is wrapped into a room phrase and combined with one of five templates, where {room} denotes the room phrase and {class} the pluralized category name: 16 Prompt Template for QA-I Question Generation           
+
+> Rewrite the following object description into a question that asks “what” or “which object” matches the description. Do NOT include the target class name anywhere in the question. Target description: {target_utterance} Target class (to be masked): {target_class} Rules: 1) Output one line only, starting with “Q:” and ending with “?” 2) Replace the target class with “what” or “which object” 3) Keep all spatial constraints from the description 4) If you cannot comply, output: INVALID Example 1: Input: the chair is behind the lamp and in front of the cabinet Class: chair Output: Q: What is behind the lamp and in front of the cabinet? Example 2: Input: the lamp next to the desk that supports the monitor near the window Class: lamp Output: Q: What is next to the desk that supports the monitor near the window?
+
+Figure 6: Prompt template for generating QA-I questions. The target class name is masked in the output to form an identification question. 
+
+> “In {room}, how many {class} are there?” “In {room}, what is the total number of {class}?” “How many {class} can be found in {room}?” “How many {class} are there in {room}?” “In {room}, how many {class} do you see?”
+
+The expected answer is the integer count. 
+
+QA-III (Existence Verification). Each sample asks whether a specified class is present in the room identified by the spatial description. For positive samples, the queried class must be present in the localized room but not mentioned in the spatial description, preventing trivial lookup. For negative samples, the queried class is drawn exclusively from adjacent rooms and must not appear in the localized room, ensuring non-trivial distractors. Positive and negative samples are balanced 1:1 per scene by truncating to the minority count. Five prompt templates are used, with singular and plural variants selected based on the queried class, where {room} denotes the room phrase, {art} the appropriate article, and {class} the category name: 
+
+> “In {room}, is there {art} {class}?” “Can you find {art} {class} in {room}?” “Does {room} contain {art} {class}?” “Is {art} {class} present in {room}?” “In {room}, is {art} {class} present?”
+
+The expected answer is “Yes.” or “No.”. 
+
+QA-IV (Inter-Room Comparison). Each sample provides spatial descriptions for two distinct rooms and asks which contains more instances of a specified class. Room pairs are drawn from all combinations within a scene, and the queried class must appear in both rooms with differing counts. To ensure label balance, the assignment of rooms to options (A) and (B) is randomly swapped with probability 0.5 at generation time. Three templates are used, where {room_A} and {room_B} denote the two spatial descriptions and {class} the pluralized category name:  
+
+> “Room A: "{room_A}". Room B: "{room_B}". Which room has more {class}?”
+
+17 “Room A: "{room_A}". Room B: "{room_B}". In which room can you find more {class}? ”“Room A: "{room_A}". Room B: "{room_B}". Comparing both rooms, which has a greater number of {class}?” 
+
+The expected answer is “A.” or “B.”. 
+
+## C Implementation Details 
+
+C.1 Hyperparameters and Training 
+
+We use AdamW with base learning rate 5 × 10 −6, betas (0 .9, 0.999) , and weight decay 0.02 . The learning rate follows a cosine decay schedule with linear warmup over the first 10% of epoch 1 and a min-LR multiplier of 0.01 . We use an aggressive max-grad-norm of 0.01 , empirically chosen to stabilize training of the bias and graph modules under the small base learning rate; values in the more common range [1 .0, 5.0] produced unstable loss curves on the hierarchical components in our preliminary experiments. The per-GPU batch size is 16 over 8 GPUs, giving a global effective batch size of 128. Both Stage 1 and Stage 2 train for 3 epochs in bf16 precision. We use random seed 42 for all reported numbers. The LLM is adapted via LoRA [ 19 ] with rank 16, alpha 16, and dropout 0.05, applied to all attention and MLP projections ( q_proj , k_proj , v_proj , o_proj , gate_proj , up_proj , down_proj ). In addition to LoRA parameters, the input token embeddings and corresponding LM-head rows are unfrozen for the introduced object identifier tokens ( <OBJ_001> , . . . , <OBJ_300> ) to enable end-to-end learning of grounding outputs. All experiments are conducted on 8 × NVIDIA H200 GPUs (141 GB HBM3e per card), with steady-state training memory of approximately 80 GB per GPU. The two-stage training takes approximately 12 wall-clock hours per backbone: Stage 1 (3 epochs on ScanNet-based tasks) takes ∼4 hours, and Stage 2 (3 epochs on CAIRN-MR plus 30% ScanNet replay) takes ∼8 hours. 
+
+C.2 Architectural Details Object Token Block. Each object is represented as a 4-token block [tid , t 3D , t 2D , t G]. The 3D and 2D tokens, t3D and t2D , are obtained by projecting pretrained features from Uni3D [ 65 ] (applied to per-object point-cloud segments) and DINOv2 [ 38 ] (applied to multi-view rendered images of the object), respectively. All four tokens are projected to the LLM hidden dimension via 2-layer MLPs. The maximum number of objects per scene is capped at 300; task instances targeting objects beyond this cap are excluded from training and evaluation. Empirically, this cap retains over 96% of task instances in CAIRN-MR and all task instances in the ScanNet-based benchmarks. 
+
+Message Passing for Graph Tokens. The graph token tGi in the object token block encodes relational context beyond per-object geometry and appearance, complementing the 3D and 2D tokens with information aggregated from neighboring objects. We instantiate the message-passing scheme outlined in Sec. 4.2 as follows. For each object Oi, we construct a room-local subgraph by connecting it to its Kg nearest in-room neighbors under the edge set EOO defined in Sec. 4.3. Node features h(0)  
+
+> i
+
+are initialized by concatenating the per-object Uni3D point-cloud feature with a small geometric descriptor (center coordinates and bounding-box size). Edge features eij are constructed by concatenating a geometric component encoding relative position and Euclidean distance between Oi and Oj , with a pretrained VL-SAT [ 49 ] relation embedding capturing semantic spatial relations between the pair (e.g., above, next to). Both edge components are precomputed and held fixed during training. We then perform Lg layers of message passing: 
+
+h(ℓ+1)  
+
+> i
+
+= h(ℓ) 
+
+> i
+
++ Φ 
+
+
+
+h(ℓ) 
+
+> i
+
+, AGG 
+
+
+
+{Ψ( h(ℓ) 
+
+> j
+
+, eij ) | j ∈ N (i)}
+
+ 
+
+, (7) where Ψ computes a message from each neighbor’s embedding and the edge attribute, AGG denotes mean aggregation, and Φ fuses the node’s own embedding with the aggregated message. The final 18 node embedding h(Lg ) 
+
+> i
+
+is projected into the LLM hidden space by a 2-layer MLP to form the graph token tGi .We use Lg = 2 message-passing layers with mean aggregation, following the standard depth in GraphSAGE-style architectures [ 16 ], where two layers suffice to propagate information across the immediate spatial neighborhood while avoiding the over-smoothing observed at greater depths. 19
