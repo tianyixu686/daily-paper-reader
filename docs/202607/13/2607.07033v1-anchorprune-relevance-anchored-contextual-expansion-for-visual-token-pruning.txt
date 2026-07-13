@@ -1,0 +1,668 @@
+Title: AnchorPrune: Relevance-Anchored Contextual Expansion for Visual Token Pruning
+
+URL Source: https://arxiv.org/pdf/2607.07033v1
+
+Published Time: Thu, 09 Jul 2026 00:30:43 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# AnchorPrune: Relevance-Anchored Contextual Expansion for Visual Token Pruning 
+
+Kyuan Oh and Bumsoo Kim †
+
+Chung-Ang University, Seoul, Korea 
+
+{oka04108,bumsoo}@cau.ac.kr 
+
+Abstract. Large vision-language models incur substantial inference costs because high-resolution inputs introduce thousands of visual tokens, many of which are redundant for a given query. Existing pruning methods of-ten combine query relevance and token diversity, yet these objectives can conflict under aggressive compression: relevance-driven selection may overconcentrate the budget on correlated local evidence, while diversity-driven selection may suppress indispensable tokens or retain distinct but uninformative regions. We introduce AnchorPrune , a training-free framework that first constructs a protected relevance anchor and then expands it with complementary visual context. AnchorPrune adaptively determines the anchor size from the novelty profile of relevance-ranked tokens, preserving a compact set of query-critical evidence, and allocates the remaining budget through importance-weighted novelty to recover in-formative, non-redundant context relative to the anchor. This ordered de-sign prevents contextual expansion from displacing indispensable query cues while improving overall visual coverage. AnchorPrune is lightweight, architecture-aware, and requires neither retraining nor model modifica-tion. Across image and video vision-language models and benchmarks, it consistently improves the accuracy–efficiency trade-off over training-free baselines, particularly under severe compression. On LLaVA-NeXT-7B, AnchorPrune preserves 97.6% of full-token performance using only 160 of 2,880 visual tokens. These results establish relevance-anchored contex-tual expansion as an effective principle for efficient multimodal inference. Code is available at https://github.com/MULTI-cau/AnchorPrune .
+
+Keywords: Visual Token Pruning · Vision-Language Models · Efficient Multimodal Inference · Relevance-Anchored Contextual Expansion 
+
+## 1 Introduction 
+
+Vision-language models (VLMs) achieve strong performance across image and video understanding tasks, but their long visual-token sequences incur substan-tial inference costs [2, 11, 12, 30]. High-resolution, multi-crop, and multi-frame inputs can introduce thousands of visual tokens, many of which are redundant for a given query yet must still be processed by the language model. This over-head is especially pronounced during prefilling, where visual tokens dominate  
+
+> †
+
+: corresponding author arXiv:2607.07033v1 [cs.CV] 8 Jul 2026 2 K. Oh and B. Kim Bus ✗          
+
+> AnchorPrune (Ours)
+> Motorcycle ✓
+> Case 1: Saliency -Only Misses Query -
+> Specific Evidence [24]
+> What is red?
+> Example
+> Answer:
+> Motorcycle
+> Saliency -Only Selection
+> Transylvania ✗
+> AnchorPrune (Ours)
+> Case 2: Diversity -Only Fragments
+> Coherent Query Evidence [1]
+> What is the
+> name of this place?
+> Example Diversity -Only Selection
+> Banca transilvania ✓
+> Answer:
+> Banca transilvania
+> Blue ✗
+> AnchorPrune (Ours)
+> Case 3: Unified Relevance -Diversity
+> Selection Suppresses Critical Evidence [28]
+> Which team
+> has the ball?
+> Example Unified Objective Selection
+> Pink ✓
+> Answer:
+> Pink
+
+Fig. 1: Qualitative comparison on LLaVA-1.5-7B with 64 retained visual tokens. VisionZip [24] uses query-agnostic saliency, DivPrune [1] emphasizes query-agnostic diversity, and CDPruner [28] combines relevance and diversity within a unified objective. Under severe compression, these strategies may miss, fragment, or suppress query-critical evidence. AnchorPrune instead protects a relevance anchor before ex-panding it with informative, non-redundant context, yielding correct predictions across diverse tasks. 
+
+sequence length, memory consumption, and attention computation. Visual to-ken pruning therefore provides a direct route to efficient multimodal inference by retaining only the evidence needed for accurate prediction [1, 3, 21, 23, 24, 28, 29]. The central challenge is not merely estimating token importance, but de-termining which evidence must be protected before the remaining budget is allocated. As illustrated in Fig. 1, saliency-based methods may retain redundant high-importance regions while overlooking query-specific cues [3, 21, 23, 24, 29]. Diversity-based methods distribute selections across the visual feature space, but can fragment locally coherent evidence or preserve visually distinct yet query-irrelevant regions [1]. Query-aware methods improve instruction alignment, but relevance-driven selection may still overconcentrate the budget on correlated lo-cal evidence. Recent approaches address this limitation by combining relevance and diversity within a unified objective [28]. Under aggressive compression, how-ever, such coupling provides no explicit protection for indispensable evidence: diversity can displace query-critical tokens, while weak or diffuse relevance guid-ance cannot be compensated by a separate contextual expansion stage. We argue that query-critical evidence and complementary context play asym-metric roles and should therefore be selected in a fixed order. Evidence directly required by the query, such as a small object, scene text, fine-grained attribute, or spatial relation, is largely non-substitutable: once removed, it cannot be re-covered by subsequent selection. Contextual evidence, by contrast, is more sub-stitutable, as multiple informative subsets may provide comparable support for grounding, disambiguation, or holistic reasoning. Effective pruning should there-fore first establish a protected relevance anchor and only then expand it with complementary context. This expansion should prioritize tokens that are both AnchorPrune 3
+
+informative and non-redundant with respect to the retained anchor, rather than rewarding visual distinctiveness alone. Based on this principle, we introduce AnchorPrune , a training-free frame-work for relevance-anchored contextual expansion. AnchorPrune first ranks vi-sual tokens using architecture-appropriate query-conditioned priority scores and constructs a protected relevance anchor. Rather than assigning a fixed fraction of the token budget to relevance, it determines the anchor size adaptively from the novelty profile of relevance-ranked tokens, accommodating both concentrated and distributed query evidence. The remaining budget is then allocated through importance-weighted novelty, expanding the retained set with tokens that are globally informative and complementary to the current selection. By separat-ing anchor construction from contextual expansion, AnchorPrune protects in-dispensable query evidence while allowing broader context to compensate when relevance guidance is incomplete or spatially diffuse. AnchorPrune requires neither retraining nor architectural modification and applies to both CLIP-aligned and non-CLIP VLMs using architecture-specific representation spaces. Across image and video benchmarks, it consistently im-proves the accuracy–efficiency trade-off over representative training-free pruning methods, with the largest gains under aggressive compression. On LLaVA-NeXT-7B, AnchorPrune preserves 97.6% of full-token performance while retaining only 160 of 2,880 visual tokens. These results establish relevance-anchored contextual expansion as an effective principle for efficient multimodal inference. Our contributions are threefold: 
+
+– We identify an ordering limitation in existing visual-token pruning methods: jointly optimizing relevance and diversity can both displace non-substitutable query evidence and leave weak or diffuse relevance guidance without a sep-arate mechanism for contextual compensation. 
+
+– We introduce AnchorPrune , a training-free framework that constructs an adaptive protected relevance anchor and expands it through importance-weighted novelty to retain informative, non-redundant context. 
+
+– We validate AnchorPrune across CLIP-aligned and non-CLIP image and video VLMs, demonstrating consistent performance preservation and strong accuracy–efficiency trade-offs under severe visual-token compression. 
+
+## 2 Preliminaries 
+
+2.1 Visual Token Pruning in VLMs 
+
+Given a visual input I and a text query q, a vision encoder produces a sequence of visual tokens 
+
+X = {xi}Ni=1 , xi ∈ Rd. (1) Visual token pruning selects an index set S ⊆ { 1, . . . , N } with |S| = K ≪ N
+
+and passes the reduced sequence XS = {xi : i ∈ S} to the language model. 4 K. Oh and B. Kim 
+
+The objective is to reduce inference cost while approximately preserving the conditional output distribution: 
+
+pθ (y | X, q ) ≈ pθ (y | XS , q ) (2) Because direct subset optimization is combinatorial, existing methods rely on surrogate criteria such as token importance, query relevance, and feature diver-sity. 
+
+2.2 Relevance, Diversity, and Contextual Expansion 
+
+Let ρi denote a query-conditioned priority score for token xi. Relevance-driven selection prioritizes instruction-aligned evidence, but may concentrate the re-tained budget on correlated local tokens. Diversity-driven selection instead favors candidates that contribute information not already represented by the retained set. Given visual features hi, the novelty of candidate token i relative to a se-lected set S can be measured as 
+
+∆(i; S) = min 
+
+> j∈S
+
+
+
+1 − h⊤ 
+
+> i
+
+hj
+
+∥hi∥2∥hj ∥2
+
+
+
+. (3) Recent query-aware methods combine relevance and diversity within a unified subset-selection objective [28]. For example, let er ∈ RN denote normalized token-relevance scores. A visual-similarity kernel L can be conditioned on relevance as 
+
+eL = diag( er)L diag( er), S⋆ = arg max  
+
+> |S|=K
+
+log det( eLS ). (4) This formulation jointly promotes instruction relevance and subset diversity, but it provides no explicit mechanism for protecting indispensable evidence before diversity influences selection. Moreover, when relevance guidance is weak or spa-tially diffuse, the unified objective offers no separate stage for compensating through broader contextual selection. We use contextual expansion to denote the addition of visual tokens that are both informative and complementary to a protected set of query-critical evidence. This notion is stricter than diversity alone: a visually distinct but un-informative region may increase feature dispersion without providing useful con-textual support. In AnchorPrune, contextual expansion is therefore performed only after a relevance anchor has been established. 
+
+## 3 Method 
+
+3.1 Overview 
+
+Figure 2 provides an overview of AnchorPrune. AnchorPrune is a training-free visual token pruning framework that establishes a protected relevance anchor before expanding it with complementary visual context. Given visual tokens X =AnchorPrune 5Stage 1: Protected Relevance Anchoring 
+
+Stage 2: Contextual Expansion 
+
+> CLIP Text Encoder
+> Anchoring Priority
+> (CLIP Similarity)
+
+Image 
+
+> What is the name of
+> the runner on the left?
+
+User Prompt              
+
+> 𝒔 𝒊 =𝒔𝒊𝒎 𝒙 𝒊 ,𝒒
+> 1. Initial Anchor ( 𝑲 𝒎in )3. Final Relevance Anchor
+> Initial Anchor Tokens
+> Importance Prior
+> (CLS Attention)
+> 𝒑 𝒊 =𝑨𝒕𝒕 𝒏 𝑪𝑳𝑺 𝒙 𝒊
+> 1. Relevance Anchor 2. Context Expansion
+> Selected Context Tokens
+> Vision Encoder
+> Answer: “Willis”
+
+Output                               
+
+> 2. Adaptive Anchor Expansion
+> Expansion Tokens
+> Score 𝒊 =𝒑 𝒊 ∗𝚫 𝒊 ;𝑺
+> 𝒑 𝑖 :𝐼𝑚𝑝𝑜𝑟𝑡𝑎𝑛𝑐𝑒 𝑃𝑟𝑖𝑜𝑟
+> 𝚫 𝒊 ;𝑺 :𝑛𝑜𝑣𝑒𝑙𝑡𝑦 𝑤 .𝑟 .𝑡 .𝑐𝑢𝑟𝑟𝑒𝑛𝑡 𝑠𝑒𝑡
+> Relevance Anchor (Stage 1)
+> Final Protected Anchor
+> Initialize from
+> top -ranked tokens
+> Expand the anchor
+> based on token novelty
+> (Eq s.14 -16)
+> 𝐓𝐨𝐩 -𝐊
+
+Fig. 2: Overview of AnchorPrune. Given an image and an instruction, Stage 1 ranks visual tokens using an architecture-specific query-conditioned priority signal and constructs a protected relevance anchor whose size is determined adaptively from the novelty profile of the ranked tokens. Stage 2 initializes the retained set with this anchor and allocates the remaining budget through importance-weighted novelty, selecting tokens that are both globally informative and complementary to the evidence already retained. The selected tokens are restored to their native visual order and passed to the unchanged language model. 
+
+{xi}Ni=1 , a text query q, and a target token budget K, AnchorPrune constructs the retained set as 
+
+S = Srel ∪ Sctx , |Srel | = Krel , |Sctx | = Kctx . (5) where Krel + Kctx = K.The two subsets are selected sequentially. Stage 1 constructs a protected relevance anchor Srel from tokens prioritized by the input instruction. Stage 2 uses the remaining budget to expand this anchor with tokens that are globally informative and non-redundant with respect to the current retained set. Because 
+
+Srel is fixed before contextual expansion, subsequent selections cannot displace query-critical evidence. 
+
+3.2 Stage 1: Protected Relevance Anchoring 
+
+Stage 1 assigns each visual token an anchoring-priority score si, where a larger value indicates higher priority for inclusion in the protected relevance anchor. The score is computed in an architecture-appropriate representation space in which visual and textual features are comparable. 6 K. Oh and B. Kim 
+
+CLIP-aligned VLMs. For models equipped with a paired CLIP vision–language encoder [20], we compute the priority score before the multimodal projector. Let 
+
+vi = ϕ(xi)
+
+∥ϕ(xi)∥2
+
+(6) denote the normalized visual embedding of token i, and let {tm}Mm=1 denote normalized text embeddings produced by the corresponding text encoder. If the instruction exceeds the encoder context length, it is divided into M segments. We define 
+
+si = − 1
+
+M
+
+> M
+
+X
+
+> m=1
+
+v⊤ 
+
+> i
+
+tm. (7) Equation (7) defines the negated patch–text similarity . Prior analysis found that raw CLIP local similarities can respond more strongly to background than to discriminative foreground regions, and that reversing these maps can improve localization [9]. We therefore use negated similarity as a training-free anchoring-priority signal, without interpreting it as calibrated semantic relevance. The two similarity directions are compared in Supplementary Sec. C.3. 
+
+Non-CLIP VLMs. For architectures without a comparable pre-projector vision– language space, we compute the priority score after the multimodal projector. Let 
+
+zi = gmm (xi) (8) denote the projected visual token, and let {em}Mm=1 denote the language-model embeddings of the instruction tokens. We define 
+
+si = max 
+
+> 1≤m≤M
+
+ zi
+
+∥zi∥2
+
+, em
+
+∥em∥2
+
+
+
+. (9) Token-wise maximum matching preserves strong alignment with individual se-mantic components of the instruction, which can be obscured when all instruc-tion embeddings are averaged into a single vector. 
+
+Relevance ranking. Using the architecture-specific score si, we sort the visual tokens in descending priority: 
+
+π = ( π1, . . . , π N ), sπ1 ≥ sπ2 ≥ · · · ≥ sπN . (10) For an anchor budget Krel , the protected relevance anchor is 
+
+Srel = {π1, . . . , π Krel }. (11) No diversity penalty is applied in this stage. Consequently, correlated tokens may remain in the anchor when they jointly contain useful local evidence for answering the query. AnchorPrune 7
+
+3.3 Adaptive Anchor Budget 
+
+A fixed relevance ratio is unnecessarily rigid because the structure of query-critical evidence varies across image–query pairs. Some queries depend on a compact local region, while others require evidence distributed across multiple objects, attributes, or textual regions. AnchorPrune therefore determines Krel 
+
+from the novelty profile of the relevance-ranked sequence. We begin with a minimum anchor size Kmin and impose an upper bound 
+
+Kmax =
+
+ K
+
+2
+
+
+
+, (12) ensuring that at least half of the total budget remains available for contextual expansion. Let 
+
+Amin = {π1, . . . , π Kmin } (13) denote the initial relevance anchor. Using visual features hi, we measure the novelty of each subsequent relevance-ranked candidate πt relative to Amin :
+
+∆(πt; Amin ) = min 
+
+> j∈Amin
+
+1 − h⊤ 
+
+> πt
+
+hj
+
+∥hπt ∥2∥hj ∥2
+
+!
+
+(14) For Kmin < t ≤ Kmax , we count the number of sufficiently novel candidates encountered after the initial anchor: 
+
+ct =
+
+> t
+
+X
+
+> u=Kmin +1
+
+1 [∆(πu; Amin ) > τ ] , (15) where τ is a novelty threshold. Given a patience parameter P , the anchor budget is selected as 
+
+Krel =
+
+(t, if t is the first index satisfying ct ≥ P, Kmax , otherwise . (16) The remaining context budget is 
+
+Kctx = K − Krel . (17) When sufficiently novel candidates appear early in the relevance-ranked se-quence, AnchorPrune expands the anchor through the P -th novelty event. If fewer than P such events are observed, it conservatively retains the maximum anchor budget Kmax .
+
+3.4 Stage 2: Contextual Expansion 
+
+After constructing the protected relevance anchor, AnchorPrune allocates the re-maining budget to contextual expansion. Unlike diversity-only sampling, Stage 2 does not favor novelty in isolation. Each candidate must be both globally infor-mative and complementary to the evidence already retained. 8 K. Oh and B. Kim 
+
+Global importance prior. We assign each visual token a prior pi estimating its contribution to the global visual representation. The prior is instantiated according to the vision-encoder architecture. For encoders with a dedicated [CLS] token, let Ah, cls ,i denote the attention from the [CLS] token to visual token i at attention head h. We compute 
+
+pi = 1
+
+H
+
+> H
+
+X
+
+> h=1
+
+Ah, cls ,i . (18) For encoders without a dedicated global token, we use the average attention mass received by token i:
+
+epi = 1
+
+HN 
+
+> H
+
+X
+
+> h=1
+> N
+
+X
+
+> j=1
+
+Ah,j,i . (19) If the architecture merges multiple encoder tokens into a single candidate token, let G(i) denote the corresponding pre-merge token group. The aligned prior is 
+
+pi = 1
+
+|G(i)|
+
+X
+
+> j∈G(i)
+
+epj . (20) When no merging is applied, G(i) = {i}.
+
+Anchor-conditioned novelty. We initialize the retained set with the protected relevance anchor: 
+
+S ← Srel . (21) For candidate token i / ∈ S, its novelty relative to the current retained set is 
+
+∆(i; S) = min 
+
+> j∈S
+
+
+
+1 − h⊤ 
+
+> i
+
+hj
+
+∥hi∥2∥hj ∥2
+
+
+
+. (22) Because S is initialized with Srel , novelty is measured relative to both the pro-tected anchor and the contextual tokens selected in preceding iterations. 
+
+Importance-weighted expansion. At each iteration, AnchorPrune selects 
+
+i⋆ = arg max  
+
+> i / ∈S
+
+pi ∆(i; S), S ← S ∪ { i⋆}. (23) until |S| = K. The resulting context subset is 
+
+Sctx = S \ Srel . (24) The multiplicative objective in Eq. (23) suppresses both visually distinct but uninformative tokens and globally important but redundant ones. Each se-lected token must therefore be simultaneously informative and complementary to the current retained set, producing contextual expansion rather than feature dispersion alone. The selected tokens are restored to their native visual order and passed to the unchanged language model without retraining or architectural modification. AnchorPrune 9
+
+## 4 Experiments 
+
+We evaluate AnchorPrune in terms of performance preservation under aggressive visual-token compression, generalization across heterogeneous image and video VLM architectures, and the effectiveness of relevance-anchored contextual ex-pansion. Our evaluation spans two CLIP-aligned image VLMs with substantially different visual-sequence lengths, a non-CLIP image VLM, and a video VLM. Detailed implementation settings, video breakdowns, and additional ablations are provided in Supplementary Secs. A, B, and C, respectively. 
+
+4.1 Experimental Setup Models and evaluation. We evaluate AnchorPrune on LLaVA-1.5-7B [11], LLaVA-NeXT-7B [12], Qwen2.5-VL-7B [2], and LLaVA-Video-7B [30]. For LLaVA-1.5-7B, we retain 128, 64, or 32 tokens from 576 visual tokens. For LLaVA-NeXT-7B, we retain 640, 320, or 160 tokens from 2,880 visual tokens. Both models are evaluated on VQAv2 [6], TextVQA [22], GQA [7], ScienceQA-IMG [16], MME [4], POPE [10], MMBench-EN/CN [13], and MM-Vet [25]. For Qwen2.5-VL-7B, we retain 256, 128, or 64 tokens from 1,296 visual tokens and evaluate on MME, TextVQA, DocVQA [19], AI2D [8], MMMU [26], and MMBench-EN/CN. For LLaVA-Video-7B, we evaluate 16-frame inputs and retain 1,024 or 512 tokens from 2,704 visual tokens on Video-MME [5], EgoSchema [17], and Tem-pCompass [14]. Results for all evaluated model–budget settings are reported in Tables 1, 2, 3, and 4. We additionally conduct a controlled Stage-2 ablation on LLaVA-1.5-7B. 
+
+Baselines and protocol. We compare against representative training-free methods based on attention or saliency, progressive token reduction, token merg-ing, diversity, and unified relevance–diversity selection [1, 3, 21, 23, 24, 28, 29]. All methods use matched model checkpoints, input processing, decoding settings, benchmark protocols, and retained-token budgets. We use lmms-eval [27] when-ever supported. Architecture-specific implementation details, hyperparameters, and hardware configurations are provided in Supplementary Sec. A. 
+
+Relative retained performance. To aggregate benchmarks with different metric scales, we report the average performance retained relative to the un-pruned backbone: 
+
+Rel .(m) = 1
+
+|B| 
+
+X
+
+> b∈B
+
+Score b(m)Score b(Full) × 100 , (25) where B denotes the set of metrics reported in the corresponding table. 10 K. Oh and B. Kim 
+
+Table 1: Main results on LLaVA-1.5-7B across visual-token budgets. We eval-uate AnchorPrune on a compact CLIP-aligned VLM containing 576 visual tokens. Best and second-best Rel. values within each budget are highlighted in bold and underlined, respectively. Method VQAv2 TextVQA GQA SQA IMG MME POPE MMB EN MMB CN MM-Vet Rel. 
+
+Upper Bound: All 576 Tokens (100%) 
+
+LLaVA-1.5-7B 76.7 58.3 61.9 69.6 1509.1 85.8 64.0 55.6 31.3 100.0 
+
+Retain 128 Tokens (↓ 77.8%) FastV (ECCV’24) 72.7 56.4 56.9 68.9 1456.1 76.2 62.5 53.6 28.2 94.7 PyramidDrop (CVPR’25) 73.4 55.9 56.5 69.2 1382.5 78.8 62.7 51.8 26.3 93.4 SparseVLM (ICML’25) 74.4 56.7 58.6 68.7 1435.6 85.0 63.5 54.4 30.4 97.3 PruMerge+ (ICCV’25) 72.3 54.7 57.7 69.5 1406.3 81.0 60.1 51.4 26.6 93.3 VisionZip (CVPR’25) 73.8 56.8 57.5 68.7 1435.1 83.1 62.4 53.5 32.7 97.3 DivPrune (CVPR’25) 74.2 56.4 59.2 69.0 1405.3 86.8 62.6 52.5 29.2 96.5 CDPruner (NeurIPS’25) 75.0 56.3 59.6 68.6 1413.3 87.1 62.4 51.9 28.1 96.1 
+
+AnchorPrune 75.1 57.0 59.8 68.9 1454.3 86.8 63.3 53.2 32.8 98.7 Retain 64 Tokens (↓ 88.9%) FastV (ECCV’24) 68.2 54.1 53.6 69.3 1357.8 68.1 60.1 50.3 26.4 89.5 PyramidDrop (CVPR’25) 69.0 53.0 52.8 68.1 1204.7 69.3 58.2 45.5 20.2 84.7 SparseVLM (ICML’25) 68.7 53.4 53.7 69.4 1318.7 77.5 59.9 48.9 23.6 89.1 PruMerge+ (ICCV’25) 69.7 54.1 55.3 69.5 1318.7 74.9 58.8 49.6 24.1 89.5 VisionZip (CVPR’25) 70.6 55.4 55.0 69.0 1373.1 77.1 60.0 51.1 30.0 93.0 DivPrune (CVPR’25) 72.5 54.8 57.8 68.3 1343.8 85.5 59.2 49.4 24.2 91.9 CDPruner (NeurIPS’25) 73.9 55.5 58.9 68.4 1400.6 87.3 61.2 49.8 26.1 94.2 
+
+AnchorPrune 73.8 56.1 58.6 68.8 1420.2 85.8 61.3 52.0 30.1 96.2 Retain 32 Tokens (↓ 94.4%) PruMerge+ (ICCV’25) 65.5 52.0 53.3 69.2 1227.0 69.6 56.4 45.2 22.1 84.7 VisionZip (CVPR’25) 65.7 53.2 51.8 68.8 1255.8 68.8 57.2 48.0 24.0 86.1 DivPrune (CVPR’25) 69.4 53.0 54.7 68.6 1267.9 81.9 57.9 45.8 24.3 88.7 CDPruner (NeurIPS’25) 72.1 52.9 57.2 69.1 1362.6 87.5 60.1 46.0 27.7 92.6 
+
+AnchorPrune 71.7 54.2 56.9 69.5 1394.7 85.3 60.1 49.9 28.7 93.9 
+
+4.2 Main Results CLIP-aligned image VLM. Table 1 reports results on LLaVA-1.5-7B, whose visual representation contains 576 tokens. This compact setting provides a de-manding test because the original sequence contains substantially less redun-dancy than high-resolution multi-crop representations. AnchorPrune achieves the highest aggregate retention at all three budgets. It retains 98.7% and 96.2% of the full-token baseline with 128 and 64 tokens, respectively. Under the most aggressive setting, it retains 93.9% using only 32 visual tokens, exceeding the second-best method by 1.3 percentage points. The gains are distributed across benchmarks rather than being driven by a single metric. At 32 tokens, AnchorPrune is particularly strong on MME, TextVQA, MMBench-CN, and MM-Vet, showing that relevance-anchored con-textual expansion remains effective even when the original visual sequence is comparatively compact. 
+
+Scaling to high-resolution visual sequences. Table 2 evaluates Anchor-Prune on LLaVA-NeXT-7B, whose high-resolution multi-crop representation AnchorPrune 11 
+
+Table 2: Main results on LLaVA-NeXT-7B across visual-token budgets. 
+
+We evaluate scalability to a high-resolution multi-crop representation containing 2,880 visual tokens. Best and second-best Rel. values within each budget are highlighted in 
+
+bold and underlined, respectively. Method VQAv2 TextVQA GQA SQA IMG MME POPE MMB EN MMB CN MM-Vet Rel. 
+
+Upper Bound: All 2,880 Tokens (100%) 
+
+LLaVA-NeXT-7B 80.2 61.3 64.2 70.2 1528.8 86.4 67.2 56.5 39.3 100.0 
+
+Retain 640 Tokens (↓ 77.8%) FastV (ECCV’24) 77.2 57.6 60.5 67.9 1513.6 82.6 62.5 54.0 25.5 92.1 PyramidDrop (CVPR’25) 78.7 59.8 61.0 68.4 1470.3 84.6 65.3 57.3 26.6 94.3 SparseVLM (ICML’25) 77.1 57.8 59.4 67.8 1481.7 84.7 64.9 56.9 32.6 95.0 PruMerge+ (ICCV’25) 70.5 51.0 55.4 70.0 1295.0 67.1 62.8 55.2 31.9 88.0 VisionZip (CVPR’25) 77.3 60.1 61.3 68.2 1461.5 86.0 64.6 56.3 35.8 96.6 DivPrune (CVPR’25) 78.9 52.6 58.1 67.4 1314.6 79.6 62.8 53.8 28.8 90.1 CDPruner (NeurIPS’25) 78.2 58.8 62.5 68.2 1491.3 87.4 65.9 56.6 33.5 96.7 
+
+AnchorPrune 80.2 61.3 64.3 70.3 1528.8 86.4 67.1 56.5 37.0 99.4 Retain 320 Tokens (↓ 88.9%) FastV (ECCV’24) 71.0 54.1 55.7 67.0 1327.2 73.9 60.2 50.8 21.7 85.1 PyramidDrop (CVPR’25) 76.2 56.8 57.9 67.7 1451.6 77.8 64.2 54.3 29.3 91.7 SparseVLM (ICML’25) 73.4 55.5 57.4 67.6 1419.1 81.2 63.2 54.0 29.8 91.1 PruMerge+ (ICCV’25) 67.7 49.6 53.7 69.6 1221.2 61.2 61.6 52.9 25.4 83.2 VisionZip (CVPR’25) 74.4 58.9 58.9 67.6 1410.1 82.2 63.1 55.0 31.5 92.9 DivPrune (CVPR’25) 76.6 50.8 56.1 67.3 1277.6 74.4 60.4 50.4 26.7 86.5 CDPruner (NeurIPS’25) 76.8 57.3 61.3 67.2 1482.9 87.6 64.6 55.2 35.7 95.9 
+
+AnchorPrune 79.4 59.6 62.9 69.0 1507.5 87.2 65.3 56.9 37.2 98.3 Retain 160 Tokens (↓ 94.4%) PruMerge+ (ICCV’25) 63.7 47.7 51.8 70.2 1153.1 56.8 58.0 47.3 27.3 79.8 VisionZip (CVPR’25) 70.0 56.0 55.3 67.8 1326.3 74.8 58.8 51.8 26.7 86.9 DivPrune (CVPR’25) 73.9 48.1 53.2 67.3 1211.7 67.9 57.4 47.1 19.7 80.7 CDPruner (NeurIPS’25) 75.2 55.7 60.8 67.4 1430.8 86.7 64.2 54.0 29.9 92.9 
+
+AnchorPrune 78.6 60.1 62.6 68.7 1481.1 87.5 65.5 56.9 35.8 97.6 
+
+contains 2,880 visual tokens. This setting tests whether the same selection prin-ciple scales to substantially longer and more redundant visual sequences. AnchorPrune achieves the highest retained performance at every evaluated budget. With 640 tokens, it retains 99.4% of the full-token baseline, outper-forming the second-best method by 2.7 percentage points in Rel. At 320 tokens, AnchorPrune achieves 98.3%, compared with 95.9% for the strongest competing method. The advantage becomes larger under the most aggressive setting. With only 160 of 2,880 tokens retained, AnchorPrune preserves 97.6% of the full-token baseline, exceeding the second-best result by 4.7 percentage points. It also re-mains close to the unpruned model on TextVQA, MME, POPE, and both MM-Bench variants. Together with the LLaVA-1.5 results, this demonstrates that relevance-anchored contextual expansion is effective across both compact and high-resolution CLIP-aligned visual sequences. 
+
+Generalization to a non-CLIP architecture. Table 3 evaluates Anchor-Prune on Qwen2.5-VL-7B. Unlike the LLaVA models, Qwen2.5-VL does not 12 K. Oh and B. Kim 
+
+Table 3: Main results on Qwen2.5-VL-7B across visual-token budgets. We evaluate cross-architecture generalization on a non-CLIP VLM under matched infer-ence settings. Best and second-best Rel. values within each budget are highlighted in 
+
+bold and underlined, respectively. Method MME TextVQA DocVQA AI2D MMMU MMB EN MMB CN Rel.                                                                                                               
+
+> Upper Bound: All 1,296 Tokens (100%)
+> Qwen2.5-VL-7B 1687.9 77.3 94.3 83.2 50.6 83.1 80.5 100.0
+> Retain 256 Tokens (↓80.2%) FastV (ECCV’24) 1638.9 74.9 60.0 78.3 49.3 79.8 77.3 91.6 DivPrune (CVPR’25) 1671.9 70.0 67.9 77.8 48.6 80.0 77.2 91.9 CDPruner (NeurIPS’25) 1621.9 63.2 52.7 78.0 47.7 78.0 77.0 87.3
+> AnchorPrune 1657.5 72.6 72.9 78.8 48.6 80.8 78.2 93.5 Retain 128 Tokens (↓90.1%) FastV (ECCV’24) 1554.8 70.7 40.0 72.9 47.1 76.3 72.1 84.0 DivPrune (CVPR’25) 1642.4 66.3 49.8 75.2 47.3 76.9 75.4 86.6 CDPruner (NeurIPS’25) 1572.1 57.7 36.3 76.9 45.9 77.9 74.7 82.3
+> AnchorPrune 1663.9 68.4 51.0 77.7 46.8 79.6 75.7 88.1 Retain 64 Tokens (↓95.1%) FastV (ECCV’24) 1381.4 63.7 27.7 68.4 45.4 67.5 64.7 75.3 DivPrune (CVPR’25) 1544.1 60.7 31.6 70.7 46.9 74.6 71.7 80.0 CDPruner (NeurIPS’25) 1431.7 51.6 22.8 73.6 44.7 73.9 72.9 76.0
+> AnchorPrune 1563.2 61.5 31.3 74.2 45.2 75.7 73.2 80.8
+
+expose the same paired pre-projector CLIP representation. AnchorPrune there-fore computes its Stage-1 priority in the post-projector embedding space while preserving the same protected-anchor design. AnchorPrune achieves the highest Rel. at all three budgets. At 256 tokens, it retains 93.5% of the full-token baseline, improving over the second-best result by 1.6 percentage points. At 128 tokens, AnchorPrune obtains 88.1%, compared with 86.6% for the strongest baseline. Even when only 64 of 1,296 tokens remain, AnchorPrune achieves the best overall result at 80.8%. The improvements are consistent across general, text-oriented, and document-oriented benchmarks, indicating that the anchoring principle transfers beyond CLIP-aligned architectures. These results demonstrate that AnchorPrune is not tied to a specific visual encoder or relevance representation. 
+
+Video Generalization. Table 4 evaluates AnchorPrune on LLaVA-Video-7B under 16-frame inputs. AnchorPrune achieves the highest aggregate retained per-formance at both budgets, preserving 98.3% and 94.1% of the full-token baseline with 1,024 and 512 tokens, respectively. This result indicates that relevance-anchored contextual expansion extends to temporally structured visual inputs. AnchorPrune 13 
+
+Table 4: Video results on LLaVA-Video-7B. We report aggregate performance under 16-frame evaluation. Detailed short-, medium-, and long-video results are pro-vided in Supplementary Sec. B. Best and second-best Rel. values within each budget are highlighted in bold and underlined, respectively. Method Video-MME w/o Subtitles Video-MME w/ Subtitles EgoSchema 500-subset TempCompass Avg. Rel.                                                  
+
+> Upper Bound: All 2,704 Visual Tokens
+> LLaVA-Video-7B 59.96 61.33 55.4 67.1 100.0
+> Retain 1,024 Tokens (↓62.1%) FastV (ECCV’24) 59.26 60.59 52.8 65.6 97.7 DivPrune (CVPR’25) 57.00 59.15 53.2 64.9 96.1 CDPruner (NeurIPS’25) 57.85 59.81 52.6 65.6 96.8
+> AnchorPrune 58.19 60.89 55.0 65.4 98.3 Retain 512 Tokens (↓81.1%) FastV (ECCV’24) 56.37 57.63 50.2 61.1 92.4 DivPrune (CVPR’25) 55.89 58.19 52.0 61.3 93.4 CDPruner (NeurIPS’25) 54.22 57.00 51.4 60.6 91.7
+> AnchorPrune 56.26 58.07 53.0 61.8 94.1
+
+Overall trend. Across compact and high-resolution CLIP-aligned image VLMs, a non-CLIP image VLM, and a video VLM, AnchorPrune consistently achieves the strongest retained performance. Its advantage generally becomes clearer as the token budget decreases, supporting the principle that query-critical evidence should be protected before complementary context is expanded. 
+
+4.3 Efficiency Analysis 
+
+Finally, we evaluate the practical efficiency of AnchorPrune, including token-selection overhead. To summarize the joint trade-off between prefill latency and resident memory in a single quantity, we define an Efficiency Score as 
+
+Efficiency Score = Prefill Speedup × Memory Full 
+
+Memory Method 
+
+, (26) where  Prefill Speedup  denotes the speedup relative to the unpruned model, 
+
+Memory Full  is the resident GPU memory usage of the full-token baseline, and 
+
+Memory Method  is the resident GPU memory usage of the pruned method. Figure 3 plots this score against MME performance under a matched bud-get of 32 retained visual tokens. AnchorPrune achieves the highest MME score among the evaluated pruning methods while maintaining a competitive efficiency score of  5.24 . VisionZip and DivPrune obtain slightly higher efficiency scores of  5.28  and  5.41 , respectively, due to marginally lower resident memory, but their MME scores are substantially lower. CDPruner reaches a similar prefill speedup but has a lower efficiency score of  4.68  because of its larger resident 14 K. Oh and B. Kim 1.5           
+
+> 2
+> 2.5
+> 3
+> 3.5
+> 4
+> 4.5
+> 5
+> 5.5
+> 6
+> 1050 1100 1150 1200 1250 1300 1350 1400 1450
+> Efficiency Score
+> MME Perception Score
+> Accuracy -Efficiency Trade -off on LLaVA -1.5 -7B
+> AnchorPrune
+> CDPruner
+> VisionZip
+> FastV
+> DivPrune
+> PyramidDrop
+> SparseVLM
+
+Fig. 3: Accuracy–efficiency trade-off on LLaVA-1.5-7B. The efficiency score jointly reflects prefill speedup and resident GPU memory relative to the full-token base-line. AnchorPrune occupies the favorable high-accuracy, high-efficiency region, combin-ing the strongest task performance with competitive practical efficiency. 
+
+memory footprint. These results show that AnchorPrune provides the strongest accuracy–efficiency operating point rather than improving accuracy through a costly selection mechanism. This result is consistent with its lightweight design: Stage 1 uses simple anchoring-priority scoring, while Stage 2 performs greedy importance-weighted expansion without requiring kernel-based subset optimization. Detailed FLOPs, latency, memory, and performance measurements are provided in Supplementary Sec. D. 
+
+4.4 Ablation Study Stage-2 expansion strategy. We isolate the contribution of the Stage-2 selec-tion criterion in Table 5. All variants share the same protected Stage-1 relevance anchor and differ only in the criterion used to allocate the remaining token budget. We compare diversity-only selection, additive relevance–diversity cou-pling, multiplicative relevance–diversity coupling, and the proposed importance-weighted contextual expansion rule. For this ablation, Rel. is computed over MME [4], ChartQA [18], DocVQA [19], TextVQA [22], and MMBench-CN [13], as reported in the table. At 64 retained tokens, diversity-only selection obtains 85.4% Rel. The addi-tive and multiplicative relevance–diversity formulations improve Rel. to 87.3% and 87.2%, respectively. In contrast, importance-weighted contextual expansion achieves 91.0%, outperforming the strongest alternative by 3.7 percentage points. The same conclusion holds under stronger compression. At 32 retained to-kens, the proposed rule achieves 85.1% Rel. , compared with 81.1% for the strongest alternative and 79.4% for diversity-only selection. The gains are especially pro-nounced on MME, TextVQA, and MMBench-CN. AnchorPrune 15 
+
+Table 5: Controlled Stage-2 ablation on LLaVA-1.5-7B. All variants use the same protected relevance anchor and differ only in how the remaining budget is allo-cated. Best and second-best Rel. values within each budget are highlighted in bold 
+
+and underlined, respectively. Method MME ChartQA DocVQA TextVQA MMB CN Rel.                                                         
+
+> Upper Bound: All 576 Tokens (100%)
+> LLaVA-1.5-7B 1509.1 18.2 21.5 58.3 55.6 100.0
+> Retain 64 Tokens
+> Diversity Only 1391.0 15.1 15.5 54.5 48.0 85.4 Additive Relevance–Diversity 1380.9 15.9 16.4 54.8 48.5 87.3 Multiplicative Relevance–Diversity 1379.9 15.9 16.6 54.5 48.2 87.2 Importance-Weighted Contextual Expansion (Ours) 1420.2 16.7 17.1 56.1 52.0 91.0 Retain 32 Tokens
+> Diversity Only 1317.9 14.6 12.8 52.6 44.2 79.4 Additive Relevance–Diversity 1344.5 14.2 14.2 52.7 45.2 81.0 Multiplicative Relevance–Diversity 1329.4 14.4 14.4 52.7 45.0 81.1 Importance-Weighted Contextual Expansion (Ours) 1394.7 15.1 14.5 54.2 49.9 85.1
+
+These results show that contextual expansion is not equivalent to diversity maximization. Diversity-only selection may allocate capacity to visually distinct but weakly informative regions, while direct relevance–diversity coupling permits strength in one criterion to compensate for weakness in the other. Starting from the same protected relevance anchor, importance-weighted contextual expansion selects tokens that are simultaneously informative and complementary to the evidence already retained. 
+
+## 5 Conclusion 
+
+We presented AnchorPrune , a training-free visual token pruning framework that constructs an adaptive protected relevance anchor before expanding it through importance-weighted novelty. This sequential design preserves query-critical evidence while adding informative, non-redundant context. Across CLIP-aligned and non-CLIP image and video VLMs, AnchorPrune consistently im-proves performance preservation under matched token budgets, with the largest gains under severe compression. On LLaVA-NeXT-7B, it preserves 97.6% of full-token performance using only 160 of 2,880 visual tokens. These results establish relevance-anchored contextual expansion as an effective principle for efficient multimodal inference. 
+
+Acknowledgements. This research was supported by the Electronics and Telecommunications Research Institute (ETRI) Grant funded by the Korean Government (Fundamental Technology Research for Human-Centric Autonomous Intelligent Systems) under Grant 25ZB1200. 16 K. Oh and B. Kim 
+
+## References 
+
+1. Alvar, S.R., Singh, G., Akbari, M., Zhang, Y.: Divprune: Diversity-based visual token pruning for large multimodal models. In: Proceedings of the Computer Vision and Pattern Recognition Conference. pp. 9392–9401 (2025) 2. Bai, S., Chen, K., Liu, X., Wang, J., Ge, W., Song, S., Dang, K., Wang, P., Wang, S., Tang, J., Zhong, H., Zhu, Y., Yang, M., Li, Z., Wan, J., Wang, P., Ding, W., Fu, Z., Xu, Y., Ye, J., Zhang, X., Xie, T., Cheng, Z., Zhang, H., Yang, Z., Xu, H., Lin, J.: Qwen2.5-vl technical report (2025) 3. Chen, L., Zhao, H., Liu, T., Bai, S., Lin, J., Zhou, C., Chang, B.: An image is worth 1/2 tokens after layer 2: Plug-and-play inference acceleration for large vision-language models. In: European Conference on Computer Vision. pp. 19–35. Springer (2024) 4. Fu, C., Chen, P., Shen, Y., Qin, Y., Zhang, M., Lin, X., Yang, J., Zheng, X., Li, K., Sun, X., Wu, Y., Ji, R., Shan, C., He, R.: Mme: A comprehensive evaluation bench-mark for multimodal large language models. In: Advances in Neural Information Processing Systems. vol. 38 (2025) 5. Fu, C., Dai, Y., Luo, Y., Li, L., Ren, S., Zhang, R., Wang, Z., Zhou, C., Shen, Y., Zhang, M., et al.: Video-mme: The first-ever comprehensive evaluation benchmark of multi-modal llms in video analysis. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 24108–24118 (2025) 6. Goyal, Y., Khot, T., Summers-Stay, D., Batra, D., Parikh, D.: Making the v in vqa matter: Elevating the role of image understanding in visual question answering. In: Proceedings of the IEEE conference on computer vision and pattern recognition. pp. 6904–6913 (2017) 7. Hudson, D.A., Manning, C.D.: Gqa: A new dataset for real-world visual reasoning and compositional question answering. In: Proceedings of the IEEE/CVF confer-ence on computer vision and pattern recognition. pp. 6700–6709 (2019) 8. Kembhavi, A., Salvato, M., Kolve, E., Seo, M., Hajishirzi, H., Farhadi, A.: A di-agram is worth a dozen images. In: European conference on computer vision. pp. 235–251. Springer (2016) 9. Li, Y., Wang, H., Duan, Y., Xu, H., Li, X.: Exploring visual interpretability for contrastive language-image pre-training. arXiv preprint arXiv:2209.07046 (2022) 10. Li, Y., Du, Y., Zhou, K., Wang, J., Zhao, X., Wen, J.R.: Evaluating object hal-lucination in large vision-language models. In: Proceedings of the 2023 conference on empirical methods in natural language processing. pp. 292–305 (2023) 11. Liu, H., Li, C., Li, Y., Lee, Y.J.: Improved baselines with visual instruction tun-ing. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 26296–26306 (2024) 12. Liu, H., Li, C., Li, Y., Li, B., Zhang, Y., Shen, S., Lee, Y.J.: Llava-next: Improved reasoning, ocr, and world knowledge (January 2024), https://llava-vl.github. io/blog/2024-01-30-llava-next/ 
+
+13. Liu, Y., Duan, H., Zhang, Y., Li, B., Zhang, S., Zhao, W., Yuan, Y., Wang, J., He, C., Liu, Z., et al.: Mmbench: Is your multi-modal model an all-around player? In: European conference on computer vision. pp. 216–233. Springer (2024) 14. Liu, Y., Li, S., Liu, Y., Wang, Y., Ren, S., Li, L., Chen, S., Sun, X., Hou, L.: Tem-pcompass: Do video llms really understand videos? In: Findings of the Association for Computational Linguistics: ACL 2024. pp. 8731–8772 (2024) 15. Liu, Y., Li, Z., Huang, M., Yang, B., Yu, W., Li, C., Yin, X.C., Liu, C.L., Jin, L., Bai, X.: Ocrbench: on the hidden mystery of ocr in large multimodal models. Science China Information Sciences 67 (12), 220102 (2024) AnchorPrune 17 16. Lu, P., Mishra, S., Xia, T., Qiu, L., Chang, K.W., Zhu, S.C., Tafjord, O., Clark, P., Kalyan, A.: Learn to explain: Multimodal reasoning via thought chains for science question answering. Advances in neural information processing systems 35 , 2507– 2521 (2022) 17. Mangalam, K., Akshulakov, R., Malik, J.: Egoschema: A diagnostic benchmark for very long-form video language understanding. Advances in Neural Information Processing Systems 36 , 46212–46244 (2023) 18. Masry, A., Do, X.L., Tan, J.Q., Joty, S., Hoque, E.: Chartqa: A benchmark for question answering about charts with visual and logical reasoning. In: Findings of the association for computational linguistics: ACL 2022. pp. 2263–2279 (2022) 19. Mathew, M., Karatzas, D., Jawahar, C.: Docvqa: A dataset for vqa on document images. In: Proceedings of the IEEE/CVF winter conference on applications of computer vision. pp. 2200–2209 (2021) 20. Radford, A., Kim, J.W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G., Askell, A., Mishkin, P., Clark, J., et al.: Learning transferable visual models from natural language supervision. In: International conference on machine learning. pp. 8748–8763. PmLR (2021) 21. Shang, Y., Cai, M., Xu, B., Lee, Y.J., Yan, Y.: Llava-prumerge: Adaptive token reduction for efficient large multimodal models. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 22857–22867 (2025) 22. Singh, A., Natarajan, V., Shah, M., Jiang, Y., Chen, X., Batra, D., Parikh, D., Rohrbach, M.: Towards vqa models that can read. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 8317–8326 (2019) 23. Xing, L., Huang, Q., Dong, X., Lu, J., Zhang, P., Zang, Y., Cao, Y., He, C., Wang, J., Wu, F., et al.: Pyramiddrop: Accelerating your large vision-language models via pyramid visual redundancy reduction. arXiv preprint arXiv:2410.17247 (2024) 24. Yang, S., Chen, Y., Tian, Z., Wang, C., Li, J., Yu, B., Jia, J.: Visionzip: Longer is better but not necessary in vision language models. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 19792– 19802 (2025) 25. Yu, W., Yang, Z., Li, L., Wang, J., Lin, K., Liu, Z., Wang, X., Wang, L.: Mm-vet: Evaluating large multimodal models for integrated capabilities. arXiv preprint arXiv:2308.02490 (2023) 26. Yue, X., Ni, Y., Zhang, K., Zheng, T., Liu, R., Zhang, G., Stevens, S., Jiang, D., Ren, W., Sun, Y., et al.: Mmmu: A massive multi-discipline multimodal understanding and reasoning benchmark for expert agi. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 9556–9567 (2024) 27. Zhang, K., Li, B., Zhang, P., Pu, F., Cahyono, J.A., Hu, K., Liu, S., Zhang, Y., Yang, J., Li, C., et al.: Lmms-eval: Reality check on the evaluation of large mul-timodal models. In: Findings of the Association for Computational Linguistics: NAACL 2025. pp. 881–916 (2025) 28. Zhang, Q., Liu, M., Li, L., Lu, M., Zhang, Y., Pan, J., She, Q., Zhang, S.: Be-yond attention or similarity: Maximizing conditional diversity for token pruning in mllms. Advances in Neural Information Processing Systems 38 , 25438–25468 (2025) 29. Zhang, Y., Fan, C.K., Ma, J., Zheng, W., Huang, T., Cheng, K., Gudovskiy, D., Okuno, T., Nakata, Y., Keutzer, K., et al.: Sparsevlm: Visual token sparsifica-tion for efficient vision-language model inference. arXiv preprint arXiv:2410.04417 (2024) 18 K. Oh and B. Kim 30. Zhang, Y., Wu, J., Li, W., Li, B., Ma, Z., Liu, Z., Li, C.: Llava-video: Video instruction tuning with synthetic data. arXiv preprint arXiv:2410.02713 (2024) Supplementary Material AnchorPrune: Relevance-Anchored Contextual Expansion for Visual Token Pruning 
+
+Kyuan Oh and Bumsoo Kim †
+
+Chung-Ang University, Seoul, Korea 
+
+{oka04108,bumsoo}@cau.ac.kr 
+
+## A Implementation Details and Experimental Protocol 
+
+This section specifies the implementation choices and experimental protocol used throughout our evaluation. We describe the model-specific candidate-token sequences, pruning locations, architecture-dependent signals, adaptive anchor-budget configurations, controlled comparison protocol, and hardware and efficiency-measurement settings. 
+
+A.1 Model-Specific Visual Tokenization 
+
+Table S1 summarizes the candidate visual-token sequence processed by Anchor-Prune for each backbone. To ensure a controlled comparison, all pruning methods evaluated on the same backbone use an identical fixed input resolution, visual preprocessing pipeline, tokenization procedure, and candidate sequence. This prevents changes in resolution or token granularity from confounding the effect of the pruning method itself. 
+
+Table S1: Model-specific input and visual-token configurations. The tokeniza-tion structure denotes the candidate sequence on which visual-token selection is per-formed. Model Input Configuration Tokenization Structure Visual Tokens LLaVA-1.5-7B  336 × 336  image  24 × 24  grid 576 LLaVA-NeXT-7B  672 × 672  image  5 × 24 × 24  grids 2,880 Qwen2.5-VL-7B  1008 × 1008  image  36 × 36  merged grid 1,296 LLaVA-Video-7B 16 frames at  384 × 384  16 × 13 × 13  post-pooling grid 2,704 
+
+For LLaVA-NeXT-7B [12], the five visual units form the model’s high-resolution multi-crop representation, with each unit contributing a  24 × 24  spatial grid. For LLaVA-Video-7B [30], we uniformly sample 16 frames, process each frame at 
+
+384 × 384 , and represent it using a  13 × 13  post-pooling grid before concatenat-ing the frame-level sequences in temporal order.  
+
+> †
+
+: corresponding author 20 K. Oh and B. Kim 
+
+A.2 Pruning Location and Native Token Ordering 
+
+AnchorPrune is applied after visual feature extraction and before the retained visual sequence is consumed by the language model. It leaves the parameters and layer structure of the vision encoder, multimodal projector, and language model unchanged. For LLaVA-1.5-7B and LLaVA-NeXT-7B, pruning operates on the visual tokens associated with the input image or each high-resolution visual unit. For Qwen2.5-VL-7B, selection is applied after the model-specific spatial processing and token merging that produce the visual sequence supplied to the language model. For LLaVA-Video-7B, post-pooling tokens from the 16 sampled frames are concatenated into a frame-major sequence before selection. After pruning, retained tokens are restored to their native order before language-model inference. Image models preserve raster-scan order within each visual unit and the original ordering across multiple units, whereas LLaVA-Video-7B pre-serves temporal frame order first and raster-scan order within each frame. This operation changes only the sequence order of the selected tokens and does not alter subset membership. Section C.1 isolates its effect on spatially sensitive benchmarks. 
+
+A.3 Architecture-Specific Signal Extraction 
+
+The main paper defines the anchoring-priority score, novelty measure, and global-importance prior. This section details the architecture-specific representation spaces and attention signals used to instantiate these quantities. 
+
+LLaVA-1.5-7B and LLaVA-NeXT-7B. For LLaVA-1.5-7B [11] and LLaVA-NeXT-7B [12], Stage 1 matching and novelty use normalized pre-projector visual features in the paired CLIP representation space [20], with instruction embed-dings produced by the corresponding CLIP text encoder. Instructions that ex-ceed the supported context length are partitioned into valid segments, and the resulting patch–text scores are averaged across segments. The Stage 2 global-importance prior is obtained from a late vision-transformer layer by averaging 
+
+[CLS] -to-patch attention across heads. Section C.3 compares raw and negated CLIP patch–text similarity. 
+
+Qwen2.5-VL-7B. Because Qwen2.5-VL-7B [2] does not expose a paired pre-projector vision–language space, Stage 1 matching is performed after the mul-timodal projector. Projected visual tokens and instruction-token embeddings are normalized, and each visual token is assigned its maximum cosine similar-ity over instruction tokens. This preserves alignment with individual semantic components that may be diluted by averaging the instruction into a single rep-resentation. Section C.4 compares maximum matching with mean aggregation. Qwen2.5-VL-7B spatially merges vision-encoder tokens before constructing the final candidate sequence, so the attention-derived importance prior is aligned Supplementary Material for AnchorPrune 21 
+
+with the post-merge candidates. We first average the attention mass received by each pre-merge token across source positions and heads, and then average these values within the pre-merge group associated with each final candidate. Pro-jected candidate features are used for both adaptive-anchor novelty and Stage 2 contextual novelty. 
+
+LLaVA-Video-7B. For LLaVA-Video-7B [30], the CLIP-aligned implementa-tion is applied independently to each sampled frame, after which frame-level candidates are concatenated into a temporally ordered sequence. Selection can therefore remove both spatial redundancy within individual frames and repeated evidence across adjacent frames. The retained sequence is restored to frame-major temporal order before language-model inference. 
+
+A.4 Adaptive Anchor-Budget Configuration 
+
+We use a shared novelty threshold  τ = 0 .2 and patience parameter  P = 3 
+
+across all models and benchmarks. For a visual unit with assigned retained-token budget  Ku, the maximum anchor size is  Kmax ,u = ⌊Ku/2⌋. For single-unit image models,  Ku = K; for LLaVA-NeXT-7B and LLaVA-Video-7B,  Ku denotes the budget assigned to each image unit or frame. Neither  τ , P , nor  Kmin  is tuned per benchmark. Table S2 reports the complete  Kmin  schedule. A single configuration is used for every benchmark evaluated at a given backbone and retained-token budget.          
+
+> Table S2: Adaptive anchor-budget configurations. The novelty threshold and patience are fixed to τ= 0 .2and P= 3 across all experiments. The minimum anchor size Kmin follows a fixed budget-dependent schedule and is not tuned per benchmark.
+
+Model / Setting Unit #Units Total Budget  K Kmin  per Unit LLaVA-1.5-7B image 1 32 5image 1 64 10 image 1 128 20 Qwen2.5-VL-7B image 1 64 10 image 1 128 20 image 1 256 40 LLaVA-NeXT-7B image unit 5 160 5image unit 5 320 10 image unit 5 640 20 LLaVA-Video-7B frame 16 512 5frame 16 1024 10 22 K. Oh and B. Kim 
+
+For LLaVA-NeXT-7B and LLaVA-Video-7B, the protected relevance anchor is constructed independently within each visual unit or frame using the corre-sponding per-unit  Kmin  schedule and  Kmax ,u . The resulting unit-level anchors are concatenated to form the global protected anchor, after which the remaining total budget is allocated globally by Stage 2 over the full candidate sequence. Retained tokens are finally restored to their native unit/frame-major order. 
+
+Fallback behavior. Within each visual unit, the adaptive procedure terminates before  Kmax ,u  only when the relevance-ranked sequence contains the required 
+
+P novelty events. Otherwise, it conservatively uses  Kmax ,u . Because each unit-level anchor is bounded by half of its assigned budget, at least half of the total retained-token budget remains available for global contextual expansion. 
+
+A.5 Evaluation Protocol 
+
+For each backbone and retained-token budget, all methods use the same check-point, input resolution, visual preprocessing, tokenization procedure, prompt template, decoding configuration, benchmark split, and evaluation pipeline. Only the visual-token selection rule is changed. Fixing the complete preprocessing and tokenization pipeline is essential because changes in resolution or spatial merging alter both the number and granularity of candidate tokens, thereby confounding the effect of the pruning method itself. We use lmms-eval [27] whenever the corresponding model–benchmark pair is supported and otherwise follow the official benchmark evaluator. Baseline im-plementations follow their published selection rules and recommended configura-tions. A method is evaluated on a backbone only when its required architectural signals and candidate-token structure are available without modifying its under-lying selection objective. This accounts for the smaller comparison sets reported for Qwen2.5-VL-7B and LLaVA-Video-7B. All comparisons use exactly matched final retained-token budgets. Benchmark definitions and the computation of Rel. are provided in the main paper. In the detailed video evaluation, Video-MME [5] with and without sub-titles are treated as separate aggregate metrics, EgoSchema [17] uses the official 500-example subset, and TempCompass [14] contributes its average score. 
+
+A.6 Hardware and Efficiency Measurement 
+
+Image experiments on LLaVA-1.5-7B, LLaVA-NeXT-7B, and Qwen2.5-VL-7B use four NVIDIA RTX A5000 GPUs, whereas video experiments on LLaVA-Video-7B use two NVIDIA RTX 4090 GPUs. Within each reported comparison, all methods are evaluated in the same hardware and software environment. The detailed efficiency experiment in Sec. D uses LLaVA-1.5-7B with 32 retained visual tokens. Prefill latency includes visual-token scoring and selection overhead in addition to the reduced model forward pass, while decode latency is reported per generated token. Estimated FLOPs, resident GPU memory, and MME performance are measured under the same inference setting. Supplementary Material for AnchorPrune 23 
+
+## B Detailed Video Results 
+
+The main paper reports aggregate video results. Table S3 provides the com-plete Video-MME [5] breakdown by duration and subtitle condition, together with EgoSchema [17] and TempCompass [14]. We compare AnchorPrune against FastV [3], DivPrune [1], and CDPruner [28]. 
+
+Table S3: Detailed video results on LLaVA-Video-7B under 16-frame eval-uation. Video-MME is decomposed into short-, medium-, and long-duration subsets with and without subtitles. EgoSchema uses the 500-example subset, and TempCom-pass reports its average score. Best and second-best Rel. values within each budget are shown in bold and underlined, respectively. Method Video-MME w/o Subtitles Video-MME w/ Subtitles EgoSchema TempCompass Rel. Short Medium Long Total Short Medium Long Total 500-subset Avg.                                                                                                        
+
+> Upper Bound: All 2,704 Visual Tokens
+> LLaVA-Video-7B 70.78 58.67 50.44 59.96 72.78 59.78 51.44 61.33 55.4 67.1 100.0
+> Retain 1,024 Visual Tokens (↓62.1%) FastV (ECCV’24) 69.70 57.70 50.40 59.26 71.20 58.70 51.90 60.59 52.8 65.6 97.7 DivPrune (CVPR’25) 69.11 54.44 47.44 57.00 70.78 56.33 50.33 59.15 53.2 64.9 96.1 CDPruner (NeurIPS’25) 69.11 55.56 48.89 57.85 70.89 57.33 51.22 59.81 52.6 65.6 96.8
+> AnchorPrune 69.56 55.89 49.11 58.19 72.78 58.56 51.33 60.89 55.0 65.4 98.3 Retain 512 Visual Tokens (↓81.1%) FastV (ECCV’24) 65.40 55.80 47.90 56.37 66.80 56.10 50.00 57.63 50.2 61.1 92.4 DivPrune (CVPR’25) 67.44 52.56 47.67 55.89 68.78 56.33 49.44 58.19 52.0 61.3 93.4 CDPruner (NeurIPS’25) 65.33 52.00 45.33 54.22 65.89 55.78 49.33 57.00 51.4 60.6 91.7
+> AnchorPrune 67.22 54.22 47.33 56.26 69.56 54.89 49.78 58.07 53.0 61.8 94.1
+
+At 1,024 retained tokens, AnchorPrune achieves the highest aggregate re-tention, preserving 98.3% of full-token performance. Its advantage is especially pronounced on EgoSchema, where it obtains 55.0 compared with 52.6–53.2 for the competing methods. At 512 tokens, AnchorPrune again yields the highest 
+
+Rel. at 94.1%, together with the strongest EgoSchema and TempCompass scores among the pruning methods. No method dominates every Video-MME duration and subtitle condition. AnchorPrune nevertheless provides the strongest overall balance across short-, medium-, and long-duration videos and across the complementary video bench-marks. This pattern supports relevance-anchored contextual expansion for tem-porally structured inputs, where repeated evidence across adjacent frames cre-ates substantial redundancy. 
+
+## C Additional Ablation Studies 
+
+C.1 Effect of Retained-Token Ordering 
+
+AnchorPrune restores retained tokens to their native spatial or temporal order before language-model inference. Table S4 isolates this operation by evaluating 24 K. Oh and B. Kim 
+
+an identical selected subset under raw selection order and native raster-scan order on MME-OCR [4], OCRBench [15], and TextVQA [22].           
+
+> Table S4: Effect of retained-token ordering on spatially sensitive bench-marks. Both variants use exactly the same selected subset and differ only in the sequence order supplied to the language model. Sequence Order MME-OCR OCRBench TextVQA
+> Retain 64 Tokens
+> Raw selection order 132.5 26.9 55.5 Raster-scan order 140.0 28.9 56.1
+
+Restoring raster-scan order improves all three benchmarks, with the largest gains on MME-OCR and OCRBench, which are especially sensitive to spatial organization and local reading order. Because subset membership is held fixed, the improvement is attributable solely to presenting the retained evidence in the positional progression expected by the pretrained model. 
+
+C.2 Sensitivity to Adaptive Anchor-Budget Hyperparameters 
+
+Table S5 evaluates sensitivity to the novelty threshold  τ and patience parameter 
+
+P on MME [4]. Each experiment varies only the parameter under study while holding all remaining settings fixed.                                 
+
+> Table S5: Sensitivity of the adaptive anchor budget on MME. Results are reported under the most aggressive retained-token budget for each backbone: 32 of 576 tokens for LLaVA-1.5-7B, 160 of 2,880 tokens for LLaVA-NeXT-7B, and 64 of 1,296 tokens for Qwen2.5-VL-7B. Left: novelty threshold τwith P= 3 . Right: patience parameter Pwith τ= 0 .2. All remaining settings are fixed.
+> Novelty threshold τ
+> τ
+> LLaVA-1.5-7B LLaVA-NeXT-7B Qwen2.5-VL-7B 0.1 1392.2 1469.3 1560.2 0.2 1394.7 1481.1 1563.2
+> 0.3 1388.9 1489.1 1562.8 0.4 1390.6 1480.3 1557.3
+> Patience parameter P
+> P
+> LLaVA-1.5-7B LLaVA-NeXT-7B Qwen2.5-VL-7B 11384.8 1480.2 1559.2 31394.7 1481.1 1563.2
+> 51386.2 1478.6 1552.2
+
+Performance is stable across the tested threshold range. The shared setting 
+
+τ = 0 .2 is best on LLaVA-1.5-7B and Qwen2.5-VL-7B, while  τ = 0 .3 is mod-erately better on LLaVA-NeXT-7B. We retain  τ = 0 .2 as a single architecture-independent setting rather than selecting a backbone-specific optimum. Supplementary Material for AnchorPrune 25 
+
+The patience study shows a clearer pattern:  P = 3  achieves the highest MME score on all three architectures. A smaller value can terminate anchor construction before sufficiently distributed evidence is retained, whereas a larger value can delay the transition to contextual expansion. These results support 
+
+P = 3  as a stable shared configuration. 
+
+C.3 Stage-1 CLIP Similarity Direction 
+
+For CLIP-aligned VLMs [20], AnchorPrune uses negated patch–text similarity as the Stage 1 anchoring-priority signal. This choice is motivated by prior anal-ysis of CLIP’s dense image–text similarity maps, which found that raw local similarities can respond more strongly to background regions than to discrim-inative foreground content and that reversing the similarity map can improve localization [9]. Figure S1 visualizes the spatial priority induced by raw and negated sim-ilarity. Raw similarity can emphasize broad background or non-discriminative regions, whereas negated similarity assigns greater priority to localized regions associated with the queried evidence in these examples. Raw CLIP Similarity  Negated CLIP Similarity  
+
+> Text Query: What is the name of the runner on the left?
+> Raw CLIP Similarity Negated CLIP Similarity
+> Text Query: What is the brand of this camera?
+
+Fig. S1: Qualitative comparison of raw and negated CLIP patch–text simi-larity. Raw similarity can emphasize broad background or non-discriminative regions, whereas negated similarity assigns greater priority to localized regions associated with the queried evidence in these examples, including instruction-relevant objects and OCR-relevant regions. The heatmaps visualize relative Stage 1 priority rather than calibrated semantic relevance. 
+
+Table S6 evaluates the downstream effect of the similarity direction under identical adaptive anchor-budget and Stage 2 contextual-expansion settings. Negated similarity consistently improves MME and POPE at both retained-token budgets, while TextVQA remains comparatively stable. At 32 retained tokens, it improves MME from 1245.4 to 1394.7 and POPE from 74.2 to 85.3. These results indicate that the gain is not attributable to a uniform rescal-ing of token scores; rather, the negated direction induces a Stage 1 ranking that 26 K. Oh and B. Kim 
+
+Table S6: Effect of CLIP similarity direction on Stage 1 anchoring. Raw and negated CLIP patch–text similarity are compared on LLaVA-1.5-7B under identical adaptive anchor-budget and Stage 2 contextual-expansion settings. Stage 1 CLIP Score MME TextVQA POPE 
+
+Upper Bound: All 576 Tokens 
+
+Full visual tokens 1509.1 58.3 85.8 
+
+Retain 64 Tokens 
+
+Raw CLIP similarity 1355.8 56.0 80.2 Negated CLIP similarity 1420.2 56.1 85.8 Retain 32 Tokens 
+
+Raw CLIP similarity 1245.4 53.7 74.2 Negated CLIP similarity 1394.7 54.2 85.3 
+
+better preserves evidence required for broad visual perception and hallucination-sensitive evaluation. Consistent with ECLIP [9], we use negated similarity strictly as an empiri-cal anchoring-priority signal for the evaluated CLIP-aligned models. We do not interpret it as calibrated semantic relevance or claim that raw CLIP similarity is universally inverted. The qualitative and quantitative results instead indicate that the negated direction is better suited to constructing the protected Stage 1 relevance anchor. 
+
+C.4 Post-Projector Relevance Matching 
+
+For Qwen2.5-VL-7B [2], Stage 1 matching is computed in the post-projector language-model input space. Table S7 compares token-wise maximum matching with mean aggregation of the instruction-token embeddings. 
+
+Table S7: Post-projector relevance matching in Qwen2.5-VL-7B. Mean ag-gregation and token-wise maximum matching are compared under the same retained budget of 256 visual tokens. Relevance Formulation MME TextVQA DocVQA AI2D MMMU MMB EN MMB CN               
+
+> Mean aggregation 1647.4 72.0 72.2 78.7 47.7 80.2 77.3 Token-wise max matching 1657.5 72.6 72.9 78.8 48.6 80.8 78.2
+
+Token-wise maximum matching improves all seven benchmarks. Although the individual gains are moderate, their consistency indicates that averaging instruction-token embeddings can obscure alignment with specific semantic com-ponents. Maximum matching preserves each visual token’s strongest correspon-Supplementary Material for AnchorPrune 27 
+
+dence to any instruction token and is therefore better suited to Stage 1 ranking in the post-projector representation space. 
+
+## D Detailed Efficiency Analysis 
+
+Table S8 reports the raw measurements underlying the efficiency–performance comparison in the main paper. We compare against FastV [3], PyramidDrop [23], SparseVLM [29], VisionZip [24], DivPrune [1], and CDPruner [28]. All pruning methods retain 32 visual tokens, and the reported prefill latency includes the complete token-scoring and subset-selection procedure. 
+
+Table S8: Detailed efficiency measurements on LLaVA-1.5-7B. All pruning methods retain 32 visual tokens. Prefill latency includes token-selection overhead, and all quantities are measured under matched inference settings. Method FLOPs  ↓ (T) Prefill  ↓ (ms) Decode  ↓ (ms/token) Resident GPU Mem.  ↓ (GB) MME  ↑                                        
+
+> Baseline 8.94 144.6 28.0 14.5 1509.1 FastV 2.36 43.5 26.2 13.9 1091.5 PyramidDrop 3.54 68.4 25.9 13.9 1204.7 SparseVLM 2.13 48.8 31.4 18.1 1203.2 VisionZip 1.67 28.4 25.1 14.0 1255.8 DivPrune 1.67 28.3 25.3 13.7 1267.9 CDPruner 1.68 28.2 25.1 15.9 1362.6
+> AnchorPrune 1.67 28.2 25.1 14.2 1394.7
+
+AnchorPrune reduces estimated computation from 8.94 to 1.67 TFLOPs and prefill latency from 144.6 to 28.2 ms, corresponding to an 81.3% reduction in FLOPs and a  5.13 × prefill speedup relative to the full-token baseline. It also matches the lowest measured decode latency and uses 14.2 GB of resident GPU memory while including the full selection procedure. CDPruner attains the same measured prefill latency but uses 15.9 GB of resident GPU memory, 1.7 GB more than AnchorPrune and 1.4 GB more than the full-token baseline. Because these values reflect end-to-end resident memory rather than operator-level peak allocation, we do not attribute the difference to a specific algorithmic component. The measurement nevertheless shows that comparable latency and FLOPs do not necessarily imply comparable end-to-end memory behavior. VisionZip and DivPrune use slightly less resident memory than AnchorPrune, but obtain substantially lower MME scores. PyramidDrop and SparseVLM also remain below AnchorPrune in task performance under the same evaluation set-ting. CDPruner improves performance over these alternatives but incurs the largest memory footprint among the evaluated pruning methods. AnchorPrune therefore provides the strongest overall operating point in this setting: it matches the lowest measured FLOPs, prefill latency, and decode latency; remains close to the baseline memory footprint; and achieves the highest MME score among all pruning methods. 28 K. Oh and B. Kim 
+
+These results show that AnchorPrune’s performance gains do not depend on a computationally or memory-intensive selection mechanism. Its relevance-anchored contextual expansion preserves task performance while maintaining practical end-to-end inference efficiency.

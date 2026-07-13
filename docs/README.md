@@ -6,79 +6,76 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-12
-- 运行时间：2026-07-12 20:26:03 UTC
+- 最新运行日期：2026-07-13
+- 运行时间：2026-07-13 21:49:34 UTC
 - 运行状态：成功
-- 本次总论文数：19
-- 精读区：7
+- 本次总论文数：18
+- 精读区：6
 - 速读区：12
 
 ### 今日简报（AI）
-今日精读19篇，聚焦视觉-语言多模态突破：ViPo-MLLM实现无词汇手语翻译，IRIS用主题树驱动眼科疾病VQA，均获8.0高分。  
-最值得关注方向：多模态大模型在专业场景（手语翻译、眼科诊断）中的零样本/弱监督应用。  
-下一步建议：优先精读这两篇高分论文，理解其模态对齐与场景结构化设计思路。
-- 详情：[/202607/12/README](/202607/12/README)
+1) 今日精读多模态问答置信度校准与文档合成增强两大方向，速读覆盖视觉动态建模、LLM搜索路由及视觉Token剪枝。  
+2) 最值得关注《Task-Specific Multimodal Question Answering Agents》9.0分，其置信度校准与增量推理思路可显著提升复杂问答准确性；同时《Enhancing Large Multimodal Models》的文档合成策略为信息提取提供了低成本数据增强方案。  
+3) 普通读者可优先关注多模态问答的可靠性提升方法，以及如何通过合成数据增强文档理解模型，这两项技术对AI应用落地有直接参考价值。
+- 详情：[/202607/13/README](/202607/13/README)
 
 ### 精读区论文标签
-1. [ViPo-MLLM: Visual-Pose Multimodal LLM for Gloss-Free Sign Language Translation](/202607/12/2607.03657v1-vipo-mllm-visual-pose-multimodal-llm-for-gloss-free-sign-language-translation)  
+1. [Task-Specific Multimodal Question Answering Agents via Confidence Calibration and Incremental Reasoning for QANTA 2026](/202607/13/2607.09623v1-task-specific-multimodal-question-answering-agents-via-confidence-calibration-and-incremental-reasoning-for-qanta-2026)  
+   标签：评分：9.0/10、query:mr
+   evidence：多模态问答中的增量推理
+2. [Enhancing Large Multimodal Models in Key Information Extraction via Scene-Aware Document Synthesis](/202607/13/2607.04636v1-enhancing-large-multimodal-models-in-key-information-extraction-via-scene-aware-document-synthesis)  
    标签：评分：8.0/10、query:post-multi
-   evidence：多模态学习视觉语言手语翻译
-2. [IRIS: An Intelligent Vision-Language System for Ocular Surface Diseases via Topic Tree and Scene-Driven VQA Generation](/202607/12/2607.04344v1-iris-an-intelligent-vision-language-system-for-ocular-surface-diseases-via-topic-tree-and-scene-driven-vqa-generation)  
+   evidence：通过文档合成增强多模态模型训练
+3. [The Importance of Encoder Choice:A Tabular-Image Study](/202607/13/2607.07756v1-the-importance-of-encoder-choicea-tabular-image-study)  
    标签：评分：8.0/10、query:post-multi
-   evidence：面向医学视觉问答的视觉语言系统，包含指令微调数据生成
-3. [Escaping the Procrustean Bed: Groupwise Orthogonal Connectors for Audio-Language Models](/202607/12/2607.06014v1-escaping-the-procrustean-bed-groupwise-orthogonal-connectors-for-audio-language-models)  
-   标签：评分：8.0/10、query:mr
-   evidence：通过连接器设计提升SAKURA多跳推理基准表现
-4. [What Images Cannot Say: Language-Guided Olfactory Representation Learning](/202607/12/2607.06402v1-what-images-cannot-say-language-guided-olfactory-representation-learning)  
+   evidence：评估多模态学习中表格编码器的选择对性能的影响
+4. [Optimal Transport-based Semantic Alignment for LLM-based Audio-Visual Speech Recognition](/202607/13/2607.09001v1-optimal-transport-based-semantic-alignment-for-llm-based-audio-visual-speech-recognition)  
    标签：评分：8.0/10、query:post-multi
-   evidence：语言引导的多模态嗅觉表征学习框架
-5. [General Incomplete Multimodal Learning via Dynamic Quality Perception](/202607/12/2607.06943v1-general-incomplete-multimodal-learning-via-dynamic-quality-perception)  
+   evidence：面向音频视觉语音识别的多模态语义对齐
+5. [Bidirectional Resource Scheduling for Disaggregated and Asynchronous RL Post-Training](/202607/13/2607.09207v1-bidirectional-resource-scheduling-for-disaggregated-and-asynchronous-rl-post-training)  
    标签：评分：8.0/10、query:post-multi
-   evidence：通过动态质量感知处理不完整多模态学习
-6. [KronQ: LLM Quantization via Kronecker-Factored Hessian](/202607/12/2607.07964v1-kronq-llm-quantization-via-kronecker-factored-hessian)  
+   evidence：面向解耦异步RL后训练的双向资源调度
+6. [One-Shot Multimodal Learning from Demonstration with Force-Constrained Elastic Maps](/202607/13/2607.09515v1-one-shot-multimodal-learning-from-demonstration-with-force-constrained-elastic-maps)  
    标签：评分：8.0/10、query:post-multi
-   evidence：面向LLM的后训练量化方法
-7. [Cognitive-structured Multimodal Agent for Multimodal Understanding, Generation, and Editing](/202607/12/2607.08497v1-cognitive-structured-multimodal-agent-for-multimodal-understanding-generation-and-editing)  
-   标签：评分：8.0/10、query:mr
-   evidence：多模态智能体，具备认知检索引擎用于跨轮记忆检索
+   evidence：单样本多模态学习从演示，使用力约束弹性图
 
 ### 速读区论文标签
-1. [Beyond Scene Priors: Fine-Grained Traffic Scene Reasoning with Benchmarking and Query-Guided Small-Object Focus](/202607/12/2607.04149v1-beyond-scene-priors-fine-grained-traffic-scene-reasoning-with-benchmarking-and-query-guided-small-object-focus)  
+1. [DynaVieW: Schema-Guided World Modeling for Understanding Hierarchical Visual Dynamics](/202607/13/2607.04112v1-dynaview-schema-guided-world-modeling-for-understanding-hierarchical-visual-dynamics)  
    标签：评分：7.0/10、query:post-multi
-   evidence：细粒度多模态推理视觉问答
-2. [Exploiting Structural Properties for Efficient Constraint-Aware HNSW Hyperparameter Tuning](/202607/12/2607.04630v1-exploiting-structural-properties-for-efficient-constraint-aware-hnsw-hyperparameter-tuning)  
+   evidence：多模态世界模型理解视觉动态
+2. [When Should LLMs Search? Counterfactual Supervision for Search Routing](/202607/13/2607.05752v1-when-should-llms-search-counterfactual-supervision-for-search-routing)  
    标签：评分：7.0/10、query:mr
-   evidence：面向RAG的HNSW超参数高效调优方法
-3. [Pretraining Curricula Enable Selective Fine-tuning](/202607/12/2607.04846v1-pretraining-curricula-enable-selective-fine-tuning)  
+   evidence：搜索增强语言模型中的搜索路由策略
+3. [AnchorPrune: Relevance-Anchored Contextual Expansion for Visual Token Pruning](/202607/13/2607.07033v1-anchorprune-relevance-anchored-contextual-expansion-for-visual-token-pruning)  
    标签：评分：7.0/10、query:post-multi
-   evidence：预训练课程影响微调选择性，与指令微调相关
-4. [Segmentation before Answering: Pixel Grounding for MLLM Visual Reasoning](/202607/12/2607.05798v1-segmentation-before-answering-pixel-grounding-for-mllm-visual-reasoning)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：MLLM像素级视觉推理
-5. [CAIRN: Cross-Room 3D Scene Understanding with Topology-Aware Large Multimodal Models](/202607/12/2607.06534v1-cairn-cross-room-3d-scene-understanding-with-topology-aware-large-multimodal-models)  
+   evidence：视觉语言模型中的视觉令牌剪枝
+4. [Tree-of-Thoughts Reasoning for Text-to-Image In-Context Learning](/202607/13/2607.07117v1-tree-of-thoughts-reasoning-for-text-to-image-in-context-learning)  
    标签：评分：7.0/10、query:mr
-   evidence：跨房间3D场景理解，需在多互联房间中进行推理
-6. [Vision as Unified Multimodal Generation](/202607/12/2607.06560v1-vision-as-unified-multimodal-generation)  
+   evidence：将树状思维推理应用于多模态文本到图像生成
+5. [Infinity-Parser2 Technical Report](/202607/13/2607.07836v1-infinity-parser2-technical-report)  
    标签：评分：7.0/10、query:post-multi
-   evidence：使用指令微调的统一多模态模型
-7. [Q-TriM: Question-Guided Tri-Modal Attention for Audio-Visual Question Answering](/202607/12/2607.03825v1-q-trim-question-guided-tri-modal-attention-for-audio-visual-question-answering)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：用于问答的多模态融合
-8. [Aura: Consistent Multi-Subject Video Generation via VLM-Grounded Semantic Alignment](/202607/12/2607.04311v2-aura-consistent-multi-subject-video-generation-via-vlm-grounded-semantic-alignment)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：基于VLM的多模态视频生成学习
-9. [TORINO: Token Reduction via Interpretable Concept Overlap in Vision-Language Models](/202607/12/2607.04593v1-torino-token-reduction-via-interpretable-concept-overlap-in-vision-language-models)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：视觉语言模型token减少
-10. [Light-Omni: Reflex over Reasoning in Agentic Video Understanding with Long-Term Memory](/202607/12/2607.05511v1-light-omni-reflex-over-reasoning-in-agentic-video-understanding-with-long-term-memory)  
+   evidence：使用强化学习训练的多模态文档解析
+6. [Every Sample Counts: Supervised Fine-Tuning of Language Models with Pointwise Constraints](/202607/13/2607.08968v1-every-sample-counts-supervised-fine-tuning-of-language-models-with-pointwise-constraints)  
+   标签：评分：7.0/10、query:post-multi
+   evidence：语言模型的逐点约束对齐
+7. [Memory-Orchestrated Semantic System (MOSS): An Auditable Agentic Memory Architecture](/202607/13/2607.04391v1-memory-orchestrated-semantic-system-moss-an-auditable-agentic-memory-architecture)  
    标签：评分：6.0/10、query:mr
-   evidence：基于双上下文状态的多模态检索增强视频理解
-11. [Propose and Attend: Training-free MLLM Grounding Confidence via Multi-Token Localized Attention](/202607/12/2607.05978v1-propose-and-attend-training-free-mllm-grounding-confidence-via-multi-token-localized-attention)  
+   evidence：使用结构化检索替代基于嵌入的RAG
+8. [Beyond Isolated Objects: Relationship-aware Open Vocabulary Scene Understanding via 3D Scene Graph Analysis](/202607/13/2607.05348v1-beyond-isolated-objects-relationship-aware-open-vocabulary-scene-understanding-via-3d-scene-graph-analysis)  
+   标签：评分：6.0/10、query:mr
+   evidence：使用3D场景图进行关联感知理解
+9. [Comparative Study of Domain-adapted VLMs for General Document Visual Question Answering](/202607/13/2607.07179v1-comparative-study-of-domain-adapted-vlms-for-general-document-visual-question-answering)  
    标签：评分：6.0/10、query:post-multi
-   evidence：基于多token局部注意力的训练无关MLLM定位置信度度量
-12. [Bridging Physical Reasoning and Task Generalization via Visual Action Outcome Reasoning Alignment](/202607/12/2607.06522v1-bridging-physical-reasoning-and-task-generalization-via-visual-action-outcome-reasoning-alignment)  
+   evidence：对VLM进行文档VQA的比较研究，涵盖微调和少样本学习
+10. [Dual Latent Memory in Vision-Language-Action Models for Robotic Manipulation](/202607/13/2607.07608v1-dual-latent-memory-in-vision-language-action-models-for-robotic-manipulation)  
+   标签：评分：6.0/10、query:mr
+   evidence：在视觉-语言-行动模型中使用潜记忆标记增强多模态推理
+11. [Co-LMLM: Continuous-Query Limited Memory Language Models](/202607/13/2607.07707v1-co-lmlm-continuous-query-limited-memory-language-models)  
+   标签：评分：6.0/10、query:mr
+   evidence：生成时外部知识检索，类似检索增强生成
+12. [Multimodal Unlearning Across Vision, Language, Video, and Audio: Survey of Methods, Datasets, and Benchmarks](/202607/13/2607.07907v1-multimodal-unlearning-across-vision-language-video-and-audio-survey-of-methods-datasets-and-benchmarks)  
    标签：评分：6.0/10、query:post-multi
-   evidence：针对物理推理的视觉语言模型训练奖励设计
+   evidence：多模态遗忘调查，涵盖视觉、语言、视频和音频
 
 
 <div class="dpr-home-promo-card">
