@@ -6,76 +6,85 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-13
-- 运行时间：2026-07-13 21:49:34 UTC
+- 最新运行日期：2026-07-15
+- 运行时间：2026-07-15 21:36:07 UTC
 - 运行状态：成功
-- 本次总论文数：18
-- 精读区：6
+- 本次总论文数：21
+- 精读区：9
 - 速读区：12
 
 ### 今日简报（AI）
-1) 今日精读多模态问答置信度校准与文档合成增强两大方向，速读覆盖视觉动态建模、LLM搜索路由及视觉Token剪枝。  
-2) 最值得关注《Task-Specific Multimodal Question Answering Agents》9.0分，其置信度校准与增量推理思路可显著提升复杂问答准确性；同时《Enhancing Large Multimodal Models》的文档合成策略为信息提取提供了低成本数据增强方案。  
-3) 普通读者可优先关注多模态问答的可靠性提升方法，以及如何通过合成数据增强文档理解模型，这两项技术对AI应用落地有直接参考价值。
-- 详情：[/202607/13/README](/202607/13/README)
+今日精读9篇，聚焦多模态RAG污染处理与时序知识图谱表示，速读侧重3D生成与视觉语言模型。  
+最值得关注《Trust Before Fusion》提出的QIMG-7污染感知融合方案（10分）和《Time Imprint》中的时间感知多模态知识图谱学习（9分）。  
+建议读者优先深挖这两篇精读论文，为多模态融合与动态知识建模打下方法论基础。
+- 详情：[/202607/15/README](/202607/15/README)
 
 ### 精读区论文标签
-1. [Task-Specific Multimodal Question Answering Agents via Confidence Calibration and Incremental Reasoning for QANTA 2026](/202607/13/2607.09623v1-task-specific-multimodal-question-answering-agents-via-confidence-calibration-and-incremental-reasoning-for-qanta-2026)  
+1. [Trust Before Fusion: QIMG-7 and Source-Aware Resolution for Polluted Multimodal RAG](/202607/15/2607.10798v1-trust-before-fusion-qimg-7-and-source-aware-resolution-for-polluted-multimodal-rag)  
+   标签：评分：10.0/10、query:mr
+   evidence：直接研究多模态检索增强生成与污染基准
+2. [Time Imprint: Learning Time-Aware Representations in Multi-Modal Knowledge Graphs](/202607/15/2607.09777v1-time-imprint-learning-time-aware-representations-in-multi-modal-knowledge-graphs)  
    标签：评分：9.0/10、query:mr
-   evidence：多模态问答中的增量推理
-2. [Enhancing Large Multimodal Models in Key Information Extraction via Scene-Aware Document Synthesis](/202607/13/2607.04636v1-enhancing-large-multimodal-models-in-key-information-extraction-via-scene-aware-document-synthesis)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：通过文档合成增强多模态模型训练
-3. [The Importance of Encoder Choice:A Tabular-Image Study](/202607/13/2607.07756v1-the-importance-of-encoder-choicea-tabular-image-study)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：评估多模态学习中表格编码器的选择对性能的影响
-4. [Optimal Transport-based Semantic Alignment for LLM-based Audio-Visual Speech Recognition](/202607/13/2607.09001v1-optimal-transport-based-semantic-alignment-for-llm-based-audio-visual-speech-recognition)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：面向音频视觉语音识别的多模态语义对齐
-5. [Bidirectional Resource Scheduling for Disaggregated and Asynchronous RL Post-Training](/202607/13/2607.09207v1-bidirectional-resource-scheduling-for-disaggregated-and-asynchronous-rl-post-training)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：面向解耦异步RL后训练的双向资源调度
-6. [One-Shot Multimodal Learning from Demonstration with Force-Constrained Elastic Maps](/202607/13/2607.09515v1-one-shot-multimodal-learning-from-demonstration-with-force-constrained-elastic-maps)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：单样本多模态学习从演示，使用力约束弹性图
+   evidence：多模态知识图谱中的时间感知表示学习
+3. [RDQ: Residual Distribution Quantization for Large Language Models](/202607/15/2607.10137v1-rdq-residual-distribution-quantization-for-large-language-models)  
+   标签：评分：9.0/10、query:post-multi
+   evidence：针对残差流分布漂移的大语言模型后训练量化方法
+4. [Reinforcement Learning with Verifiable Physics: Post-training LLMs with Continuous Rewards](/202607/15/2607.10474v1-reinforcement-learning-with-verifiable-physics-post-training-llms-with-continuous-rewards)  
+   标签：评分：9.0/10、query:post-multi
+   evidence：使用强化学习和可验证奖励后训练LLM
+5. [CRiT-QA: Evaluating Multi-hop Reasoning with Counterfactual Chains and Distractor Traps](/202607/15/2607.10562v1-crit-qa-evaluating-multi-hop-reasoning-with-counterfactual-chains-and-distractor-traps)  
+   标签：评分：9.0/10、query:mr
+   evidence：通过反事实链和干扰陷阱评估多跳推理能力
+6. [STEC: Evidence Compression for Deep Search in Open-domain Multi-Hop QA](/202607/15/2607.10795v1-stec-evidence-compression-for-deep-search-in-open-domain-multi-hop-qa)  
+   标签：评分：9.0/10、query:mr
+   evidence：基于LLM搜索代理的多跳QA证据压缩
+7. [Transforming LLMs into Efficient Cross-Encoders via Knowledge Distillation for RAG Reranking](/202607/15/2607.11933v1-transforming-llms-into-efficient-cross-encoders-via-knowledge-distillation-for-rag-reranking)  
+   标签：评分：9.0/10、query:post-multi
+   evidence：通过知识蒸馏微调LLM作为RAG重排序器
+8. [Towards Vision-Free CIR: Attribute-Augmented Scoring and LLM-Based Reranking for Zero-Shot Composed Image Retrieval](/202607/15/2607.12621v1-towards-vision-free-cir-attribute-augmented-scoring-and-llm-based-reranking-for-zero-shot-composed-image-retrieval)  
+   标签：评分：9.0/10、query:mr
+   evidence：使用属性增强评分和LLM重排序的零样本组合图像检索
+9. [EvoGraph-R1: Self-Evolving Multimodal Knowledge Hypergraphs for Agentic Retrieval](/202607/15/2607.12764v1-evograph-r1-self-evolving-multimodal-knowledge-hypergraphs-for-agentic-retrieval)  
+   标签：评分：9.0/10、query:mr
+   evidence：自演化多模态知识超图用于智能体检索
 
 ### 速读区论文标签
-1. [DynaVieW: Schema-Guided World Modeling for Understanding Hierarchical Visual Dynamics](/202607/13/2607.04112v1-dynaview-schema-guided-world-modeling-for-understanding-hierarchical-visual-dynamics)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：多模态世界模型理解视觉动态
-2. [When Should LLMs Search? Counterfactual Supervision for Search Routing](/202607/13/2607.05752v1-when-should-llms-search-counterfactual-supervision-for-search-routing)  
+1. [Ortho2CAD: 3D CAD generation from orthographic drawings using vision language models](/202607/15/2607.08891v1-ortho2cad-3d-cad-generation-from-orthographic-drawings-using-vision-language-models)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：使用SFT和几何基础RL训练视觉语言模型
+2. [Scalable Visual Pretraining for Language Intelligence](/202607/15/2607.09657v1-scalable-visual-pretraining-for-language-intelligence)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：提出可扩展的视觉预训练方法，将文档中的视觉线索融入语言模型学习
+3. [From Direction to Magnitude: How Multimodal Instruction-Tuning Reorganizes the Geometric Encoding of Identity-Specifying Prompts in Transformer Hidden States](/202607/15/2607.09842v1-from-direction-to-magnitude-how-multimodal-instruction-tuning-reorganizes-the-geometric-encoding-of-identity-specifying-prompts-in-transformer-hidden-states)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：研究后训练（RLHF、SFT）对LLM隐藏状态几何编码的影响
+4. [GRASP: GRanularity-Aware Search Policy for Agentic RAG](/202607/15/2607.10463v1-grasp-granularity-aware-search-policy-for-agentic-rag)  
+   标签：评分：8.0/10、query:mr
+   evidence：基于强化学习的智能体RAG，实现多步推理和检索工具自适应协调
+5. [Tree-of-Thoughts Reasoning for Text-to-Image In-Context Learning](/202607/15/2607.07117v1-tree-of-thoughts-reasoning-for-text-to-image-in-context-learning)  
    标签：评分：7.0/10、query:mr
-   evidence：搜索增强语言模型中的搜索路由策略
-3. [AnchorPrune: Relevance-Anchored Contextual Expansion for Visual Token Pruning](/202607/13/2607.07033v1-anchorprune-relevance-anchored-contextual-expansion-for-visual-token-pruning)  
+   evidence：基于思维树的多模态上下文学习推理框架
+6. [LEEVLA: Seeing What Matters in Latent Environment Evolution for Vision-Language-Action](/202607/15/2607.08182v1-leevla-seeing-what-matters-in-latent-environment-evolution-for-vision-language-action)  
    标签：评分：7.0/10、query:post-multi
-   evidence：视觉语言模型中的视觉令牌剪枝
-4. [Tree-of-Thoughts Reasoning for Text-to-Image In-Context Learning](/202607/13/2607.07117v1-tree-of-thoughts-reasoning-for-text-to-image-in-context-learning)  
-   标签：评分：7.0/10、query:mr
-   evidence：将树状思维推理应用于多模态文本到图像生成
-5. [Infinity-Parser2 Technical Report](/202607/13/2607.07836v1-infinity-parser2-technical-report)  
+   evidence：具有漂移引导动态优先化的视觉-语言-动作模型
+7. [When Structured Sparse Autoencoders Learn Consistent Concepts Across Modalities](/202607/15/2607.08605v1-when-structured-sparse-autoencoders-learn-consistent-concepts-across-modalities)  
    标签：评分：7.0/10、query:post-multi
-   evidence：使用强化学习训练的多模态文档解析
-6. [Every Sample Counts: Supervised Fine-Tuning of Language Models with Pointwise Constraints](/202607/13/2607.08968v1-every-sample-counts-supervised-fine-tuning-of-language-models-with-pointwise-constraints)  
+   evidence：结构化稀疏自编码器实现多模态概念一致性
+8. [Mixture of Probes: Learning from Privileged Modalities in Multimodal LLMs Through Probing](/202607/15/2607.08839v1-mixture-of-probes-learning-from-privileged-modalities-in-multimodal-llms-through-probing)  
    标签：评分：7.0/10、query:post-multi
-   evidence：语言模型的逐点约束对齐
-7. [Memory-Orchestrated Semantic System (MOSS): An Auditable Agentic Memory Architecture](/202607/13/2607.04391v1-memory-orchestrated-semantic-system-moss-an-auditable-agentic-memory-architecture)  
+   evidence：多模态大语言模型中的探针方法，利用特权模态
+9. [Seeing and Reflecting: Multimodal Memory-Enhanced Agent Collaboration for Recommendation](/202607/15/2607.07108v1-seeing-and-reflecting-multimodal-memory-enhanced-agent-collaboration-for-recommendation)  
    标签：评分：6.0/10、query:mr
-   evidence：使用结构化检索替代基于嵌入的RAG
-8. [Beyond Isolated Objects: Relationship-aware Open Vocabulary Scene Understanding via 3D Scene Graph Analysis](/202607/13/2607.05348v1-beyond-isolated-objects-relationship-aware-open-vocabulary-scene-understanding-via-3d-scene-graph-analysis)  
-   标签：评分：6.0/10、query:mr
-   evidence：使用3D场景图进行关联感知理解
-9. [Comparative Study of Domain-adapted VLMs for General Document Visual Question Answering](/202607/13/2607.07179v1-comparative-study-of-domain-adapted-vlms-for-general-document-visual-question-answering)  
+   evidence：通过多模态记忆体实现跨模态检索
+10. [Stage-Aware Adaptation and Distribution Calibration for Subject-Driven Personalized Text-to-Image Generation](/202607/15/2607.07173v1-stage-aware-adaptation-and-distribution-calibration-for-subject-driven-personalized-text-to-image-generation)  
    标签：评分：6.0/10、query:post-multi
-   evidence：对VLM进行文档VQA的比较研究，涵盖微调和少样本学习
-10. [Dual Latent Memory in Vision-Language-Action Models for Robotic Manipulation](/202607/13/2607.07608v1-dual-latent-memory-in-vision-language-action-models-for-robotic-manipulation)  
-   标签：评分：6.0/10、query:mr
-   evidence：在视觉-语言-行动模型中使用潜记忆标记增强多模态推理
-11. [Co-LMLM: Continuous-Query Limited Memory Language Models](/202607/13/2607.07707v1-co-lmlm-continuous-query-limited-memory-language-models)  
-   标签：评分：6.0/10、query:mr
-   evidence：生成时外部知识检索，类似检索增强生成
-12. [Multimodal Unlearning Across Vision, Language, Video, and Audio: Survey of Methods, Datasets, and Benchmarks](/202607/13/2607.07907v1-multimodal-unlearning-across-vision-language-video-and-audio-survey-of-methods-datasets-and-benchmarks)  
+   evidence：使用阶段感知低秩适配的个性化文本到图像生成方法
+11. [Multimodal Unlearning Across Vision, Language, Video, and Audio: Survey of Methods, Datasets, and Benchmarks](/202607/15/2607.07907v1-multimodal-unlearning-across-vision-language-video-and-audio-survey-of-methods-datasets-and-benchmarks)  
    标签：评分：6.0/10、query:post-multi
-   evidence：多模态遗忘调查，涵盖视觉、语言、视频和音频
+   evidence：多模态遗忘综述，涵盖跨模态关联
+12. [Reinforcing the Generation Order of Multimodal Masked Diffusion Models](/202607/15/2607.08056v1-reinforcing-the-generation-order-of-multimodal-masked-diffusion-models)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：使用GRPO优化多模态扩散模型的生成顺序，类似RLHF
 
 
 <div class="dpr-home-promo-card">
