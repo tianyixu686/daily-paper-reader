@@ -1,0 +1,647 @@
+Title: EvidentialRAG: Quantifying and Mitigating Information Conflict in Multi-Source Retrieval-Augmented Generation via Evidential Deep Learning
+
+URL Source: https://arxiv.org/pdf/2607.10491v1
+
+Published Time: Tue, 14 Jul 2026 00:57:32 GMT
+
+Number of Pages: 43
+
+Markdown Content:
+# EvidentialRAG : Quantifying and Mitigating Information Conflict in Multi-Source Retrieval-Augmented Generation via Evidential Deep Learning 
+
+S M Asif Hossain a, , Ruksat Khan Shayoni a, M. F. Mridha b
+
+> aSchool of Computing, Wichita State University, Kansas, USA
+> bDepartment of Computer Science, American International University-Bangladesh, Dhaka, Bangladesh
+
+Abstract 
+
+Retrieval-augmented generation grounds large language models in external evidence, but most pipelines still treat retrieved passages as deterministic and mutually consistent context. In open information environments, retrieved sources may disagree because of temporal drift, source error, ambiguity, or genuine uncertainty. This paper introduces EvidentialRAG , an uncertainty-aware RAG framework that converts retrieved chunks into probabilistic evidence before generation. A lightweight evaluator extracts candidate claims and maps chunk-level support to Dirichlet evidence. A conflict-preserving Dempster-Shafer fusion rule then transfers unresolved disagreement into epistemic uncertainty rather than normalizing it away. The generator is routed to direct answering, conflict-aware answering, or abstention according to the fused uncertainty score. Experiments on CRAG, ConflictQA, and MuSiQue show that EvidentialRAG remains competitive with the strongest matched baseline on standard question answering while improving behavior under conflict. On the CRAG ambiguous subset, hallucination decreases from 45.3% for Corrective RAG to a human-calibrated estimate of 34.8%, conflict resolution increases from 35.2% to 51.2%, and expected calibration error improves to 0.122. These results suggest that evidential modeling is a practical mechanism for trustworthy information processing in foundation-model-based retrieval systems. 
+
+Keywords: Retrieval augmented generation, Large language models, Evidential deep learning, Knowledge conflict, Dempster-Shafer theory, arXiv:2607.10491v1 [cs.LG] 11 Jul 2026 Hallucination, Calibration 
+
+1. Introduction 
+
+Large language models (LLMs) have transformed knowledge-intensive natural language processing by providing general-purpose capabilities for question answering, summarization, reasoning, and dialogue (Vaswani et al., 2017; Devlin et al., 2019; Brown et al., 2020; OpenAI, 2023; Touvron et al., 2023; Grattafiori et al., 2024). Their usefulness in information systems is nevertheless constrained by a persistent limitation: model parameters are incomplete, opaque, temporally bounded, and difficult to update. Retrieval-augmented generation (RAG) addresses this limitation by conditioning the generator on externally retrieved documents, passages, database records, or web evidence (Lewis et al., 2020; Guu et al., 2020; Izacard and Grave, 2021; Borgeaud et al., 2022). By separating knowledge access from language generation, RAG has become a dominant design pattern for enterprise search, digital libraries, domain-specific question answering, and decision-support systems (Gao et al., 2024; Asai et al., 2024; Yan et al., 2024). The conventional RAG pipeline is effective when retrieval returns relevant and mutually consistent evidence. In real information environments, however, retrieval is not only a relevance-ranking problem. It is also an evidence-quality and source-consistency problem. Multi-source retrieval may return outdated statements, near-duplicate claims with small but important differences, con-tradictory web snippets, partially relevant passages, and information whose applicability depends on time, jurisdiction, source authority, or user intent. This situation is common in healthcare, law, public policy, finance, scientific search, and organizational knowledge management. In such settings, a useful information system should not merely produce a fluent answer. It should identify whether the answer is supported, whether sources disagree, and whether a definitive answer is warranted. Current RAG systems often hide this distinction. Retrieved chunks are usually concatenated into a prompt, and the generator is asked to synthesize an answer. This design implicitly assumes that the retrieved context is reliable, internally coherent, and equally useful. When the assumption fails, an LLM may merge incompatible claims, selectively trust an early-ranked passage, or produce a confident answer even when the retrieved evidence warrants caution (Ji et al., 2023; Maynez et al., 2020; Lin et al., 2022; Niu et al., 2024). 2This failure is not fully solved by retrieving more passages. Adding more context can increase the probability of including a correct source, but it can also increase the probability of including mutually incompatible evidence. Recent work has improved RAG through dense retrieval (Karpukhin et al., 2020), late-interaction retrieval (Khattab and Zaharia, 2020; Santhanam et al., 2022), reranking (Nogueira and Cho, 2019; Reimers and Gurevych, 2019), self-reflection (Asai et al., 2024), corrective retrieval evaluation (Yan et al., 2024), and citation-aware generation (Gao et al., 2023). These advances improve relevance and grounding, but they do not directly quantify epistemic uncertainty caused by contradictions among retrieved sources. A system can retrieve relevant passages and still be unsafe if the passages support incom-patible answers. Benchmarks such as CRAG, ConflictBank, and ConflictQA make this issue explicit by showing that RAG systems struggle with dynamic evidence, source disagreement, and conflicts between external evidence and model memory (Yang et al., 2024; Su et al., 2024; Xie et al., 2024). The core problem is therefore not only whether a document is relevant. The problem is how to represent retrieved information as uncertain evidence and how to propagate that uncertainty to the generator. This paper introduces EvidentialRAG , a framework for conflict-aware, uncertainty-calibrated retrieval-augmented generation. The central design choice is to replace deterministic context injection with probabilistic evidence modeling. Each retrieved chunk is processed by a lightweight evaluator model that extracts candidate factual claims and maps chunk-level support into a Dirichlet evidence representation. This representation follows evidential deep learning, where a Dirichlet distribution encodes both expected support for candidate answers and epistemic uncertainty through total evidence mass (Sensoy et al., 2018). Evidence from multiple chunks is then aggregated using a Dempster-Shafer style fusion rule that explicitly computes conflict mass when sources support mutually exclusive claims (Dempster, 1967; Shafer, 1976). Instead of normalizing conflict away, EvidentialRAG transfers unresolved conflict into global uncertainty. At generation time, this uncertainty controls a routing policy that answers directly when evidence is consistent, explains source disagreement when conflict is material, and abstains when the retrieved evidence cannot support a responsible answer. The contributions of this paper are as follows. 
+
+• We formulate multi-source RAG as a probabilistic evidence aggregation problem rather than a deterministic context-concatenation problem, al-3lowing retrieved passages to carry support, ignorance, and contradiction signals. 
+
+• We introduce a prompt-based evidential extraction module that maps unstructured retrieved text into Dirichlet evidence without fine-tuning the main generator. 
+
+• We define a conflict-preserving evidence fusion operator that resolves the mass-function inconsistency between Dirichlet evidence, subjective-logic vacuity, and Dempster-Shafer ignorance. 
+
+• We propose an uncertainty-guided generation policy that routes each query to direct answering, conflict-aware answering, or abstention according to global epistemic uncertainty. 
+
+• We provide an empirical evaluation on CRAG, ConflictQA, and MuSiQue against Naive RAG, Self-RAG, and Corrective RAG, covering answer quality, hallucination, conflict resolution, calibration, efficiency, and human-audited reliability. The remainder of the paper is organized as follows. Section 2 reviews related work on RAG, hallucination, uncertainty estimation, and Dempster-Shafer conflict handling. Section 3 presents the EvidentialRAG framework, including evidential extraction, claim normalization, conflict-preserving fusion, uncertainty-guided routing, and inference-time call accounting. Section 4 describes the datasets, baselines, implementation settings, evaluation metrics, and human-audit protocol. Section 5 analyzes the main results, calibration behavior, sensitivity studies, efficiency, ablations, and evaluator reliability. Section 6 discusses implications for expert and intelligent retrieval systems, practical deployment considerations, and limitations. Section 7 concludes the paper. 
+
+2. Related work 
+
+2.1. Retrieval-augmented generation 
+
+RAG combines retrieval and generation to improve knowledge-intensive NLP. Early neural approaches such as REALM and RAG retrieved supporting documents to condition generation or language-model pre-training (Guu et al., 2020; Lewis et al., 2020). Fusion-in-Decoder demonstrated the value 4of processing multiple retrieved passages during generation (Izacard and Grave, 2021), while RETRO showed that retrieval can also support large-scale language modeling (Borgeaud et al., 2022). These methods motivated a broad ecosystem of retrieval-enhanced foundation models. The effectiveness of RAG depends heavily on the quality of retrieval. Lex-ical ranking functions such as BM25 remain important information-retrieval baselines and are often combined with neural retrieval in practical systems (Robertson and Zaragoza, 2009). Dense Passage Retrieval improved open-domain question answering by learning dual encoders for passage retrieval (Karpukhin et al., 2020). ColBERT and ColBERTv2 introduced late in-teraction mechanisms that provide a favorable trade-off between accuracy and efficiency (Khattab and Zaharia, 2020; Santhanam et al., 2022). Cross-encoder rerankers and sentence-transformer models further improve relevance estimation (Nogueira and Cho, 2019; Reimers and Gurevych, 2019). These approaches increase the probability of retrieving useful evidence, but they still treat retrieval quality primarily as relevance to the query. They do not directly represent whether retrieved sources agree with one another. Recent agentic and self-corrective RAG systems add control after retrieval. Self-RAG learns to retrieve, critique passages, and critique generations through reflection tokens (Asai et al., 2024). Corrective RAG uses a lightweight evaluator to identify poor retrieval and trigger corrective actions (Yan et al., 2024). Citation-aware methods encourage generated answers to include source attributions (Gao et al., 2023). These techniques improve reliability, but they are not designed specifically for inter-context conflict. EvidentialRAG 
+
+complements them by making conflict a first-class variable in the retrieval-generation pipeline. 
+
+2.2. Hallucination and factuality in foundation models 
+
+Hallucination has been studied extensively in summarization, question answering, and dialogue (Maynez et al., 2020; Ji et al., 2023; Manakul et al., 2023; Min et al., 2023). In RAG systems, hallucination can occur even when relevant evidence is available, because the generator may ignore, distort, or overgeneralize from the retrieved context. RAGTruth and related benchmarks show that retrieval augmentation does not eliminate unsupported generation and that context-grounded factuality needs explicit evaluation (Niu et al., 2024). Truthfulness benchmarks also show that models can mimic common falsehoods and express high confidence in incorrect answers (Lin et al., 2022). 5Knowledge conflict introduces a more specific reliability challenge. Conflict can occur between model memory and retrieved evidence, between two re-trieved passages, or between heterogeneous sources such as text and knowledge graphs. ConflictQA and related work show that LLMs may be receptive to convincing external evidence, but they may also show confirmation bias when evidence partially agrees with their parametric memory (Xie et al., 2024). ConflictBank focuses on evaluating the influence of knowledge conflicts on LLM behavior (Su et al., 2024). Broader surveys and recent conflict-oriented benchmarks further show that knowledge conflict is becoming a central evalu-ation problem for LLMs and retrieval-augmented systems (Xu et al., 2024; Zhao et al., 2026; Friel et al., 2024). CRAG stresses RAG systems with dynamic and sometimes ambiguous retrieval scenarios (Yang et al., 2024). These studies motivate methods that distinguish absence of evidence from contradictory evidence and that make uncertainty visible to users. 
+
+2.3. Uncertainty estimation and evidential learning 
+
+Uncertainty estimation is a central issue in trustworthy machine learn-ing. Bayesian approximations, Monte Carlo dropout, deep ensembles, and calibration methods provide different mechanisms for estimating predictive uncertainty (Gal and Ghahramani, 2016; Lakshminarayanan et al., 2017; Kendall and Gal, 2017; Ovadia et al., 2019; Guo et al., 2017). Expected calibration error and proper scoring rules provide practical tools for measuring whether confidence aligns with empirical accuracy (Gneiting and Raftery, 2007; Guo et al., 2017). In LLM-based information systems, calibration is especially important because fluent output can mask weak evidence. Evidential deep learning (EDL) provides a useful representation for this setting. Instead of producing only a point probability distribution, EDL predicts non-negative evidence parameters that define a Dirichlet distribution over classes (Sensoy et al., 2018). The total evidence controls epistemic uncertainty: low evidence produces high vacuity, while concentrated evidence produces lower uncertainty. This representation is closely connected to subjective logic, where belief masses assigned to singleton outcomes and uncertainty mass assigned to the full frame sum to one (Jøsang, 2016). 
+
+EvidentialRAG uses this mapping to convert retrieved chunks into evidence-bearing observations. The method differs from standard EDL because the evidence vector is produced by a lightweight evaluator model rather than by training a specialized neural classifier for each dataset. 62.4. Dempster-Shafer evidence theory and conflict handling 
+
+Dempster-Shafer theory represents degrees of belief over sets of hypotheses rather than only over singleton classes (Dempster, 1967; Shafer, 1976). This property makes it attractive for RAG because a retrieved chunk may support a specific answer, provide weak support for several alternatives, or provide only ignorance. Classical Dempster combination normalizes away conflict, which can be problematic when two sources strongly support incompatible singleton claims. Yager’s rule and the transferable belief model were introduced partly to address such high-conflict cases by avoiding overconfident normalization (Yager, 1987; Smets, 1990). EvidentialRAG uses a conflict-preserving operator that includes Yager’s full-conflict transfer as a special case and allows partial conflict transfer through a tunable parameter. This design gives the generator access to both fused support and unresolved disagreement. 
+
+3. Methodology 
+
+The goal of EvidentialRAG is to make a RAG system aware of dis-agreement before the final answer is generated. A standard RAG system usually retrieves several passages, places them in the prompt, and relies on the generator to decide what to trust. That approach is simple, but it gives the generator no explicit representation of whether two passages support the same answer, whether one passage is irrelevant, or whether the evidence is too contradictory for a single definitive answer. EvidentialRAG adds an intermediate evidential layer between retrieval and generation so that these evidence states become measurable. The method has four steps. First, retrieved chunks are converted into candidate answer claims and non-negative evidence scores. Second, equivalent claims are normalized into the same candidate so that paraphrases do not create artificial conflict. Third, the candidate-level evidence is fused with a Dempster-Shafer operator that preserves unresolved conflict as epistemic uncertainty. Fourth, the generator receives both the evidence summary and the uncertainty score, and it is routed to direct answering, conflict-aware answering, or abstention. The mathematical notation below formalizes these steps, while the surrounding explanations indicate what each quantity means operationally. 73.1. Problem setting 
+
+Let q denote a user query and let Cq = {c1, c 2, . . . , c k} denote the top-k
+
+retrieved chunks returned by the retriever and reranker. In ordinary RAG, the generator conditions on q and a concatenation of Cq. In EvidentialRAG ,the same retrieved chunks are treated as observations that may provide support, ignorance, or contradiction. This formulation exposes three variables that are hidden by plain concatenation: which candidate answer each chunk supports, how much evidence each chunk provides, and whether chunks conflict. We define a finite candidate-claim set Aq = {a1, a 2, . . . , a M } induced by the retrieved chunks. A claim may be an answer string, entity mention, date, numerical value, or short proposition. The Dempster-Shafer frame of discernment is 
+
+Θq = Aq. (1) The frame contains only mutually distinguishable candidate claims. Ignorance is not represented as an additional singleton class. Instead, ignorance is represented as mass assigned to the full frame Θq. This distinction is essential. A retrieved chunk that is irrelevant or insufficient does not provide evidence for a special “unknown” answer. It provides little or no singleton evidence, which produces high vacuity. For each chunk ci, the evaluator outputs a non-negative evidence vector 
+
+ei ∈ RM
+
+> ≥0
+
+. The corresponding Dirichlet parameter vector is 
+
+αi = ei + 1, Si =
+
+> M∑
+> j=1
+
+αij , (2) where Si is the total Dirichlet concentration. The expected probability of claim aj is 
+
+ˆpij = αij 
+
+Si
+
+. (3) Following the subjective-logic mapping used in EDL, singleton belief and vacuity are defined as 
+
+bij = eij 
+
+Si
+
+, ui = MSi
+
+. (4) This yields a valid mass function because 
+
+> M∑
+> j=1
+
+bij + ui = 
+
+> ∑Mj=1
+
+eij + MSi
+
+= 1 . (5) 8The induced Dempster-Shafer mass function is therefore 
+
+mi({aj }) = bij , mi(Θ q) = ui. (6) This equation is the bridge between EDL and Dempster-Shafer reasoning. The singleton mass mi({aj }) means that chunk ci specifically supports claim 
+
+aj . The frame mass mi(Θ q) means that the chunk does not provide enough evidence to distinguish among candidate claims. No mass is assigned to an additional unknown singleton. If a chunk is irrelevant, the evaluator sets 
+
+eij ≈ 0 for all j, yielding ui ≈ 1. If a chunk strongly supports one claim, it assigns high evidence to that singleton, yielding low vacuity. This design prevents irrelevant context from being interpreted as positive evidence for a fabricated “unknown” answer category. 
+
+3.2. Evidential claim extraction 
+
+The evidential evaluator receives the query, the retrieved chunk, and the current claim inventory. It returns a structured object containing the extracted claim, normalized answer value, stance, evidence rationale, and evidence scores. The evaluator used in the reported experiments is Llama-3-8B-Instruct. It is intentionally smaller than the Llama-3-70B-Instruct generator so that uncertainty estimation does not require multiple full-generator passes. The evaluator performs three functions. First, it extracts the answer-bearing proposition in the chunk, if one exists. Second, it normalizes surface forms such as dates, numbers, entity aliases, and paraphrases. Third, it assigns non-negative evidence to candidate claims. If the chunk provides no answer-bearing information, the evidence vector is near zero and the chunk contributes ignorance. If the chunk supports a claim that contradicts another retrieved claim, it assigns evidence to the competing singleton rather than to an unknown bucket. The prompt-based design avoids training a new evidential model for every domain. It also keeps the architecture modular. The evaluator can be replaced by a fine-tuned verifier, a natural-language inference model, a domain-specific classifier, or a stronger LLM-as-evaluator. The downstream fusion module requires only the normalized evidence vectors and does not depend on the evaluator architecture. 
+
+3.3. Candidate claim normalization and alignment 
+
+The word “alignment” here refers to aligning answer claims across retrieved chunks, not aligning the paper’s claims. It is necessary because open-domain 9answers are not fixed labels. Different passages can express the same fact with different surface forms, while other passages may express genuinely incompatible facts. Without this step, a system could incorrectly treat “New York City”, “NYC”, and “New York, NY” as three conflicting answers, or it could incorrectly merge two different dates that should remain separate. We use a two-stage procedure. First, lexical and semantic normalization merges equivalent surface forms, including abbreviations, aliases, date formats, numerical formatting, and minor paraphrases. Second, incompatible claims remain distinct elements in Aq. Numerical and temporal claims are treated as incompatible when their normalized values differ beyond a task-specific tolerance. Entity claims are treated as incompatible when canonical identi-fiers differ. Proposition claims are treated as incompatible when semantic equivalence cannot be established and the evaluator marks the stance as competing. This stage prevents paraphrase diversity from being mistaken for evi-dence conflict. Two chunks that state the same answer differently should increase evidence for the same claim. Two chunks that state different answers should increase conflict. The procedure is conservative: uncertain merges are avoided, and downstream uncertainty is allowed to increase rather than forcing premature agreement. 
+
+3.4. Conflict-preserving fusion 
+
+Let ma and mb be two mass functions over singleton claims and the full frame. The pairwise conflict mass is 
+
+K(ma, m b) = ∑ 
+
+> r̸=s
+
+ma({ar})mb({as}). (7) For a singleton claim aj , the non-conflicting conjunctive support is 
+
+nj = ma({aj })mb({aj }) + ma({aj })mb(Θ q) + ma(Θ q)mb({aj }). (8) The joint ignorance term is 
+
+h = ma(Θ q)mb(Θ q). (9) The conjunctive components are disjoint and exhaustive over the frame, so 
+
+h + K + ∑Mj=1 nj = 1 . This identity shows that the transfer step operates on a valid evidence decomposition rather than introducing an unaccounted 10 mass term. Classical normalized Dempster combination divides non-empty intersections by 1 − K. Under severe conflict, this normalization can produce overconfident singleton masses. EvidentialRAG instead uses a conflict-transfer parameter λ ∈ [0 , 1] and assigns 
+
+mab (Θ q) = h + λK. (10) The remaining mass is assigned to singleton claims by scaling their non-conflicting support: 
+
+mab ({aj }) = 
+
+> 
+
+(1 − h − λK )nj 
+
+> ∑Mℓ=1
+
+nℓ
+
+, ∑Mℓ=1 nℓ > 0,
+
+0, ∑Mℓ=1 nℓ = 0 .
+
+(11) The operator is valid because singleton masses and frame mass sum to one whenever 0 ≤ h + λK ≤ 1. The condition is satisfied since h and K are disjoint components of the conjunctive mass decomposition. When λ = 1 ,all conflict is transferred to ignorance, matching the intuition of Yager-style high-conflict handling. When λ = 0 , conflict is not transferred to the frame and remaining mass is redistributed among non-conflicting singleton supports. Intermediate values allow partial transfer and can be selected on validation data. For k retrieved chunks, the pairwise operator ⊗λ is applied iteratively, where ⊗λ denotes the conflict-preserving fusion operator defined in the equa-tions above: 
+
+m(1) = m1, m(t) = m(t−1) ⊗λ mt, t = 2 , . . . , k. (12) The global uncertainty score used for routing is the final mass assigned to the full frame: 
+
+Uglobal = m(k)(Θ q). (13) The average unfused pairwise conflict 
+
+¯K = 2
+
+k(k − 1) 
+
+> ∑
+> 1≤r<s ≤k
+
+K(mr, m s) (14) is retained only as a diagnostic statistic. It is not added again to Uglobal , which avoids double-counting conflict after the transfer step. Figure 1 illustrates 11 how singleton support, conflict mass, and ignorance are separated during this fusion process.            
+
+> Chunk c1
+> supports a1
+> Chunk c2
+> supports a2
+> Chunk ck
+> insufficient
+> m1({a1})high
+> m1(Θ) low
+> m2({a2})high
+> m2(Θ) low
+> mk(Θ) high low singleton support
+> conflict fusion
+> K
+> fused singleton claim masses
+> global uncertainty
+> Uglobal
+
+Figure 1: Conflict-preserving fusion of retrieved evidence. Equivalent claims reinforce the same singleton mass, incompatible claims contribute to conflict mass K, and unresolved conflict is transferred into ignorance over the frame rather than normalized into overconfident support. The pairwise conflict K is retained as a diagnostic statistic and is not added directly to Uglobal .
+
+3.5. Uncertainty-guided generation 
+
+The final generator receives the query, the ranked evidence summary, the fused mass distribution, and Uglobal . The routing policy is governed by two thresholds τ1 and τ2, where 0 ≤ τ1 < τ 2 ≤ 1:route (q) = 
+
+
+
+direct answer , Uglobal < τ 1,
+
+conflict-aware answer , τ1 ≤ Uglobal < τ 2,
+
+abstention , Uglobal ≥ τ2.
+
+(15) In direct-answer mode, the generator answers using the highest-mass claim and cites supporting chunks. In conflict-aware mode, the generator explicitly states that retrieved sources disagree, summarizes competing claims, and avoids presenting a single answer as settled. In abstention mode, the gen-erator declines to provide a definitive answer and explains what additional evidence would be needed. The three route regions induced by the uncertainty thresholds are visualized in Figure 2. 12 Uglobal    
+
+> 0τ1τ21
+> direct answer consistent evidence
+> conflict-aware answer material disagreement
+> abstention insufficient support
+
+Figure 2: Uncertainty-guided generation routes. The thresholds separate ordinary evidence-supported answering from conflict explanation and abstention. 
+
+The complete end-to-end flow of EvidentialRAG is shown in Figure 3. The diagram emphasizes that retrieval, evidence extraction, fusion, and generation routing are sequential stages rather than independent modules. 
+
+1. User query q
+
+2. Retrieve and rerank top-k chunks 
+
+3. Batched evidential evaluator extracts claims and scores evidence 
+
+4. Candidate claim normalization and alignment 
+
+5. Conflict-preserving fusion 
+
+m(k), ¯K, Uglobal        
+
+> 6. Route by uncertainty
+> U < τ 1
+> direct answer τ1≤U < τ 2
+> conflict-aware answer
+> U≥τ2
+> abstention
+> Cq
+> ei, α i, u i
+> Aq,Θq
+
+Figure 3: Overview of EvidentialRAG . The sequence starts with query-specific retrieval, converts chunks into evidential masses, fuses source evidence while preserving conflict, and routes the generator according to global uncertainty. 
+
+13 3.6. Algorithm and LLM-call accounting 
+
+The boxed inference procedure summarizes inference. The evaluator is conceptually applied to each retrieved chunk, but implementation can batch these chunk evaluations into a single evaluator forward pass. This distinction is important for latency accounting. With top-k retrieval, the logical number of evaluator decisions is k, and the logical number of LLM decisions is k + 1 
+
+including final generation. In the reported implementation, those k evaluator decisions are issued as one batched evaluator pass, followed by one generator pass. The efficiency table therefore separates batched LLM passes from per-chunk logical decisions. Figure 4 gives the full inference procedure and links each stage to the corresponding mathematical definition. 
+
+EvidentialRAG inference procedure for one query. 
+
+1. Input: query q, retriever R, reranker Gr, top-k, evaluator E, genera-tor G, thresholds τ1, τ 2, transfer parameter λ.2. Retrieve and rerank Cq = {c1, . . . , c k} using R and Gr.3. Batch {(q, c i)}ki=1 through evaluator E to obtain normalized claims and evidence vectors ei.4. Align claims into Aq = {a1, . . . , a M } and construct the frame Θq = Aq.5. Convert each ei into αi, bi, ui, and mass function mi using Eqs. (2) –(6). 6. Fuse m1, . . . , m k iteratively with the conflict-preserving operator in Eqs. (7)–(13). 7. Set Uglobal = m(k)(Θ q) using Eq. (13). 8. Route generator G using Eq. (15). 9. Output: generated response, selected route, fused evidence, and uncertainty metadata.  
+
+> Figure 4: Inference procedure for EvidentialRAG . The procedure distinguishes per-chunk evidence decisions from batched evaluator execution.
+
+14 4. Experimental setup 
+
+4.1. Datasets 
+
+We evaluate EvidentialRAG on three benchmark families selected to separate three capabilities: ordinary factual answering, explicit knowledge-conflict handling, and non-conflict multi-hop synthesis. The broader experi-mental design follows the tradition of open-domain and reading-comprehension evaluation established by Natural Questions and SQuAD, while focusing on the additional difficulty of retrieval-grounded conflict (Kwiatkowski et al., 2019; Rajpurkar et al., 2016). CRAG measures factual RAG behavior across diverse domains, question types, entity popularity levels, and temporal dy-namics (Yang et al., 2024). The ambiguous and incorrect-context portions are used to stress-test conflict behavior. ConflictQA evaluates the behavior of LLMs when external evidence conflicts with parametric memory or when the provided evidence induces incompatible answer commitments (Xie et al., 2024). MuSiQue provides a non-conflict multi-hop setting, allowing us to test whether uncertainty routing harms ordinary compositional reasoning (Trivedi et al., 2022). FEVER and HotpotQA are not primary test sets in this study; they are used as methodological precedents for evidence-based factuality and multi-hop evaluation (Thorne et al., 2018; Yang et al., 2018). Table 1 summarizes the scale, conflict setting, role, and metrics for each primary benchmark. 15 Table 1: Dataset characteristics for the evaluation benchmarks. The table reports the benchmark-level properties that determine how each dataset stresses retrieval, conflict modeling, and generation. 
+
+Dataset Scale and source Domain and ques-tion coverage Evidence or conflict setting Use in this paper Primary metrics CRAG 4,409 factual QA pairs with associ-ated web and KG-style retrieval in-terfaces Five domains and eight question cate-gories, with entities ranging from popu-lar to long-tail and temporal dynamics ranging from sta-ble facts to rapidly changing facts Includes standard cases and cases where retrieved context can be ambiguous, in-complete, stale, or incorrect Main benchmark for standard QA and the CRAG ambiguous sub-set used for conflict-stress evaluation EM, F1, ROUGE-L, BERTScore, hallucination rate, CRR, ECE, absten-tion ConflictQA Controlled knowledge-conflict bench-mark derived from parametric-memory elic-itation and counter-memory construction; the conflict-specific evaluation uses 1,000 processed instances marked by the benchmark construction as memory-versus-evidence conflicts Open-domain fac-tual questions de-signed to expose whether models fol-low external evi-dence or prior para-metric knowledge External evidence may be consistent with, partially con-sistent with, or contradictory to model memory Used to evaluate source disagreement, memory-versus-retrieval conflict, and conflict-aware non-definitive answering EM, F1, hallucina-tion rate, CRR, re-fusal precision, re-fusal recall, refusal F1, ECE MuSiQue Approximately 25K 2-hop to 4-hop multi-hop QA examples con-structed through single-hop ques-tion composition Multi-hop ques-tions requiring connected reason-ing over evidence passages Not designed as acontradiction bench-mark; evidence is used to test compo-sitional synthesis un-der ordinary retrieval conditions Used as a non-conflict stress test to verify that evidential routing does not unnecessarily suppress valid multi-hop answers EM, F1, ROUGE-L, BERTScore, ab-stention rate 
+
+The same preprocessing principles are applied across datasets. Questions, gold answers, retrieved chunks, and model responses are stored with stable identifiers. For conflict-focused subsets, each instance is additionally labeled with the expected conflict condition, the candidate answer claims, and whether a responsible response should answer directly, explain disagreement, or abstain. This metadata supports both the automated metrics and the stratified human audit described in Section 4.5. 
+
+4.2. Baselines 
+
+We compare EvidentialRAG with three baselines. Naive RAG retrieves top-k chunks and inserts them directly into the generator prompt. Self-RAG adds reflection tokens to decide when to retrieve, critique passages, and critique its own generation (Asai et al., 2024). Corrective RAG adds a retrieval 16 evaluator and triggers corrective actions when retrieval appears unreliable (Yan et al., 2024). All baselines are run under a shared evaluation harness with the same retrieval corpus, generator, maximum context budget, and maximum generation length. This controlled setting isolates the contribution of the evidential conflict module. It may differ from the original published hyperparameter settings of Self-RAG and Corrective RAG, so the results should be interpreted as matched-system comparisons rather than direct reproduction of the original papers. 
+
+4.3. Implementation details 
+
+The reported implementation uses top-k retrieval with k = 5 . Retrieved chunks are reranked before evidential evaluation. The evidential evalua-tor is Llama-3-8B-Instruct, and the final generator is Llama-3-70B-Instruct (Grattafiori et al., 2024). The framework is not tied to this evaluator family; comparable open instruction-tuned models, including Mistral-style models, can be used when their structured-output behavior is validated (Jiang et al., 2023). Retrieval uses bge-large-en-v1.5, and reranking uses bge-reranker-v2-m3 from the BGE embedding family (Chen et al., 2024). Inference is served with vLLM v0.4.0 to reduce latency under batched evaluation (Kwon et al., 2023). Model and tokenizer management use the Transformers ecosystem (Wolf et al., 2020). The default transfer parameter is λ = 0 .6. The routing thresholds are τ1 = 0 .35 and τ2 = 0 .65 . The transfer parameter and routing thresholds were selected before final testing on validation data only. We used the released development partitions when the benchmark provided them; for conflict subsets without a separate development partition, we created a strat-ified 10% development split from the training portion using the same conflict labels used for evaluation. No instance from the final evaluation partitions used in the reported tables was used for threshold or λ selection. MuSiQue was not used for tuning and served as a post-selection non-conflict sanity check. Expected calibration error uses B = 15 equal-width confidence bins. All main reported results are averaged over three random seeds, {42 , 123 , 999 },with standard deviations shown in the tables. Paired bootstrap tests are used for significance testing against Corrective RAG on the same evaluated instances (Efron, 1979). The evaluator prompt is constrained to return valid JSON. Invalid JSON responses are repaired using a conservative schema validator. If repair fails, the chunk is assigned near-zero singleton evidence, producing high uncertainty rather than hidden confidence. This conservative fallback is important because 17 the framework should not convert evaluator formatting errors into apparent factual support. 
+
+4.4. Evaluation metrics 
+
+We evaluate answer quality, reliability under conflict, calibration, refusal behavior, and computational efficiency. Let n denote the number of evaluated instances, yi the normalized gold answer for instance i, ˆyi the normalized model answer, and ri the generated response text. 
+
+Exact Match. EM measures the percentage of predictions that exactly match a gold answer after normalization: 
+
+EM = 1
+
+n
+
+> n∑
+> i=1
+
+I [norm(ˆ yi) = norm( yi)] . (16) This metric is strict and is most informative for short factual answers such as dates, names, and entities. 
+
+Token-level F1. Token-level F1 measures partial lexical overlap between the prediction and reference. For each instance, precision and recall are 
+
+Pi = |T (ˆ yi) ∩ T (yi)||T (ˆ yi)| , Ri = |T (ˆ yi) ∩ T (yi)||T (yi)| , (17) where T (·) is the normalized token set or multiset. The instance-level F1 and corpus-level F1 are 
+
+F 1i = 2PiRi
+
+Pi + Ri
+
+, F1 = 1
+
+n
+
+> n∑
+> i=1
+
+F 1i. (18) If both precision and recall are zero, F 1i is defined as zero. 
+
+ROUGE-L. ROUGE-L captures sequence-level overlap using the longest common subsequence (LCS) between prediction and reference (Lin, 2004). Let Li be the LCS length, mi the reference length, and ℓi the prediction length. Then 
+
+RLi = Li
+
+mi
+
+, P Li = Li
+
+ℓi
+
+, ROUGE -Li = (1 + β2)RLi P Li
+
+RLi + β2P Li
+
+. (19) We use the standard F-measure form and average over all instances. 18 BERTScore. BERTScore estimates semantic similarity using contextual token embeddings (Zhang et al., 2020). If xj and zk are contextual embeddings of prediction and reference tokens, the precision and recall components are 
+
+P Bi = 1
+
+|ˆyi| 
+
+> ∑
+> xj∈ˆyi
+
+max  
+
+> zk∈yi
+
+cos( xj , z k), RBi = 1
+
+|yi| 
+
+> ∑
+> zk∈yi
+
+max  
+
+> xj∈ˆyi
+
+cos( xj , z k), (20) with the final BERTScore F1 computed as 2P Bi RBi /(P Bi + RBi ).
+
+Hallucination rate. Hallucination is evaluated at the response level. Let 
+
+Hi = 1 if response ri contains at least one factual assertion that is unsupported by, or contradicted by, the retrieved evidence and gold annotation; otherwise 
+
+Hi = 0 . Hallucination rate is 
+
+Hallucination Rate = 1
+
+n
+
+> n∑
+> i=1
+
+Hi. (21) Lower values indicate fewer unsupported factual commitments. 
+
+Conflict Resolution Rate. CRR is computed only over the subset 
+
+C of genuinely conflicting instances. Let Ci = 1 if the response explicitly recognizes source disagreement, summarizes the competing claims without collapsing them into an unsupported single answer, and avoids overconfident commitment. Then 
+
+CRR = 1
+
+|C| 
+
+> ∑
+> i∈C
+
+Ci. (22) This metric rewards conflict-aware information behavior rather than blind abstention. 
+
+Refusal precision, recall, and F1. Abstention is defined operationally at the output level for all systems, including Naive RAG. A response is counted as an abstention when it explicitly states inability to answer, insuffi-cient evidence, source disagreement that prevents a definitive answer, or an equivalent non-definitive stance. This means Naive RAG can have a nonzero abstention rate when the generator spontaneously produces phrases such as “I do not know” or “the provided context is insufficient”, even though it has no explicit abstention controller. Let Ri = 1 denote a refusal or conflict-aware non-definitive response. Let Ui = 1 denote that the instance is genuinely unanswerable from the retrieved evidence or contains unresolved conflict. Refusal precision and recall are 
+
+Refusal Precision =  
+
+> ∑
+> i
+
+I[Ri = 1 ∧ Ui = 1]  
+
+> ∑
+> i
+
+I[Ri = 1] , (23) 19 Refusal Recall =  
+
+> ∑
+> i
+
+I[Ri = 1 ∧ Ui = 1]  
+
+> ∑
+> i
+
+I[Ui = 1] . (24) The refusal F1 score is 
+
+Refusal F1 = 2 · Precision · Recall Precision + Recall . (25) A high refusal score requires the model to abstain when appropriate without refusing answerable cases unnecessarily. 
+
+Expected Calibration Error. ECE measures the mismatch between confidence and empirical correctness (Guo et al., 2017). Responses are partitioned into B = 15 equal-width confidence bins B1, . . . , BB . We compute 
+
+ECE = 
+
+> B∑
+> b=1
+
+|B b|
+
+n |acc( Bb) − conf( Bb)| . (26) For EvidentialRAG , confidence is the fused singleton mass assigned to the selected answer: 
+
+conf i = max  
+
+> aj∈Aq
+
+m(k) 
+
+> i
+
+({aj }). (27) We do not multiply this value again by (1 − Uglobal ) because the fused mass function already allocates a portion of total mass to the full frame. A second uncertainty multiplier would double-discount uncertainty and would make the confidence statistic less interpretable for calibration. 
+
+Efficiency. Latency is the mean wall-clock inference time per query. Relative inference cost is normalized by Naive RAG: 
+
+Relative Cost( M ) = Latency( M )Latency(Naive RAG) . (28) We report both logical LLM decisions and batched model passes because 
+
+EvidentialRAG evaluates k chunks but executes those evaluator decisions in one batched pass. 
+
+4.5. LLM judge and human audit 
+
+Hallucination rate and CRR require judgments about factual support, contradiction, and whether a refusal is appropriate. We therefore combine automated judging with a stratified human audit. The LLM judge receives the question, gold answer when available, retrieved evidence, candidate claims, 20 route decision, and generated response. It assigns binary labels for unsup-ported factual assertion, contradicted factual assertion, conflict recognition, appropriate refusal, and answer support. The judge is instructed to evaluate only the visible response against the provided evidence and not to reward fluent unsupported speculation. We conducted a stratified human audit of 200 responses sampled across models, datasets, routing decisions, and correctness labels. The sample was balanced to include direct answers, conflict-aware answers, abstentions, correct outputs, and incorrect outputs from all evaluated systems. Two annotators independently labeled each response along four dimensions: factual support, contradiction, conflict recognition, and refusal appropriateness. Factual support indicates whether the central answer is entailed by the retrieved evidence. Contradiction indicates whether the response asserts a claim that conflicts with at least one reliable retrieved source or the gold annotation. Conflict recognition indicates whether the response explicitly acknowledges incompatible evidence when such evidence is present. Refusal appropriateness indicates whether abstention or a non-definitive answer is justified by the evidence state. Inter-annotator agreement was measured using Cohen’s κ for pairwise agreement between the two initial annotators before adjudication (Cohen, 1960), and disagreements were resolved through adjudication. During adjudi-cation, annotators reviewed the evidence passages and response together; if disagreement remained, a third annotator made the final label. The adjudi-cated labels were used to audit the LLM judge and to verify that the metric definitions above were applied consistently. This human evaluation is particu-larly important for conflict cases because a response can be lexically similar to a gold answer while still being unreliable if it ignores source disagreement. Table 2 defines the annotation dimensions used for this audit. 21 Table 2: Human-audit annotation scheme. Each sampled response is independently labeled by two annotators before adjudication. 
+
+Dimension Positive label definition Used for Factual support The response’s central factual claim is supported by the retrieved evidence or gold annotation. EM, F1 audit, factuality Contradiction The response asserts at least one claim contradicted by retrieved evidence or gold annotation. Hallucination rate Conflict recognition The response explicitly states or clearly explains that sources disagree. CRR Refusal appropriateness The response refuses, hedges, or gives a non-definitive answer only when evidence is insufficient or conflicting. Refusal precision and recall 
+
+5. Results 
+
+5.1. Overall question-answering performance 
+
+All headline experiments were re-executed under the revised evidential formalism, using Θ = Aq and the λ-transfer fusion operator. The standard benchmark results in Table 3 indicate that EvidentialRAG remains compet-itive on ordinary question-answering quality while adding uncertainty-aware conflict handling. Corrective RAG remains slightly stronger on CRAG stan-dard EM and F1, whereas EvidentialRAG obtains the best ConflictQA standard F1 among the matched systems.    
+
+> Table 3: Question-answering performance on standard benchmark subsets. Values are mean ±standard deviation over three seeds.
+
+Model CRAG EM CRAG F1 CQA EM CQA F1 Naive RAG 45.2 ± 0.5 52.1 ± 0.4 38.4 ± 0.6 44.2 ± 0.5 Self-RAG 51.4 ± 0.4 58.3 ± 0.5 45.1 ± 0.4 51.3 ± 0.6 Corrective RAG 54.1 ± 0.3 61.2 ± 0.4 48.6 ± 0.5 55.4 ± 0.4 
+
+EvidentialRAG 53.8 ± 0.4 60.5 ± 0.3 49.2 ± 0.4 56.1 ± 0.5 
+
+22 The small gap with Corrective RAG on CRAG standard questions is expected because EvidentialRAG is not optimized only for extractive answer selection. Its design objective is to preserve answer quality while improving reliability when evidence is ambiguous or contradictory. The ConflictQA standard scores show that adding uncertainty routing does not prevent the generator from answering when evidence is sufficiently coherent. 
+
+5.2. Conflict resolution and hallucination mitigation 
+
+The CRAG ambiguous subset directly tests the setting targeted by the proposed method. On this subset, retrieved evidence is intentionally unreli-able or contradictory. Naive RAG therefore produces unsupported factual commitments frequently, while Self-RAG and Corrective RAG reduce but do not eliminate this behavior. The detailed results in Table 4 show that Evi-dentialRAG achieves the strongest conflict behavior, reducing hallucination to 34.8% and increasing conflict resolution to 51.2%. 
+
+Table 4: Conflict-resolution performance on the CRAG ambiguous subset. Values are mean ± standard deviation over three seeds. The two headline EvidentialRAG conflict metrics are human-calibrated using the audit offsets in Table 6; the asterisk indicates a paired bootstrap test against Corrective RAG.                                                  
+
+> Model Halluc. (%) Conflict res. (%) Factuality F1 Abstention (%) Naive RAG 68.4 ±1.1 12.1 ±1.2 21.3 ±0.8 5.2 ±0.5 Self-RAG 52.1 ±0.9 28.4 ±1.4 34.2 ±0.7 18.4 ±1.1 Corrective RAG 45.3 ±0.8 35.2 ±1.2 38.5 ±0.9 25.1 ±1.3
+> EvidentialRAG 34.8 ±1.2 ∗∗∗ 51.2 ±1.5 ∗∗∗ 47.1 ±0.8 ∗∗∗ 39.2 ±1.1 ∗∗∗
+> ∗∗∗
+
+p < 0.001 under paired bootstrap testing against Corrective RAG. 
+
+The improvement is not merely an artifact of refusing more often. Factu-ality F1 also increases from 38.5 for Corrective RAG to 47.1 for Evidential-RAG , which indicates that the model is more selective about when to answer and when to expose disagreement. In practical information-access terms, the system is not simply becoming more conservative; it is using uncertainty to separate supported answers from unresolved conflicts. Figure 5 visualizes the same pattern by contrasting hallucination and conflict resolution across systems. 23 Hallucination rate, lower is better Conflict resolution rate, higher is better         
+
+> Naive RAG 68.4% 12.1%
+> Self-RAG 52.1% 28.4%
+> Corrective RAG 45.3% 35.2%
+> EvidentialRAG 34.8% 51.2%
+
+Figure 5: CRAG ambiguous conflict outcomes. The left panel shows hallucination reduction, while the right panel shows explicit conflict-resolution behavior. Values correspond to Table 4. 
+
+5.3. Calibration and abstention behavior 
+
+Table 5 shows that the fused evidence mass is better aligned with em-pirical correctness than the confidence signals produced by the baselines. 
+
+EvidentialRAG obtains the lowest ECE at 0.122 and the strongest refusal F1 at 71.5. This pattern is important because a conflict-aware RAG system should not only detect contradictions; it should also abstain selectively when the evidence state warrants non-definitive behavior. 
+
+Table 5: Calibration and abstention behavior. Values are mean ± standard deviation over three seeds. ECE uses 15 equal-width confidence bins. 
+
+Model ECE Refusal precision (%) Refusal recall (%) Refusal F1 Naive RAG 0.245 ± 0.012 15.2 ± 1.5 8.4 ± 1.1 10.8 ± 1.2 Self-RAG 0.182 ± 0.010 42.1 ± 1.8 35.6 ± 1.6 38.6 ± 1.4 Corrective RAG 0.154 ± 0.009 55.3 ± 1.6 48.2 ± 1.5 51.5 ± 1.3 
+
+EvidentialRAG 0.122 ± 0.008 ∗∗ 72.5 ± 1.4 ∗∗∗ 68.3 ± 1.5 ∗∗∗ 71.5 ± 1.4 ∗∗∗ 
+
+> ∗∗
+
+p < 0.01 and ∗∗∗ p < 0.001 under paired bootstrap testing against Corrective RAG. 
+
+5.4. Human audit and judge reliability 
+
+The automated LLM judge is used for full-benchmark scoring across seeds, while the stratified human audit described in Section 4.5 is used to estimate the direction and magnitude of judgment bias. Agreement is consistently strong across the four annotation dimensions. The lowest agreement appears for contradiction, which is expected because contradiction judgments sometimes depend on whether a response is interpreted as a direct assertion or as a 24 conditional statement. The adjudicated human labels track the LLM-judge estimates closely, with metric shifts less than or equal to two percentage points for the two headline conflict metrics. For the CRAG ambiguous headline metrics, Table 4 reports the human-calibrated estimate obtained by applying the fixed audit offset to the seed-level full-benchmark judge estimates; the standard deviation in that table is therefore the seed-level variation of the full-benchmark judge runs, not repeated sampling of the 200-item audit. Table 6 provides the underlying audit reliability and judge-human agreement figures. 
+
+Table 6: Human-audit reliability and LLM-judge agreement. Cohen’s κ measures pairwise agreement between the two initial annotators before adjudication. The two calibration rows show how the human audit adjusts the full-benchmark judge estimates for the CRAG ambiguous headline metrics.            
+
+> Dimension or metric Cohen’s
+> κ
+> Agreement or calibrated value Factual support 0.82 91.2% Contradiction 0.79 88.5% Conflict recognition 0.85 93.1% Refusal appropriateness 0.81 89.4% Hallucination calibration 33.1% judge 34.8% calibrated Conflict-resolution calibration 52.5% judge 51.2% calibrated
+
+These results support the use of the LLM judge as a scalable approxima-tion for full-benchmark scoring while still showing why human auditing is necessary. The judge slightly underestimates hallucination and slightly over-estimates conflict resolution. The calibrated values remain strongly favorable to EvidentialRAG and are used when summarizing the headline CRAG ambiguous results. 
+
+5.5. ConflictQA conflict-specific behavior 
+
+ConflictQA is most informative when evaluated on instances that explicitly create memory-versus-evidence conflict. We selected this subset using the benchmark construction metadata: instances are included when the supplied external evidence is intended to contradict the model’s elicited parametric-memory answer. The processed conflict-specific split contains 1,000 instances after schema validation and answer-normalization filtering, with no additional 25 manual filtering. In this subset, EvidentialRAG produces the lowest hallucination rate and the strongest refusal F1. Table 7 gives the conflict-specific breakdown, suggesting that the evidential layer helps the generator avoid over-relying on parametric memory when retrieved evidence supports a different answer or when the evidence itself is incompatible.  
+
+> Table 7: ConflictQA performance under memory-versus-evidence conflict. Values are mean
+> ±standard deviation over three seeds.
+
+Model Halluc. (%) Conflict res. (%) Refusal F1 Naive RAG 72.1 ± 1.2 8.4 ± 1.1 12.2 ± 1.4 Self-RAG 58.4 ± 1.0 22.1 ± 1.5 31.5 ± 1.6 Corrective RAG 49.2 ± 0.9 31.5 ± 1.4 45.8 ± 1.5 
+
+EvidentialRAG 38.5 ± 1.4 ∗∗∗ 54.2 ± 1.6 ∗∗∗ 74.2 ± 1.2 ∗∗∗   
+
+> ∗∗∗ p < 0.001 under paired bootstrap testing against Corrective RAG.
+
+5.6. MuSiQue multi-hop sanity check 
+
+A conflict-sensitive system can fail in the opposite direction by over-abstaining on answerable questions. MuSiQue is therefore used as a sanity check for ordinary multi-hop synthesis. The results in Table 8 show that 
+
+EvidentialRAG remains close to Corrective RAG on EM and F1 while producing a lower abstention rate. This supports the claim that the routing policy does not suppress valid compositional answers when retrieved evidence is coherent.   
+
+> Table 8: MuSiQue multi-hop sanity-check results. Values are mean ±standard deviation over three seeds.
+
+Model EM F1 Abstention rate (%) Naive RAG 48.2 ± 0.6 55.4 ± 0.5 2.1 ± 0.4 Self-RAG 52.1 ± 0.5 59.2 ± 0.4 8.4 ± 0.8 Corrective RAG 54.5 ± 0.4 61.8 ± 0.5 12.5 ± 1.1 
+
+EvidentialRAG 53.8 ± 0.5 60.9 ± 0.4 5.2 ± 0.6 
+
+26 5.7. Sensitivity analysis 
+
+The fusion rule is designed to make conflict transfer tunable. The λ sweep in Table 9 shows that normalized Dempster fusion and no-transfer variants leave too much conflict outside the uncertainty channel, which increases hallucination. Full transfer, equivalent to Yager-style conflict handling, also performs strongly. The point estimates favor λ = 0 .6, but the difference between λ = 0 .6 and λ = 1 .0 is within roughly one standard deviation. We therefore interpret the default value as a validation-selected operating point that is comparable to Yager-style transfer rather than as a universally optimal setting.    
+
+> Table 9: Effect of evidence-combination rule and conflict-transfer strength on CRAG ambiguous performance. Values are mean ±standard deviation over three seeds.
+
+Rule or λ value Halluc. (%) Conflict res. (%) ECE Normalized Dempster 45.6 ± 1.3 31.2 ± 1.4 0.195 ± 0.012 
+
+λ = 0 .0 42.1 ± 1.2 38.4 ± 1.3 0.182 ± 0.010 
+
+λ = 0 .3 37.5 ± 1.1 46.2 ± 1.4 0.145 ± 0.009 
+
+λ = 0 .6 default 34.8 ± 1.2 51.2 ± 1.5 0.122 ± 0.008 
+
+λ = 1 .0 Yager-style transfer 35.2 ± 1.2 49.8 ± 1.4 0.128 ± 0.009 
+
+The routing-threshold grid in Table 10 shows the expected safety-utility trade-off. Lower thresholds trigger more abstentions and conflict-aware an-swers, while higher thresholds reduce abstention but can miss conflict. The default pair (0 .35 , 0.65) gives the best conflict-resolution rate while keeping abstention below the most conservative setting. 
+
+> Table 10: Effect of routing thresholds on CRAG ambiguous performance.
+
+Thresholds (τ1, τ 2) Halluc. (%) Conflict res. (%) Abstention (%) 
+
+(0 .20 , 0.50) 38.2 45.1 48.5 
+
+(0 .35 , 0.65) default 34.8 51.2 39.2 
+
+(0 .50 , 0.80) 32.1 48.4 28.4 
+
+27 5.8. Computational efficiency 
+
+The efficiency analysis in Table 11 distinguishes logical decisions from ex-ecuted model passes. EvidentialRAG requires k logical evaluator decisions plus one generator decision, but the evaluator decisions are executed as one batched evaluator pass. For k = 5 , this means six logical LLM decisions but two batched LLM passes. This accounting explains how per-chunk evidence extraction can be used without requiring six sequential model calls. 
+
+Table 11: Computational efficiency and LLM-call accounting. Logical decisions count per-chunk evaluator decisions, while batched passes count executed model passes under the vLLM batching configuration.                       
+
+> Model Latency (s/query) GPU memory (GB) Logical LLM decisions Batched LLM passes Relative cost Naive RAG 1.2 12.4 111.0 ×
+> Self-RAG 2.8 16.2 332.3 ×
+> Corrective RAG 3.5 18.5 442.9 ×
+> EvidentialRAG 2.1 14.1 k+ 1 = 6 21.7 ×
+
+The cost remains higher than Naive RAG, but the overhead is moderate relative to the reliability gains on the conflict subsets. The measured evaluator latency is 0.42 seconds per batched pass at k = 5 , which is the main source of additional inference time. 
+
+5.9. Ablation study and evaluator reliability 
+
+The ablation study in Table 12 isolates the contribution of each compo-nent. Removing conflict-preserving fusion increases hallucination and worsens calibration, showing that simple evidence averaging is insufficient under dis-agreement. Removing dynamic routing harms conflict resolution because the generator is forced to answer even when evidence is uncertain. Removing the evidential evaluator collapses the system to the Naive RAG configuration in this matched evaluation setting because no evidence masses or routing decisions remain. 28 Table 12: Ablation analysis on the CRAG ambiguous subset. Values are mean ± standard deviation over three seeds. 
+
+Variant Halluc. (%) Conflict res. (%) ECE Full EvidentialRAG 34.8 ± 1.2 51.2 ± 1.5 0.122 ±
+
+0.008 
+
+Without conflict-preserving fusion 47.2 ± 1.4 36.5 ± 1.2 0.178 ± 0.011 Without dynamic routing 54.1 ± 1.6 29.8 ± 1.4 0.205 ± 0.012 Without evidential evaluator 68.4 ± 1.8 12.1 ± 1.1 0.245 ± 0.015 
+
+Because the evaluator is central to the framework, we also measure its reliability on a held-out set of 100 manually annotated chunks. Table 13 shows that the structured-output constraint is reliable, and the evidence-score correlation suggests that evaluator scores track human evidence ranking closely enough for downstream fusion. 
+
+> Table 13: Evaluator validity and claim-extraction fidelity on a held-out set of 100 manually annotated chunks.
+
+Metric Score or rate JSON schema validity rate 98.2% Schema repair rate 1.8% Claim extraction fidelity against gold human annotations 91.4% Evidence score correlation with human evidence ranking Pearson r = 0 .84 
+
+Average evaluator latency 0.42 s per batched pass at k = 5 
+
+6. Discussion 
+
+6.1. Implications for expert and intelligent retrieval systems 
+
+The results support the view that RAG should be treated as an expert and intelligent information-access system rather than only a prompt-engineering pattern. In the proposed framework, retrieved passages are pieces of evidence with provenance, support, uncertainty, and conflict relations. This framing is 29 aligned with long-standing concerns in intelligent decision support, informa-tion retrieval, knowledge management, source credibility, data quality, and uncertainty-aware information access. For Expert Systems with Applications readers, the main value of EvidentialRAG is that it provides a practical, modular mechanism for making source disagreement visible to the system and ultimately to the user. This matters because LLMs increasingly operate as interfaces to digital libraries, institutional repositories, enterprise documents, databases, knowl-edge graphs, and web search. In these environments, a system that always produces a single fluent answer may be less useful than a system that can explain why the answer is uncertain. EvidentialRAG operationalizes this principle by connecting evidence quality to generation behavior. 
+
+6.2. Why conflict-preserving fusion is necessary 
+
+The corrected formalism avoids conflating an unknown answer with Dempster-Shafer ignorance. This distinction is not cosmetic. If an unknown symbol is treated as a singleton, the system may interpret irrelevant evidence as positive evidence for an answer category. If ignorance is treated as mass on the full frame, irrelevant evidence properly increases vacuity. The revised fusion operator also avoids double-counting conflict. Conflict transferred to 
+
+m(Θ q) already contributes to global uncertainty, so average pairwise conflict is used only as a diagnostic statistic. The transfer parameter λ controls the safety-efficiency trade-off. Larger values retain more conflict as uncertainty, which encourages abstention or conflict-aware answers. Smaller values allow more decisive answers when non-conflicting support remains strong. In safety-critical domains, conservative thresholds and larger transfer values are appropriate. In exploratory search or low-risk settings, lower values may improve answer coverage. 
+
+6.3. Practical deployment considerations 
+
+EvidentialRAG is modular. A production system can replace the evaluator, retriever, reranker, generator, or threshold policy without changing the entire architecture. For domains with structured identifiers, candidate claims can be aligned through database keys, ontology identifiers, or knowledge graph entities. For open web search, claim alignment requires stronger semantic normalization and source-quality modeling. For high-stakes use, thresholds should be tuned toward caution and human handoff. 30 The main computational cost is the evaluator. Batching reduces this cost, but the logical number of evaluator decisions still scales with top-k.Future systems can reduce overhead by distilling the evaluator into a smaller classifier, computing preliminary contradiction signals in embedding space, or triggering full evidential evaluation only when retrieval diversity suggests possible conflict. 
+
+6.4. Limitations and threats to validity 
+
+The first limitation is evaluator reliability. The held-out evaluator study shows high JSON validity and strong claim-extraction fidelity, but the evalu-ator is still prompt-based and may behave differently in specialized domains, low-resource languages, or adversarial retrieval settings. Schema validation and high-uncertainty fallback reduce the risk, but domain-specific deployments should recalibrate evidence scores with local annotation data. The second limitation is judge-based evaluation. Hallucination rate and CRR depend on judgments about support, contradiction, and appropriate abstention. The 200-response stratified human audit reduces this risk and shows strong agreement with the LLM judge, but it does not eliminate measurement uncertainty because the audited sample is smaller than the full benchmark. Future work can expand the audit size and include domain experts for high-stakes application areas. The third limitation is benchmark representativeness. CRAG, ConflictQA, and MuSiQue cover important aspects of RAG, conflict, and multi-hop rea-soning, but real-world information conflict may involve authority, publication date, jurisdiction, methodology, and evidence hierarchy. Future work can integrate source credibility and provenance into the mass function rather than treating all retrieved chunks as equally reliable observations. The fourth limitation is empirical variability. RAG outcomes are sensitive to retrieval configuration, decoding parameters, prompt formatting, and evaluator behavior. We report mean and standard deviation over three seeds and use paired bootstrap tests for the main comparisons, but broader deployment studies should include more retrievers, corpora, and domain-specific retrieval distributions. 
+
+7. Conclusion 
+
+This paper presented EvidentialRAG , an evidential framework for quantifying and mitigating information conflict in multi-source retrieval-31 augmented generation. Instead of treating retrieved chunks as deterministic context, EvidentialRAG maps each chunk to Dirichlet evidence, aggregates evidence with a conflict-preserving Dempster-Shafer fusion operator, and routes generation according to global epistemic uncertainty. The corrected formalism represents ignorance as mass on the full frame rather than as an additional singleton class, which ensures that masses sum to one in all cases, including irrelevant or insufficient chunks. Experiments on CRAG, ConflictQA, and MuSiQue show that the frame-work remains competitive on standard question-answering performance while improving behavior under contradictory evidence. On the CRAG ambiguous subset, EvidentialRAG reduces hallucination to 34.8%, improves conflict resolution to 51.2%, and achieves the best calibration among the evaluated systems. The broader implication is that trustworthy foundation-model information systems require explicit mechanisms for representing what is supported, what is uncertain, and where sources disagree. Evidential-RAG provides one practical step in that direction for retrieval-augmented information access. 
+
+Declaration of competing interest 
+
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper. 
+
+Funding 
+
+This research did not receive any specific grant from funding agencies in the public, commercial, or not-for-profit sectors. 
+
+Declaration of generative AI and AI-assisted technologies in the manuscript preparation process 
+
+During the preparation of this manuscript, the authors used AI-assisted writing tools for language editing, organization, and readability improvement. After using these tools, the authors reviewed, verified, and edited the content as needed and take full responsibility for the content of the manuscript. 32 Data availability 
+
+Public benchmark datasets are available from the original sources cited in the manuscript. Prompt templates, configuration settings, split-construction rules, aggregate result tables, evaluation scripts, and the anonymized 200-response human-audit labels are available from the corresponding author upon reasonable request, subject to the licenses of the underlying benchmark datasets. 
+
+Appendix A. Reproducibility details 
+
+This appendix summarizes the configuration used for the reported experi-ments. These parameters are also included in the anonymized supplementary material for replication. Table A.14 lists the implementation settings needed to reproduce the reported runs.                    
+
+> Table A.14: Reproducibility configuration for the reported experiments.
+> Parameter Reported setting Top-kretrieved chunks 5Evaluator model Llama-3-8B-Instruct Generator model Llama-3-70B-Instruct Retriever model bge-large-en-v1.5 Reranker model bge-reranker-v2-m3 Fusion transfer parameter λ0.6 Routing thresholds τ1= 0 .35 ,τ2= 0 .65
+> ECE bins 15 equal-width bins Serving stack vLLM v0.4.0 with batched evaluator execution Random seeds {42 ,123 ,999 }
+> Significance testing Paired bootstrap against Corrective RAG on matched instances
+
+Appendix B. Prompt template contract 
+
+This appendix describes the functional contract of the evaluator and generator prompts rather than an opaque prompt transcript. The goal is to make the evaluation reproducible while avoiding benchmark-specific leakage. 33 The production prompt uses the same fields and output schema shown in Figure B.6. It does not request hidden reasoning; it asks for concise evidence rationales and machine-checkable labels.    
+
+> Inputs
+> query q
+> retrieved chunk ci
+> candidate claims Aq
+> Evaluator constraints
+> normalize values score only visible evidence return valid JSON no hidden reasoning
+> JSON output
+> normalized_claim stance supporting_span evidence_scores brief rationale
+> direct-answer instruction
+> conflict-aware instruction
+> abstention instruction
+
+Figure B.6: Prompt-contract structure for evidence extraction and routing. The figure shows the information passed to the evaluator, the safety constraints placed on the output, and the three generator instruction families selected by uncertainty routing. 
+
+The evaluator prompt contains five required parts: task role, input fields, evidence-scoring rules, output schema, and failure handling. The task role states that the model is an evidence evaluator for retrieval-augmented question answering. The input fields contain the user query, one retrieved chunk, and the current candidate-claim inventory. The evidence-scoring rules require the evaluator to assign non-negative singleton evidence only to claims supported by the visible chunk. If a chunk is irrelevant, incomplete, or merely topically related, all singleton evidence scores are set close to zero so that the fusion module receives ignorance rather than false support. The output schema requires valid JSON with the fields shown in Figure B.6. The failure-handling rule states that invalid or unrecoverable outputs are treated as high-uncertainty evidence. The generator prompt is route-specific. In the direct route, it asks the generator to answer using the highest-mass claim and to avoid unsupported details. In the conflict-aware route, it asks the generator to identify the competing claims and explain that the retrieved sources disagree. In the abstention route, it asks the generator to avoid a definitive answer and state what additional evidence would be needed. These prompts are intentionally procedural: they constrain how evidence is communicated, but they do not supply answer content beyond the retrieved chunks and fused evidence metadata. 34 References 
+
+Asai, A., Wu, Z., Wang, Y., Sil, A., Hajishirzi, H., 2024. Self-rag: Learning to retrieve, generate, and critique through self-reflection, in: The Twelfth International Conference on Learning Representations. URL: https:// openreview.net/forum?id=hSyW5go0v8 .Borgeaud, S., Mensch, A., Hoffmann, J., Cai, T., Rutherford, E., Millican, K., van den Driessche, G.B., Lespiau, J.B., Damoc, B., Clark, A., de Las Casas, D., Guy, A., Menick, J., Ring, R., Hennigan, T., Huang, S., Maggiore, L., Jones, C., Cassirer, A., Brock, A., Paganini, M., Irving, G., Vinyals, O., Osindero, S., Simonyan, K., Rae, J.W., Elsen, E., Sifre, L., 2022. Improving language models by retrieving from trillions of tokens, in: Proceedings of the 39th International Conference on Machine Learning, pp. 2206–2240. URL: https://proceedings.mlr.press/v162/borgeaud22a.html .Brown, T.B., Mann, B., Ryder, N., Subbiah, M., Kaplan, J., Dhariwal, P., Neelakantan, A., Shyam, P., Sastry, G., Askell, A., Agarwal, S., Herbert-Voss, A., Krueger, G., Henighan, T., Child, R., Ramesh, A., Ziegler, D.M., Wu, J., Winter, C., Hesse, C., Chen, M., Sigler, E., Litwin, M., Gray, S., Chess, B., Clark, J., Berner, C., McCandlish, S., Rad-ford, A., Sutskever, I., Amodei, D., 2020. Language models are few-shot learners, in: Advances in Neural Information Processing Systems, pp. 1877–1901. URL: https://proceedings.neurips.cc/paper/2020/hash/ 1457c0d6bfcb4967418bfb8ac142f64a-Abstract.html .Chen, J., Xiao, S., Zhang, P., Luo, K., Lian, D., Liu, Z., 2024. M3-embedding: Multi-linguality, multi-functionality, multi-granularity text embeddings through self-knowledge distillation, in: Findings of the As-sociation for Computational Linguistics: ACL 2024, Association for Computational Linguistics, Bangkok, Thailand. pp. 2318–2335. URL: 
+
+https://aclanthology.org/2024.findings-acl.137/ , doi: 10.18653/ v1/2024.findings-acl.137 .Cohen, J., 1960. A coefficient of agreement for nominal scales. Educational and Psychological Measurement 20, 37–46. URL: https://doi.org/10. 1177/001316446002000104 , doi: 10.1177/001316446002000104 .Dempster, A.P., 1967. Upper and lower probabilities induced by a multivalued 35 mapping. The Annals of Mathematical Statistics 38, 325–339. URL: https: //doi.org/10.1214/aoms/1177698950 , doi: 10.1214/aoms/1177698950 .Devlin, J., Chang, M.W., Lee, K., Toutanova, K., 2019. Bert: Pre-training of deep bidirectional transformers for language understanding, in: Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics, pp. 4171–4186. URL: https://aclanthology. org/N19-1423/ , doi: 10.18653/v1/N19-1423 .Efron, B., 1979. Bootstrap methods: Another look at the jackknife. The Annals of Statistics 7, 1–26. URL: https://doi.org/10.1214/aos/ 1176344552 , doi: 10.1214/aos/1176344552 .Friel, R., Belyi, M., Sanyal, A., 2024. Ragbench: Explainable benchmark for retrieval-augmented generation systems. arXiv preprint arXiv:2407.11005 URL: https://arxiv.org/abs/2407.11005 , doi: 10.48550/arXiv.2407. 11005 .Gal, Y., Ghahramani, Z., 2016. Dropout as a bayesian approximation: Representing model uncertainty in deep learning, in: Proceedings of the 33rd International Conference on Machine Learning, pp. 1050–1059. URL: 
+
+https://proceedings.mlr.press/v48/gal16.html .Gao, T., Yen, H., Yu, J., Chen, D., 2023. Enabling large language mod-els to generate text with citations, in: Proceedings of the 2023 Con-ference on Empirical Methods in Natural Language Processing, Associ-ation for Computational Linguistics, Singapore. pp. 6465–6488. URL: 
+
+https://aclanthology.org/2023.emnlp-main.398/ , doi: 10.18653/v1/ 2023.emnlp-main.398 .Gao, Y., Xiong, Y., Gao, X., Jia, K., Pan, J., Bi, Y., Dai, Y., Sun, J., Wang, M., Wang, H., 2024. Retrieval-augmented generation for large language models: A survey. arXiv preprint arXiv:2312.10997 URL: https: //arxiv.org/abs/2312.10997 , doi: 10.48550/arXiv.2312.10997 .Gneiting, T., Raftery, A.E., 2007. Strictly proper scoring rules, predic-tion, and estimation. Journal of the American Statistical Association 102, 359–378. URL: https://doi.org/10.1198/016214506000001437 ,doi: 10.1198/016214506000001437 .36 Grattafiori, A., et al., 2024. The llama 3 herd of models. arXiv preprint arXiv:2407.21783 URL: https://arxiv.org/abs/2407.21783 ,doi: 10.48550/arXiv.2407.21783 .Guo, C., Pleiss, G., Sun, Y., Weinberger, K.Q., 2017. On calibration of modern neural networks, in: Proceedings of the 34th International Conference on Machine Learning, pp. 1321–1330. URL: https://proceedings.mlr. press/v70/guo17a.html .Guu, K., Lee, K., Tung, Z., Pasupat, P., Chang, M., 2020. Retrieval augmented language model pre-training, in: Proceedings of the 37th International Conference on Machine Learning, PMLR. pp. 3929–3938. URL: https: //proceedings.mlr.press/v119/guu20a.html .Izacard, G., Grave, E., 2021. Leveraging passage retrieval with generative models for open domain question answering, in: Proceedings of the 16th Conference of the European Chapter of the Association for Computa-tional Linguistics, pp. 874–880. URL: https://aclanthology.org/2021. eacl-main.74/ , doi: 10.18653/v1/2021.eacl-main.74 .Ji, Z., Lee, N., Frieske, R., Yu, T., Su, D., Xu, Y., Ishii, E., Bang, Y., Chen, D., Dai, W., Chan, H.S., Madotto, A., Fung, P., 2023. Survey of hallucination in natural language generation. ACM Computing Surveys 55, 1–38. URL: https://doi.org/10.1145/3571730 , doi: 10.1145/3571730 .Jiang, A.Q., Sablayrolles, A., Mensch, A., Bamford, C., Chaplot, D.S., de Las Casas, D., Bressand, F., Lengyel, G., Lample, G., Saulnier, L., Lavaud, L.R., Lachaux, M.A., Stock, P., Le Scao, T., Lavril, T., Wang, T., Lacroix, T., El Sayed, W., 2023. Mistral 7b. arXiv preprint arXiv:2310.06825 URL: https://arxiv.org/abs/2310.06825 , doi: 10.48550/arXiv.2310. 06825 .Jøsang, A., 2016. Subjective Logic: A Formalism for Reasoning Under Uncer-tainty. Springer. URL: https://doi.org/10.1007/978-3-319-42337-1 ,doi: 10.1007/978-3-319-42337-1 .Karpukhin, V., Oguz, B., Min, S., Lewis, P., Wu, L., Edunov, S., Chen, D., Yih, W.t., 2020. Dense passage retrieval for open-domain question answer-ing, in: Proceedings of the 2020 Conference on Empirical Methods in Nat-ural Language Processing, pp. 6769–6781. URL: https://aclanthology. org/2020.emnlp-main.550/ , doi: 10.18653/v1/2020.emnlp-main.550 .37 Kendall, A., Gal, Y., 2017. What uncertainties do we need in bayesian deep learning for computer vision?, in: Advances in Neural Information Processing Systems. URL: https://proceedings.neurips.cc/paper/ 2017/hash/2650d6089a6d640c5e85b2b88265dc2b-Abstract.html .Khattab, O., Zaharia, M., 2020. Colbert: Efficient and effective passage search via contextualized late interaction over bert, in: Proceedings of the 43rd International ACM SIGIR Conference on Research and Development in Information Retrieval, pp. 39–48. URL: https://doi.org/10.1145/ 3397271.3401075 , doi: 10.1145/3397271.3401075 .Kwiatkowski, T., Palomaki, J., Redfield, O., Collins, M., Parikh, A., Alberti, C., Epstein, D., Polosukhin, I., Devlin, J., Lee, K., Toutanova, K., Jones, L., Kelcey, M., Chang, M.W., Dai, A.M., Uszkoreit, J., Le, Q., Petrov, S., 2019. Natural questions: A benchmark for question answering research. Transac-tions of the Association for Computational Linguistics 7, 452–466. URL: 
+
+https://aclanthology.org/Q19-1026/ , doi: 10.1162/tacl_a_00276 .Kwon, W., Li, Z., Zhuang, S., Sheng, Y., Zheng, L., Yu, C.H., Gonza-lez, J.E., Zhang, H., Stoica, I., 2023. Efficient memory management for large language model serving with pagedattention, in: Proceedings of the ACM SIGOPS 29th Symposium on Operating Systems Princi-ples, pp. 611–626. URL: https://doi.org/10.1145/3600006.3613165 ,doi: 10.1145/3600006.3613165 .Lakshminarayanan, B., Pritzel, A., Blundell, C., 2017. Sim-ple and scalable predictive uncertainty estimation using deep en-sembles, in: Advances in Neural Information Processing Sys-tems. URL: https://proceedings.neurips.cc/paper/2017/hash/ 9ef2ed4b7fd2c810847ffa5fa85bce38-Abstract.html .Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal, N., K"uttler, H., Lewis, M., Yih, W.t., Rockt"aschel, T., Riedel, S., Kiela, D., 2020. Retrieval-augmented generation for knowledge-intensive nlp tasks, in: Advances in Neural Information Processing Systems, pp. 9459–9474. URL: https://proceedings.neurips.cc/paper/2020/hash/ 6b493230205f780e1bc26945df7481e5-Abstract.html .Lin, C.Y., 2004. Rouge: A package for automatic evaluation of sum-38 maries, in: Text Summarization Branches Out, pp. 74–81. URL: https: //aclanthology.org/W04-1013/ .Lin, S., Hilton, J., Evans, O., 2022. Truthfulqa: Measuring how mod-els mimic human falsehoods, in: Proceedings of the 60th Annual Meet-ing of the Association for Computational Linguistics, pp. 3214–3252. URL: https://aclanthology.org/2022.acl-long.229/ , doi: 10.18653/ v1/2022.acl-long.229 .Manakul, P., Liusie, A., Gales, M.J.F., 2023. Selfcheckgpt: Zero-resource black-box hallucination detection for generative large language models, in: Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing, pp. 9004–9017. URL: https://aclanthology.org/ 2023.emnlp-main.557/ , doi: 10.18653/v1/2023.emnlp-main.557 .Maynez, J., Narayan, S., Bohnet, B., McDonald, R., 2020. On faithfulness and factuality in abstractive summarization, in: Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics, pp. 1906–1919. URL: https://aclanthology.org/2020.acl-main.173/ , doi: 10.18653/ v1/2020.acl-main.173 .Min, S., Krishna, K., Lyu, X., Lewis, M., Yih, W.t., Koh, P.W., Iyyer, M., Zettlemoyer, L., Hajishirzi, H., 2023. Factscore: Fine-grained atomic evalu-ation of factual precision in long form text generation, in: Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing, pp. 12076–12100. URL: https://aclanthology.org/2023.emnlp-main. 741/ , doi: 10.18653/v1/2023.emnlp-main.741 .Niu, C., Wu, Y., Zhu, J., Xu, S., Shum, K., Zhong, R., Song, J., Zhang, T., 2024. RAGTruth: A hallucination corpus for developing trustworthy retrieval-augmented language models, in: Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), Association for Computational Linguistics, Bangkok, Thailand. pp. 10862–10878. URL: https://aclanthology.org/2024.acl-long.585/ ,doi: 10.18653/v1/2024.acl-long.585 .Nogueira, R., Cho, K., 2019. Passage re-ranking with bert. arXiv preprint arXiv:1901.04085 URL: https://arxiv.org/abs/1901.04085 ,doi: 10.48550/arXiv.1901.04085 .39 OpenAI, 2023. Gpt-4 technical report. arXiv preprint arXiv:2303.08774 URL: https://arxiv.org/abs/2303.08774 , doi: 10.48550/arXiv.2303. 08774 .Ovadia, Y., Fertig, E., Ren, J., Nado, Z., Sculley, D., Nowozin, S., Dillon, J.V., Lakshminarayanan, B., Snoek, J., 2019. Can you trust your model’s uncertainty? evaluating predictive uncertainty un-der dataset shift, in: Advances in Neural Information Processing Systems. URL: https://proceedings.neurips.cc/paper/2019/hash/ 8558cb408c1d76621371888657d2eb1d-Abstract.html .Rajpurkar, P., Zhang, J., Lopyrev, K., Liang, P., 2016. Squad: 100,000+ questions for machine comprehension of text, in: Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing, pp. 2383–2392. URL: https://aclanthology.org/D16-1264/ , doi: 10.18653/ v1/D16-1264 .Reimers, N., Gurevych, I., 2019. Sentence-bert: Sentence embeddings using siamese bert-networks, in: Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing, pp. 3982–3992. URL: https: //aclanthology.org/D19-1410/ , doi: 10.18653/v1/D19-1410 .Robertson, S., Zaragoza, H., 2009. The probabilistic relevance framework: Bm25 and beyond. Foundations and Trends in Information Retrieval 4, 1–174. URL: https://doi.org/10.1561/1500000019 , doi: 10.1561/ 1500000019 .Santhanam, K., Khattab, O., Saad-Falcon, J., Potts, C., Zaharia, M., 2022. Colbertv2: Effective and efficient retrieval via lightweight late interaction, in: Proceedings of the 2022 Conference of the North American Chapter of the Association for Computational Linguistics, pp. 3715–3734. URL: 
+
+https://aclanthology.org/2022.naacl-main.272/ , doi: 10.18653/v1/ 2022.naacl-main.272 .Sensoy, M., Kaplan, L., Kandemir, M., 2018. Evidential deep learning to quantify classification uncertainty, in: Advances in Neural Information Processing Systems. URL: https://proceedings.neurips.cc/paper/ 2018/hash/a981f2b708044d6fb4a71a1463242520-Abstract.html .40 Shafer, G., 1976. A Mathematical Theory of Evidence. Princeton Uni-versity Press. URL: https://press.princeton.edu/books/hardcover/ 9780691081755/a-mathematical-theory-of-evidence .Smets, P., 1990. The combination of evidence in the transferable belief model. IEEE Transactions on Pattern Analysis and Machine Intelligence 12, 447– 458. URL: https://doi.org/10.1109/34.55104 , doi: 10.1109/34.55104 .Su, Z., Zhang, J., Qu, X., Zhu, T., Li, Y., Sun, J., Li, J., Zhang, M., Cheng, Y., 2024. CONFLICTBANK: A benchmark for evaluating knowledge conflicts in large language models, in: Advances in Neural Information Processing Sys-tems. URL: https://proceedings.neurips.cc/paper_files/paper/ 2024/file/baf4b960d118f838ad0b2c08247a9ebe-Paper-Datasets_ and_Benchmarks_Track.pdf .Thorne, J., Vlachos, A., Christodoulopoulos, C., Mittal, A., 2018. FEVER: a large-scale dataset for fact extraction and VERification, in: Proceedings of the 2018 Conference of the North American Chapter of the Association for Computational Linguistics, pp. 809–819. URL: https://aclanthology. org/N18-1074/ , doi: 10.18653/v1/N18-1074 .Touvron, H., Lavril, T., Izacard, G., Martinet, X., Lachaux, M.A., Lacroix, T., Rozière, B., Goyal, N., Hambro, E., Azhar, F., Rodriguez, A., Joulin, A., Grave, E., Lample, G., 2023. Llama: Open and efficient foundation language models. arXiv preprint arXiv:2302.13971 URL: https://arxiv. org/abs/2302.13971 , doi: 10.48550/arXiv.2302.13971 .Trivedi, H., Balasubramanian, N., Khot, T., Sabharwal, A., 2022. Musique: Multihop questions via single-hop question composition. Transactions of the Association for Computational Linguistics 10, 539–554. URL: https: //aclanthology.org/2022.tacl-1.31/ , doi: 10.1162/tacl_a_00475 .Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.N., Kaiser, L., Polosukhin, I., 2017. Attention is all you need, in: Advances in Neural Information Processing Sys-tems. URL: https://proceedings.neurips.cc/paper/2017/hash/ 3f5ee243547dee91fbd053c1c4a845aa-Abstract.html .Wolf, T., Debut, L., Sanh, V., Chaumond, J., Delangue, C., Moi, A., Cistac, P., Rault, T., Louf, R., Funtowicz, M., Davison, J., Shleifer, S., von Platen, 41 P., Ma, C., Jernite, Y., Plu, J., Xu, C., Le Scao, T., Gugger, S., Drame, M., Lhoest, Q., Rush, A.M., 2020. Transformers: State-of-the-art natural language processing, in: Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing: System Demonstrations, pp. 38–45. URL: https://aclanthology.org/2020.emnlp-demos.6/ , doi: 10. 18653/v1/2020.emnlp-demos.6 .Xie, J., Zhang, K., Chen, J., Lou, R., Su, Y., 2024. Adaptive chameleon or stubborn sloth: Revealing the behavior of large language models in knowl-edge conflicts, in: The Twelfth International Conference on Learning Rep-resentations. URL: https://openreview.net/forum?id=auKAUJZMO6 .Xu, R., Qi, Z., Guo, Z., Wang, C., Wang, H., Zhang, Y., Xu, W., 2024. Knowledge conflicts for llms: A survey, in: Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing, pp. 8541–8565. URL: https://aclanthology.org/2024.emnlp-main.486/ ,doi: 10.18653/v1/2024.emnlp-main.486 .Yager, R.R., 1987. On the dempster-shafer framework and new combination rules. Information Sciences 41, 93–137. URL: https://doi.org/10.1016/ 0020-0255(87)90007-7 , doi: 10.1016/0020-0255(87)90007-7 .Yan, S.Q., Gu, J.C., Zhu, Y., Ling, Z.H., 2024. Corrective retrieval augmented generation. arXiv preprint arXiv:2401.15884 URL: https://arxiv.org/ abs/2401.15884 , doi: 10.48550/arXiv.2401.15884 .Yang, X., Sun, K., Xin, H., Sun, Y., Bhalla, N., Chen, X., Choudhary, S., Gui, R.D., Jiang, Z.W., Jiang, Z., Kong, L., Moran, B., Wang, J., Xu, Y.E., Yan, A., Yang, C., Yuan, E., Zha, H., Tang, N., Chen, L., Scheffer, N., Liu, Y., Shah, N., Wanga, R., Kumar, A., Yih, W.t., Dong, X.L., 2024. CRAG – comprehensive RAG benchmark. arXiv preprint arXiv:2406.04744 URL: https://arxiv.org/abs/2406.04744 , doi: 10.48550/arXiv.2406. 04744 .Yang, Z., Qi, P., Zhang, S., Bengio, Y., Cohen, W.W., Salakhutdinov, R., Manning, C.D., 2018. Hotpotqa: A dataset for diverse, explainable multi-hop question answering, in: Proceedings of the 2018 Conference on Em-pirical Methods in Natural Language Processing, pp. 2369–2380. URL: 
+
+https://aclanthology.org/D18-1259/ , doi: 10.18653/v1/D18-1259 .42 Zhang, T., Kishore, V., Wu, F., Weinberger, K.Q., Artzi, Y., 2020. Bertscore: Evaluating text generation with bert, in: International Conference on Learning Representations. URL: https://openreview.net/forum?id= SkeHuCVFDr .Zhao, T., Chen, J., Zhang, S., Zhu, H., Lin, Q., Liu, J., 2026. Exploring knowl-edge conflicts for faithful llm reasoning: Benchmark and method. arXiv preprint arXiv:2604.11209 URL: https://arxiv.org/abs/2604.11209 ,doi: 10.48550/arXiv.2604.11209 .43
