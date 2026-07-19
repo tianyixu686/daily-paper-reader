@@ -6,74 +6,62 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-18
-- 运行时间：2026-07-18 21:05:28 UTC
+- 最新运行日期：2026-07-19
+- 运行时间：2026-07-19 21:27:04 UTC
 - 运行状态：成功
-- 本次总论文数：18
-- 精读区：6
+- 本次总论文数：14
+- 精读区：2
 - 速读区：12
 
 ### 今日简报（AI）
-今天精选18篇论文，2篇高分精读聚焦多模态文档问答与推理模型适应。最值得关注《Stop Thinking, Start Looking》以9.0分提出免推理对齐方法，以及指令微调与模型合并用于推理模型适应。建议优先阅读这两篇精读论文，速读可留意SVD-RAG的树状检索增强思路。
-- 详情：[/202607/18/README](/202607/18/README)
+今日14篇前沿研究精读2篇，聚焦多模态大模型扩展与LLM智能体社会模拟两大高分之选。最值得关注：虚构模态合成法让通用多模态模型适配任意视觉输入，以及基于LLM的联盟形成模拟审计框架。下一步建议优先精读这两篇8分论文，速读中量化LLM的静默失败分类学也颇具启发性。
+- 详情：[/202607/19/README](/202607/19/README)
 
 ### 精读区论文标签
-1. [Stop Thinking, Start Looking: Efficient Post-Training for Multimodal Document Question Answering via Reasoning-Free Alignment](/202607/18/2607.14682v1-stop-thinking-start-looking-efficient-post-training-for-multimodal-document-question-answering-via-reasoning-free-alignment)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：使用GRPO进行多模态文档问答的高效后训练，无需推理标记
-2. [Leveraging Instruction Tuning and Merging for Reasoning Model Adaptation](/202607/18/2607.14895v1-leveraging-instruction-tuning-and-merging-for-reasoning-model-adaptation)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：指令微调和模型融合用于推理语言模型
-3. [MC-RAG System: A Structure-Driven RAG System for Multi-Constraint Queries](/202607/18/2607.10151v1-mc-rag-system-a-structure-driven-rag-system-for-multi-constraint-queries)  
-   标签：评分：8.0/10、query:mr
-   evidence：知识图谱子图匹配处理多约束查询
-4. [Data-Efficient Adaptation of LLMs via Attention Head Reweighting](/202607/18/2607.13425v1-data-efficient-adaptation-of-llms-via-attention-head-reweighting)  
+1. [Generalize LMMs to Versatile Visual Modalities via Fabricated Modality Synthesis](/202607/19/2607.10308v1-generalize-lmms-to-versatile-visual-modalities-via-fabricated-modality-synthesis)  
    标签：评分：8.0/10、query:post-multi
-   evidence：通过注意力头重加权的LLM后训练适应方法
-5. [U-shaped Multi-granularity Learning for Vision-Language Models](/202607/18/2607.14966v1-u-shaped-multi-granularity-learning-for-vision-language-models)  
+   evidence：泛化大规模多模态模型到未见视觉模态
+2. [Digital Pantheon: Simulating and Auditing Coalition Formation with LLM Agents](/202607/19/2607.15095v1-digital-pantheon-simulating-and-auditing-coalition-formation-with-llm-agents)  
    标签：评分：8.0/10、query:post-multi
-   evidence：面向视觉语言模型的U形多粒度提示学习
-6. [SceneBind: Binding What and Where Across Vision, Audio and Language](/202607/18/2607.15265v1-scenebind-binding-what-and-where-across-vision-audio-and-language)  
-   标签：评分：8.0/10、query:mr
-   evidence：用于跨模态场景检索和目标定位的全模态表示
+   evidence：使用DPO（RLHF）和RAG实现LLM代理的意识形态对齐
 
 ### 速读区论文标签
-1. [SVD-RAG: Efficient Tree-Organized Retrieval-Augmented Generation via Singular Value Decomposition](/202607/18/2607.10316v1-svd-rag-efficient-tree-organized-retrieval-augmented-generation-via-singular-value-decomposition)  
-   标签：评分：7.0/10、query:mr
-   evidence：利用奇异值分解的高效树状RAG方法
-2. [Actor as Its Own Critic: Unifying Region Understanding and Localization via CycleGRPO](/202607/18/2607.11581v1-actor-as-its-own-critic-unifying-region-understanding-and-localization-via-cyclegrpo)  
+1. [Silent Failures in Quantized LLM Reasoning: A Taxonomy-Based Analysis of Hollow Convergence and Failure Mode Shifts](/202607/19/2607.09999v1-silent-failures-in-quantized-llm-reasoning-a-taxonomy-based-analysis-of-hollow-convergence-and-failure-mode-shifts)  
    标签：评分：7.0/10、query:post-multi
-   evidence：面向多模态大模型的区域理解与定位强化学习
-3. [Segregate, Refine, Integrate: Decomposing Multimodal Fusion for Sentiment Analysis](/202607/18/2607.12686v1-segregate-refine-integrate-decomposing-multimodal-fusion-for-sentiment-analysis)  
+   evidence：后训练量化对LLM推理影响的分析
+2. [Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models](/202607/19/2607.10640v1-spectral-heat-flow-for-conservative-token-condensation-in-vision-language-models)  
    标签：评分：7.0/10、query:post-multi
-   evidence：针对情感分析的多模态融合方法
-4. [AVSCap: Orchestrating Audio-Visual Synergy for Omni-modal Video Captioning](/202607/18/2607.12820v1-avscap-orchestrating-audio-visual-synergy-for-omni-modal-video-captioning)  
+   evidence：视觉语言模型的token压缩方法
+3. [Stream-aware Side Adaptation for Large Pre-trained Multimodal Embedding Models in Sequential Recommendation](/202607/19/2607.10909v1-stream-aware-side-adaptation-for-large-pre-trained-multimodal-embedding-models-in-sequential-recommendation)  
    标签：评分：7.0/10、query:post-multi
-   evidence：音视频全模态字幕训练框架
-5. [Enhancing Small Language Models Reasoning through Knowledge Graph Grounding](/202607/18/2607.14149v1-enhancing-small-language-models-reasoning-through-knowledge-graph-grounding)  
-   标签：评分：7.0/10、query:mr
-   evidence：通过知识图谱增强小语言模型的多跳推理
-6. [VLT: A Vision-Language-Time Series Multimodal Foundation Model for Industrial Intelligence](/202607/18/2607.14510v1-vlt-a-vision-language-time-series-multimodal-foundation-model-for-industrial-intelligence)  
+   evidence：大规模预训练多模态嵌入模型的侧适应
+4. [MMRM: A Multiplex Multimodal Representation Model for Product Ranking in E-commerce Search](/202607/19/2607.11030v1-mmrm-a-multiplex-multimodal-representation-model-for-product-ranking-in-e-commerce-search)  
    标签：评分：7.0/10、query:post-multi
-   evidence：针对时间序列、视觉和文本的多模态基础模型
-7. [MAG: A Web-Agent Benchmark and Harness for Multimodal Action and Guide Generation](/202607/18/2607.10079v3-mag-a-web-agent-benchmark-and-harness-for-multimodal-action-and-guide-generation)  
+   evidence：用于排名的多模态表示学习
+5. [Extending LLM Context via Associative Recurrent Memory](/202607/19/2607.11614v1-extending-llm-context-via-associative-recurrent-memory)  
+   标签：评分：7.0/10、query:post-multi
+   evidence：提出继续预训练和课程学习以扩展LLM上下文，属于后训练技术
+6. [An Empirical Analysis of Continual Learning for Heterogeneous Medical Visual Question Answering](/202607/19/2607.12048v1-an-empirical-analysis-of-continual-learning-for-heterogeneous-medical-visual-question-answering)  
+   标签：评分：7.0/10、query:post-multi
+   evidence：多模态医学视觉问答的持续学习实证分析
+7. [VisCo: Leveraging Large Language Models as Intrinsic Encoders for Visual Token Compression](/202607/19/2607.12756v1-visco-leveraging-large-language-models-as-intrinsic-encoders-for-visual-token-compression)  
+   标签：评分：7.0/10、query:post-multi
+   evidence：视觉语言模型的视觉令牌压缩
+8. [Concurrent Image Understanding and Generation: Self-Correcting Coupled Markov Jump Processes](/202607/19/2607.13188v1-concurrent-image-understanding-and-generation-self-correcting-coupled-markov-jump-processes)  
+   标签：评分：7.0/10、query:post-multi
+   evidence：跨模态耦合的联合图像理解与生成
+9. [FdAudio: MeanFlow-Anchored Fréchet-Distance Post-Training for One-Step Text-to-Audio Generation](/202607/19/2607.10421v1-fdaudio-meanflow-anchored-frchet-distance-post-training-for-one-step-text-to-audio-generation)  
    标签：评分：6.0/10、query:post-multi
-   evidence：多模态网络代理动作与指南生成基准
-8. [Traj-VLN: Learning Pixel-Space Interaction via Autoregressive Trajectory Generation](/202607/18/2607.10744v2-traj-vln-learning-pixel-space-interaction-via-autoregressive-trajectory-generation)  
+   evidence：用于一步文本到音频生成的后训练方法
+10. [Automatic Hard Example Synthesis with Multi-Level Agentic Data Curation](/202607/19/2607.14256v1-automatic-hard-example-synthesis-with-multi-level-agentic-data-curation)  
    标签：评分：6.0/10、query:post-multi
-   evidence：利用视觉语言模型投影实现像素空间交互的导航方法
-9. [Beyond the Eye: Efficient Multimodal Reasoning via Self-Regulated Implicit Visual Tools](/202607/18/2607.11106v1-beyond-the-eye-efficient-multimodal-reasoning-via-self-regulated-implicit-visual-tools)  
+   evidence：为多模态大模型安全生成困难样本，属于多模态学习方法
+11. [VTM-Nav: Hierarchical Visual-Topological Memory for Cross-Episode Object-Goal Navigation](/202607/19/2607.14514v1-vtm-nav-hierarchical-visual-topological-memory-for-cross-episode-object-goal-navigation)  
    标签：评分：6.0/10、query:post-multi
-   evidence：用于高效多模态推理的隐式视觉工具范式
-10. [The Ebb and Flow of Multimodal Focus: Scheduling Visual Relay Windows for Grounded VLM Reasoning](/202607/18/2607.11436v1-the-ebb-and-flow-of-multimodal-focus-scheduling-visual-relay-windows-for-grounded-vlm-reasoning)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：VLM推理中视觉注意力的分析与调度
-11. [UMSS: Towards Unsupervised Multi-modal Semantic Segmentation](/202607/18/2607.12372v1-umss-towards-unsupervised-multi-modal-semantic-segmentation)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：无监督多模态语义分割
-12. [Attention-Free and Lightweight Token Reduction for Efficient Vision-Language Models](/202607/18/2607.13500v1-attention-free-and-lightweight-token-reduction-for-efficient-vision-language-models)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：视觉语言模型的轻量令牌减少
+   evidence：视觉语言模型用于导航持久内存
+12. [Multimodality as Supervision: Self-Supervised Specialization to the Test Environment via Multimodality](/202607/19/2607.14721v1-multimodality-as-supervision-self-supervised-specialization-to-the-test-environment-via-multimodality)  
+   标签：评分：6.0/10、query:mr
+   evidence：跨模态自监督学习
 
 
 <div class="dpr-home-promo-card">
