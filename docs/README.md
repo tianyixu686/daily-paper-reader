@@ -6,62 +6,59 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-19
-- 运行时间：2026-07-19 21:27:04 UTC
+- 最新运行日期：2026-07-20
+- 运行时间：2026-07-20 20:41:40 UTC
 - 运行状态：成功
-- 本次总论文数：14
-- 精读区：2
-- 速读区：12
+- 本次总论文数：13
+- 精读区：6
+- 速读区：7
 
 ### 今日简报（AI）
-今日14篇前沿研究精读2篇，聚焦多模态大模型扩展与LLM智能体社会模拟两大高分之选。最值得关注：虚构模态合成法让通用多模态模型适配任意视觉输入，以及基于LLM的联盟形成模拟审计框架。下一步建议优先精读这两篇8分论文，速读中量化LLM的静默失败分类学也颇具启发性。
-- 详情：[/202607/19/README](/202607/19/README)
+今日共处理13篇论文，精读6篇，速读7篇，重点聚焦多模态知识图谱与专家模型优化。最值得关注的是满分10分的《MGDT: MLLM-Guided Diffusion Transformer》及其9分的《UMoE:Unlocking Every Expert》，分别突破多模态补全与领域专家激活。建议优先精读这两篇，把握多模态与稀疏专家网络的最新融合思路。
+- 详情：[/202607/20/README](/202607/20/README)
 
 ### 精读区论文标签
-1. [Generalize LMMs to Versatile Visual Modalities via Fabricated Modality Synthesis](/202607/19/2607.10308v1-generalize-lmms-to-versatile-visual-modalities-via-fabricated-modality-synthesis)  
+1. [MGDT: MLLM-Guided Diffusion Transformer with Relation-Adaptive Mixture-of-Experts for Multimodal Knowledge Graph Completion](/202607/20/2607.15592v1-mgdt-mllm-guided-diffusion-transformer-with-relation-adaptive-mixture-of-experts-for-multimodal-knowledge-graph-completion)  
+   标签：评分：10.0/10、query:mr
+   evidence：直接研究多模态知识图谱补全
+2. [UMoE:Unlocking Every Expert in Domain-Specific Training](/202607/20/2607.11444v1-umoeunlocking-every-expert-in-domain-specific-training)  
+   标签：评分：9.0/10、query:post-multi
+   evidence：MoE语言模型的后训练
+3. [Toward Federated Multimodal Graph Foundation Models: A Topology-Aware Multimodal Alignment Framework](/202607/20/2607.15687v1-toward-federated-multimodal-graph-foundation-models-a-topology-aware-multimodal-alignment-framework)  
+   标签：评分：9.0/10、query:mr
+   evidence：多模态图对齐
+4. [ToolSciVer: Multimodal Scientific Claim Verification with Visual Tool Augmented Reinforcement Learning](/202607/20/2607.16131v1-toolsciver-multimodal-scientific-claim-verification-with-visual-tool-augmented-reinforcement-learning)  
+   标签：评分：9.0/10、query:mr
+   evidence：多模态工具增强检索与推理
+5. [Beyond Single Expert: Harmonizing Diverse Visual Priors in MLLMs for Spatial Understanding](/202607/20/2607.15054v1-beyond-single-expert-harmonizing-diverse-visual-priors-in-mllms-for-spatial-understanding)  
    标签：评分：8.0/10、query:post-multi
-   evidence：泛化大规模多模态模型到未见视觉模态
-2. [Digital Pantheon: Simulating and Auditing Coalition Formation with LLM Agents](/202607/19/2607.15095v1-digital-pantheon-simulating-and-auditing-coalition-formation-with-llm-agents)  
+   evidence：多模态大语言模型融合多种视觉先验，多模态学习方法
+6. [JoyNexus: Service-Oriented Multi-Tenant Post-Training for VLA Models](/202607/20/2607.16074v1-joynexus-service-oriented-multi-tenant-post-training-for-vla-models)  
    标签：评分：8.0/10、query:post-multi
-   evidence：使用DPO（RLHF）和RAG实现LLM代理的意识形态对齐
+   evidence：面向VLA模型的多租户后训练服务
 
 ### 速读区论文标签
-1. [Silent Failures in Quantized LLM Reasoning: A Taxonomy-Based Analysis of Hollow Convergence and Failure Mode Shifts](/202607/19/2607.09999v1-silent-failures-in-quantized-llm-reasoning-a-taxonomy-based-analysis-of-hollow-convergence-and-failure-mode-shifts)  
+1. [FM$^2$: Unified Federated Foundation Models for Heterogeneous Multimodal Medical Imaging](/202607/20/2607.13386v1-fm2-unified-federated-foundation-models-for-heterogeneous-multimodal-medical-imaging)  
    标签：评分：7.0/10、query:post-multi
-   evidence：后训练量化对LLM推理影响的分析
-2. [Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models](/202607/19/2607.10640v1-spectral-heat-flow-for-conservative-token-condensation-in-vision-language-models)  
+   evidence：多模态医学影像，在联邦设置中从头训练骨干网络
+2. [Memory as a Controlled Process: Learned Adaptive Memory Management for LLM Agents](/202607/20/2607.13591v1-memory-as-a-controlled-process-learned-adaptive-memory-management-for-llm-agents)  
+   标签：评分：7.0/10、query:mr
+   evidence：学习自适应记忆检索，与检索增强生成架构相关
+3. [Seeing the End at Step Zero: Accelerating Diffusion MLLMs via MLP Sparsity-Aware Truncation](/202607/20/2607.14557v1-seeing-the-end-at-step-zero-accelerating-diffusion-mllms-via-mlp-sparsity-aware-truncation)  
    标签：评分：7.0/10、query:post-multi
-   evidence：视觉语言模型的token压缩方法
-3. [Stream-aware Side Adaptation for Large Pre-trained Multimodal Embedding Models in Sequential Recommendation](/202607/19/2607.10909v1-stream-aware-side-adaptation-for-large-pre-trained-multimodal-embedding-models-in-sequential-recommendation)  
+   evidence：扩散多模态大语言模型推理加速，涉及视觉语言模型训练
+4. [Reasoning-Guided Part-Level Visual Grounding via Reinforcement Learning](/202607/20/2607.15374v1-reasoning-guided-part-level-visual-grounding-via-reinforcement-learning)  
    标签：评分：7.0/10、query:post-multi
-   evidence：大规模预训练多模态嵌入模型的侧适应
-4. [MMRM: A Multiplex Multimodal Representation Model for Product Ranking in E-commerce Search](/202607/19/2607.11030v1-mmrm-a-multiplex-multimodal-representation-model-for-product-ranking-in-e-commerce-search)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：用于排名的多模态表示学习
-5. [Extending LLM Context via Associative Recurrent Memory](/202607/19/2607.11614v1-extending-llm-context-via-associative-recurrent-memory)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：提出继续预训练和课程学习以扩展LLM上下文，属于后训练技术
-6. [An Empirical Analysis of Continual Learning for Heterogeneous Medical Visual Question Answering](/202607/19/2607.12048v1-an-empirical-analysis-of-continual-learning-for-heterogeneous-medical-visual-question-answering)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：多模态医学视觉问答的持续学习实证分析
-7. [VisCo: Leveraging Large Language Models as Intrinsic Encoders for Visual Token Compression](/202607/19/2607.12756v1-visco-leveraging-large-language-models-as-intrinsic-encoders-for-visual-token-compression)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：视觉语言模型的视觉令牌压缩
-8. [Concurrent Image Understanding and Generation: Self-Correcting Coupled Markov Jump Processes](/202607/19/2607.13188v1-concurrent-image-understanding-and-generation-self-correcting-coupled-markov-jump-processes)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：跨模态耦合的联合图像理解与生成
-9. [FdAudio: MeanFlow-Anchored Fréchet-Distance Post-Training for One-Step Text-to-Audio Generation](/202607/19/2607.10421v1-fdaudio-meanflow-anchored-frchet-distance-post-training-for-one-step-text-to-audio-generation)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：用于一步文本到音频生成的后训练方法
-10. [Automatic Hard Example Synthesis with Multi-Level Agentic Data Curation](/202607/19/2607.14256v1-automatic-hard-example-synthesis-with-multi-level-agentic-data-curation)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：为多模态大模型安全生成困难样本，属于多模态学习方法
-11. [VTM-Nav: Hierarchical Visual-Topological Memory for Cross-Episode Object-Goal Navigation](/202607/19/2607.14514v1-vtm-nav-hierarchical-visual-topological-memory-for-cross-episode-object-goal-navigation)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：视觉语言模型用于导航持久内存
-12. [Multimodality as Supervision: Self-Supervised Specialization to the Test Environment via Multimodality](/202607/19/2607.14721v1-multimodality-as-supervision-self-supervised-specialization-to-the-test-environment-via-multimodality)  
+   evidence：使用强化学习训练MLLM进行视觉定位，与VLM训练相关
+5. [Parse, Search, and Confirmation: Training-Free Aerial Vision-and-Dialog Navigation with Chain-of-Thought Reasoning and Structured Spatial Memory](/202607/20/2607.11529v1-parse-search-and-confirmation-training-free-aerial-vision-and-dialog-navigation-with-chain-of-thought-reasoning-and-structured-spatial-memory)  
    标签：评分：6.0/10、query:mr
-   evidence：跨模态自监督学习
+   evidence：链式思维推理用于多跳导航
+6. [SD-MAR: Multi-image Analytical Reasoning via Synthetic Data and Reinforcement Learning](/202607/20/2607.14333v1-sd-mar-multi-image-analytical-reasoning-via-synthetic-data-and-reinforcement-learning)  
+   标签：评分：6.0/10、query:mr
+   evidence：多图像分析推理与多步推理
+7. [Efficient Frame Selection for Long Videos at Test Time with Attention-Based MLLM Selectors](/202607/20/2607.15689v1-efficient-frame-selection-for-long-videos-at-test-time-with-attention-based-mllm-selectors)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：基于注意力的多模态大模型帧选择
 
 
 <div class="dpr-home-promo-card">

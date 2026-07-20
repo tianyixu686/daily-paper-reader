@@ -1,0 +1,790 @@
+Title: ToolSciVer: Multimodal Scientific Claim Verification with Visual Tool Augmented Reinforcement Learning
+
+URL Source: https://arxiv.org/pdf/2607.16131v1
+
+Published Time: Mon, 20 Jul 2026 01:11:50 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# ToolSciVer: Multimodal Scientific Claim Verification with Visual Tool Augmented Reinforcement Learning 
+
+Binglin Zhou 1 Peng Shi 2 Ryo Kamoi 1 Nan Zhang 1 Rui Zhang 1∗
+
+> 1
+
+The Pennsylvania State University 2University of Waterloo 
+
+{bbz5169, rmz5227}@psu.edu 
+
+Abstract 
+
+Multimodal Scientific Claim Verification (MSCV) requires models to verify scien-tific claims using visually grounded evidence from papers, including figures, tables, charts, and textual context. However, existing methods often fail because they struggle to locate decisive visual evidence, accurately read structured scientific visuals, and integrate multimodal observations into reliable reasoning. We intro-duce ToolSciVer, the first tool-augmented framework for MSCV to our knowledge. ToolSciVer equips a VLM with three type-aware visual tools, table row/column focus, chart-to-structure parsing, and high-resolution region zoom, which convert dense scientific visuals into explicit, claim-facing evidence, and trains the policy with Group Relative Policy Optimization (GRPO) under a composite reward of answer correctness, format validity, length control, tool-use efficiency, and tool-validity penalties. Experiments on S CI VER and M USCI CLAIMS datasets on five VLMs from three model families (Qwen, InternVL, Gemma) demonstrate that our method achieves superior performance compared to four competitive base-lines including prompting-based and RL-based tool-use methods, highlighting the effectiveness of learned, type-aware tool use for scientific claim verification. 2
+
+1 Introduction 
+
+Multimodal scientific claim verification (MSCV) is critical for building trustworthy scientific infor-mation systems [ 13 , 29 ]. In MSCV, a model determines whether a claim is supported or refuted by evidence that spans both textual descriptions and scientific visuals. Unlike traditional textual fact verification [ 1 , 24 , 26 – 28 ], MSCV requires integrating heterogeneous modalities with different structures by addressing two key challenges: extracting localized, structured visual evidence and performing multi-step reasoning over that evidence to verify the claim. Despite growing interest, existing approaches to MSCV remain limited in addressing these challenges. Recent studies highlight that frontier proprietary models, such as GPT, Claude, and Gemini, still struggle particularly when correct verification depends on precise visual interpretation with tables, charts, and figures [ 6, 7, 13 , 29 ]. They often fail to localize correct visual evidence and struggle to aggregate information across modalities via reliable grounded multi-step reasoning [ 7, 13 , 29 ]. Meanwhile, while recent tool-augmented VLMs propose external visual operations for focused or extracted visual states [ 4 , 22 , 34 ], these methods are developed for general-domain visual question answering and rely on a narrow repertoire of image-editing operations (e.g., cropping, zooming, highlighting), leaving them poorly suited to the claim-conditioned evidence localization and cross-figure aggregation over scientific tables, charts, and multi-panel figures that MSCV demands. We summarize their limitations in Table 1.  
+
+> ∗Corresponding author.
+> 2Code is available at https://github.com/psunlpgroup/Tool-Sciver .Preprint. arXiv:2607.16131v1 [cs.CL] 17 Jul 2026
+
+User Input 
+
+Claim 
+
+> ResNet -50 achieves higher Top -1 accuracy
+> than DenseNet -121 on CIFAR -100, and the
+> validation -loss curve in Figure 3 decreases
+> monotonically from epoch 1 to epoch 5.
+
+Text / Caption 
+
+> Table 2 reports Top -1 accuracy(%) on
+> the CIFAR -100 test set for various
+> models. Figure 3 shows validation loss
+> across training epochs.
+
+Image (Table 2)       
+
+> Model Top -1 Acc. (%)
+> VGG -16 71.5
+> DenseNet -121 74.1
+> ResNet -50 76.1
+> EfficientNet -B0 77.1
+> Swin -T81.3
+> Table 2: Top -1 accuracy(%) on CIFAR -100.
+
+Image (Figure 3)     
+
+> Epoch
+> 0.0
+> 0.4
+> 0.8
+> 1.2
+> 12345
+> Validation Loss
+> Figure 3:Validation loss across epochs.
+
+Tool Call 
+
+> Available Tool Set
+> Chart
+> Parse
+> Table
+> Focus
+> Region
+> Zoom
+
+Turn  1     
+
+> Reasoning:
+> Need ResNet -50 performance.
+> Use Table Focus for Table 2.
+> Tool Call:
+> Table Focus(img1,row=“4”)
+
+Turn  2     
+
+> Reasoning:
+> Need DenseNet -121
+> performance.
+> Use Table Focus for Table 2.
+> Tool Call:
+> Table Focus(img1,row=“3”)
+
+Turn  3 
+
+> Reasoning:
+> Need to inspect the
+> validation -loss curve.
+> Tool Call:
+> Chart Parse(img2)
+
+Evidence 
+
+Extraction 
+
+Tool  Executor: Get 
+
+the tool  result for 
+
+each turn 
+
+Result 1   
+
+> Tool Call:
+> Table Focus(img1,row=“4”)
+> Tool Result(text):
+> Row: ResNet -50|Top -1
+> Acc.(%) 76.1
+
+Result 1   
+
+> Tool Call:
+> Table Focus(img1,row=“3”)
+> Tool Result(text):
+> Row: DenseNet -121|Top -1
+> Acc.(%) 74.1
+
+Result 1 
+
+> Tool Call:
+> Chart Parse(img2)
+> Tool Result(text):
+> Epoch:[1,2,3,4,5]
+> Val_loss :[0.90, 0.78, 0.70,
+> 0.73,0.65]
+
+Claim 
+
+Verification 
+
+Context  +
+
+Evidenc e
+
+Reasoning        
+
+> Claim 1 is supported :
+> ResNet -50 76.1 >DenseNet -121 74.1
+> Claim 2 is not supported :
+> The validation -loss curve is not
+> monotonically decreasing because it
+> rises from epoch 3 (0.70) to epoch 4
+> (0.73).
+> Because the overall claim is
+> claim1 and claim2, the full
+> claim is false .
+> or
+
+Verification Result  
+
+> Yes (supported)
+> No (not supported)
+
+Final Answer : No 
+
+(not supported) Figure 1: Overview of ToolSciVer framework for evidence-grounded tool-augmented scientific claim verification. Given a claim, textual context, and scientific visual evidence, the model can either answer directly or iteratively call type-aware visual tools to acquire claim-relevant evidence. The collected tool observations are added to the augmented context and used for final claim verification. In this paper, we introduce ToolSciVer, a type-aware tool-augmented reinforcement learning frame-work for MSCV. To address the above challenges, ToolSciVer includes two major innovations compared to prior work: (1) we design a suite of tools that are specialized to handle complex multi-modal evidence in scientific papers, (2) we propose to use reinforcement learning to train models with a combination of rewards to efficiently use these tools and perform multi-step reasoning over extracted evidence. To be specific, as shown in Figure 1, our framework equips a VLM with three specialized tools matched to the visual types most common in scientific evidence: an OCR-backed Table Focus tool that returns localized row or column evidence from tables, a Chart Parse tool that converts charts and plots into structured textual observations, and a Region Zoom tool that returns a high-resolution crop for general or multi-panel figures. Furthermore, effective use of these tools requires the model to jointly decide whether a tool is needed, which tool matches the visual type, what arguments identify the relevant evidence, and how to integrate the returned observation into its judgment. Therefore, we train the model with Group Relative Policy Optimization (GRPO) [ 21 ] to learn selective, valid, and reliable tool use. Our reward combines final-answer correctness, output-format validity, length control, tool-use efficiency, and penalties for malformed or failed tool interactions, encouraging the model to acquire the right visual evidence only when needed. To demonstrate the effectiveness of our method, we conduct a comprehensive set of experiments on two recent challenging benchmarks on MSCV, S CI VER [29 ] and M USCI CLAIMS [13 ], which con-tains complex claims to verify with diverse evidence modality, scientific subdomains, and reasoning structures. We apply ToolSciVer on three backbone model familites (Qwen, InternVL, Gemma) and compare against four competitive baselines: non-tool CoT inference, prompt-only tool-use CoT infer-ence, and two RL-based multimodal tool-use baselines VT OOL -R1 [ 34 ] and O PEN THINK IMG [ 22 ]. Across both benchmarks, ToolSciVer consistently improves over non-tool CoT inference and prompt-only tool access, and achieves stronger overall performance than the RL-based tool-use baselines. Our further analyses and ablation study show that our method improves the performance by promot-ing more accurate visual evidence localization, more appropriate tool selection, and more reliable reasoning over extracted evidence across tables, charts, and general scientific figures. Our contributions are summarized as follows: • We study Multimodal Scientific Claim Verification through the lens of visual evidence extraction and identify observation-stage visual evidence acquisition as a key bottleneck. 2Claim-Facing Visual Evidence Tools Method Target Task Table Evid. Chart Evid. Region Insp. Struct. Obs. Learning Eff. Reward                                                                
+
+> VisProg [5] Gen. visual reasoning ✗✗⃝✗Training-free ✗
+> ViperGPT [23] Gen. visual reasoning ✗✗⃝✗Training-free ✗
+> MM-ReAct [35] Gen. multimodal reasoning ✗✗⃝✗Prompt ✗
+> Visual Sketchpad [8] Visual/math reasoning ✗✗⃝✗Prompt ✗
+> ReFocus [4] Struct. img. underst. ⃝⃝⃝✗Prompt/Sup. ✗
+> DePlot/MatCha [14, 15] Chart understanding ✗✓✗✓Sup./Pretrain ✗
+> VTool-R1 [34] Struct. visual reasoning ⃝⃝⃝✗RL ✗
+> OpenThinkIMG [22] Chart/tool reasoning ✗⃝⃝✗RL ✗
+> ToolSciVer (Ours) MSCV ✓✓✓✓RL ✓
+
+Table 1: Comparison of ToolSciVer with representative tool-augmented and visual reasoning methods. 
+
+✓ denotes a dedicated claim-facing evidence extractor or parser for the corresponding visual type; 
+
+⃝ denotes partial or generic support through visual editing, sketching, cropping/zooming, OCR, or code-based visual tools, without a dedicated scientific-evidence extractor; ✗ denotes no explicit support. Struct. Obs. refers to structured observations directly usable as verification evidence, such as table rows/columns or chart values, rather than raw OCR text, bounding boxes, or edited images. • We propose ToolSciVer, the first visual tool augmented framework for MSCV to the best of our knowledge. It consists of a type-aware visual tool suite that exposes multimodal, claim-relevant scientific evidence, trained with reinforcement learning for selective, valid, and efficient tool use. • We empirically validate the effectiveness of ToolSciVer across challenging MSCV benchmarks in multiple scientific domains and reasoning difficulties, achieving state-of-the-art performance on different backbone model families compared with strong tool-use baselines. 
+
+2 Related Work 
+
+Scientific and multimodal claim verification. Claim verification is commonly formulated as evidence-grounded prediction, where a system retrieves evidence and predicts whether it supports or refutes a claim. In the scientific domain, S CI FACT and follow-up work study verification against paper abstracts, full-document context, open-domain retrieval, and LLM-based zero-shot settings [ 1, 26 – 28 ]. Scientific table verification further shows that claims over scientific evidence require grounding, compositional reasoning, and careful treatment of ambiguity [ 16 ]. Recent benchmarks extend this line to multimodal evidence: S CI VER evaluates multimodal scientific claim verification over scientific documents, while M USCI CLAIMS focuses on figure-centric scientific claims [ 13 , 29 ]. Related work studies multi-hop multimodal claims, verification over visual and textual table representations, and unified multimodal fact verification [ 12 , 30 , 37 ]. Recent cross-modal scientific verification studies also show that current multimodal models remain weak on table-, chart-, and figure-based evidence [ 6, 7]. Our work builds on these benchmarks, but focuses on the mechanism behind the errors: acquiring claim-relevant visual evidence before making the final verification decision. 
+
+Visual evidence extraction from structured scientific visuals. Structured visual understanding has been studied for tables, charts, plots, and document-like images. For tabular evidence, TabFact, SciTab, and M 2-TabFact show that table-based verification requires accurate grounding and compositional reasoning [ 2, 16 , 37 ]. For charts and plots, ChartQA highlights visual and logical reasoning over chart content, while DePlot and MatCha show the value of converting charts into explicit intermediate representations through plot-to-table translation or chart derendering [ 14 , 15 , 17 ]. These works motivate our use of structured evidence, but fixed OCR, parsing, or cropping alone does not decide whether a tool is needed, which tool to call, or which row, column, chart element, or region is relevant to the claim. We therefore treat visual evidence extraction as part of a learned verification policy rather than as fixed preprocessing. 
+
+Tool-augmented VLMs and reinforcement learning. Tool use has been widely studied for lan-guage models. ReAct interleaves reasoning and acting through prompting, while Toolformer learns API use from self-supervised signals [ 20 , 36 ]. Visual programming and tool-use systems such as VISPROG, ViperGPT, and MM-ReAct call external vision modules or generate executable programs without task-specific training [ 5, 23 , 35 ]. Visual Sketchpad and ReFocus further show that intermedi-ate visual operations can expose focused visual states for multimodal reasoning [ 4, 8]. Closest to our 3work, VT OOL -R1 and O PEN THINK IMG train VLMs to use visual tools with reinforcement learning [ 22 , 34 ], while broader tool-learning work emphasizes reward design, execution reliability, and action efficiency [ 9 , 18 , 31 ]. Unlike these general visual tool-use settings, our method targets MSCV specifically: tools are organized by scientific visual type, their outputs are claim-facing evidence, and GRPO training encourages selective, valid, and efficient tool use for scientific verification. 
+
+3 Our Method 
+
+3.1 Task Formulation 
+
+We study multimodal scientific claim verification (MSCV), where a model verifies a scientific claim using textual context and scientific visual evidence. Each instance is denoted as x = ( q, V, t ), where 
+
+q is the claim, V = {vi}Ni=1 is the set of associated scientific visuals, and t denotes optional textual context, such as captions, surrounding paragraphs, or benchmark metadata. The model outputs a normalized prediction ˆy in the benchmark label space. In our experiments, both benchmarks are cast into binary verification with Y = {supported , refuted }.
+
+3.2 Framework Overview 
+
+The key challenge in MSCV is that decisive evidence is often visually localized and structurally constrained, requiring the model to read specific table entries, recover chart trends, or inspect local regions of dense scientific figures. We therefore formulate MSCV as an evidence acquisition problem and propose ToolSciVer, a tool-augmented framework that selectively extracts claim-relevant visual evidence before making the final verification decision. As shown in Figure 1, given a claim, textual context, and scientific visual evidence, the policy either answers directly from the original input or issues a type-aware visual tool call. A scheduler validates and executes each call, appends the returned observation to the context, and allows the model to continue reasoning over the augmented evidence. The resulting trajectory is written as 
+
+τ = ( u1, o 1, u 2, o 2, . . . , u T , ˆy),
+
+where ut denotes a model turn, ot denotes an optional tool observation, and ˆy is the final answer. Each turn contains either one tool call or the final answer, which keeps the action space narrow and grounds the interaction in visual evidence extraction rather than unrestricted agentic search. This design follows three principles: tools should expose claim-relevant evidence rather than generic image descriptions; tool use should be type-aware across tables, charts, and general figures; and tool calls should be selective, invoked only when the original input is insufficient for reliable verification. 
+
+3.3 Type-Aware Visual Tool Suite 
+
+We design a compact tool suite for three common evidence structures in MSCV: tables, charts, and general scientific figures. Each tool call targets one image through an image_path argument, and the policy decides which tool to call and what arguments to provide. Detailed tool interfaces are provided in Appendix A.1. 
+
+Table Focus. Scientific claims often depend on localized tabular evidence, such as a method’s performance on a specific dataset or the value of a particular metric. For table images, we first convert the image into a structured CSV-like representation using OCR. We then expose focus_row and 
+
+focus_column , which return only the selected row or column. This reduces irrelevant context and makes the returned evidence easier to compare against the claim. 
+
+Chart Parse. Claims over charts or plots often require recovering trends, relative ordering, thresholds, or numerical values. For chart images, parse_content converts visual chart content into structured textual observations by using stronger VLM, such as JSON-like entries of chart elements and values. 
+
+Region Zoom. Many scientific figures are dense, multi-panel, or diagrammatic, and the decisive evidence may occupy only a small local region. For these cases, image_zoom_in crops and enlarges a model-selected region, returning a zoomed-in image. Coordinates are normalized to a [0 , 1000] 
+
+scale, making the interface resolution-invariant. 43.4 Reward Design 
+
+Our reward aligns the policy with the deployment goal of MSCV: produce a correct final decision, follow the required output format, avoid overlong responses, and use tools only when they help acquire relevant visual evidence. For a rollout τ , we define 
+
+R(τ ) = seff (τ ) ( rans (τ ) + λfmt rfmt (τ )) + λlen rlen (τ ) + λtool rtool (τ ) (1) In our experiments, we set λfmt = λlen = λtool = 0 .1.
+
+Answer reward. The answer reward measures final task correctness: rans (τ ) = I[ˆ y = y] where y is the ground-truth label and ˆy is the normalized model prediction. 
+
+Format reward. The format reward encourages the model to produce a parseable final response: 
+
+rfmt (τ ) = 0 .5 Ireason (τ )+0 .5 Ianswer (τ ), where Ireason (τ ) indicates whether the final response contains the required reasoning segment under the prompt template, and Ianswer (τ ) indicates whether the response contains exactly one valid normalized final-answer marker. This term stabilizes training and ensures that final predictions can be reliably extracted. 
+
+Tool-efficiency coefficient. To encourage selective rather than excessive tool use, we introduce an OTC-style tool-efficiency coefficient. Let m(τ ) be the number of tool calls in rollout τ . Let 
+
+C(x) be the set of strict-correct rollouts in the GRPO group, where a rollout is strict-correct if it predicts the correct label and ends with a valid final answer. If C(x) is non-empty, we estimate the group-local optimal tool budget as n⋆(x) = min τi∈C (x) m(τi). If no strict-correct rollout exists, we set seff (τ ) = 1 . Otherwise, for maximum tool budget cmax ,
+
+seff (τ ) = 
+
+
+
+1, n⋆ = 0 , m = 0 ,
+
+cos 
+
+ mπ 
+
+> 2m+cmax
+
+
+
+, n⋆ = 0 , m > 0,
+
+0, n⋆ > 0, m = 0 ,
+
+sin 
+
+ mπ m+n⋆
+
+
+
+, n⋆ > 0, m > 0.
+
+(2) This coefficient rewards correct trajectories that use close to the group-local minimal number of tool calls, while penalizing unnecessary tool use when a direct answer is sufficient. We set cmax = 5 .
+
+Length reward. We use a soft overlong penalty to discourage unnecessarily long generations. Let 
+
+L(τ ) denote the completion length in tokens, let Lmax be the maximum completion length, and let C
+
+denote the soft-cache length. We define the soft threshold as Lsoft = Lmax − C. The length reward is 
+
+rlen (τ ) = − max( L(τ )−Lsoft ,0)  
+
+> C
+
+. Thus, the penalty is zero below the soft threshold and decreases linearly as the response approaches the hard length limit. In our experiments, Lmax = 4096 and C = 768 .
+
+Tool-interaction penalty. The tool-interaction penalty discourages malformed tool turns and exe-cution failures. Let eturn (τ ) be the number of malformed tool turns, let eexec (τ ) be the number of tool-execution failures, and let Ibad-end (τ ) indicate whether the rollout contains at least one tool-related error and still fails to terminate with a valid final answer. We compute 
+
+˜rtool (τ ) = − 0.20 I[eturn ≥ 1] − 0.10 max( eturn − 1, 0) 
+
+− 0.30 I[eexec ≥ 1] − 0.15 max( eexec − 1, 0) 
+
+− 0.40 Ibad-end (τ ),
+
+(3) and clip the result: rtool (τ ) = clip [−1.5,0] (˜ rtool (τ )) . This gives the model dense feedback for invalid tool behavior, rather than treating all tool failures as a single sparse error. 
+
+3.5 Learning Selective Tool Use with GRPO 
+
+Prompt-only tool use is brittle because the model must decide whether a tool is needed, select the appropriate tool family, provide valid arguments, and use the returned observation in the final decision. To learn this behavior, we train the policy with Group Relative Policy Optimization (GRPO) [ 21 ]. For each input x, we sample a group of G rollouts G(x) = {τi}Gi=1 from the current policy. After rollout completion, we assign a scalar reward Ri based on equation 1 and compute the group-relative advantage Ai = Ri−mean Gj=1 Rj  
+
+> std Gj=1 Rj
+
+. The policy is then optimized with the standard GRPO objective, encouraging high-reward trajectories while staying close to the reference policy. 
+
+JGRPO (θ) = 1
+
+G
+
+> G
+
+X
+
+> i=1
+
+X
+
+> t
+
+min ( ri,t (θ)Ai, clip( ri,t (θ), 1 − ϵ, 1 + ϵ)Ai) − βD KL (πθ ∥πref ) (4) 
+
+ri,t (θ) is the token-level policy ratio, πref is the reference policy, and β controls the KL penalty. 54 Experimental Setup 
+
+Datasets. We evaluate on two MSCV benchmarks: SCI VER [29 ] and M USCI CLAIMS [ 13 ]. SCI VER contains scientific claims paired with multimodal evidence from scientific documents and reports four reasoning subsets: Analytic , Direct , Parallel , and Sequential . M USCI CLAIMS 
+
+contains figure-centric scientific claims from biology, physics, and chemistry. We use the binary veri-fication setting for both datasets and report subset/domain accuracy together with sample-weighted overall accuracy. Exact train/test split sizes are reported in Appendix B.1. 
+
+Models. We evaluate five open-source VLM backbones from three model families: Qwen3.5-4B and Qwen3.5-9B [ 19 ], InternVL3.5-4B and InternVL3.5-8B [ 32 ], and Gemma4-E4B [ 3]. All trainable methods are initialized from the same backbone and trained on the same MSCV training splits. 
+
+Baselines. We compare our method with four competitive baselines. Non-tool CoT inference [33 ]prompts the model to reason step by step over the claim, context, caption, and image, without access to external tools. Prompt-only tool-use CoT inference [ 25 ] gives the model access to the same MSCV tool APIs and scheduler as our method, but without tool-use training. Dataset-adapted VT OOL -R1 [ 34 ]. and dataset-adapted O PEN THINK IMG [22 ] retain the original tool suites and reward designs of VT OOL -R1 and O PEN THINK IMG, respectively, but we train them on the same MSCV training splits as our method. These baselines test whether general trained visual tool-use recipes are sufficient for MSCV. Finally, we also report advanced proprietary models, including 
+
+GPT-4o , GPT-5.4 , and Claude Sonnet 4.6 , as external references under the non-tool CoT setting; they are not part of the controlled tool-training comparison. 
+
+5 Results and Analysis 
+
+We organize our results and analysis around the central question of whether ToolSciVer improves MSCV by helping VLMs acquire and use claim-relevant visual evidence. Section 5.1 first reports the main MSCV results across datasets, model families, and baselines. To better understand why our method works, we conducted four diagnostic analyses on Qwen3.5-4B. • Evidence acquisition (Section 5.2): Does the model obtain more claim-relevant visual evidence? • Tool selection (Section 5.3): Does the model learn to select tools according to the image type? • Efficiency (Section 5.4): Does the model solve MSCV with fewer tool calls and shorter responses? • Evidence-based reasoning (Section 5.5): Once evidence is acquired, does the model reason more reliably over it? 
+
+5.1 Main Results 
+
+Table 2 shows three main trends. First, ToolSciVer improves over non-tool C OT on both bench-marks across all five open-source backbones, with particularly clear gains on the information-dense MUSCI CLAIMS benchmark. Second, prompt-only tool access is unstable: on S CI VER , Tool Prompt underperforms non-tool C OT for four of five backbones, showing that simply exposing tools does not reliably improve verification. Third, ToolSciVer matches or improves over VT OOL -R1 in all completed overall comparisons, including the Qwen3.5-4B tie on S CI VER , and outperforms O PEN -THINK IMG on M USCI CLAIMS and all completed S CI VER settings except Qwen3.5-9B. These results suggest that MSCV benefits from task-aligned visual-evidence tools beyond general visual tool-use training. The proprietary C OT references further show that advanced closed-source VLMs are not uniformly reliable on MSCV: Claude Sonnet 4.6 performs best among them on M USCI CLAIMS , whereas GPT-5.4 is substantially weaker on S CI VER . This underscores the difficulty of MSCV and motivates explicit visual-evidence acquisition for open-source VLMs. 
+
+5.2 Claim-Relevant Visual Evidence Acquisition 
+
+6Model SCI VER MUSCI CLAIMS 
+
+Backbone Method Analytic Direct Parallel Sequential Overall Bio Phy Chem Overall OPEN -SOURCE MODELS 
+
+Qwen3.5-4B COT 71.88 74.19 68.57 65.74 70.10 60.46 51.04 71.84 60.99 Qwen3.5-4B Tool Prompt 70.31 75.40 65.31 69.32 70.10 74.84 64.58 69.90 71.88 Qwen3.5-4B VT OOL -R1 83.98 84.27 77.14 79.28 81.20 77.12 71.88 80.58 76.83 Qwen3.5-4B OPEN THINK IMG 73.44 77.42 74.29 78.09 75.80 77.78 68.75 77.67 76.04 Qwen3.5-4B Ours 85.16 80.65 77.14 81.67 81.20 81.70 67.71 79.61 78.61 
+
+Qwen3.5-9B COT 79.30 81.05 66.53 72.11 74.80 72.88 60.42 72.82 70.50 Qwen3.5-9B Tool Prompt 70.70 70.97 62.04 63.35 66.80 79.41 67.71 79.61 77.23 Qwen3.5-9B VT OOL -R1 77.34 84.27 70.61 76.89 77.30 80.07 68.75 83.50 78.61 Qwen3.5-9B OPEN THINK IMG 86.33 85.08 80.82 85.26 84.40 76.47 70.83 87.38 77.62 Qwen3.5-9B Ours 76.56 87.90 77.14 78.49 80.00 80.07 70.83 82.52 78.81 
+
+InternVL3.5-4B COT 69.64 65.74 63.76 66.33 66.37 69.93 53.13 63.11 65.35 InternVL3.5-4B Tool Prompt 71.88 63.31 60.41 66.53 65.60 68.63 67.71 75.73 69.90 InternVL3.5-4B VT OOL -R1 79.30 69.76 66.53 70.92 71.70 77.78 67.71 75.73 75.45 InternVL3.5-4B OPEN THINK IMG 71.48 67.74 66.12 68.53 68.50 74.51 68.75 73.79 73.27 InternVL3.5-4B Ours 79.30 72.18 68.16 71.71 72.90 78.76 72.92 73.79 76.63 
+
+InternVL3.5-8B COT 68.02 71.71 63.37 66.73 67.44 68.63 68.75 69.90 68.91 InternVL3.5-8B Tool Prompt 68.75 60.08 55.51 55.38 60.00 69.61 61.46 67.96 67.72 InternVL3.5-8B VT OOL -R1 73.83 67.34 62.04 63.35 66.70 75.82 67.71 63.11 71.68 InternVL3.5-8B OPEN THINK IMG 72.27 62.10 60.41 60.16 63.80 73.86 67.71 73.79 72.67 InternVL3.5-8B Ours 79.69 74.19 73.47 78.09 76.40 78.43 66.67 71.84 74.85 
+
+Gemma4-E4B COT 78.13 73.79 72.24 71.31 73.90 76.14 68.75 70.87 73.66 Gemma4-E4B Tool Prompt 65.46 71.98 64.27 61.75 65.85 68.75 73.24 65.43 68.93 Gemma4-E4B VT OOL -R1 78.91 77.82 69.39 72.91 74.80 68.95 56.25 77.67 68.32 Gemma4-E4B OPEN THINK IMG 81.25 76.21 62.04 62.95 70.70 72.22 70.83 73.79 72.28 Gemma4-E4B Ours 82.30 72.65 66.22 84.29 76.47 76.19 69.88 73.26 74.25 PROPRIETARY MODELS 
+
+GPT-4o COT 71.20 77.00 73.60 73.80 73.89 75.49 67.71 71.84 73.27 GPT-5.4 COT 53.52 75.00 66.53 56.97 62.90 78.76 68.75 70.87 75.25 Claude Sonnet 4.6 COT 71.48 79.44 65.31 65.74 70.50 83.01 72.92 74.76 79.41 
+
+Table 2: Main results on S CI VER and M USCI CLAIMS . Accuracy (%) is reported on S CI VER 
+
+reasoning subsets and M USCI CLAIMS domain subsets, with sample-weighted Overall scores. Open-source rows form controlled comparisons, while proprietary rows serve as external C OT references. Bold marks the best score within each backbone block. 
+
+Method Table Chart M-panel Avg. 
+
+COT 93.00 87.00 69.00 83.00 Tool Prompt 87.00 88.00 75.00 83.33 Ours 98.00 93.00 79.00 90.00 
+
+Table 3: Relevant Evidence Acquisition Rate (REAR, %). To assess whether the accuracy gains come from better visual evidence acqui-sition, we sample 100 examples for each evidence type: tables, charts/plots, and multi-panel figures. For each example, GPT-5.5-assisted annotation identifies the claim-relevant reference evidence, and we report Relevant Evidence Acquisition Rate 
+
+(REAR, defined as the fraction of examples where the model’s reasoning trace or tool observations contain the required visual evidence: 
+
+REAR = 1
+
+> |D|
+
+P 
+
+> xi∈D
+
+I [claim-required visual evidence is acquired or identified ] . Table 3 shows that ToolSciVer achieves the highest REAR across all evidence types, raising the average from 83.00% for C OT and 83.33% for Tool Prompt to 90.00%. The largest gain appears on multi-panel figures, where evidence is often localized and visually dense, while the table subset suggests that prompt-only tool use can retrieve irrelevant evidence. Together with the qualitative example in Fig. 2, these results indicate that learned tool use improves MSCV by helping the model acquire claim-relevant visual evidence. 
+
+5.3 Type-Aware Tool Selection 
+
+We next examine whether, when encouraged to solve MSCV with appropriate tools, the learned policy selects tools according to the visual evidence type. Using the same diagnostic subsets, we 7Visual Subset Method ∆ Acc. Tool Succ. ρtab ρchart ρzoom 
+
+Table Tool Prompt +3.30 88.29 78.05 20.98 0.98 Table Ours +16.15 97.39 89.25 9.77 0.98 Chart/plot Tool Prompt +0.80 93.51 23.38 67.53 9.09 Chart/plot Ours +11.51 96.51 21.40 74.24 4.37 Multi-panel Tool Prompt -0.99 48.89 0.00 51.11 48.89 Multi-panel Ours +7.19 50.77 4.62 41.54 53.85 
+
+Table 4: Tool-use behavior across visual-evidence subsets. ∆ Acc. is the accuracy change in percentage points relative to non-tool C OT; Tool Succ. is the tool-execution success rate; ρtab , ρchart ,and ρzoom are the shares of table, chart, and zoom tool calls. All remaining values are percentages. 
+
+Variant SCI VER Acc. MUSCI Acc. Calls / Ex. Avg. Tokens 
+
+w/o OTC reward seff 76.96 73.47 1.05 2760.42 w/ OTC reward seff 81.20 78.61 0.74 1361.58 
+
+Table 5: Effect of the OTC reward seff . Accuracy is reported separately on S CI VER and M USCI -CLAIMS . Calls per example and average response length are averaged over both evaluation sets. compare Tool Prompt and ToolSciVer by accuracy change over non-tool C OT, tool-execution success, and tool-family distribution. Table 4 shows that ToolSciVer learns a more type-aware tool-use policy than Tool Prompt. On table and chart/plot subsets, ToolSciVer routes most calls to the corresponding tool family and obtains much larger accuracy gains. For multi-panel evidence, ToolSciVer makes image_zoom_in the largest call family and improves accuracy, whereas Tool Prompt splits calls between chart parsing and zooming and degrades performance. Thus, GRPO improves not only tool-call executability but also evidence-aligned tool routing. 
+
+5.4 Efficient Tool Use 
+
+We ablate the OTC efficiency term seff while keeping all other reward components and evaluation settings fixed, and evaluate both variants under a tool-encouraging test-time prompt to stress-test whether seff reduces redundant tool use and verbosity without sacrificing verification accuracy. We also studied the role of Tool-Interaction Penalty in B.6. Table 5 shows that adding seff improves both accuracy and efficiency: S CI VER and M USCI CLAIMS 
+
+accuracy increase by 4.24 and 5.14 points, while calls per example drop from 1.05 to 0.74 and average                 
+
+> Input: chart + claim
+> Claim asks for country-level evidence:
+> China (13) and Russia (10) sanctioned BTC entities.
+> CoT Baseline
+> Notices large bars, but fails to bind them to labels and exact values. “x-axis labels are cut off or not visi-ble...” “China” or “Russia” are not explicitly labeled. Evidence is the tall blue bars.
+> Missing evidence:
+> country labels + series values China: 12 + 1 Russia: 8 + 2
+> Ours + Chart Parse
+> Calls a chart parser and receives structured evidence from the visual content.
+> parse_content(img1)
+> Country Ind. Co. Total
+> China 12 113
+> Russia 8210 Localized evidence:
+> China: 12 + 1 = 13 Russia: 8 + 2 = 10
+
+Figure 2: Case study of chart evidence acquisition. The C OT baseline identifies salient bars but fails to recover the corresponding labels and values. ToolSciVer calls parse_content and obtains structured country-level evidence needed for verification. 8response length decreases from 2760.42 to 1361.58 tokens. This shows that seff regularizes the policy toward shorter and more economical reasoning trajectories rather than simply suppressing tool use. 
+
+5.5 Reasoning over Acquired Evidence 
+
+Beyond visual evidence acquisition and type-aware tool selection (Secs. 5.2 and 5.3), we ask whether ToolSciVer can also reason more reliably once the relevant evidence is provided. To isolate evidence-based reasoning, we use a text-only evidence-conditioned setting where each input contains the claim, original textual context/caption, and the GPT-5.5-annotated gold visual-evidence statement from Sec. 5.2, but excludes images, tool observations, tool schemas, and tool-use instructions.                 
+
+> Model Overall Table Chart M-panel
+> Qwen3.5-4B 60.33 60.00 75.00 46.00 ToolSciVer 71.67 71.00 84.00 60.00
+> ∆+11.33 +11.00 +9.00 +14.00
+
+Table 6: Evidence-conditioned scientific claim verifi-cation accuracy (%). Table 6 shows that ToolSciVer improves overall accuracy from 60.33% to 71.67%, yielding an absolute gain of 11.33 percent-age points under the same gold evidence. The gains are consistent across evidence types, with improvements of 11.00, 9.00, and 14.00 points on table, chart, and multi-panel examples, respectively. A paired com-parison further supports this improvement: ToolSciVer corrects 59 examples missed by the base model, while the base model corrects 25 examples missed by ToolSciVer, yielding a McNemar exact test result of p = 2 .66 × 10 −4.
+
+General chart and figure reasoning. We further evaluate whether the improvement transfers beyond MSCV on ChartQA [ 17 ], DVQA [ 10 ], and FigureQA [ 11 ], using 1,000 examples from each benchmark with only the original chart/figure image and question, without gold evidence or tool-use instructions.                
+
+> Benchmark Qwen3.5 ToolSciVer ∆
+> ChartQA 63.70 65.40 +1.70 DVQA 84.70 90.10 +5.40 FigureQA 50.70 59.00 +8.30 Avg. 66.37 71.50 +5.13
+
+Table 7: External chart/figure reasoning accuracy (%). Table 7 shows that ToolSciVer consistently im-proves over the backbone, raising average ac-curacy from 66.37% to 71.50% with the largest gains on DVQA and FigureQA. A paired com-parison over all 3,000 examples confirms that the improvement is statistically significant ( p =4.66 × 10 −16 ), suggesting that our training also strengthens general chart and figure reasoning beyond the MSCV task. 
+
+6 Conclusion 
+
+We presented ToolSciVer, a type-aware visual tool augmented reinforcement learning framework for multimodal scientific claim verification. ToolSciVer equips VLMs with specialized tools for tables, charts, and general scientific figures, and trains them with GRPO to selectively acquire and use claim-relevant visual evidence. Experiments on S CI VER and M USCI CLAIMS show that ToolSciVer consistently improves over non-tool, prompt-only, and RL-based tool-use baselines. These results demonstrate the value of task-aligned visual evidence extraction and learned selective tool use for reliable scientific claim verification. 
+
+Limitation 
+
+ToolSciVer depends on external visual tools to expose structured evidence, so its performance is bounded by their reliability. Errors from OCR-based table reading or chart parsing, especially on dense tables, small labels, multi-series plots, or uncommon chart formats, may produce incomplete or incorrect observations and propagate to the verifier. Although reinforcement learning improves tool selection and usage, it cannot fully recover from erroneous tool outputs; future work should explore stronger scientific parsers and uncertainty-aware verification mechanisms. 9References 
+
+[1] Carlos Alvarez, Maxwell Bennett, and Lucy Wang. Zero-shot scientific claim verification using LLMs and citation text. In Proceedings of the Fourth Workshop on Scholarly Document Pro-cessing (SDP 2024) , pages 269–276, Bangkok, Thailand, 2024. Association for Computational Linguistics. URL https://aclanthology.org/2024.sdp-1.25/ .[2] Wenhu Chen, Hongmin Wang, Jianshu Chen, Yunkai Zhang, Hong Wang, Shiyang Li, Xiyou Zhou, and William Yang Wang. TabFact: A large-scale dataset for table-based fact verification. In International Conference on Learning Representations , 2020. URL https://openreview. net/forum?id=rkeJRhNYDH .[3] Clement Farabet and Olivier Lacombe. Gemma 4: Byte for byte, the most capable open models, April 2026. URL https://blog.google/innovation-and-ai/technology/ developers-tools/gemma-4/ .[4] Xingyu Fu, Minqian Liu, Zhengyuan Yang, John Richard Corring, Yijuan Lu, Jianwei Yang, Dan Roth, Dinei Florencio, and Cha Zhang. Refocus: Visual editing as a chain of thought for structured image understanding. In Proceedings of the 42nd International Conference on Machine Learning , volume 267 of Proceedings of Machine Learning Research , pages 17783–17805. PMLR, 2025. URL https://proceedings.mlr.press/v267/fu25d.html .[5] Tanmay Gupta and Aniruddha Kembhavi. Visual programming: Compositional visual reasoning without training. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 14953–14962, 2023. [6] Xanh Ho, Yun-Ang Wu, Sunisth Kumar, Florian Boudin, Atsuhiro Takasu, and Akiko Aizawa. Format matters: The robustness of multimodal LLMs in reviewing evidence from tables and charts. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 31014–31022, 2026. doi: 10.1609/aaai.v40i37.40361. URL https://arxiv.org/abs/2511. 10075 .[7] Xanh Ho, Yun-Ang Wu, Sunisth Kumar, Tian Cheng Xia, Florian Boudin, André Greiner-Petter, and Akiko Aizawa. SciClaimEval: Cross-modal claim verification in scientific papers. In 
+
+Proceedings of the 15th Language Resources and Evaluation Conference , Palma de Mallorca, Spain, 2026. ELRA Language Resources Association. doi: 10.48550/arXiv.2602.07621. URL 
+
+https://arxiv.org/abs/2602.07621 .[8] Yushi Hu, Weijia Shi, Xingyu Fu, Dan Roth, Mari Ostendorf, Luke Zettlemoyer, Noah A. Smith, and Ranjay Krishna. Visual sketchpad: Sketching as a visual chain of thought for multimodal language models. In Advances in Neural Information Processing Systems , volume 37, 2024. doi: 10.52202/079017-4423. [9] Dongfu Jiang, Yi Lu, Zhuofeng Li, Zhiheng Lyu, Ping Nie, Haozhe Wang, Alex Su, Hui Chen, Kai Zou, Chao Du, Tianyu Pang, and Wenhu Chen. Verltool: Towards holistic agentic reinforcement learning with tool use. arXiv preprint arXiv:2509.01055 , 2025. doi: 10.48550/ arXiv.2509.01055. URL https://arxiv.org/abs/2509.01055 .[10] Kushal Kafle, Brian Price, Scott Cohen, and Christopher Kanan. DVQA: Un-derstanding data visualizations via question answering. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition , pages 5648–5656, 2018. URL https://openaccess.thecvf.com/content_cvpr_2018/html/Kafle_ DVQA_Understanding_Data_CVPR_2018_paper.html .[11] Samira Ebrahimi Kahou, Vincent Michalski, Adam Atkinson, Akos Kadar, Adam Trischler, and Yoshua Bengio. FigureQA: An annotated figure dataset for visual reasoning. In ICLR 2018 Workshop , 2018. doi: 10.48550/arXiv.1710.07300. URL https://openreview.net/forum? id=H1mz0OyDz .[12] Aditya Kishore, Gaurav Kumar, and Jasabanta Patro. Multicheck: Strengthening web trust with unified multimodal fact verification. arXiv preprint arXiv:2508.05097 , 2025. doi: 10.48550/ arXiv.2508.05097. URL https://arxiv.org/abs/2508.05097 .10 [13] Yash Kumar Lal, Manikanta Bandham, Mohammad Saqib Hasan, Apoorva Kashi, Mahnaz Koupaee, and Niranjan Balasubramanian. MuSciClaims: Multimodal scientific claim ver-ification. In Proceedings of the 14th International Joint Conference on Natural Language Processing and the 4th Conference of the Asia-Pacific Chapter of the Association for Computa-tional Linguistics , pages 3285–3307, Mumbai, India, 2025. The Asian Federation of Natural Language Processing and The Association for Computational Linguistics. doi: 10.18653/v1/ 2025.ijcnlp-long.175. URL https://aclanthology.org/2025.ijcnlp-long.175/ .[14] Fangyu Liu, Julian Eisenschlos, Francesco Piccinno, Syrine Krichene, Chenxi Pang, Ken-ton Lee, Mandar Joshi, Wenhu Chen, Nigel Collier, and Yasemin Altun. DePlot: One-shot visual language reasoning by plot-to-table translation. In Findings of the Association for Computational Linguistics: ACL 2023 , pages 10381–10399, Toronto, Canada, 2023. As-sociation for Computational Linguistics. doi: 10.18653/v1/2023.findings-acl.660. URL 
+
+https://aclanthology.org/2023.findings-acl.660/ .[15] Fangyu Liu, Francesco Piccinno, Syrine Krichene, Chenxi Pang, Kenton Lee, Mandar Joshi, Yasemin Altun, Nigel Collier, and Julian Eisenschlos. MatCha: Enhancing visual language pretraining with math reasoning and chart derendering. In Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 12756–12770, Toronto, Canada, 2023. Association for Computational Linguistics. doi: 10. 18653/v1/2023.acl-long.714. URL https://aclanthology.org/2023.acl-long.714/ .[16] Xinyuan Lu, Liangming Pan, Qian Liu, Preslav Nakov, and Min-Yen Kan. SCITAB: A challenging benchmark for compositional reasoning and claim verification on scientific tables. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing ,pages 7787–7813, Singapore, 2023. Association for Computational Linguistics. doi: 10.18653/ v1/2023.emnlp-main.483. URL https://aclanthology.org/2023.emnlp-main.483/ .[17] Ahmed Masry, Do Xuan Long, Jia Qing Tan, Shafiq Joty, and Enamul Hoque. ChartQA: A benchmark for question answering about charts with visual and logical reasoning. In Findings of the Association for Computational Linguistics: ACL 2022 , pages 2263–2279, Dublin, Ireland, 2022. Association for Computational Linguistics. doi: 10.18653/v1/2022.findings-acl.177. URL https://aclanthology.org/2022.findings-acl.177/ .[18] Cheng Qian, Emre Can Acikgoz, Qi He, Hongru Wang, Xiusi Chen, Dilek Hakkani-Tür, Gokhan Tur, and Heng Ji. Toolrl: Reward is all tool learning needs. arXiv preprint arXiv:2504.13958 ,2025. doi: 10.48550/arXiv.2504.13958. URL https://arxiv.org/abs/2504.13958 .[19] Qwen Team. Qwen3.5: Towards native multimodal agents, February 2026. URL https: //qwen.ai/blog?id=qwen3.5 .[20] Timo Schick, Jane Dwivedi-Yu, Roberto Dessì, Roberta Raileanu, Maria Lomeli, Eric Hambro, Luke Zettlemoyer, Nicola Cancedda, and Thomas Scialom. Toolformer: Language models can teach themselves to use tools. In Advances in Neural Information Processing Systems , 2023. URL https://openreview.net/forum?id=Yacmpz84TH .[21] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. doi: 10.48550/arXiv.2402.03300. URL https://arxiv.org/abs/2402.03300 .[22] Zhaochen Su, Linjie Li, Mingyang Song, Yunzhuo Hao, Zhengyuan Yang, Jun Zhang, Guanjie Chen, Jiawei Gu, Juntao Li, Xiaoye Qu, and Yu Cheng. Openthinkimg: Learning to think with images via visual tool reinforcement learning. arXiv preprint arXiv:2505.08617 , 2025. doi: 10.48550/arXiv.2505.08617. URL https://arxiv.org/abs/2505.08617 .[23] Dídac Surís, Sachit Menon, and Carl Vondrick. ViperGPT: Visual inference via python execution for reasoning. In Proceedings of the IEEE/CVF International Conference on Computer Vision ,2023. [24] James Thorne, Andreas Vlachos, Christos Christodoulopoulos, and Arpit Mittal. FEVER: A large-scale dataset for fact extraction and VERification. In Proceedings of the 2018 Conference 
+
+11 of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long Papers) , pages 809–819, New Orleans, Louisiana, 2018. Association for Computational Linguistics. doi: 10.18653/v1/N18-1074. URL https: //aclanthology.org/N18-1074/ .[25] Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot, and Ashish Sabharwal. Interleaving retrieval with chain-of-thought reasoning for knowledge-intensive multi-step questions. In 
+
+Proceedings of the 61st annual meeting of the association for computational linguistics (volume 1: long papers) , pages 10014–10037, 2023. [26] David Wadden, Shanchuan Lin, Kyle Lo, Lucy Lu Wang, Madeleine van Zuylen, Arman Cohan, and Hannaneh Hajishirzi. Fact or fiction: Verifying scientific claims. In Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP) , pages 7534–7550, Online, 2020. Association for Computational Linguistics. doi: 10.18653/v1/2020. emnlp-main.609. URL https://aclanthology.org/2020.emnlp-main.609/ .[27] David Wadden, Kyle Lo, Bailey Kuehl, Arman Cohan, Iz Beltagy, Lucy Lu Wang, and Hannaneh Hajishirzi. SciFact-open: Towards open-domain scientific claim verification. In Findings of the Association for Computational Linguistics: EMNLP 2022 , pages 4719–4734, Abu Dhabi, United Arab Emirates, 2022. Association for Computational Linguistics. doi: 10.18653/v1/2022. findings-emnlp.347. URL https://aclanthology.org/2022.findings-emnlp.347/ .[28] David Wadden, Kyle Lo, Lucy Lu Wang, Arman Cohan, Iz Beltagy, and Hannaneh Hajishirzi. MultiVerS: Improving scientific claim verification with weak supervision and full-document context. In Findings of the Association for Computational Linguistics: NAACL 2022 , pages 61–76, Seattle, United States, 2022. Association for Computational Linguistics. doi: 10.18653/ v1/2022.findings-naacl.6. URL https://aclanthology.org/2022.findings-naacl.6/ .[29] Chengye Wang, Yifei Shen, Zexi Kuang, Arman Cohan, and Yilun Zhao. SciVer: Evaluating foundation models for multimodal scientific claim verification. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,pages 8562–8579, Vienna, Austria, 2025. Association for Computational Linguistics. doi: 10. 18653/v1/2025.acl-long.420. URL https://aclanthology.org/2025.acl-long.420/ .[30] Haoran Wang, Aman Rangapur, Xiongxiao Xu, Yueqing Liang, Haroon Gharwi, Carl Yang, and Kai Shu. Piecing it all together: Verifying multi-hop multimodal claims. In Proceedings of the 31st International Conference on Computational Linguistics , pages 7453–7469, Abu Dhabi, UAE, 2025. Association for Computational Linguistics. URL https://aclanthology.org/ 2025.coling-main.498/ .[31] Hongru Wang, Cheng Qian, Wanjun Zhong, Xiusi Chen, Jiahao Qiu, Shijue Huang, Bowen Jin, Mengdi Wang, Kam-Fai Wong, and Heng Ji. Acting less is reasoning more! teaching model to act efficiently. arXiv preprint arXiv:2504.14870 , 2025. doi: 10.48550/arXiv.2504.14870. URL 
+
+https://arxiv.org/abs/2504.14870 .[32] Weiyun Wang, Zhangwei Gao, Lixin Gu, Hengjun Pu, Long Cui, Xingguang Wei, Zhaoyang Liu, Linglin Jing, Shenglong Ye, Jie Shao, et al. Internvl3.5: Advancing open-source multimodal models in versatility, reasoning, and efficiency. arXiv preprint arXiv:2508.18265 , 2025. doi: 10.48550/arXiv.2508.18265. URL https://arxiv.org/abs/2508.18265 .[33] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, et al. Chain-of-thought prompting elicits reasoning in large language models. 
+
+Advances in neural information processing systems , 35:24824–24837, 2022. [34] Mingyuan Wu, Jingcheng Yang, Jize Jiang, Meitang Li, Kaizhuo Yan, Hanchao Yu, Minjia Zhang, Chengxiang Zhai, and Klara Nahrstedt. Vtool-r1: Vlms learn to think with images via reinforcement learning on multimodal tool use. arXiv preprint arXiv:2505.19255 , 2025. doi: 10.48550/arXiv.2505.19255. URL https://arxiv.org/abs/2505.19255 .[35] Zhengyuan Yang, Linjie Li, Jianfeng Wang, Kevin Lin, Ehsan Azarnasab, Faisal Ahmed, Zicheng Liu, Ce Liu, Michael Zeng, and Lijuan Wang. MM-REACT: Prompting ChatGPT for multimodal reasoning and action. arXiv preprint arXiv:2303.11381 , 2023. doi: 10.48550/arXiv. 2303.11381. URL https://arxiv.org/abs/2303.11381 .12 [36] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik R Narasimhan, and Yuan Cao. React: Synergizing reasoning and acting in language models. In The Eleventh International Conference on Learning Representations , 2023. URL https://openreview. net/forum?id=WE_vluYUL-X .[37] Mingyang Zhou, Lingyu Zhang, Sophia Horng, Maximillian Chen, Kung-Hsiang Huang, and Shih-Fu Chang. M2-TabFact: Multi-document multi-modal fact verification with vi-sual and textual representations of tabular data. In Findings of the Association for Com-putational Linguistics: ACL 2025 , pages 26239–26256, Vienna, Austria, 2025. Associa-tion for Computational Linguistics. doi: 10.18653/v1/2025.findings-acl.1345. URL https: //aclanthology.org/2025.findings-acl.1345/ .
+
+A Method Details 
+
+A.1 Tool Interfaces 
+
+Each tool call targets a single image through the argument image_path , such as img1 , img2 , or a crop returned by a previous zoom operation. The scheduler checks that each assistant turn contains either exactly one valid tool call or a final answer. Malformed calls, unsupported tool names, missing arguments, invalid argument types, or execution failures are rejected and recorded for the tool-interaction penalty. 
+
+Table Focus. For table images, we first convert the original image into a structured CSV-like representation using OCR. We then expose two focused tools: 
+
+focus_row(image_path, row_number) 
+
+and 
+
+focus_column(image_path, column_number) .
+
+The row tool returns the content of the selected row, and the column tool returns the content of the selected column. This design is intended to expose localized tabular evidence, such as a specific method row, dataset row, metric column, or numerical entry, without returning the entire table. 
+
+Chart Parse. For chart and plot images, we expose: 
+
+parse_content(image_path) .
+
+The tool returns parsed chart content as structured text when possible. For example, the returned observation may contain chart elements, axis labels, series names, and associated values in a JSON-like format. When strict structural parsing is unavailable, the tool falls back to raw extracted content rather than failing silently. This allows the verifier to compare a claim against explicit chart evidence such as trends, thresholds, relative ordering, or numerical values. 
+
+Region Zoom. For general scientific figures, diagrams, dense images, or multi-panel figures, we expose: 
+
+image_zoom_in(image_path, x1, y1, x2, y2).
+
+The tool crops and enlarges the selected region and returns the zoomed-in image. The bounding box uses normalized coordinates on a [0 , 1000] scale with respect to the selected image. This makes the interface resolution-invariant and allows the model to inspect small local regions that may contain decisive visual evidence. 
+
+A.2 Tool Scheduler and Execution Logs 
+
+All tool-use methods interact with tools through the same scheduler. The scheduler parses model outputs, validates tool-call syntax, executes valid calls, and returns either a tool observation or an execution error. Each assistant turn is constrained to contain either one valid tool call or the final answer. If a turn contains multiple tool calls, an unsupported tool name, missing arguments, invalid argument types, coordinates outside the valid range, or an unparsable call format, the scheduler records it as a malformed tool turn. 13 The scheduler records the following metadata for each rollout: tool name, tool arguments, execution success, execution failure type, malformed-call indicator, number of tool calls, response length, and final-answer validity. These logs are used for both training and analysis. During training, malformed calls and execution failures contribute to the tool-interaction penalty. During evaluation, the logs are used to compute tool success rate, tool-family routing statistics, tool calls per example, and tool calls per correct example. 
+
+A.3 GRPO Objective and Reward Details GRPO objective. For each input instance x, we sample a group of G rollouts 
+
+G(x) = {τi}Gi=1 
+
+from the current policy. Each rollout may contain zero or more tool calls before the final answer. After assigning rollout-level rewards Ri, we compute the group-relative advantage: 
+
+Ai = Ri − mean Gj=1 Rj
+
+std Gj=1 Rj
+
+.
+
+The policy is optimized with the clipped GRPO objective: 
+
+JGRPO (θ) = 1
+
+G
+
+> G
+
+X
+
+> i=1
+
+X
+
+> t
+
+min ( ri,t (θ)Ai, clip( ri,t (θ), 1 − ϵ, 1 + ϵ)Ai) − βD KL (πθ ∥πref )
+
+where ri,t (θ) is the token-level policy ratio, πref is the reference policy, and β controls the KL penalty. 
+
+Overall reward. For a rollout τ , the final reward is 
+
+R(τ ) = seff (τ ) ( rans (τ ) + λfmt rfmt (τ )) + λlen rlen (τ ) + λtool rtool (τ ).
+
+In our experiments, we set 
+
+λfmt = λlen = λtool = 0 .1.
+
+The answer and format rewards form the task-critical part of the objective, while the length and tool-interaction terms discourage overlong generations and invalid tool behavior. The coefficient seff 
+
+encourages efficient tool use relative to the best correct trajectories in the sampled GRPO group. 
+
+Answer reward. The answer reward measures final task correctness: 
+
+rans (τ ) = I[ˆ y = y],
+
+where y is the ground-truth label and ˆy is the normalized model prediction. 
+
+Format reward. The format reward encourages the model to produce a parseable final response. We define 
+
+rfmt (τ ) = 0 .5 Ireason (τ ) + 0 .5 Ianswer (τ ),
+
+where Ireason (τ ) indicates whether the final response contains the required reasoning segment under the prompt template, and Ianswer (τ ) indicates whether the response contains exactly one valid normalized final-answer marker. This term stabilizes training and ensures that final predictions can be reliably extracted. 
+
+Tool-efficiency coefficient. To encourage selective rather than excessive tool use, we introduce an OTC-style tool-efficiency coefficient. Let m(τ ) be the number of tool calls in rollout τ . Let C(x) be the set of strict-correct rollouts in the GRPO group, where a rollout is strict-correct if it predicts the correct label and ends with a valid final answer. If C(x) is non-empty, we estimate the group-local optimal tool budget as 
+
+n⋆(x) = min  
+
+> τi∈C (x)
+
+m(τi).
+
+If no strict-correct rollout exists, we set seff (τ ) = 1 . Otherwise, for maximum tool budget cmax , we define 
+
+seff (τ ) = 
+
+
+
+1, n⋆ = 0 , m = 0 ,
+
+cos 
+
+ mπ 
+
+> 2m+cmax
+
+
+
+, n⋆ = 0 , m > 0,
+
+0, n⋆ > 0, m = 0 ,
+
+sin 
+
+ mπ m+n⋆
+
+
+
+, n⋆ > 0, m > 0.
+
+14 This coefficient rewards correct trajectories that use close to the group-local minimal number of tool calls, while penalizing unnecessary tool use when a direct answer is sufficient. We set cmax = 5 .
+
+Length reward. We use a soft overlong penalty to discourage unnecessarily long generations. Let 
+
+L(τ ) denote the completion length in tokens, let Lmax be the maximum completion length, and let C
+
+denote the soft-cache length. We define the soft threshold as 
+
+Lsoft = Lmax − C. 
+
+The length reward is 
+
+rlen (τ ) = − max( L(τ ) − Lsoft , 0) 
+
+C .
+
+Thus, the penalty is zero below the soft threshold and decreases linearly as the response approaches the hard length limit. In our experiments, Lmax = 4096 and C = 768 .
+
+Tool-interaction penalty. The tool-interaction penalty discourages malformed tool turns and execution failures. Let eturn (τ ) be the number of malformed tool turns, let eexec (τ ) be the number of tool-execution failures, and let Ibad-end (τ ) indicate whether the rollout contains at least one tool-related error and still fails to terminate with a valid final answer. We compute 
+
+˜rtool (τ ) = − 0.20 I[eturn ≥ 1] − 0.10 max( eturn − 1, 0) 
+
+− 0.30 I[eexec ≥ 1] − 0.15 max( eexec − 1, 0) 
+
+− 0.40 Ibad-end (τ ),
+
+and clip the result: 
+
+rtool (τ ) = clip [−1.5,0] (˜ rtool (τ )) .
+
+This gives the model dense feedback for invalid tool behavior, rather than treating all tool failures as a single sparse error. 
+
+B Experiment Details 
+
+B.1 Training and Test Set Distribution 
+
+Table 8 and Table 9 summarize the exact split sizes used in our experiments. We use a mixed training set with 3,010 examples in total. The evaluation reported in the main text uses 2,505 test instances in total: 2,000 from S CI VER and 505 from the M USCI CLAIMS test split. These counts are also the reason we report sample-weighted overall accuracy in the main results table. SCI VER is nearly balanced across its four reasoning categories, but the current M USCI CLAIMS split is not balanced across biology, physics, and chemistry. A simple macro average would therefore over-weight the smaller physics and chemistry subsets.                  
+
+> Split Category # Examples
+> SCI VER train mixture Analytical 494 Direct 502 Parallel 505 Sequential 499 Subtotal 2,000 MUSCI CLAIMS train mixture Biology 612 Physics 192 Chemistry 206 Subtotal 1,010
+> Total training mixture –3,010
+
+Table 8: Category distribution of the mixed training set used for the GRPO runs. 15 Split Category # Examples                
+
+> SCI VER test Analytical 494 Direct 502 Parallel 505 Sequential 499 Subtotal 2,000 MUSCI CLAIMS test Biology 306 Physics 96 Chemistry 103 Subtotal 505
+> Total evaluation set –2,505
+
+Table 9: Category distribution of the test splits used in the current experiments. The main-table “Overall” values are computed by weighting each category by these test-set counts. 
+
+B.2 Training and Evaluation Protocol. 
+
+For each trainable method, we fine-tune the corresponding backbone on the mixed MSCV training set. During training and evaluation, a model may either produce a final answer directly or issue tool calls through the scheduler. Each assistant turn contains at most one tool call, and the total tool budget is capped at cmax = 5 . The scheduler validates tool-call syntax, executes valid calls, returns tool observations or execution errors, and records tool-use metadata for later analysis. All models are evaluated in a closed-context setting using only the benchmark-provided claim, visual input, caption, and textual context. We do not allow open-web retrieval or external corpora at evaluation time. Free-form generations are normalized to the benchmark label space with rule-based answer extraction, and accuracy is the primary metric. For diagnostic analyses, we additionally report Relevant Evidence Acquisition Rate (REAR), type-aware tool routing statistics, tool calls per example, tool calls per correct example, and response length; metric definitions are provided in Appendix B.5. 
+
+B.3 Baseline and Prompting Details Non-tool CoT inference. The non-tool CoT baseline receives the claim, context, caption, and image, but has no access to external visual tools. It is prompted to reason step by step and then produce a normalized yes/no answer. The prompt template is: 
+
+Claim: $claim Context: $context Caption: $caption Your task is to critically evaluate the claim based on the image and the caption. Carefully examine whether the information in the caption truly supports the claim. Be skeptical and cautious: if there is any inconsistency, missing evidence, or ambiguity, consider the claim incorrect. Start by explaining your reasoning process clearly, focusing on identifying potential contradictions, lack of support, or misleading interpretations. If the claim is unsupported or contradicted by the caption and image, respond with ’no’. Only respond with ’yes’ if the claim is fully and clearly supported. Conclude your analysis by stating: ’Therefore, the final answer is: Answer: $$ANSWER’, where $$ANSWER is your final answer. Think step by step before answering. 
+
+Prompt-only tool-use CoT inference. The prompt-only tool-use baseline receives the same MSCV input and the same tool APIs as our method. However, the model is not trained with tool-use trajectories or reward feedback. It must decide from prompting alone whether a tool is needed, which 16 tool to call, and what arguments to provide. This baseline isolates the effect of exposing tools without learning a tool-use policy. 
+
+Dataset-adapted trained tool-use baselines. For the VT OOL -R1 and O PEN THINK IMG baselines, we retain their original tool suites and reward designs. We train each baseline on the same MSCV training splits used by our method. This comparison tests whether general visual tool-use training recipes are sufficient for MSCV, or whether task-aligned evidence extraction tools are needed. 
+
+Proprietary model references. Proprietary VLMs are evaluated only under the non-tool CoT inference setting. They are included as external references rather than controlled training baselines, since their training data, model parameters, and tool-use training procedures are not available. 
+
+B.4 Diagnostic Subset Construction 
+
+We construct diagnostic subsets to analyze whether the model acquires the correct type of visual evidence. These subsets are used for the REAR analysis and for the type-aware tool-selection analysis in Section 5. 
+
+Table subset. The table subset is drawn from S CI VER examples whose evidence images contain table indicators in the file name or metadata. These examples are used to evaluate whether the model can acquire localized tabular evidence, such as a target row, column, or cell value. 
+
+Chart/plot subset. The chart/plot subset is drawn from S CI VER examples for which chart pre-computation metadata indicates that chart parsing is applicable. These examples test whether the model can acquire chart evidence such as trends, thresholds, relative ordering, or numerical values. 
+
+General-figure subset. The general-figure subset is drawn from M USCI CLAIMS , whose examples are centered on figure-centric scientific claims. This subset is used to evaluate whether the model can acquire local evidence from dense, diagrammatic, or multi-panel scientific figures. When a claim requires multiple evidence types, an example may contribute to more than one diagnostic subset. 
+
+B.5 Evaluation Metrics for Diagnostic Analyses 
+
+In addition to final verification accuracy, we compute diagnostic metrics for the analyses in Section 5. These metrics are designed to test whether the model improves because it acquires claim-relevant visual evidence, selects tools according to the visual evidence type, and solves the task efficiently. 
+
+Sample-weighted overall accuracy. For each benchmark, the overall accuracy is computed by weighting each subset by its number of test examples: 
+
+Acc overall =
+
+P 
+
+> k
+
+nk Acc k
+
+P 
+
+> k
+
+nk
+
+,
+
+where k indexes benchmark subsets, nk is the number of examples in subset k, and Acc k is the accuracy on that subset. 
+
+Relevant Evidence Acquisition Rate. Relevant Evidence Acquisition Rate (REAR) measures whether a model obtains the visual evidence required to verify the claim. For tool-use methods, an example is counted as successful if at least one returned tool observation contains the claim-relevant visual evidence. For non-tool CoT inference, we compute a rationale-level REAR by checking whether the generated reasoning explicitly identifies the required visual evidence. Formally, for a diagnostic subset D,
+
+REAR = 1
+
+|D| 
+
+X
+
+> xi∈D
+
+I[claim-relevant visual evidence is acquired or identified ].
+
+We report REAR separately for table, chart/plot, and general-figure evidence subsets. 17 Tool success rate. Tool success rate measures the fraction of attempted tool calls that execute successfully: 
+
+ToolSucc = # successfully executed tool calls 
+
+# attempted tool calls .
+
+A low tool success rate indicates malformed calls, invalid arguments, unsupported tool names, or execution failures. 
+
+Tool-family routing share. For a tool family f , the routing share is 
+
+ρf = # calls to tool family f
+
+# all valid tool calls .
+
+In the main analysis, we aggregate focus_row and focus_column into the table-tool family, 
+
+parse_content into the chart-tool family, and image_zoom_in into the zoom-tool family. 
+
+Tool-use efficiency. We measure tool-use efficiency using the average number of tool calls per example and the average number of tool calls per correct example: 
+
+Calls/Ex = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+m(τi),
+
+Calls/Correct = 
+
+PNi=1 m(τi) I[ˆ yi = yi]
+
+PNi=1 I[ˆ yi = yi] .
+
+We also report average response length in tokens. Together, these metrics test whether the learned policy solves MSCV with fewer unnecessary actions and shorter responses while preserving accuracy. 
+
+B.6 Training Dynamics with Tool-Interaction Penalty 
+
+We additionally analyze how the tool-interaction penalty affects GRPO training dynamics. Figure 3 compares a sparse tool-penalty variant with the dense tool-interaction penalty used in our method. Both runs use the same backbone, training data, reward weights, and GRPO hyperparameters; they differ only in how invalid tool behavior is penalized. The sparse variant provides coarse feedback for tool-related failures, whereas the dense variant assigns graded penalties to malformed tool turns, execution failures, repeated errors, and invalid termination after tool errors. The dense penalty leads to smoother optimization behavior across reward, loss, KL, reward variance, tool-penalty reward, and gradient norm. This suggests that fine-grained feedback makes tool-use learning more stable by reducing abrupt reward changes caused by sparse failure signals. 18 0.4 
+
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+
+Reward 
+
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+
+Loss  
+
+> 0
+> 2
+> 4
+> 6
+> 8
+> 1e31
+
+KL      
+
+> 250 500 750 1000 1250 1500
+
+Training step 
+
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+
+Reward std.      
+
+> 250 500 750 1000 1250 1500
+
+Training step 
+
+> −0.6
+> −0.5
+> −0.4
+> −0.3
+> −0.2
+> −0.1
+> 0.0
+
+Tool penalty      
+
+> 250 500 750 1000 1250 1500
+
+Training step 
+
+> 0
+> 2500
+> 5000
+> 7500
+> 10000
+> 12500
+> 15000
+
+Grad norm 
+
+Dense penalty Sparse penalty Figure 3: Training dynamics for sparse versus dense tool-interaction penalties. Curves are smoothed by averaging metrics within 50-step intervals. The dense tool-interaction penalty produces smoother reward, loss, KL, reward-variance, tool-penalty, and gradient-norm trajectories. 19
