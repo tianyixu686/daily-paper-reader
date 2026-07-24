@@ -1,0 +1,367 @@
+Title: PolySim: Deterministic Polynomial Surrogates for Cross-Modal Retrieval on CiM
+
+URL Source: https://arxiv.org/pdf/2607.20358v1
+
+Published Time: Thu, 23 Jul 2026 01:16:05 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# PolySim: Deterministic Polynomial Surrogates for Cross-Modal Retrieval on CiM 
+
+Xinzhao Li 1, Charles Power 1, Pengyu Ren 2, Jongun Won 2, Likai Pei 2, Yuting Hu 3, Jinjun Xiong 3, Alptekin Vardar 4, Ningyuan Cao 2,Xiaobo Sharon Hu 2, Thomas Kämpfe 4,5, Kai Ni 2, Ruiyang Qin 11Villanova University, 2University of Notre Dame, 3University at Buffalo, 4Fraunhofer IPMS, 5TU Braunschweig 
+
+## ABSTRACT 
+
+Cross-modal retrieval on edge devices benefits from proba-bilistic embeddings that capture semantic uncertainty, but deploying them on compute-in-memory (CiM) hardware re-mains an open problem. The core difficulty is a sampling gap: probabilistic methods such as PCME rely on Monte Carlo sampling and nonlinear distance evaluation at inference, which are fundamentally incompatible with CiM crossbar arrays that support only deterministic, single-step matrix-vector multiplication. Few existing probabilistic retrieval methods can be executed on a conventional crossbar. To bridge this gap, we propose PolySim, a framework that re-formulates probabilistic retrieval into a fully deterministic pipeline. PolySim approximates each Gaussian embedding dimension using low-order polynomial bases and computes similarity via a learnable order-bilinear kernel, eliminating stochastic sampling while preserving distributional infor-mation. In experiments on six benchmarks spanning video, image, and audio retrieval, PolySim improves R@1 over deterministic baselines by up to 10.3% and matches or ex-ceeds PCME, while reducing inference to a single crossbar-compatible matrix-vector multiplication. CrossSim evalua-tion under realistic device non-idealities confirms robust deployment on conventional crossbar arrays. To the best of our knowledge, PolySim is the first method to enable proba-bilistic cross-modal retrieval on CiM hardware. 
+
+## 1 INTRODUCTION 
+
+In the era of large-scale AI, customizing and personalizing pretrained AI models on edge devices is increasingly needed in areas such as healthcare, daily assistance, and compan-ionship [ 1 ]. Due to the limited computational and storage 
+
+Permission to make digital or hard copies of all or part of this work for personal or classroom use is granted without fee provided that copies are not made or distributed for profit or commercial advantage and that copies bear this notice and the full citation on the first page. Copyrights for components of this work owned by others than the author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or republish, to post on servers or to redistribute to lists, requires prior specific permission and/or a fee. Request permissions from permissions@acm.org. 
+
+ICCAD ’26, November 8–12, 2026, San Jose, CA, USA 
+
+© 2026 Copyright held by the owner/author(s). Publication rights licensed to ACM. ACM ISBN 978-x-xxxx-xxxx-x/YY/MM https://doi.org/10.1145/nnnnnnn.nnnnnnn 
+
+Figure 1: Probabilistic retrieval (PCME) improves ac-curacy over deterministic baselines but incurs 5–23 ×
+
+latency overhead due to Monte Carlo sampling. This sampling-based inference is fundamentally incompat-ible with CiM crossbar, motivating our deterministic reformulation. 
+
+resources on edge devices, retrieval-based approaches such as retrieval-augmented generation (RAG) [ 2 ] are better suited for on-device personalized AI than parameter tuning [ 3]. A major bottleneck of retrieval approaches on edge devices is the data movement latency between SSD and DRAM, which can even exceed the latency of parameter tuning itself. While this bottleneck has been addressed by hardware-software co-design under compute-in-memory (CiM) architectures [ 4 , 5 ], where the information to be retrieved is shaped and stored on crossbar arrays [ 6 –8 ], such co-design solutions have so far only been demonstrated for text-based retrieval tasks. Under this trend, retrieval tasks are increasingly mov-ing from text-only settings to cross-modal settings, where a text query must be matched against candidates from other modalities, such as images or audio. A central challenge in cross-modal retrieval is semantic uncertainty: a single video can be accurately described by many different sentences, and a single sentence may correspond to multiple valid video segments. To address this, the state-of-the-art approach em-ploys probabilistic cross-modal embedding (PCME) [ 9, 10 ], which represents each sample as a Gaussian distribution rather than a single point, allowing variance to encode se-mantic ambiguity explicitly. PCME and its variants have consistently outperformed deterministic baselines across image–text, video–text, and audio–text benchmarks. arXiv:2607.20358v1 [cs.ET] 22 Jul 2026 ICCAD ’26, November 8–12, 2026, San Jose, CA, USA Li et al. 
+
+However, there are two major challenges in deploying PCME for on-device cross-modal retrieval. First, like text-based retrieval, PCME suffers from high data movement latency. Unlike deterministic embeddings, probabilistic em-beddings are parameterized by both mean and variance and cannot be directly shaped into a single vector for crossbar storage. Second, even if the embeddings could be stored, the Monte Carlo sampling procedure inherent to PCME, re-quiring random number generation, 𝑆 2 pairwise distance evaluations per query–candidate pair, and nonlinear score accumulation, cannot be performed on standard crossbar arrays, which support only deterministic, single-step matrix– vector multiplication (MVM) [ 11 ]. Supporting these opera-tions would require additional off-chip components, negat-ing the data movement advantage that motivates CiM in the first place. As shown in Figure 1, PCME incurs 5–23 ×
+
+latency overhead over deterministic baselines across four benchmarks while providing moderate accuracy gains. To bridge the gap between PCME and on-device cross-modal retrieval, we introduce PolySim (Poly nomial Sur-rogate Sim ilarity), a deterministic framework that enables probabilistic retrieval on standard crossbar arrays. Instead of maintaining the probabilistic embeddings and sampling from them at inference time, PolySim converts each per-dimension Gaussian density into a low-order Chebyshev polynomial expansion and concatenates the resulting coeffi-cients into a deterministic surrogate embedding. Similarity is then computed using a learnable order-bilinear kernel that captures cross-order interactions among polynomial terms, and the entire inference path reduces to deterministic matrix multiplications that can be executed natively on a crossbar. The contributions of this work can be summarized as follows: 
+
+• To the best of our knowledge, this is the first work to enable probabilistic cross-modal retrieval on conven-tional CiM crossbar arrays. 
+
+• We propose PolySim, which converts Gaussian embed-dings into deterministic polynomial coefficient vec-tors via Chebyshev expansion and computes similarity through a learnable order-bilinear kernel, reducing the entire inference to a single-step MVM on the crossbar. 
+
+• We validate PolySim on six benchmarks spanning video, image, and audio retrieval, achieving competitive or superior R@1 to PCME while maintaining robustness under realistic CiM device non-idealities. 
+
+## 2 BACKGROUND AND MOTIVATION 2.1 Cross-Modal Retrieval 
+
+In text-based retrieval, each document is encoded into a fixed-size vector, and similarity with a query vector is computed via dot product. This dot product over the entire database re-duces to a single matrix-vector multiplication (MVM), which maps directly onto CiM crossbar arrays. Prior work [ 6 , 8 ]has demonstrated this path for text-based RAG acceleration on CiM. Cross-modal retrieval extends this setting: given a text query, the system must find the most relevant candidate from a different modality, such as image, video, or audio [ 12 – 14 ]. The key difficulty is semantic uncertainty. A single video can be described by many different sentences, and a single sentence may match multiple video segments. Standard point embeddings, where each sample maps to one vector, cannot capture this one-to-many structure. To address this, PCME [ 9] represents each sample as a Gaussian distribution parameterized by (𝜇, 𝜎 ), where the mean encodes semantic location and the variance encodes ambiguity. This improves retrieval accuracy, but changes the computational structure. The embedding is no longer a single vector, and computing similarity between two Gaus-sians requires Monte Carlo sampling rather than a single dot product. As a result, the simple MVM mapping that enables CiM acceleration for text-based retrieval no longer holds. 
+
+## 2.2 Cost of Monte Carlo Sampling 
+
+To compute similarity between two Gaussian embeddings, PCME draws 𝑆 samples from each distribution and averages over all pairwise distances: 
+
+sim (𝑡, 𝑣 ) ≈ 1
+
+𝑆 2
+
+> 𝑆
+
+∑︁ 
+
+> 𝑖 =1
+> 𝑆
+
+∑︁ 
+
+> 𝑗 =1
+
+𝑠  𝑧 (𝑖 ) 
+
+> 𝑡
+
+, 𝑧 ( 𝑗 )
+
+> 𝑣
+
+,𝑧 (𝑖 ) 
+
+> 𝑡
+
+∼ N ( 𝜇 𝑡 , 𝜎 𝑡 ), 𝑧 ( 𝑗 ) 
+
+> 𝑣
+
+∼ N ( 𝜇 𝑣 , 𝜎 𝑣 ).
+
+(1) For a database of 𝑁 entries with embedding dimension 𝐷 , a single query incurs 𝑂 (𝑁 · 𝑆 2 · 𝐷 ) arithmetic and 𝑂 (𝑁 · 𝑆 · 𝐷 )
+
+data movement, compared with 𝑂 (𝑁 · 𝐷 ) for a deterministic dot product. Moreover, 𝑆 must grow with the database size to maintain estimation accuracy, leading to super-linear scaling in both computation and data traffic. 
+
+## 2.3 Crossbar-Based Compute-in-Memory 
+
+As discussed in Section 2.1, text-based retrieval maps natu-rally onto CiM crossbar arrays because its core operation, a dot product between a query vector and a database matrix, is a single matrix-vector multiplication (MVM). A crossbar array performs this MVM in one cycle by encoding the ma-trix as NVM conductance values and applying the query as input voltages [4, 5]. However, crossbar arrays impose three constraints that are relevant to this work. First, the dataflow is deterministic and completes in a single step: the array cannot generate PolySim: Deterministic Polynomial Surrogates for Cross-Modal Retrieval on CiM ICCAD ’26, November 8–12, 2026, San Jose, CA, USA 
+
+random numbers, iterate over multiple input vectors, or ac-cumulate scores nonlinearly within a single operation. This is the fundamental reason Monte Carlo-based PCME infer-ence cannot be executed directly on a crossbar. Second, NVM cells such as ReRAM and FeFET offer limited bit precision, typically 1–4 levels per cell, requiring the stored embeddings to be quantized. Third, device-to-device variations cause the programmed conductance to deviate from the target value, introducing noise into the MVM output. We evaluate the impact of the second and third constraints in the experiment sections. 
+
+## 2.4 The Sampling Gap: Why Probabilistic Retrieval mismatches with Crossbar 
+
+As illustrated in Figure 2, every stage of Monte Carlo-based probabilistic inference conflicts with the crossbar operational model. The crossbar expects a single deterministic input vec-tor per computation cycle and produces a linear output; it cannot generate random samples, cannot iterate over mul-tiple sampled vectors within one pass, and cannot perform nonlinear reductions on the output currents [ 15 ]. Attempting to emulate Monte Carlo on a crossbar would require multiple separate passes per query–candidate pair, each preceded by off-chip sample generation and followed by off-chip nonlin-ear accumulation, completely negating the data movement advantage that motivates CiM in the first place. This is not a precision issue resolvable by improving NVM bit-density, nor a tiling issue addressable by scaling array dimensions. It is a structural mismatch between the stochastic, iterative, non-linear nature of Monte Carlo inference and the deterministic, single-step, linear operation of a crossbar. Bridging this gap requires reformulating the retrieval algorithm itself so that the inference path is natively expressible as deterministic matrix multiplication. 
+
+## 3 PROPOSED WORK 3.1 Overview 
+
+This section presents the overall framework of PolySim, as il-lustrated in Figure 3. PolySim converts probabilistic Gaussian embeddings into a deterministic polynomial representation that enables matrix multiplication based similarity computa-tion, while maximally preserving the structural properties of the original joint Gaussian embedding space. The data flow passes through three main stages in the pipeline. First, the input multimodal data (e.g., text, image, or audio) is encoded by a backbone model, followed by a lightweight projection head that produces a Gaussian em-bedding parameterized by (𝜇, 𝜎 ). Then, for each embedding dimension, the Gaussian density is approximated using a low-order Chebyshev expansion, and the resulting coeffi-cients are concatenated to form a deterministic polynomial 
+
+Figure 2: (a) Crossbar-compatible single-step MVM. (b) PCME requires off-chip sampling and nonlinear accu-mulation, breaking crossbar compatibility. Our method restores (a) while preserving distributional informa-tion. 
+
+embedding, which preserves the structural characteristics of the original distribution while enabling efficient downstream processing. To compute similarity, we operate directly on the polyno-mial embeddings using a learnable order-bilinear function implemented with matrix multiplications. During training, we adopt an asymmetric bidirectional InfoNCE [ 16 ] objective to optimize the entire pipeline end-to-end, including the pro-jection head and similarity parameters. During deployment, both query and database embeddings are deterministically transformed into polynomial coefficients, and similarity is computed using matrix operations, enabling efficient execu-tion on hardware platforms such as CiM crossbar arrays. 
+
+## 3.2 Gaussian Embedding Interface 
+
+Our method takes as input a Gaussian embedding param-eterized by a mean vector 𝜇 and a diagonal variance 𝜎 . In practice, such Gaussian embeddings are produced by append-ing a probabilistic projector, such as the PCME projector, to a multimodal backbone encoder. In this work, we treat the Gaussian embedding (𝜇, 𝜎 ) as the interface between probabilistic representation learning and deterministic inference. Rather than modifying the back-bone encoder or the probabilistic projector itself, we operate on the Gaussian output of the projector and transform it into a deterministic polynomial representation for efficient similarity computation. This design allows PolySim to be at-tached after existing probabilistic projection modules while preserving their uncertainty-aware embedding space. ICCAD ’26, November 8–12, 2026, San Jose, CA, USA Li et al. 
+
+Figure 3: Overview of the proposed framework. PolySim converts probabilistic Gaussian embeddings into a deterministic polynomial representation, enabling single-step MVM compatible with CiM hardware. 
+
+## 3.3 Polynomial Surrogate Embedding 
+
+We now introduce the core component of PolySim, which converts probabilistic Gaussian embeddings into determin-istic polynomial representations. Given the Gaussian em-bedding (𝜇, 𝜎 ), we construct a deterministic surrogate by approximating each per-dimension Gaussian density in a polynomial basis. For each embedding dimension 𝑑 , we con-sider the one-dimensional density 
+
+𝑔 𝑑 (𝑥 ) = 1
+
+√2𝜋𝜎 𝑑 
+
+exp − (𝑥 − 𝜇 𝑑 )2
+
+2𝜎 2
+
+> 𝑑
+
+!
+
+, (2) and approximate it using a truncated Chebyshev expansion. Rather than computing coefficients through discrete pro-jection, we adopt the Chebyshev recurrence formulation, which enables efficient and differentiable computation. The polynomial basis functions are generated via 
+
+𝑇 0 (𝑥 ) = 1, 𝑇 1 (𝑥 ) = 𝑥, 𝑇 𝑘 (𝑥 ) = 2𝑥𝑇 𝑘 −1 (𝑥 ) − 𝑇 𝑘 −2 (𝑥 ). (3) and the coefficients are obtained by evaluating the Gaussian density under this basis. For each dimension, the resulting coefficients {𝑐 𝑑,𝑘 }𝐾 𝑘 =0
+
+capture the shape of the underlying Gaussian distribution. These coefficients are concatenated across all dimensions to form the deterministic surrogate embedding, 
+
+𝐶 = [𝑐 1,0, . . . , 𝑐 1,𝐾 , . . . , 𝑐 𝐷, 0, . . . , 𝑐 𝐷,𝐾 ]. (4) This representation preserves distributional information in a structured and compact form. Moreover, low-order trun-cation ( 𝐾 ≪ 𝐷 ) is sufficient in practice due to the approxi-mation efficiency of Chebyshev polynomials, enabling a fa-vorable trade-off between accuracy and computational cost. 
+
+## 3.4 Order-Bilinear Similarity Function 
+
+Given the deterministic polynomial embeddings, we define similarity directly in the coefficient space. A straightforward approach is to apply a dot product over the concatenated coefficients, which treats different polynomial orders inde-pendently and ignores their interactions. To address this limitation, we introduce a learnable order-bilinear similarity that models cross-order correlations through a parameter matrix. For each embedding dimension 𝑑 , let 𝑐 (𝑑 ) 
+
+> 𝑡
+
+and 𝑐 (𝑑 ) 
+
+> 𝑣
+
+∈ R𝐾 
+
+denote the polynomial coefficients. The similarity is defined as 
+
+sim (𝑡, 𝑣 ) =
+
+> 𝐷
+
+∑︁ 
+
+> 𝑑 =1
+
+
+
+𝑐 (𝑑 )
+
+> 𝑡
+
+⊤
+
+𝐴 𝑐 (𝑑 ) 
+
+> 𝑣
+
++ 𝛾 ⟨ ˆ𝜇 𝑡 , ˆ𝜇 𝑣 ⟩ , (5) where 𝐴 ∈ R𝐾 ×𝐾 is a learnable order-interaction matrix. In implementation, 𝐴 is initialized as either an identity matrix or a uniform matrix, and is symmetrized during training as 
+
+𝐴 ← 12 (𝐴 + 𝐴 ⊤) to ensure stable behavior. The second term is an optional residual similarity based on normalized mean embeddings, with a learnable weight 𝛾 .Although the similarity is expressed in a bilinear form, it can be equivalently rewritten as a dot product in a trans-formed space. Specifically, by defining transformed embed-dings as ˜𝑐 = 𝐴 1/2𝑐 , the similarity becomes a standard inner product between ˜𝑐 𝑡 and ˜𝑐 𝑣 .In practice, this transformation can be pre-applied to data-base embeddings offline, while query embeddings are trans-formed online. As a result, the final similarity computation reduces to a single matrix-vector multiplication, preserving compatibility with single-step CiM inference. PolySim is trained end-to-end using an asymmetric bidi-rectional multi-positive InfoNCE objective. Given a batch of size 𝑁 , we construct a similarity matrix 𝑆 ∈ R𝑁 ×𝑁 . For one retrieval direction, the loss is defined as 
+
+Lmp (𝑆 ) = − 1
+
+𝑁 
+
+> 𝑁
+
+∑︁ 
+
+> 𝑖 =1
+
+
+
+log ∑︁   
+
+> 𝑗 ∈ P ( 𝑖 )
+
+𝑒 𝑆 𝑖 𝑗 /𝜏 − log 
+
+> 𝑁
+
+∑︁ 
+
+> 𝑗 =1
+
+𝑒 𝑆 𝑖 𝑗 /𝜏 
+
+
+
+. (6) PolySim: Deterministic Polynomial Surrogates for Cross-Modal Retrieval on CiM ICCAD ’26, November 8–12, 2026, San Jose, CA, USA 
+
+Figure 4: Comparison of similarity computation. PCME relies on Monte Carlo Sampling. Our method instead uses polynomial coefficient. 
+
+where P ( 𝑖 ) denotes samples sharing the same video ID as sample 𝑖 . The final objective is 
+
+L = 𝛼 Lmp (𝑆 ) + 𝛽 Lmp (𝑆 ⊤). (7) Gradients from the retrieval objective are backpropagated through the similarity function, directly updating the kernel matrix 𝐴 , the polynomial coefficients, and the Gaussian pro-jector. This enables joint optimization of representation and similarity under a fully deterministic pipeline. 
+
+## 4 EXPERIMENTAL EVALUATION 
+
+In this section, we present experiments to evaluate the per-formance, design choices, generalizability, and hardware effi-ciency of PolySim. Our primary task is multimodal retrieval, including video-to-text, image-to-text and audio-to-text re-trieval. We first present the main results by comparing our method with DET and PCME across multiple benchmark datasets and base models. Then, we evaluate the hardware ef-ficiency of the proposed method, enabled by its deterministic, matrix-multiplication-based inference. Finally, we conduct ablation studies to analyze key design components, including the choice of polynomial basis, polynomial order, and similar-ity function, providing further insights into the effectiveness of our design. 
+
+## 4.1 Performance Evaluation 
+
+To validate the effectiveness of PolySim, we evaluate it on six multimodal retrieval benchmarks: Clotho [ 17 ], MSRVTT [ 18 ], VATEX [ 19 ], COCO [ 20 ], Flickr30k [ 21 ], and AudioCaps [ 22 ], covering video, image, and audio retrieval tasks. We consider multiple backbone models for each modality. For video and image retrieval, we use ImageBind [ 23 ], CLIP [ 24 ], and Open-CLIP [ 25 ], while for audio retrieval, we adopt CLAP-HTSAT and CLAP-Large. Since deploying probabilistic cross-modal retrieval on CiM has not been explored before, there is no directly comparable prior method. We adopt two natural reference points: deterministic embeddings (DET) [ 9 ], which use the backbone’s default point-vector output with dot-product similarity, and PCME [ 9 ], which represents the state-of-the-art probabilistic approach. DET is CiM-compatible but discards distributional information; PCME preserves it but cannot be mapped to crossbar hardware. For each dataset, we report text-to-X (T2X), X-to-text (X2T), and software-side retrieval scoring latency. As shown in Table 1, PolySim consistently improves over DET across most datasets and models, with more pronounced gains in the X2T direction (e.g., video-to-text and audio-to-text), sug-gesting better preservation of distributional information. Compared with PCME, it achieves competitive or superior retrieval performance while avoiding stochastic sampling, and reformulates similarity computation into deterministic matrix-based operators that are compatible with CiM deploy-ment. Importantly, PolySim can outperform PCME even though both originate from the same probabilistic embedding formu-lation. Rather than approximating similarity through Monte Carlo estimation, our approach constructs a deterministic polynomial representation and learns the similarity directly in coefficient space, resulting in more stable and expressive similarity modeling. The latency in Table 1 reflects software-side scoring cost in the current PyTorch implementation (see table footnote). The higher software latency of PolySim is due to unoptimized polynomial expansion and bilinear evaluation on GPU. On CiM hardware, the relationship is reversed: PolySim requires only 1 MVM per query, whereas PCME requires 𝑆 2 passes (Table 3), making PolySim faster by a factor of 𝑆 2 on the crossbar. Table 6 compares the per-epoch training time of PCME and PolySim. The Chebyshev-based approach incurs higher training cost due to polynomial expansion and order-bilinear modeling. However, this is a one-time overhead that enables fully deterministic single-step inference via matrix multipli-cation, making the resulting formulation more suitable for deployment. Overall, these results demonstrate that our approach effec-tively combines the advantages of probabilistic embeddings with deterministic inference that is structurally aligned with CiM execution. 
+
+## 4.2 CrossSim CIM Evaluation 
+
+To evaluate the hardware deployability of PolySim, we con-duct simulations using CrossSim [ 26 ] under realistic crossbar non-idealities. The level-dependent device variation profiles used in the conductance transition model are summarized in Table 2. The profiles for 𝑅𝑅𝐴𝑀 1 and 𝑅𝑅𝐴𝑀 4 are abstracted ICCAD ’26, November 8–12, 2026, San Jose, CA, USA Li et al. 
+
+Table 1: Retrieval performance of DET, PCME, and PolySim across video, image, and audio benchmarks. For each dataset, we report text-to-X (T2X) R@1, X-to-text (X2T) R@1 (%), and software-side scoring latency † (ms). 
+
+MSRVTT VATEX 
+
+DET PCME PolySim DET PCME PolySim Task Model T2V V2T Lat. † T2V V2T Lat. † T2V V2T Lat. † T2V V2T Lat. † T2V V2T Lat. † T2V V2T Lat. †
+
+Video ImageBind 38.7 30.3 0.2 39.2 36.0 3.4 40.8 38.5 17.5 35.9 28.3 6.3 34.5 31.1 28.8 36.4 37.3 123.6 CLIP 30.5 26.4 0.2 31.6 29.3 1.9 30.3 31.4 7.6 22.9 19.3 5.5 22.6 21.0 31.1 24.6 23.9 62.4 OpenCLIP 34.8 28.0 0.2 34.3 35.6 1.9 35.3 36.3 7.5 24.6 18.6 5.6 21.9 20.2 31.1 25.8 25.8 62.5 
+
+COCO Flickr30k 
+
+DET PCME PolySim DET PCME PolySim Task Model T2I I2T Lat. † T2I I2T Lat. † T2I I2T Lat. † T2I I2T Lat. † T2I I2T Lat. † T2I I2T Lat. †
+
+Image ImageBind 50.4 66.8 32.1 51.8 66.1 151.0 54.4 69.8 963.9 78.1 92.6 1.1 78.6 92.4 25.2 80.2 92.2 67.0 CLIP 30.4 50.1 13.6 39.3 51.5 85.5 40.7 55.7 673.6 58.8 78.8 0.8 65.7 78.7 15.4 67.8 79.8 51.4 OpenCLIP 39.4 56.3 13.2 41.1 54.2 84.6 43.4 59.9 698.8 66.7 84.1 0.8 68.1 84.0 13.9 70.4 83.3 64.3 
+
+Clotho AudioCaps 
+
+DET PCME PolySim DET PCME PolySim Task Model T2A A2T Lat. † T2A A2T Lat. † T2A A2T Lat. † T2A A2T Lat. † T2A A2T Lat. † T2A A2T Lat. †
+
+Audio CLAP_HTSAT 14.4 18.3 0.8 17.7 21.1 14.4 17.0 20.5 56.9 6.7 8.8 1.9 7.3 8.9 11.4 7.4 8.8 261.2 CLAP_Large 14.3 21.3 0.8 18.2 22.9 14.7 17.9 21.7 55.6 5.6 8.5 1.9 7.4 9.3 11.2 7.2 9.1 215.0     
+
+> †Latency is measured as software-side scoring cost in PyTorch. On a crossbar, PolySim reduces to 1 MVM per query (Table 3), yielding 𝑆 2×lower hardware latency than PCME, where 𝑆 is the number of Monte Carlo samples.
+
+Table 2: Level-dependent device variation profiles used in the conductance transition model. For multi-level cells, 𝐿 0–𝐿 3 denote the nominal states and 𝜎 𝑣 their cor-responding Gaussian deviations. 
+
+Name # of Levels Device Variations 𝜎 𝑣 
+
+𝐿 0 𝐿 1 𝐿 2 𝐿 3
+
+𝑅𝑅𝐴𝑀 1 (Device-1) 1 0.0100 0.0100 0.0100 0.0100 
+
+𝐹𝑒𝐹 𝐸𝑇 2 (Device-2) 4 0.0067 0.0135 0.0135 0.0067 
+
+𝐹𝑒𝐹 𝐸𝑇 3 (Device-3) 4 0.0049 0.0146 0.0146 0.0049 
+
+𝑅𝑅𝐴𝑀 4 (Device-4) 4 0.0038 0.0151 0.0151 0.0038 
+
+𝐹𝑒𝐹 𝐸𝑇 6 (Device-5) 4 0.0026 0.0155 0.0155 0.0026 
+
+from measured RRAM devices [ 27 , 28 ], while 𝐹𝑒𝐹 𝐸𝑇 2 is based on measured FeFET data [ 29 ]. 𝐹𝑒𝐹 𝐸𝑇 3 and 𝐹𝑒𝐹 𝐸𝑇 6 are ex-trapolated from these measured profiles. While simulators such as NeuroSim [ 30 ] can also evaluate inference accuracy, they primarily operate at the circuit and architecture level with higher-level abstractions. In contrast, CrossSim directly models analog matrix vector multiplication (MVM) distor-tions, which are the dominant source of error in our retrieval pipeline. Table 3 compares the inference-time hardware require-ments. Unlike PCME, which requires 𝑆 2 MVM passes, on-chip RNG, and nonlinear score reduction per query, PolySim reduces to a single MVM after offline database transforma-tion and online query transformation, preserving standard single-step crossbar execution without any stochastic opera-tions. 
+
+Table 3: Inference-time hardware requirements. 𝑆 de-notes the number of Monte Carlo samples per distri-bution.                
+
+> Method # MVM RNG-Linear Crossbar per query free accum. compatible PCME 𝑆 2✗✗✗
+> PolySim 1✓✓✓
+
+Since our formulation reduces similarity computation to deterministic MVM operations, it can be directly mapped to crossbar-based CiM architectures and evaluated within CrossSim. In contrast, probabilistic approaches such as PCME rely on Monte Carlo sampling, which involves repeated ran-dom sampling and iterative similarity evaluation, and cannot be naturally expressed as a single-step MVM. As a result, they cannot be directly evaluated within the same simulation framework. Therefore, this experiment focuses on analyzing the robustness of PolySim under hardware non-idealities rather than comparing different algorithms. We compare the retrieval performance between ideal GPU inference and CrossSim inference under multiple hardware configurations. As shown in Figure 5, PolySim maintains strong retrieval performance across different settings, with only moderate degradation under increasing non-idealities. These results demonstrate that the proposed determinis-tic polynomial representation is not only effective in ideal settings but also robust under realistic hardware conditions, making it well-suited for deployment on CiM architectures. PolySim: Deterministic Polynomial Surrogates for Cross-Modal Retrieval on CiM ICCAD ’26, November 8–12, 2026, San Jose, CA, USA        
+
+> (a) MSRVTT-Imagebind (b) MSRVTT-CLIP (c) VATEX-CLIP (d) CLOTHO-CLAP
+
+Figure 5: CrossSim evaluation under device non-idealities across different datasets and backbone models. Blue and orange bars denote the two retrieval directions for each dataset, while darker and lighter shades denote DET and Ours, respectively. D1–D5 denote the device variation configurations summarized in Table 2. 
+
+## 4.3 Similarity Function Design 
+
+We next analyze the impact of the similarity function de-fined in Eq. (4). While a standard dot product can be directly applied to the polynomial coefficient embedding, such a for-mulation treats different polynomial orders independently and ignores their structured interactions. To evaluate the effectiveness of the proposed design, we compare three variants: (1) a naive dot product in the coeffi-cient space, (2) a diagonal-weighted similarity that reweights each polynomial order independently, and (3) the proposed order-bilinear formulation. All variants share the same poly-nomial embedding and training setup, differing only in the similarity function. As shown in Table 4, the naive dot product leads to no-ticeable performance degradation, indicating that the poly-nomial representation alone is insufficient to capture the underlying similarity structure. Introducing diagonal weight-ing significantly improves performance, demonstrating the importance of order-aware reweighting. However, it remains slightly inferior to the proposed formulation, suggesting that modeling interactions across polynomial orders provides additional benefits. In contrast, the proposed formulation consistently achieves the best performance, highlighting the advantage of capturing cross-order dependencies. These results suggest that the performance gain does not solely come from the polynomial representation, but also critically depends on the similarity function design. By en-abling interactions across different polynomial orders, the proposed formulation more accurately captures the structure of the underlying Gaussian embedding while remaining fully compatible with CiM inference. 
+
+## 4.4 Polynomial Basis Design 
+
+We analyze the design choices of the polynomial represen-tation, including the approximation order and the choice of polynomial basis. We first examine the impact of the polynomial degree on retrieval performance. As shown in Figure 6, increasing 
+
+Table 4: Ablation study of the similarity function.                   
+
+> Method MSRVTT (ImageBind) COCO (CLIP) T2V V2T T2I I2T Dot product 0.1 0.1 1.5 1.8 Diagonal matrix 39.7 31.4 30.4 50.1
+> PolySim 40.8 38.5 40.7 55.7
+> (a) ImageBind on MSRVTT (b) OpenCLIP on Flick
+
+Figure 6: Effect of polynomial degree on retrieval per-formance (R@1) across different models and datasets. 
+
+the degree from 𝐾 = 2 to 𝐾 = 3 leads to a significant im-provement, indicating that very low-order expansions are insufficient to capture the underlying distribution. Beyond 
+
+𝐾 = 3, however, the performance quickly saturates, and fur-ther increasing the degree provides only marginal gains. This observation suggests that a compact low-order representa-tion is sufficient in practice, which is desirable for efficient deployment. We next compare different polynomial bases, including the raw power basis , defined as 𝑥 𝑘 , Legendre polynomials, and Chebyshev polynomials. For completeness, the Legendre polynomials are defined recursively as 
+
+𝑃 0 (𝑥 ) = 1, 𝑃 1 (𝑥 ) = 𝑥, 𝑃 𝑘 (𝑥 ) = 2𝑘 − 1
+
+𝑘 𝑥𝑃 𝑘 −1 (𝑥 ) − 𝑘 − 1
+
+𝑘 𝑃 𝑘 −2 (𝑥 ). (8) Table 5 summarizes the results on both MSRVTT and VATEX datasets. Overall, all polynomial bases achieve comparable retrieval performance, indicating that the choice of basis has limited impact on accuracy. Nevertheless, Chebyshev consis-tently achieves competitive or slightly better performance ICCAD ’26, November 8–12, 2026, San Jose, CA, USA Li et al. 
+
+Table 5: Comparison of polynomial bases on MSRVTT and VATEX datasets (R@1). 
+
+MSRVTT (ImageBind) VATEX (ImageBind) Method T2V@1 V2T@1 T2V@1 V2T@1 ImageBind 38.7 30.3 35.9 28.2 Chebyshev 40.8 38.5 33.9 32.2 Legendre 40.0 38.6 33.4 32.1 Raw 39.5 38.0 32.4 32.7 
+
+Table 6: Per-epoch training time (second) comparison between PolySim and PCME, measured on a single NVIDIA L4 GPU                 
+
+> Dataset Base Model PCME PolySim
+> MSRVTT ImageBind 5.04 10.05 CLIP 4.74 8.98 COCO ImageBind 9.54 32.16 CLIP 7.17 25.02 Clotho CLAP_HTSAT 5.83 11.72
+
+across most metrics and datasets. In contrast, the raw power basis tends to be slightly less stable, while Legendre polyno-mials provide similar accuracy but without clear advantages. Although the empirical performance differences are small, Chebyshev polynomials are theoretically well-suited for ap-proximating smooth functions due to their minimax property, which minimizes the maximum approximation error over a bounded interval. Combined with the observed strong per-formance under low-order settings, this makes Chebyshev a more favorable choice for our framework. Importantly, this choice does not introduce additional computational over-head, while providing a more stable representation under low-order constraints. Overall, these results demonstrate that low-order poly-nomial expansion is sufficient for accurate representation, and that Chebyshev basis offers a robust and efficient design choice, making it particularly suitable for our deterministic and hardware-friendly formulation. 
+
+## 4.5 Effect of Post-Training Quantization 
+
+To evaluate the hardware deployment potential of PolySim, we analyze the effect of post-training quantization [ 31 ] (PTQ) on retrieval performance. In practical CiM systems, embed-dings are typically represented with limited numerical preci-sion. We therefore quantize the learned polynomial embed-dings to different bit-widths and evaluate their performance without any retraining. Figure 7 summarizes the results under varying quantiza-tion levels. PolySim remains robust under 8-bit quantization, with only negligible degradation relative to the full-precision setting, indicating that the learned embedding structure is 0    
+
+> 10
+> 20
+> 30
+> 40
+> R@1
+> T2V V2T
+> FP32
+> T2V V2T
+> INT8
+> T2V V2T
+> INT4
+> T2V V2T
+> 2bits
+> CrossSim
+> Ideal
+
+(a) MSRVTT on ImageBind 0     
+
+> 5
+> 10
+> 15
+> 20
+> R@1
+> T2V V2T
+> FP32
+> T2V V2T
+> INT8
+> T2V V2T
+> INT4
+> T2V V2T
+> 2bits
+> CrossSim
+> Ideal
+
+(b) MSRVTT on CLIP 
+
+Figure 7: R@1 retrieval under post-training quantiza-tion on MSRVTT. 
+
+well suited for moderate precision reduction. In contrast, more aggressive quantization, such as 4-bit and 2-bit, leads to substantial performance loss. This suggests that PolySim is suitable for moderate-precision deployment, but is not naturally optimized for ultra-low-bit regimes. In particular, aggressive quantization of the polynomial coefficients and the bilinear interaction matrix can significantly distort the learned similarity geometry, making 2-bit deployment chal-lenging even with quantization-aware optimization. These results reveal the practical operating boundary of conventional crossbar arrays for cross-modal retrieval. At 8-bit precision, PolySim delivers near-lossless retrieval, con-firming that standard multi-level NVM cells are sufficient for this task. The performance drop at 4-bit and 2-bit reflects a fundamental precision limit of conventional crossbar hard-ware, not a limitation of the PolySim formulation itself. For deployment scenarios where moderate precision is accept-able, conventional crossbar arrays offer a compelling combi-nation of maturity, manufacturability, and energy efficiency. For scenarios demanding ultra-low-bit operation, these re-sults motivate the co-design of novel device architectures, such as multi-bit analog cells or hybrid digital-analog arrays, tailored to the polynomial embedding structure introduced by PolySim. 
+
+## 5 CONCLUSION 
+
+We presented a deterministic surrogate framework for prob-abilistic cross-modal retrieval. By replacing Monte Carlo inference over Gaussian embeddings with low-order Cheby-shev coefficients and a learnable order-bilinear similarity, PolySim preserves uncertainty-aware information, improves retrieval over deterministic baselines, and provides a more hardware-compatible inference path. This offers a practical bridge between probabilistic embedding quality and CiM-oriented deployment. More broadly, by establishing the first end-to-end pathway from probabilistic embeddings to cross-bar execution, PolySim opens cross-modal retrieval as a new application domain for CiM architectures and provides a quantitative reference for the precision requirements of fu-ture CiM hardware design. PolySim: Deterministic Polynomial Surrogates for Cross-Modal Retrieval on CiM ICCAD ’26, November 8–12, 2026, San Jose, CA, USA 
+
+## REFERENCES 
+
+[1] Ruiyang Qin, Jun Xia, Zhenge Jia, Meng Jiang, Ahmed Abbasi, Peipei Zhou, Jingtong Hu, and Yiyu Shi. Enabling on-device large language model personalization with self-supervised data selection and synthe-sis. In Proceedings of the 61st ACM/IEEE design automation conference ,pages 1–6, 2024. [2] Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen tau Yih, Tim Rocktäschel, Sebastian Riedel, and Douwe Kiela. Retrieval-augmented generation for knowledge-intensive nlp tasks, 2021. [3] Ruiyang Qin, Dancheng Liu, Chenhui Xu, Zheyu Yan, Zhaoxuan Tan, Zhenge Jia, Amir Nassereldine, Jiajie Li, Meng Jiang, Ahmed Ab-basi, et al. Empirical guidelines for deploying llms onto resource-constrained edge devices. ACM Transactions on Design Automation of Electronic Systems , 30(5):1–58, 2025. [4] Qiangfei Xia and J. Joshua Yang. Memristive crossbar arrays for brain-inspired computing. Nature Materials , 18(4):309–323, Apr 2019. [5] Jung et al. A crossbar array of magnetoresistive memory devices for in-memory computing. Nature , 601(7892):211–216, Jan 2022. [6] Ruiyang Qin, Zheyu Yan, Dewen Zeng, Zhenge Jia, Dancheng Liu, Jianbo Liu, Ahmed Abbasi, Zhi Zheng, Ningyuan Cao, Kai Ni, et al. Robust implementation of retrieval-augmented generation on edge-based computing-in-memory architectures. In Proceedings of the 43rd IEEE/ACM International Conference on Computer-Aided Design , pages 1–9, 2024. [7] Ruiyang Qin, Pengyu Ren, Zheyu Yan, Liu Liu, Dancheng Liu, Amir Nassereldine, Jinjun Xiong, Kai Ni, Sharon Hu, and Yiyu Shi. Nvcim-pt: An nvcim-assisted prompt tuning framework for edge llms, 2024. [8] Xinzhao Li, Alptekin Vardar, Franz Müller, Navya Goli, Umamaheswara Tida, Kai Ni, X Sharon Hu, Thomas Kämpfe, and Ruiyang Qin. Cq-cim: Hardware-aware embedding shaping for robust cim-based retrieval. 
+
+arXiv preprint arXiv:2602.20083 , 2026. [9] Sanghyuk Chun, Seong Joon Oh, Rafael Sampaio de Rezende, Yannis Kalantidis, and Diane Larlus. Probabilistic embeddings for cross-modal retrieval. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 8415–8424, June 2021. [10] Sanghyuk Chun. Improved probabilistic image-text representations. 
+
+arXiv preprint arXiv:2305.18171 , 2023. [11] Pengyu Ren, Xingtian Wang, Boyang Cheng, Jiahui Duan, Giuk Kim, Xuezhong Niu, Halid Mulaosmanovic, Stefan Duenkel, Sven Beyer, X. Sharon Hu, Ningyuan Cao, and Kai Ni. Probabilistic tree inference enabled by fdsoi ferroelectric fets, 2026. [12] Tianshi Wang, Fengling Li, Lei Zhu, Jingjing Li, Zheng Zhang, and Heng Tao Shen. Cross-modal retrieval: a systematic review of methods and future directions. Proceedings of the IEEE , 112(11):1716–1754, 2025. [13] Ruiyang Qin, Dancheng Liu, Gelei Xu, Amir Nassereldine, Zheyu Yan, Chenhui Xu, Yuting Hu, X Sharon Hu, Jinjun Xiong, and Yiyu Shi. Tiny-align: Bridging automatic speech recognition and large language model on edge. In 2025 IEEE/ACM International Conference On Computer Aided Design (ICCAD) , pages 1–9. IEEE, 2025. [14] Haozheng Luo, Ruiyang Qin, Chenwei Xu, Guo Ye, and Zening Luo. Open-ended multi-modal relational reasoning for video question an-swering. In 2023 32nd IEEE International Conference on Robot and Human Interactive Communication (RO-MAN) , pages 363–369. IEEE, 2023. [15] Likai Pei, Jiahao Zheng, Xueji Zhao, Emilie Ye, Jianbo Liu, Hanqing Tao, Ming-Yen Lee, Ruiyang Qin, Yiyu Shi, Shimeng Yu, et al. Prob-abilistic memory for trustworthy edge intelligence. arXiv preprint arXiv:2607.02465 , 2026. [16] Aaron van den Oord, Yazhe Li, and Oriol Vinyals. Representation learning with contrastive predictive coding, 2019. [17] Konstantinos Drossos, Samuel Lipping, and Tuomas Virtanen. Clotho: An audio captioning dataset, 2019. [18] Jun Xu, Tao Mei, Ting Yao, and Yong Rui. Msr-vtt: A large video description dataset for bridging video and language. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2016. [19] Xin Wang, Jiawei Wu, Junkun Chen, Lei Li, Yuan-Fang Wang, and William Yang Wang. Vatex: A large-scale, high-quality multilingual dataset for video-and-language research, 2020. [20] Tsung-Yi Lin, Michael Maire, Serge Belongie, Lubomir Bourdev, Ross Girshick, James Hays, Pietro Perona, Deva Ramanan, C. Lawrence Zitnick, and Piotr Dollár. Microsoft coco: Common objects in context, 2015. [21] Bryan A. Plummer, Liwei Wang, Chris M. Cervantes, Juan C. Caicedo, Julia Hockenmaier, and Svetlana Lazebnik. Flickr30k entities: Collect-ing region-to-phrase correspondences for richer image-to-sentence models, 2016. [22] Chris Dongjoo Kim, Byeongchang Kim, Hyunmin Lee, and Gunhee Kim. AudioCaps: Generating captions for audios in the wild. In Jill Burstein, Christy Doran, and Thamar Solorio, editors, Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long and Short Papers) , pages 119–132, Minneapolis, Minnesota, June 2019. Association for Computational Linguistics. [23] Rohit Girdhar, Alaaeldin El-Nouby, Zhuang Liu, Mannat Singh, Kalyan Vasudev Alwala, Armand Joulin, and Ishan Misra. Image-bind: One embedding space to bind them all. In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 15180–15190, 2023. [24] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In International Conference on Machine Learning (ICML) , pages 8748–8763, 2021. [25] Yusong Wu, Ke Chen, Tianyu Zhang, Yuchen Hui, Taylor Berg-Kirkpatrick, and Shlomo Dubnov. Large-scale contrastive language-audio pretraining with feature fusion and keyword-to-caption aug-mentation. In IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 1–5, 2023. [26] StevenJ. Plimpton, Sapan Agarwal, Richard Schiek, Isaac Richter, Christopher Bennett, Benjamin Feinberg, Tianyao Xiao, and Curtis Brinker. Crosssim, 09 2016. [27] Peng Yao, Huaqiang Wu, Bin Gao, Jianshi Tang, Qingtian Zhang, Wen-qiang Zhang, J Joshua Yang, and He Qian. Fully hardware-implemented memristor convolutional neural network. Nature , 577(7792):641–646, 2020. [28] Jianbo Liu et al. Architecture-circuit-technology co-optimization for resistive random access memory-based computation-in-memory chips. 
+
+Science China Information Sciences , 66(10):200408, 2023. [29] Wenbo Wei et al. Switching pathway-dependent strain-effects on the ferroelectric properties and structural deformations in orthorhombic HfO 2. Journal of Applied Physics , 131(15), 2022. [30] Xiaochen Peng, Shanshi Huang, Hongwu Jiang, Anni Lu, and Shimeng Yu. Dnn+neurosim v2.0: An end-to-end benchmarking framework for compute-in-memory accelerators for on-chip training. Trans. Comp.-Aided Des. Integ. Cir. Sys. , 40(11):2306–2319, November 2021. [31] Ron Banner, Yury Nahshan, Elad Hoffer, and Daniel Soudry. Post-training 4-bit quantization of convolution networks for rapid-deployment, 2019.
