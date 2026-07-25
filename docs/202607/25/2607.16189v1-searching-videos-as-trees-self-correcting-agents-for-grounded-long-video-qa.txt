@@ -1,0 +1,824 @@
+Title: Searching Videos as Trees: Self-Correcting Agents for Grounded Long Video QA
+
+URL Source: https://arxiv.org/pdf/2607.16189v1
+
+Published Time: Mon, 20 Jul 2026 01:25:36 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# Searching Videos as Trees: Self-Correcting Agents for Grounded Long Video QA 
+
+Ce Zhang 1 Ziyang Wang 1 Yulu Pan 1 Oluwatumininu Oguntola 1 Pranav Wagh 1
+
+Qiyu Wu 2 Hiromi Wakaki 2 Mohit Bansal 1 Gedas Bertasius 11University of North Carolina at Chapel Hill 2Sony 
+
+{cezhang, ziyangw, yulupan, mohit, gedas}@cs.unc.edu ,
+
+{Qiyu.Wu, Hiromi.Wakaki}@sony.com 
+
+## Abstract 
+
+Grounded long-video question answering (Grounded LVQA) requires answering a question about a long video while localizing the short evidence interval that supports the answer. Recent agentic methods frame this task as multi-turn explo-ration with a single crop_video(start, end) action, which supports coarse-to-fine narrowing but provides no primitive for fine-to-coarse backtracking. As a result, these agents typically converge prematurely and cannot recover from an early mistake. We propose VideoTreeSearch (VTS) , a framework that casts grounded LVQA as iterative self-correcting search over an adaptive temporal tree. VTS constructs a non-uniform tree from visual scene boundaries so that each node corresponds to a semantically coherent segment, and trains an agent to navi-gate the tree through four discrete operations: zoom_in , zoom_out , shift , and 
+
+answer . These operations expose backtracking and recovery as explicit, learnable primitives rather than implicit behaviors. To train this navigation, we introduce a trajectory synthesis pipeline that produces multi-step paths through the tree, including deliberate detours into incorrect branches followed by recovery. We use these trajectories for supervised fine-tuning, followed by reinforcement learning with grounding and answer-accuracy rewards. On three Grounded LVQA bench-marks (CG-Bench, Haystack-LVBench, Haystack-Ego4D), VTS outperforms the strongest prior agentic methods by +12 .5 mIoU on CG-Bench and +7 .4 T-F1 on Haystack-Ego4D. The learned policy also transfers to general long-video QA, surpassing all prior agentic baselines on Video-MME, MLVU, and LVBench by up to +7 .1 accuracy points. Ablations confirm that self-correcting hierarchical search is the central mechanism behind these gains: removing either adaptive descent or explicit backtracking substantially degrades performance. Code is available at 
+
+https://github.com/CeeZh/VTS .
+
+## 1 Introduction 
+
+Consider an hour-long cooking tutorial paired with the question, “What did the chef add to the bowl right before placing it in the oven?” Answering it requires the model to first locate the brief moment when the bowl is placed in the oven, and then identify what the chef added immediately before. Many real-world long videos share this structure: the evidence needed to answer a question occupies only a small portion of the video, while the surrounding content is largely irrelevant. This task, known as grounded long-video question answering (Grounded LVQA) [ 4, 36 ], requires a model to simultaneously localize the supporting evidence interval and produce a final answer. Uniform frame sampling is poorly suited to this setting because sampling too few frames likely skips past the brief evidence interval. In contrast, sampling too many frames exceeds the input budget that current video           
+
+> Preprint. arXiv:2607.16189v1 [cs.CV] 17 Jul 2026 05:00 10:00 25:00
+> Question : What did the chef add to the dish right before placing it in the oven?
+> Answer : Pepper
+> Clue: 14:05 – 14:12
+> 14:05 14:12 27:57 00:00
+> Previous Agentic Methods with Continuous crop_video Action
+> Ours: VideoTreeSearch (VTS) with
+> Discretized Tree-Grounded Actions
+> Answer : Cheese
+> Clue : 09:50-10:10
+> Answer : Pepper
+> Clue : 14:02 – 14:14
+> Backtracking from Errors
+> Temporal IoU: 0
+> Temporal IoU: 0.58
+> Turn 1: crop_video (08:10-09:20) 00:00-27:57
+> 20:00
+> Turn 2: crop_video (09:50-10:10)
+> Precise Temporal Localization
+> ①
+> ②③
+> 00:00-13:43 13:43-17:29 17:29-27:57
+> ①Turn 1: zoom_in
+> Turn 2: zoom_out
+> Turn 3: zoom_in (to an unvisited branch)
+> ②
+> ③
+> Multi-Scale Hierarchical Search
+> Backtracking from Errors
+> Precise Temporal Localization
+> Multi-Scale Hierarchical Search
+
+Figure 1: Comparison between prior agentic methods and our VideoTreeSearch (VTS) on grounded LVQA. Prior agentic methods (bottom left) rely on a continuous crop_video action that conflates exploration with correction. As a result, they often converge prematurely and cannot recover from early mistakes. Our proposed VideoTreeSearch (bottom right) instead organizes the video as a tree of semantically coherent segments and lets the agent navigate it through discrete actions ( zoom_in , zoom_out , shift ). This turns precise localization and backtracking from implicit capabilities into explicitly learnable behaviors. models can process. Grounded LVQA, therefore, calls for an iterative search, in which the model hypothesizes where the evidence lies and progressively narrows into promising regions of the video. Recent work formulates this search as agentic interaction with the long video [ 34 , 18 , 38 , 7, 32 ]. Most of these methods equip a VLM with a single cropping tool, crop_video(start, end) , and let the agent repeatedly crop the video until it produces an answer [ 34 , 18 , 38 ]. While this unified action is flexible in principle, it has two structural shortcomings. First, the action space is asymmetric. Cropping naturally narrows the search but provides no analog for fine-to-coarse backtracking when the agent commits to a wrong video region. Second, continuous timestamp regression provides no hierarchical decomposition of the video. The agent must localize evidence from raw pixels with no prior on where semantically coherent segments lie, leaving the search space flat and unorganized. Together, these shortcomings leave agents without consistent training signals for either recovery or precise localization. As a result, prior agentic methods typically converge prematurely and cannot recover from an early mistake. We propose VideoTreeSearch (VTS) , a framework that treats the long video as an adaptive temporal tree and replaces continuous timestamp regression with discrete navigation over its nodes. Our key insight is that organizing the video as a tree of semantically coherent segments, and letting the agent navigate that tree through discrete actions, turns precise localization and backtracking from implicit capabilities into explicitly learnable behaviors. Concretely, VTS first constructs a non-uniform tree whose boundaries are derived from visual scene change points using CLIP [ 20 ] embeddings, so that each tree node corresponds to a semantically coherent segment. The agent then navigates this tree through four discrete operations: zoom_in to descend into a child segment, zoom_out to ascend to the parent, shift to move laterally to a sibling, and answer to commit. This design offers two structural advantages over a flat continuous action space. Because tree nodes are pre-aligned with semantic content boundaries, the model no longer needs to regress precise timestamps from raw pixels, and localization reduces to selecting a node. Exploration and self-correction also become separate primitives. The zoom_in action supports adaptive coarse-to-fine narrowing, while zoom_out and 
+
+shift provide dedicated mechanisms for fine-to-coarse backtracking and self-correction. Training the agent to use these primitives effectively requires supervision not only for success-ful navigation but also for recovery from mistakes. Such supervision is not available in existing datasets [ 38 , 34 , 41 ]. We therefore develop a trajectory synthesis pipeline that produces both correct-2path trajectories and trajectories that deliberately enter incorrect branches before recovering through ascending and lateral moves. We use these synthesized trajectories for supervised fine-tuning to instill navigation and recovery patterns, followed by reinforcement learning with outcome-based rewards on grounding and answer accuracy. We evaluate VTS on three Grounded LVQA benchmarks (CG-Bench [ 4], Haystack-LVBench [ 36 ], Haystack-Ego4D [ 36 ]) and three general long-video understanding benchmarks (Video-MME [ 9 ], MLVU [ 43 ], and LVBench [ 28 ]). VTS substantially outperforms prior agentic methods across all three Grounded LVQA benchmarks, with the largest gains on the longest-video benchmark Haystack-Ego4D. This trend suggests that the value of explicit hierarchical search and backtracking grows with the search horizon, where the cost of an unrecoverable wrong descent is highest. Although VTS is trained primarily for evidence localization, its navigation policy also transfers to general long-video QA. VTS surpasses the strongest prior agentic methods on Video-MME, MLVU, and LVBench by up to +7 .1 accuracy points, indicating that tree-grounded search is a useful inductive bias beyond temporal grounding alone. Inspecting the learned policy, we find that VTS averages 4.8 search turns per video and invokes a backtracking action in roughly 60% of trajectories, indicating that the agent actively relies on its new primitives rather than merely having access to them. 
+
+## 2 Related Work 
+
+Long video understanding and grounded long-video question answering. Long video under-standing requires reasoning over videos that span minutes to hours, in which sparse query-relevant cues are buried in mostly redundant content [ 9, 28 , 43 , 33 ]. Most prior work focuses on the answer side. Video-specific MLLMs process long inputs end-to-end through context extension [ 6, 42 , 22 , 5], token compression [ 24 , 29 , 17 , 25 , 23 ], keyframe selection [ 26 , 35 , 19 , 2], or state-space back-bones [ 11 , 12 , 14 ] while captioner-LLM pipelines aggregate clip-level descriptions through a strong language model [ 39 , 40 , 15 , 21 ]. These methods process the video in a single pass and do not localize the supporting evidence. We focus on Grounded LVQA [ 4 , 36 , 37 ], a more demanding setting in which the model must produce both an answer and the evidence interval that supports it. The grounding requirement makes predictions verifiable and prevents models from relying on language priors to answer correctly without attending to the relevant evidence. Recent benchmarks such as CG-Bench [ 4], Haystack-LVBench, and Haystack-Ego4D [ 36 ] couple grounding with QA, and recent methods including ReVisionLLM [ 10 ], TimeZero [ 30 ], VideoChat-R1 [ 16 ], VideoITG [ 27 ], and TimeChat [ 22 ] train VLMs with temporal awareness for fine-grained localization. These methods make a single forward pass or follow a fixed recursive pipeline. We instead cast Grounded LVQA as iterative hierarchical search through a tree of semantically coherent segments, where the agent learns to control its descent across temporal scales and to recover from incorrect choices. 
+
+Hierarchical representations of long videos. A complementary line of work organizes long videos into hierarchical structures for multi-scale reasoning. VideoTree [ 31 ] clusters dense video features and uses an LLM to organize frames into a query-relevant tree, and VideoMiner [ 3 ] groups frames into a tree and learns keyframe selection via reinforcement learning. Related approaches include Video ReCap [ 13 ], which produces captions at multiple temporal scales through recursive aggregation and ReVisionLLM [ 10 ], which performs coarse-to-fine localization on a fixed schedule. Our framework builds on this hierarchical inductive bias but differs in two key respects. Prior methods consume the hierarchy as a static representation in a single forward pass or fixed recursion schedule, whereas we treat the tree as an interactive environment that an agent navigates over multiple turns, learning when and how to descend. Our agent can also re-enter previously visited nodes through ascending and lateral moves, providing explicit self-correction that fixed recursive pipelines lack. 
+
+## 3 Method 
+
+We present VTS, a framework that frames Grounded LVQA as iterative hierarchical search over an adaptive temporal tree. An overview of the method is shown in Figure 2. Given a long video V and a question Q, VTS must produce both a final answer ˆy and the evidence interval [ts, t e] ⊆ [0 , |V |]
+
+that supports it. The evidence interval is typically only seconds to tens of seconds wide, while the surrounding content is irrelevant. VTS constructs a non-uniform temporal tree whose nodes correspond to semantically coherent video segments (§3.1). An agent then navigates this tree through 3Step 1 
+
+Adaptive Temporal Tree Construction 
+
+Step 2 
+
+Multi -Round Tree Navigation                     
+
+> Tree -Grounded Action Space
+> zoom_in zoom_out shift answer
+> answer + clue
+> 00:00 -35:46
+> 00:00 -12:48 12:48 -17:31 17:31 -35:46
+> ①
+> 00:00 -04:42 12:48 -16:00
+> 03:31 -04:42
+> ②
+> ③
+> ④
+> ⑤
+> 00:00 -03:31
+> ⑥
+> 04:42 -12:48
+> What did the vlogger show on the road immediately
+> after leaving the seaside town?
+> Turn ①
+> zoom_in
+> Turn ②
+> zoom_in
+> Turn ③
+> zoom_out
+> Turn ④
+> shift
+> Turn ⑤
+> zoom_in
+> Turn ⑥
+> answer
+> 00:00 -35:46
+> 00:00 -12:48 12:48 -17:31
+> 00:00 -04:42 04:42 -12:48 12:48 -16:00 16:00 -17:31
+> 00:00 -03:31 03:31 -04:42
+> 17:31 -35:46
+> Horse
+> 16:32 -16:40
+> Split boundary
+> Non -leaf node
+> Leaf node
+
+Figure 2: Overview of VideoTreeSearch (VTS). Left : Given a long video, VTS recursively partitions it into a non-uniform tree using CLIP-based scene boundaries, so each node corresponds to a semantically coherent segment. Right : The agent navigates the tree through four discrete actions— 
+
+zoom_in to descend into a child, zoom_out to ascend to the parent, shift to move laterally to a sibling, and answer to terminate with a final answer and evidence interval. In this example, the agent first descends into a wrong branch (red, turns 1–2), recovers via zoom_out and shift (turns 3–4), then zooms into the correct branch (turn 5) and answers with the localized clue at 16:32–16:40 (turn 6). Backtracking is thus an explicit, learnable primitive. four discrete actions that expose hierarchical descent and self-correction as explicit moves (§3.2). A trajectory synthesis pipeline produces navigation paths with deliberate wrong-branch detours followed by recovery (§3.4), and these trajectories are used for supervised fine-tuning followed by reinforcement learning (§3.5). 
+
+3.1 Adaptive Temporal Tree Construction 
+
+The temporal tree exposes the multi-scale structure of the video to the agent. The root corresponds to the entire video, intermediate nodes correspond to coarse-grained segments, and leaves correspond to fine-grained candidates for the evidence interval. Children of a node form a non-overlapping partition of their parent’s interval, so descending the tree progressively narrows the agent’s hypothesis. Rather than imposing a fixed branching factor or uniform splits, we construct each node’s children adaptively, placing boundaries where the visual content changes most. This design ensures that descent through the tree corresponds to refinement along natural content boundaries rather than arbitrary partitions. Concretely, given a segment S = [ tstart , t end ], we sample up to 64 frames uniformly from S at 1 fps and compute a CLIP [ 20 ] embedding ei for each sampled frame. We compute the cosine distance 
+
+δi = 1 − cos( ei, e i+1 ) between consecutive embeddings as a measure of visual change, and place boundaries at frames where this distance exceeds an adaptive threshold τ = mean (δ) + k · std (δ). We constrain the number of children to between 3 and 8, retaining the top boundaries when the threshold yields too many splits and relaxing the threshold when it yields too few. We stop splitting when the current node is shorter than 64 seconds, so nodes below this duration become leaves of the tree. The tree is constructed lazily during inference: only the root and the children of nodes that the agent actually visits are materialized. This keeps the navigation space small and ensures that segmentation reflects the regions the agent has chosen to inspect. 
+
+3.2 Tree-Grounded Action Space 
+
+At each turn, the agent occupies a node of the tree and selects one of four discrete actions: 4• zoom_in( c): descend into the c-th child of the current node. • zoom_out() : ascend to the parent of the current node. • shift( s): move laterally to the s-th sibling under the same parent. • answer( ˆy, [ts, t e]): terminate with a final answer and evidence interval. A single zoom_in action descends one level rather than committing to a specific timestamp range, so reaching a fine-grained evidence interval naturally takes multiple turns of progressive narrowing. Exploration and self-correction are decoupled: zoom_in advances the search downward, while 
+
+zoom_out and shift are dedicated mechanisms for abandoning an incorrect branch. The agent can therefore learn to invoke backtracking explicitly, rather than approximating it through repeated continuous cropping [34, 18, 38]. 
+
+3.3 Multi-Round Tree Navigation 
+
+At each turn, the agent materializes the children of the current node, receives an observation sum-marizing the current node and its children, generates a reasoning trace, and selects one of the four actions. The loop terminates when the agent emits answer or reaches the maximum number of turns. To support long search horizons within a fixed context budget, we maintain a compact memory comprising (i) the current state of the materialized tree, where each visited node is annotated with a short caption and a visited flag, and (ii) a chronological log of all actions taken. The agent receives raw frames only for the current node, while all other nodes are represented by their corresponding textual descriptions. This separation of detailed perception from compressed history lets the agent reason over many turns without exhausting the visual context budget. 
+
+3.4 Trajectory Synthesis for Hierarchical Search 
+
+Optimal-descent trajectories alone do not teach an agent to recognize and recover from mistakes. We therefore synthesize trajectories that combine correct hierarchical descents with deliberate wrong-branch detours followed by recovery. Given a video, question, and ground-truth evidence interval, a controller selects zoom_in actions toward the highest-scoring child of the current node (scored by Qwen3-VL-8B for question relevance). When the selected child does not contain the ground-truth interval, the controller may either recover, by applying the inverse of the action sequence that led into the wrong branch, or continue further into the wrong branch to produce a longer detour. Recovery is forced after two consecutive turns in a wrong branch. Each action is paired with a reasoning trace generated by DeepSeek-R1, conditioned on the memory at that turn, the current node’s frames, and the chosen action. The trajectories are derived from CG-Bench, Haystack-Ego4D, and our automatically generated LongClueQA corpus, which leverages long unlabeled YouTube videos. We focus on examples with a single ground-truth clue spanning at most 20% of the video duration. Full filtering and trajectory generation details are in the Appendix. 
+
+3.5 Training Supervised fine-tuning. We first fine-tune the agent to imitate the generated trajectories. Each tra-jectory T = {(O0, M 0), (R1, A 1, O 1, M 1), . . . , (RT , A T )} is decomposed into per-turn supervision examples, where at turn t the input is the previous observation and current memory (Ot−1, M t) and the target is the reasoning trace and action (Rt, A t). Let DSFT denote the resulting set of supervised turns and θ the model parameters. We optimize the standard token-level negative log-likelihood: 
+
+LSFT = − X 
+
+> (Ot−1, M t, R t, A t)∈ D SFT
+
+log pθ (Rt, A t | Ot−1, M t, Q ). (1) Crucially, we apply the loss selectively: although every trajectory is generated as an end-to-end sequence (including the deliberate wrong-branch detours that set up subsequent recovery turns), we backpropagate only through turns whose actions are themselves desirable as supervision — correct 
+
+zoom_in , zoom_out from a wrong node, and shift from a wrong node to the correct sibling. Turns whose actions are intentional mistakes (e.g., the zoom_in into a wrong node that sets up a later recovery) remain in the model’s input context as part of the trajectory history but are masked out of the loss. The agent, therefore, observes the full detour-and-recovery sequence as context but is supervised only on the moves we want it to imitate. 5Table 1: Grounded LVQA results. VTS substantially improves both grounding metrics (mIoU, T-F1) and QA accuracy over prior agentic methods across all benchmarks. “Acc” denotes QA accuracy.                                                               
+
+> CG-Bench Haystack-LVBench Haystack-Ego4D Method mIoU Acc T-F1 Acc T-F1 Acc
+> Uniform sampling
+> Qwen3-VL-8B (256 frames) [1] 12.1 20.2 12.8 45.9 8.9 39.2 Qwen3-VL-8B (384 frames) [1] 12.1 23.6 9.2 39.5 7.0 33.4 Video-R1 (64 frames) [8] 5.5 15.8 4.3 40.6 2.9 33.1
+> Captioner-LLM agents
+> SiLVR [40] 10.1 31.8 8.5 57.0 6.3 46.4
+> Multi-turn cropping agents
+> LongVT [34] 4.3 17.4 5.4 46.2 3.7 42.1 Video-o3 [38] 2.9 26.1 ––––VideoZoomer [7] 3.0 18.3 6.8 48.3 5.4 48.6 TimeSearch-R [18] ––8.1 52.1 11.0 53.5
+> VTS (Ours) 16.8 36.4 15.2 58.3 18.4 66.1
+
+Reinforcement learning. We further refine the policy beyond the supervised checkpoint with reinforcement learning. Each rollout produces a complete trajectory τ that ends in an answer, and we score it with a weighted sum of three outcome-based rewards on grounding and answer correctness: 
+
+R(τ ) = λfmt Rfmt (τ ) + λIoU RIoU (τ ) + λacc Racc (τ ). (2) Here, Rfmt checks that all actions are syntactically well-formed; RIoU measures the temporal overlap between the predicted and ground-truth evidence intervals; Racc is the answer accuracy reward. We optimize R(τ ) with GRPO regularized by a KL penalty against the supervised checkpoint to prevent the policy from drifting too far from the supervised initialization. The exact reward weights and the full optimization setup are described in the Appendix. 
+
+3.6 Implementation Details 
+
+We instantiate VTS with Qwen3-VL-8B [ 1] as the base model. The adaptive segmentation procedure of §3.1 uses k = 1 .5. The agent samples 64 frames per turn at 1 fps. The trajectory synthesis pipeline yields 6,537 filtered training trajectories drawn from three sources: CG-Bench [ 4 ], Haystack-Ego4D [ 36 ], and LongClueQA , a corpus of timestamped question-clue pairs that we automatically generate from unlabeled long-form YouTube videos (described in the Appendix). Supervised fine-tuning and reinforcement learning are both performed on 4×H100 GPUs. We refer to the supervised checkpoint as VTS-SFT and the reinforcement-learning checkpoint as VTS-RL. VTS-RL is our primary model in the experiments. Full hyperparameters are reported in the appendix. 
+
+## 4 Experimental Setup 
+
+Benchmarks and metrics. We evaluate VTS on three Grounded LVQA benchmarks and three general long-video QA benchmarks. For Grounded LVQA, we use the mini set of CG-Bench [ 4]along with Haystack-LVBench [ 36 ] and Haystack-Ego4D [ 36 ]. We apply a filtering procedure for CG-Bench (described in the Appendix) to remove instances with unannotated or ambiguous evidence intervals. CG-Bench reports mIoU between predicted and ground-truth evidence intervals together with QA accuracy. The Haystack benchmarks report Temporal F1 (T-F1, the main grounding metric) along with QA accuracy. For general long-video QA, we evaluate on Video-MME [ 9 ], the test split of MLVU [43], and LVBench [28], all measured by multiple-choice answer accuracy. 
+
+Baselines. We compare VTS against three families of methods. Uniform sampling applies a vision-language model directly to uniformly sampled frames, with no agentic interaction. We evaluate Qwen3-VL-8B [ 1], the same base model as VTS, at 64 , 256 , and 384 frames, and Video-R1 [ 8] at its optimal 64 -frame setting. Captioner-LLM agents densely caption short clips and reason over the resulting text. We compare against SiLVR [ 40 ], which uses DeepSeek-R1 as the reasoner 6Table 3: Performance gains analysis on Grounded LVQA. The tree-grounded action space, the backtracking primitives, and hierarchical descent each contribute to the strong performance of VTS.                                   
+
+> CG-Bench Haystack-LVBench Haystack-Ego4D Variant mIoU Acc T-F1 Acc T-F1 Acc Continuous crop_video action 15.5 32.5 13.2 49.1 14.2 56.3 Tree-grounded, no backtracking 14.4 35.0 13.2 52.9 15.5 64.6 Tree-grounded, flat tree (no hierarchy) 15.3 34.5 13.2 53.2 18.9 62.9
+> VTS (full design) 16.8 36.4 15.2 58.3 18.4 66.1
+
+over densely extracted visual captions. Multi-turn cropping agents localize the evidence interval through continuous crop_video(start, end) actions, and include methods such as LongVT [ 34 ], Video-o3 [38], VideoZoomer [7], and TimeSearch-R [18]. 
+
+## 5 Experimental Results 
+
+5.1 Main Results on Grounded Long-Video Question Answering 
+
+Table 1 reports results on the three Grounded LVQA benchmarks. VTS substantially outperforms every multi-turn cropping baseline. On CG-Bench, VTS reaches 16 .8 mIoU and 36 .4 accuracy, an absolute improvement of +12 .5 mIoU and +19 .0 accuracy over the strongest cropping baseline LongVT. On Haystack-LVBench, it reaches 15 .2 T-F1, +7 .1 over TimeSearch-R. On Haystack-Ego4D, it reaches 18 .4 T-F1, +7 .4 over the strongest baseline. VTS averages 4.8 turns per video, whereas prior multi-turn cropping methods converge in only 1-2 turns, confirming that the cropping agents commit to an interval early while VTS continues to explore and self-correct over multiple turns. VTS also outperforms the strongest captioner-LLM baseline (SiLVR) by +6 .7 mIoU and +4 .6
+
+accuracy on CG-Bench while using a smaller open-source backbone. Table 2: Efficiency analysis on CG-Bench. 
+
+VTS achieves the best mIoU and QA accuracy while processing fewer frames.                
+
+> Method Frames ↓mIoU ↑Acc ↑
+> Uniform sampling [1] 384 12.1 23.6 SiLVR [40] 450 10.1 31.8 VTS (Ours) 328 16.8 36.4
+
+Table 2 shows that these gains do not come from processing more frames. On CG-Bench, VTS pro-cesses 328 frames per video on average, fewer than both Qwen3-VL-8B using 384 uniformly sampled frames and SiLVR using 450 frames. Despite this, VTS attains the best temporal grounding and QA accuracy among these methods. 
+
+5.2 Performance Gains Analysis 
+
+We attribute VTS’s gains to two components: hierar-chical search across multiple temporal scales, and discrete navigation actions that make recovery from wrong branches explicit. Table 3 reports three controlled experiments that isolate these ingredients. 
+
+Tree-grounded actions outperform continuous cropping. Replacing the tree-grounded actions with a continuous crop_video action under the same data and recipe degrades performance by 1.3–4.2
+
+points on temporal grounding metrics and by up to 9.8 points on QA accuracy, indicating that the tree-grounded action space is more effective than continuous cropping. 
+
+Self-correction is critical. Removing the backtracking primitives zoom_out and shift from the tree-grounded action space degrades performance on every benchmark and metric. Specifically, temporal grounding drops by 2.0–2.9 points on all datasets while QA accuracy drops by 1.4–5.4
+
+points, indicating that explicit backtracking lets the agent recover from wrong descents, thereby improving both temporal grounding and answer accuracy. Additionally, we count any zoom_out 
+
+or shift in a VTS trajectory as a self-correction event, and any continuous-cropping turn whose predicted interval has IoU < 0.2 with the previous turn’s interval as the analogous event. VTS self-corrects in roughly 60% of trajectories on all three benchmarks, while the continuous-cropping baseline trained on identical data self-corrects in only 7-15% . Among self-correcting trajectories, 
+
+42 .7% subsequently reach a node containing the ground-truth evidence, indicating that the agent recovers on a substantial fraction of these harder cases. 7Table 4: Ablation studies on CG-Bench. We ablate three components of VTS: tree construction, the training pipeline, and trajectory composition. Each ablation varies one component and keeps the rest at their default setting. Highlighted rows denote the default VTS.                         
+
+> Variant mIoU Acc
+> Tree construction
+> Uniform splitting, 4children 15.6 34.9 Uniform splitting, 16 children 13.9 33.0 Adaptive splitting, 3-8children (default) 16.8 36.4
+> Training stages
+> Zero-shot (action space + prompting) 12.8 20.9 VTS-SFT (+ synthesized trajectories) 14.9 30.7 VTS-RL (+ reinforcement learning) 16.8 36.4
+> Trajectory synthesis
+> Optimal-path-only trajectories 10.4 31.3 Detour-and-recovery trajectories (default) 16.8 36.4
+
+Table 5: Effect of training data source. We compare training VTS on LongClueQA alone, our corpus of synthetic timestamped QA from unlabeled long-form videos, against training on all sources, which adds in-domain videos from CG-Bench and Haystack-Ego4D. The reference row reports the strongest prior agentic baseline per benchmark (LongVT for CG-Bench, TimeSearch-R for Haystack-LVBench and Haystack-Ego4D).                           
+
+> CG-Bench Haystack-LVBench Haystack-Ego4D Training data source mIoU Acc T-F1 Acc T-F1 Acc LongClueQA only 15.3 28.7 14.5 57.5 16.8 53.7 All sources 16.8 36.4 15.2 58.3 18.4 66.1
+> Reference: strongest prior agentic baseline 4.3 17.4 8.1 52.1 11.0 53.5
+
+Hierarchical search supports a wide range of clue durations. Replacing the hierarchical tree with a flat tree of uniform short segments degrades QA accuracy by 1.9-5.1 points on all datasets. The flat tree achieves higher temporal grounding than the hierarchical tree only on Haystack-Ego4D ( 18 .9 vs. 
+
+18 .4 T-F1), which has the shortest average clue duration ( 9.5s). On the other two benchmarks, clue durations vary widely across queries, from a few seconds to minutes (mean 19 .2s on CG-Bench and 
+
+96 .2s on Haystack-LVBench), so no single flat partition matches them all. Hierarchical search lets the agent navigate to the appropriate scale for each query. 
+
+5.3 Ablation Studies 
+
+We isolate the contribution of VTS’s design choices and examine how the framework generalizes across training data sources and backbones. 
+
+Tree construction. Table 4 shows that adaptive splitting outperforms uniform splitting by 1.2 mIoU at 4 children. At 16 children the gap widens to 2.9 mIoU even though the uniform tree there uses twice as many nodes. This confirms that placing boundaries at content change points matters more than how finely the video is divided. 
+
+Training stages. VTS is trained in two stages on top of a zero-shot starting point, and Table 4 shows that each stage helps. The zero-shot variant, using only the action space and prompting with no training, reaches 12 .8 mIoU. Supervised fine-tuning on synthesized trajectories adds +2 .1 mIoU, and reinforcement learning adds a further +1 .9.
+
+Trajectory synthesis. Table 4 shows that training on trajectories with deliberate detours and recovery outperforms training on optimal-path-only trajectories by +6 .4 mIoU and +5 .1 accuracy. This shows that the agent learns to search effectively from exposure to recovery in its training trajectories, not from optimal demonstrations alone. 
+
+Effect of training data source. We ask how much of VTS’s grounding performance comes from in-domain training videos versus synthetic data alone. We compare training on LongClueQA alone, 8Table 6: Backbone generalization. VTS outperforms prior multi-turn cropping agents on every benchmark when using the same Qwen2.5-VL-7B backbone. The stronger Qwen3-VL-8B backbone yields further gains.                                                    
+
+> CG-Bench Haystack-LVBench Haystack-Ego4D Method Backbone mIoU Acc T-F1 Acc T-F1 Acc LongVT [34] Qwen2.5-VL-7B 4.3 17.4 5.4 46.2 3.7 42.1 Video-o3 [38] Qwen2.5-VL-7B 2.9 26.1 ––––VideoZoomer [7] Qwen2.5-VL-7B 3.0 18.3 6.8 48.3 5.4 48.6 TimeSearch-R [18] Qwen2.5-VL-7B ––8.1 52.1 11.0 53.5 VTS (Ours) Qwen2.5-VL-7B 14.5 30.7 12.3 53.1 13.1 55.3
+> VTS (Ours) Qwen3-VL-8B 16.8 36.4 15.2 58.3 18.4 66.1
+
+Table 7: General long-video understanding. Accuracy (%) on Video-MME, MLVU, and LVBench, with frame counts for VTS averaged across the three. VTS outperforms every multi-turn agentic baseline on all three benchmarks.                         
+
+> Method Frames Video-MME MLVU LVBench LongVT [34] 512–768 67.0 –41.3 Video-o3 [38] up to 768 66.5 51.7 47.6 TimeSearch-R [18] 768 66.6 ––VideoZoomer [7] 128 65.2 55.8 41.5
+> VTS (Ours) 274 67.5 58.2 54.7
+
+generated entirely from unlabeled long-form videos, against training on all sources. As shown in Table 5, VTS trained on LongClueQA alone already surpasses the strongest prior agentic baseline on each benchmark, by +11 .0 mIoU on CG-Bench, +6 .4 T-F1 on Haystack-LVBench, and +5 .8 T-F1 on Haystack-Ego4D. Adding in-domain training videos from CG-Bench and Haystack-Ego4D (the all-sources variant) improves grounding further by 1.5, 0.7, and 1.6 points, respectively. The results suggest that synthetic timestamped QA from unlabeled videos is a strong training signal on its own. 
+
+Backbone generalization. To check that VTS’s gains do not depend on the Qwen3-VL-8B backbone, we also train VTS on Qwen2.5-VL-7B, the backbone used by prior multi-turn cropping agents. Under this matched-backbone setting (Table 6), VTS improves over the strongest Qwen2.5-VL-7B cropping baseline by +10 .2 mIoU and +13 .3 accuracy on CG-Bench, +4 .2 T-F1 and +1 .0 accuracy on Haystack-LVBench, and +2 .1 T-F1 and +1 .8 accuracy on Haystack-Ego4D. The gains therefore stem from the framework rather than the base model, and a stronger backbone adds further gains. 
+
+5.4 General Long-Video Understanding 
+
+We test whether VTS’s tree-grounded navigation policy generalizes beyond Grounded LVQA on three general long-video QA benchmarks: Video-MME, MLVU, and LVBench. These benchmarks evaluate QA accuracy alone, with no temporal grounding, so when the agent answers, VTS pools the frames it observed across all visited nodes and conditions the answer on this pooled set rather than on a single node. Table 7 reports the results. VTS outperforms every multi-turn agentic baseline on all three benchmarks: +0 .5 on Video-MME over LongVT, +2 .4 on MLVU over VideoZoomer, and +7 .1 on LVBench over Video-o3. The tree-grounded navigation policy thus generalizes beyond evidence localization, despite being trained primarily for Grounded LVQA. 
+
+5.5 Qualitative Analysis 
+
+Figure 3 shows a six-turn trajectory on a question asking what is visible through the 22nd-floor glass window. On the third turn the agent commits to a wrong branch, descending into a segment showing the building’s ground-floor ticket booth. Recognizing that the ticket booth is not the queried 22nd-floor window, the agent issues zoom_out to return to the parent, then re-descends through a different child to reach the correct clue. Additional qualitative examples are included in the Appendix. 9Segment 3 includes a scene showing people in a modern observation deck with floor signage , which aligns 
+
+with the protagonist reaching the 22nd floor . This segment focuses on high -rise city views and architectural 
+
+details, making it the most likely to contain the glass window and the sign on the building to the right. 
+
+zoom_in (segment= 3)       
+
+> 0s 1711s
+> Seg. 1Seg. 0Seg. 2 Seg. 3 Seg. 4 Seg. 5
+
+The current segment shows the arrival at Fuji TV and the ticket booth, but it does not include the protagonist 
+
+walking to a glass window or the sign on the building to the right . The view from the glass dome focuses on 
+
+the cityscape and sky, not the specific signage mentioned in the question. To find the relevant sign, I need to 
+
+backtrack to the parent segment and explore other sibling segments that may capture the window walk. 
+
+zoom_ out  
+
+> 844 s855s
+
+Segment 4 shows the interior of a modern building with large windows offering panoramic views, which aligns 
+
+with the protagonist reaching the 22nd floor observation area . This segment is the most likely to contain the 
+
+specific sign on the right as the protagonist walks to the glass window. 
+
+zoom_in (segment= 4)       
+
+> 720s 885s
+> Seg. 0Seg. 1Seg. 3 Seg. 4 Seg. 2
+
+In the video, when the protagonist walks to the glass window , a sign on the building to the right is clearly 
+
+visible with the text “ 北方向 ” (“ North direction ” in English) . The evidence interval [85 9.9s -872.2s] includes the 
+
+moment where this sign is in focus, confirming the answer. 
+
+answer ( A, 85 9.9, 872.2)  
+
+> 855 s885s
+
+Turn 1
+
+Turn 2 zoom_in (segment= 0)
+
+Turn 3 zoom_in (segment= 4)
+
+Turn 4
+
+Turn 5
+
+Question . In the video, the protagonist arrives at the 22nd floor of Fuji TV. When he walks straight to the glass 
+
+window, what words are on the sign on the building on the right ?
+
+Clue : 861 .0s – 871 .0sOptions . A: North direction . B: Southward path . C: South direction .
+
+D: West view . E: Eastward route . F: East way . G: Northeast corner .
+
+Turn 6Figure 3: Qualitative example: recovery via zoom_out . For a question about what is visible through a 22nd-floor window of the Fuji TV building, the agent first descends into a wrong branch showing the building’s ground-floor ticket booth (turns 1–3). It detects the error, issues zoom_out to return to the parent (turn 4), and explores a different child to reach the correct clue (turns 5–6). The example shows zoom_out as an explicit recovery action after the agent commits to a wrong branch. 
+
+## 6 Conclusion 
+
+We presented VTS, a tree-grounded agentic framework for grounded long-video question-answering. VTS organizes the video as a tree of semantically coherent segments and navigates it with discrete actions, which turns precise localization and backtracking from implicit capabilities into explicitly learnable behaviors. On three grounded long-video QA benchmarks, VTS substantially outperforms prior multi-turn cropping agents and captioner-LLM baselines, and it transfers to three general long-video understanding benchmarks while being more efficient. More broadly, our results suggest that structuring the search over a long video is a useful inductive bias for long-horizon video reasoning. 10 Limitations and Future Work 
+
+VTS has several limitations. The current action space produces a single evidence interval per question and cannot address questions whose evidence is distributed across multiple disjoint temporal regions. Handling such questions would require aggregating evidence from several branches before answering. The adaptive segmentation relies on CLIP-based scene boundary detection and is less reliable on visually homogeneous video, where scene transitions are weak. Boundary detectors designed for long-form video could yield finer trees and additional gains. Finally, trajectory synthesis depends on external vision-language and language models for captioning and reasoning, so the quality of the training signal is bounded by these models. We expect it to improve as stronger open-source models become available. 
+
+## Acknowledgements 
+
+This work was supported by Laboratory for Analytic Sciences via NC State University, ONR Award N00014-23-1-2356, Sony Focused Research award, and NSF CAREER Award 2541848. 11 References 
+
+[1] Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, et al. Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 , 2025. [2] Shyamal Buch, Cristobal Eyzaguirre, Adrien Gaidon, Jiajun Wu, Li Fei-Fei, and Juan Carlos Niebles. Revisiting the “video” in video-language understanding. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2022. [3] Xinye Cao, Hongcan Guo, Jiawen Qian, Guoshun Nan, Chao Wang, Yuqi Pan, Tianhao Hou, Xiaojuan Wang, and Yutong Gao. VideoMiner: Iteratively grounding key frames of hour-long videos via tree-based group relative policy optimization. arXiv preprint arXiv:2510.06040 ,2025. [4] Guo Chen et al. CG-Bench: Clue-grounded question answering benchmark for long video understanding. In Proceedings of the International Conference on Learning Representations (ICLR) , 2025. [5] Lin Chen, Xilin Wei, Jinsong Li, Xiaoyi Dong, Pan Zhang, Yuhang Zang, Zehui Chen, Haodong Duan, Bin Lin, Zhenyu Tang, et al. ShareGPT4Video: Improving video understanding and generation with better captions. Advances in Neural Information Processing Systems (NeurIPS) ,2024. [6] Yukang Chen, Fuzhao Xue, Dacheng Li, Qinghao Hu, Ligeng Zhu, Xiuyu Li, Yunhao Fang, Haotian Tang, Shang Yang, Zhijian Liu, et al. LongVILA: Scaling long-context visual language models for long videos. arXiv preprint arXiv:2408.10188 , 2024. [7] Yang Ding, Yizhen Zhang, Xin Lai, Ruihang Chu, and Yujiu Yang. VideoZoomer: Reinforcement-learned temporal focusing for long video reasoning. arXiv preprint arXiv:2512.22315 , 2025. [8] Kaituo Feng, Kaixiong Gong, Bohao Li, Zonghao Guo, Yibing Wang, Tianshuo Peng, Junfei Wu, Xiaoying Zhang, Benyou Wang, and Xiangyu Yue. Video-r1: Reinforcing video reasoning in mllms. arXiv preprint arXiv:2503.21776 , 2025. [9] Chaoyou Fu, Yuhan Dai, Yongdong Luo, Lei Li, Shuhuai Ren, Renrui Zhang, Zihan Wang, Chenyu Zhou, Yunhang Shen, Mengdan Zhang, et al. Video-MME: The first-ever comprehensive evaluation benchmark of multi-modal LLMs in video analysis. Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2025. [10] Tanveer Hannan, Md Mohaiminul Islam, Jindong Gu, Thomas Seidl, and Gedas Bertasius. ReVisionLLM: Recursive vision-language model for temporal grounding in hour-long videos. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2025. [11] Md Mohaiminul Islam and Gedas Bertasius. Long movie clip classification with state-space video models. In European Conference on Computer Vision (ECCV) , 2022. [12] Md Mohaiminul Islam, Mahmudul Hasan, Kishan Shamsundar Athrey, Tony Braskich, and Gedas Bertasius. Efficient movie scene detection using state-space transformers. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2023. [13] Md Mohaiminul Islam, Ngan Ho, Xitong Yang, Tushar Nagarajan, Lorenzo Torresani, and Gedas Bertasius. Video ReCap: Recursive captioning of hour-long videos. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2024. [14] Md Mohaiminul Islam, Tushar Nagarajan, Huiyu Wang, Gedas Bertasius, and Lorenzo Torresani. BIMBA: Selective-scan compression for long-range video question answering. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2025. [15] Kumara Kahatapitiya, Kanchana Ranasinghe, Jongwoo Park, and Michael S. Ryoo. Language repository for long video understanding. In Findings of the Association for Computational Linguistics (ACL Findings) , 2025. 12 [16] Xinhao Li, Ziang Yan, Desen Meng, Lu Dong, Xiangyu Zeng, Yinan He, Yali Wang, Yu Qiao, Yi Wang, and Limin Wang. VideoChat-R1: Enhancing spatio-temporal perception via reinforce-ment fine-tuning. arXiv preprint arXiv:2504.06958 , 2025. [17] Yanwei Li, Chengyao Wang, and Jiaya Jia. LLaMA-VID: An image is worth 2 tokens in large language models. European Conference on Computer Vision (ECCV) , 2024. [18] Junwen Pan, Qizhe Zhang, Rui Zhang, Ming Lu, Xin Wan, Yuan Zhang, Chang Liu, and Qi She. TimeSearch-R: Adaptive temporal search for long-form video understanding via self-verification reinforcement learning. arXiv preprint arXiv:2511.05489 , 2025. [19] Jongwoo Park, Kanchana Ranasinghe, Kumara Kahatapitiya, Wonjeong Ryu, Donghyun Kim, and Michael S. Ryoo. Too many frames, not all useful: Efficient strategies for long-form video QA. arXiv preprint arXiv:2406.09396 , 2025. [20] Alec Radford et al. Learning transferable visual models from natural language supervision. In 
+
+ICML , 2021. [21] Kanchana Ranasinghe, Xiang Li, Kumara Kahatapitiya, and Michael Ryoo. Understanding long videos in one multimodal language model pass. In International Conference on Learning Representations (ICLR) , 2025. [22] Shuhuai Ren, Linli Yao, Shicheng Li, Xu Sun, and Lu Hou. TimeChat: A time-sensitive multimodal large language model for long video understanding. Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2024. [23] Michael S. Ryoo, Honglu Zhou, Shrikant Kendre, Can Qin, Le Xue, Manli Shu, Jongwoo Park, Kanchana Ranasinghe, Silvio Savarese, Ran Xu, Caiming Xiong, and Juan Carlos Niebles. xgen-MM-vid (BLIP-3-video): You only need 32 tokens to represent a video even in VLMs. 
+
+arXiv preprint arXiv:2410.16267 , 2025. [24] Xiaoqian Shen, Yunyang Xiong, Changsheng Zhao, Lemeng Wu, Jun Chen, Chenchen Zhu, Zechun Liu, Fanyi Xiao, Balakrishnan Varadarajan, Florian Bordes, et al. LongVU: Spa-tiotemporal adaptive compression for long video-language understanding. arXiv preprint arXiv:2410.17434 , 2024. [25] Enxin Song, Wenhao Chai, Guanhong Wang, Yucheng Zhang, Haoyang Zhou, Feiyang Wu, Haozhe Chi, Xun Guo, Tian Ye, Yanting Zhang, et al. MovieChat: From dense token to sparse memory for long video understanding. Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2024. [26] Xi Tang, Jihao Qiu, Lingxi Xie, Yunjie Tian, Jianbin Jiao, and Qixiang Ye. Adaptive keyframe sampling for long video understanding. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2025. [27] Shihao Wang, Guo Chen, De-an Huang, Zhiqi Li, Minghan Li, Guilin Li, Jose M. Alvarez, Lei Zhang, and Zhiding Yu. VideoITG: Multimodal video understanding with instructed temporal grounding. arXiv preprint arXiv:2507.13353 , 2025. [28] Weihan Wang, Zehai He, Wenyi Hong, Yean Cheng, Xiaohan Zhang, Ji Qi, Shiyu Huang, Bin Xu, Yuxiao Dong, Ming Ding, and Jie Tang. LVBench: An extreme long video understanding benchmark. arXiv preprint arXiv:2406.08035 , 2024. [29] Xiao Wang, Qingyi Si, Jianlong Wu, Shiyu Zhu, Li Cao, and Liqiang Nie. AdaReTaKe: Adaptive redundancy reduction to perceive longer for video-language understanding. arXiv preprint arXiv:2503.12559 , 2025. [30] Ye Wang, Boshen Xu, Zihao Yue, Zihan Xiao, Ziheng Wang, Liang Zhang, Dingyi Yang, Wenxuan Wang, and Qin Jin. TimeZero: Temporal video grounding with reasoning-guided LVLM. arXiv preprint arXiv:2503.13377 , 2025. [31] Ziyang Wang, Shoubin Yu, Elias Stengel-Eskin, Jaehong Yoon, Feng Cheng, Gedas Bertasius, and Mohit Bansal. VideoTree: Adaptive tree-based video representation for LLM reasoning on long videos. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2025. 13 [32] Ziyang Wang, Honglu Zhou, Shijie Wang, Junnan Li, Caiming Xiong, Silvio Savarese, Mohit Bansal, Michael S. Ryoo, and Juan Carlos Niebles. Active video perception: Iterative evidence seeking for agentic long video understanding. arXiv preprint arXiv:2512.05774 , 2025. [33] Haoning Wu, Dongxu Li, Bei Chen, and Junnan Li. LongVideoBench: A benchmark for long-context interleaved video-language understanding. Advances in Neural Information Processing Systems (NeurIPS) , 2024. [34] Zuhao Yang, Sudong Wang, Kaichen Zhang, Keming Wu, Sicong Leng, Yifan Zhang, Bo Li, Chengwei Qin, Shijian Lu, Xingxuan Li, and Lidong Bing. LongVT: Incentivizing “thinking with long videos” via native tool calling. arXiv preprint arXiv:2511.20785 , 2025. [35] Linli Yao, Haoning Wu, Kun Ouyang, Yuanxing Zhang, Caiming Xiong, Bei Chen, Xu Sun, and Junnan Li. Generative frame sampler for long video understanding. arXiv preprint arXiv:2503.09146 , 2025. [36] Jinhui Ye, Zihan Wang, Haosen Sun, Keshigeyan Chandrasegaran, Zane Durante, Cristobal Eyzaguirre, Yonatan Bisk, Juan Carlos Niebles, Ehsan Adeli, Li Fei-Fei, Jiajun Wu, and Manling Li. Re-thinking temporal search for long-form video understanding. arXiv preprint arXiv:2504.02259 , 2025. [37] Huaying Yuan, Jian Ni, Zheng Liu, Yueze Wang, Junjie Zhou, Zhengyang Liang, Bo Zhao, Zhao Cao, Zhicheng Dou, and Ji-Rong Wen. MomentSeeker: A benchmark for long-video moment retrieval. arXiv preprint arXiv:2502.12558 , 2025. [38] Xiangyu Zeng, Zhiqiu Zhang, Yuhan Zhu, Xinhao Li, Zikang Wang, Changlian Ma, Qingyu Zhang, Zizheng Huang, Kun Ouyang, Tianxiang Jiang, et al. Video-o3: Native interleaved clue seeking for long video multi-hop reasoning. arXiv preprint arXiv:2601.23224 , 2026. [39] Ce Zhang, Taixi Lu, Md Mohaiminul Islam, Ziyang Wang, Shoubin Yu, Mohit Bansal, and Gedas Bertasius. A simple LLM framework for long-range video question-answering. In 
+
+Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing (EMNLP) , 2024. [40] Ce Zhang, Yan-Bo Lin, Ziyang Wang, Mohit Bansal, and Gedas Bertasius. SiLVR: A simple language-based video reasoning framework. arXiv preprint arXiv:2505.24869 , 2025. [41] Haoji Zhang, Xin Gu, Jiawen Li, Chixiang Ma, Sule Bai, Chubin Zhang, Bowen Zhang, Zhichao Zhou, Dongliang He, and Yansong Tang. Thinking with videos: Multimodal tool-augmented reinforcement learning for long video reasoning. arXiv preprint arXiv:2508.04416 , 2025. [42] Peiyuan Zhang, Kaichen Zhang, Bo Li, Guangtao Zeng, Jingkang Yang, Yuanhan Zhang, Ziyue Wang, Haoran Tan, Chunyuan Li, and Ziwei Liu. Long context transfer from language to vision. 
+
+arXiv preprint arXiv:2406.16852 , 2024. [43] Junjie Zhou, Yan Shu, Bo Zhao, Boya Wu, Shitao Xiao, Xi Yang, Yongping Xiong, Bo Zhang, Tiejun Huang, and Zheng Liu. MLVU: A comprehensive benchmark for multi-task long video understanding. arXiv preprint arXiv:2406.04264 , 2024. 14 Appendix 
+
+Our appendix consists of Additional Implementation Details (Section A), Evaluation Benchmarks (Section B), Data Construction (Section C), and More Qualitative Results (Section D). 
+
+## A Additional Implementation Details 
+
+Training Details. We use full fine-tuning for SFT and LoRA fine-tuning for RL, both conducted with the ms-swift framework. For SFT, we set the learning rate to 1e-5 , the batch size to 16 , and train for 2 epochs. For RL, we set the learning rate to 5e-5 , the batch size to 96 , and train for 1 epoch with GRPO using a group of 8 trajectories per prompt. For each video segment, we sample frames at 1 fps with a maximum of 64 frames, and each frame is constrained to a maximum resolution of 
+
+224 × 224 pixels. Both SFT and RL are conducted on 4× H100 GPUs. Full hyperparameters are reported in Table 8. Table 8: Key training hyperparameters for the SFT and RL stages of VTS. 
+
+> (a) SFT stage
+
+Hyperparameter Value 
+
+Train epochs 2
+
+Train batch size 16 
+
+Learning rate 1e-5 
+
+Learning rate scheduler cosine 
+
+Warmup ratio 0.1 
+
+Freeze vision encoder true 
+
+> (b) RL stage
+
+Hyperparameter Value 
+
+Format reward weight 0.5 
+
+Accuracy reward weight 0.5 
+
+IoU reward weight 1.0 
+
+Max interaction turns 10 
+
+LoRA rank 32 
+
+LoRA alpha 64 
+
+LoRA dropout 0
+
+Train batch size 96 
+
+Rollout temperature 1.0 
+
+Rollouts per prompt ( n) 8
+
+KL coefficient ( β) 0.04 
+
+Learning rate 5e-5 
+
+Learning rate scheduler constant 
+
+Training Data. The training data is sourced from the CG-Bench full set (excluding questions from the mini set), the Haystack-Ego4D training set, and LongClueQA. In total, we have 6, 537 QA pairs, and 6, 537 trajectories from all data sources. We randomly pick 40% of trajectories for SFT training and 60% of the QA pairs for RL training. 
+
+Adaptive Segment Splitting Algorithm. At each node of the search tree, we partition the current segment into child segments aligned with visual scene boundaries. Algorithm 1 summarizes the procedure. We uniformly sample frames from the current segment, encode each with a CLIP image encoder, and compute the cosine distance between consecutive frame embeddings to obtain a per-position boundary signal δ. We then form an adaptive threshold τ = mean (δ) + k · std (δ) from the local statistics of δ, and treat positions with δi > τ as boundaries. We clip the boundary set so that the number of children falls within [Nmin , N max ]: if the threshold yields too many boundaries we keep those with the largest δi, and if it yields too few we add the next-largest until the minimum is met. 
+
+Hierarchical Tree Search Algorithm. Algorithm 2 describes the inference-time hierarchical search. The agent starts at the root segment covering the full video and maintains a memory M containing (i) the partial search tree expanded so far, with a caption for each visited node, and (ii) the interaction history of prior actions and their outcomes. At each turn, the agent splits the current segment into children via Algorithm 1 (or retrieves them from the cached tree), is shown frames sampled from those children together with M, and outputs an action in {zoom_in , zoom_out , shift , answer }.
+
+zoom_in descends into a selected child, zoom_out returns to the parent, and shift moves to a sibling under the same parent. After the action is executed, a captioner Φ generates a caption for each child segment, and these captions are written into M together with the reasoning trace and the action. 15 Algorithm 1 Adaptive Segment Splitting 
+
+Require: Segment S = [ tstart , t end ], CLIP encoder E, threshold coefficient k, min/max children 
+
+Nmin , N max  
+
+> 1:
+
+F ← sampleFrames (S) ▷ ≤ 64 frames at 1 fps  
+
+> 2:
+
+{ei}ni=1 ← encode (F, E ) 
+
+> 3:
+
+δi ← 1 − cos( ei, e i+1 ), for i = 1 , . . . , n − 1 
+
+> 4:
+
+τ ← mean (δ) + k · std (δ) 
+
+> 5:
+
+B ← { i : δi > τ } 
+
+> 6:
+
+if |B| + 1 > N max then  
+
+> 7:
+
+B ← indices of the top (Nmax − 1) values in δ 
+
+> 8:
+
+else if |B| + 1 < N min then  
+
+> 9:
+
+B ← indices of the top (Nmin − 1) values in δ 
+
+> 10:
+
+end if  
+
+> 11:
+
+return splitByBoundaries (S, B ) ▷ cut S at the timestamps of boundary frames in B
+
+The loop terminates when the agent emits answer , returning the predicted answer ˆy and evidence interval [ts, t e]. In practice, the algorithm also terminates if a navigation cycle is detected (i.e., the agent visits the same node again). 
+
+Algorithm 2 Hierarchical Tree Search 
+
+Require: Video V , question Q, agent policy π, captioner Φ, max turns Tmax  
+
+> 1:
+
+S ← [0 , len (V )] ▷ current node  
+
+> 2:
+
+M ← initMemory () ▷ tree structure + interaction history  
+
+> 3:
+
+for t = 1 , . . . , T max do  
+
+> 4:
+
+{S1, . . . , S m} ← AdaptiveSplit (S) ▷ Algorithm 1  
+
+> 5:
+
+O ← sampleFrames ({S1, . . . , S m}) 
+
+> 6:
+
+(R, A ) ← π(O, M, Q ) ▷ reasoning and action  
+
+> 7:
+
+if A = zoom_in (j) then  
+
+> 8:
+
+S ← Sj 
+
+> 9:
+
+else if A = zoom_out then  
+
+> 10:
+
+S ← parent (S) 
+
+> 11:
+
+else if A = shift (j) then  
+
+> 12:
+
+S ← sibling of S indexed by j 
+
+> 13:
+
+else if A = answer (ˆ y, [ts, t e]) then  
+
+> 14:
+
+return ˆy, [ts, t e] 
+
+> 15:
+
+end if  
+
+> 16:
+
+C ← { Φ( Sj )}mj=1 ▷ caption each child segment  
+
+> 17:
+
+M ← updateMemory (M, C, R, A, S ) 
+
+> 18:
+
+end for  
+
+> 19:
+
+return forceAnswer (O, M, Q ) ▷ if turn budget exhausted 
+
+Prompt Structure. We show the prompt structure used at every decision turn in the block below. The system prompt establishes the agent’s role and enumerates the four discrete actions, while the per-turn user prompt provides frames from the current node’s children, a textual memory block (tree structure, interaction history, and navigation context), and the question with its multiple-choice options. 16 VTS Agent Prompt 
+
+System Prompt: You are a video question-answering agent that navigates a long video through hierarchical temporal search. At each step, the current video segment is divided into non-overlapping child segments. You observe frames from each child segment and decide one of four actions: 1. zoom_in <segment_id> : Examine a child segment at finer granularity. 2. zoom_out : Backtrack to the parent segment to explore a different region. 3. shift <segment_id> : Move to a sibling segment under the same parent. 4. answer <letter> <evidence_start> <evidence_end> : Provide the answer to the question along with the time interval (in seconds) that contains the supporting evidence. 
+
+User: 
+
+Current Segment [ ts-te]: 
+
+. . . 
+
+Segment i [tis-tie]: <frame_timestamp><image> . . . . . . 
+
+Memory: Tree Structure: <materialized tree with [visited]/[current] flags and short node captions> Interaction History: <chronological log of past turns and actions> Navigation Context: <current position at the tree, parent, valid zoom_in children, valid shift siblings> Question: . . . 
+
+Choices: A. . . . B. . . . C. . . . . . . 
+
+Training Dynamics. Figure 4 shows the training dynamics of our best GRPO model over the first 150 updates. Both the accuracy reward and temporal-IoU reward improve over training. The IoU reward is noticeably noisier, suggesting that temporal grounding is harder to optimize. 20 40 60 80 100 120 140       
+
+> Training Step
+> 0.40
+> 0.45
+> 0.50
+> 0.55
+> 0.60
+> 0.65
+> Accuracy Reward
+> Accuracy Reward
+> 20 40 60 80 100 120 140
+> Training Step
+> 0.12
+> 0.14
+> 0.16
+> 0.18
+> 0.20
+> 0.22
+> 0.24
+> 0.26
+> IoU Reward
+> IoU Reward
+
+Figure 4: Accuracy (left) and temporal-IoU (right) rewards over the first 150 GRPO updates of our best model variant. 
+
+Inference Configuration. We employ the vLLM framework for inference, setting the temperature to 
+
+0 and using greedy decoding to obtain deterministic results. The maximum number of interaction turns is set to 10 , matching the training setting. We use the official evaluation code for all three Grounded LVQA datasets: CG-Bench, Haystack-LVBench, and Haystack-Ego4D. Haystack-LVBench and Haystack-Ego4D evaluate predictions as a set of relevant frame indices rather than a temporal interval. To adapt VTS’s segment-level predictions to this frame-level evaluation, we uniformly sample 8
+
+frames from the predicted segment as the frame-level prediction. 17 B Evaluation Benchmarks 
+
+CG-Bench-mini (filtered). CG-Bench provides multiple-choice questions paired with annotated clue intervals. The mini split contains 3,000 questions over videos averaging 28.5 min. In practice, we identify three issues with the original mini split: (1) some questions are answerable without video input; (2) the annotated clue is not always the only evidence, since the information needed to answer the question often appears outside the annotated segment as well, so the question can be answered without localizing that clue; and (3) some clue annotations are inaccurate. We address these with a four-stage filtering pipeline applied in the order below, where after each stage only the surviving questions are passed to the next. Filter 1 (Rule-based) applies filters that require no model inference: (i) multi-segment removal , dropping questions whose GT consists of more than one disjoint clue segment, since our hierarchical search formulation assumes a single contiguous target interval; (ii) high-coverage removal , dropping questions for which the GT segment covers more than 
+
+30% of the full video duration, because such questions admit trivial trajectories and provide little supervision for temporal search; and (iii) validity check , removing examples with non-positive video duration or missing clue intervals. Filter 2 (Video dependency) removes questions answerable from the question text alone: we prompt the VLM with only the question text and the multiple-choice options (no frames) and run direct inference, discarding the question if the predicted answer matches the ground-truth letter. Filter 3 (Clue sufficiency) verifies that the annotated GT clue is informative enough to answer the question: we sample frames at 1 fps from the GT segment (capped at 256 
+
+frames per question), feed them to the VLM with the question and choices, and drop questions for which the VLM fails to predict the correct answer. Filter 4 (Clue uniqueness) ensures the GT clue is the unique evidence required: we sample 1 fps frames from the entire video excluding the GT segment (capped at 256 frames) and prompt the VLM with these out-of-clue frames, discarding the question if the predicted answer matches the ground-truth letter, since such questions provide weak supervision for temporal grounding. All VLM-based filters use Qwen3-VL-8B-Instruct served via vLLM with temperature 0. The final filtered set contains 1,176 questions, averaging 28.7 min per video with a mean clue duration of 19.9 s, roughly 1.2% of the full video. 
+
+Haystack-LVBench is built on LongVideoBench. We use the official 342-question validation split over 114 videos, averaging 22.9 min with 1.84 keyframes per question. 
+
+Haystack-Ego4D is derived from Ego4D. We use the validation split, which contains 1,000 questions over 71 videos, averaging 26.2 min with 2.17 keyframes per question. 
+
+## C Data Construction 
+
+C.1 LongClueQA Dataset 
+
+To train our model, we construct LongClueQA, a temporally grounded multiple-choice QA dataset constructed from unlabeled long YouTube videos. The dataset serves as training resource for evidence-seeking behavior required by VTS: the model must not only answer a question, but also identify the short temporal interval that supports the answer. 
+
+Data Collection. We firstly collect videos from YouTube for a large and diverse pool of real-world long-form videos. We first conduct a large-scale YouTube scrape with diverse search queries and collect over 90,000 candidate videos. We then perform a filtering and select videos that are between 10 to 90 minutes in length with content types such as instructional, narrative, procedural, sports, and vlog-style videos that include sufficient metadata. We also only select videos that have Creative Commons or fair-use licensing requirements. To ensure that the final videos contain meaningful temporal structure, we apply a visual diversity filter based on CLIP embeddings. For each candidate video, we sparsely sample frames and compute normalized CLIP features. We then measure the average pairwise cosine similarity between sampled frames. We filter out videos with low diversity scores as such videos are more likely to contain static camera setups or repeated visual content, and are therefore less useful for training temporal grounding models. 
+
+QA Generation. We generate timestamp-anchored multiple-choice questions through a multi-stage pipeline. First, each video is segmented into 10-second clips. We then use Qwen3-VL-30B-A3B-18 Figure 5: Overview of the LongClueQA construction pipeline. Collected YouTube videos are segmented into 10-second clips and captioned with Qwen3-VL. Multiple-choice QA pairs with temporal clues are then generated from the captions and filtered to retain only high-quality questions. Instruct to produce a free-form caption describing the visual content of that temporal segment. The caption is augmented with its start and end timestamp. We then use Qwen3-Next-80B-A3B-Thinking as question generation model and input the previously extracted captions prompted to create three questions for each video with an answer and corresponding timestamp as the supporting clue. We then generate four distractors in a separate pass with the question, answer, and ±30-second caption around the supporting clue as input. The distractors are required to be plausible, semantically similar to the correct answer, and unambiguously incorrect with respect to the video. This yields a five-way multiple-choice question that challenges model to distinguish the correct answer from plausible alternatives. 
+
+C.2 Trajectory Synthesis Data Filtering. We use three data sources for generating trajectories: the CG-Bench full set (excluding questions from the mini set), the Haystack-Ego4D training set, and LongClueQA. CG-Bench and LongClueQA provide ground-truth (GT) clue-segment annotations. The annotations of Haystack-Ego4D are GT frame indices. We convert these to a single segment by taking the minimum and maximum of the annotated frame timestamps. We then apply a four-stage filtering pipeline to all data sources as described in Section A. 
+
+Trajectory Generation. Given a long video, a question, and the ground-truth evidence interval 
+
+[tGT  
+
+> s
+
+, t GT  
+
+> e
+
+], the controller produces a navigation trajectory through the tree. At any point during this process, the trajectory is in one of two states: a correct state, in which the current node overlaps the ground-truth interval, or a wrong state, in which it does not. The current state determines how the next action is chosen. In the correct state, we score each child of the current node for question relevance using an external scorer (Qwen3-VL-8B in our main experiments) and select the highest-scoring child as the next zoom_in target. If this child also contains the ground-truth interval, the trajectory remains in the correct state; otherwise it transitions into the wrong state. In the wrong state, we randomly choose between two options: (i) recover , in which we apply the inverse of the action sequence that led into the wrong branch (e.g., a zoom_in into a wrong sibling is recovered by zoom_out followed by an optional shift to the correct sibling), or (ii) continue , in which we deliberately take another step deeper into the wrong branch to produce a longer detour. To prevent unbounded detours, we force recovery after the trajectory has spent two consecutive turns in the wrong state. The procedure terminates when the model can produce a correct answer with sufficiently accurate evidence (mIoU 
+
+> 0.3) at the current node, or when further descent is no longer possible. 19 Trajectory Statistics Figure 6 reports the distribution of trajectory lengths across the three data sources. CG-Bench and LongClueQA trajectories are typically short (median 4 turns), while Haystack-Ego4D requires deeper search (median 6). The gap reflects the difficulty of each dataset’s temporal-grounding queries: shorter trajectories correspond to questions answerable after a few coarse zooms, while longer ones require deeper traversal of the segment tree. Figure 7 shows the breakdown of action types issued during trajectory generation. ZOOM _I N
+
+dominates on every dataset, reflecting the top-down nature of hierarchical search. A NSWER appears once per trajectory and therefore tracks dataset size. Z OOM _O UT and S HIFT act as corrective moves, and their relative frequency indicates how often the initial descent path needs to be revised before the agent commits to an answer. 1 2 3 4 5 6 7 8 9 10 >10                     
+
+> Number of Turns
+> 0
+> 25
+> 50
+> 75
+> 100
+> 125
+> 150
+> 175
+> 200
+> Number of Trajectories
+> CG-Bench (N=1144)
+> 12345678910 >10
+> Number of Turns
+> 0
+> 25
+> 50
+> 75
+> 100
+> 125
+> 150
+> 175
+> 200
+> 12345678910 >10
+> Number of Turns
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> 600
+> 700
+> 800
+> LongClueQA (N=3692) Haystack-Ego4D (N=1130)
+
+Figure 6: Distribution of trajectory lengths across the three data sources. For each dataset we plot the number of trajectories that terminate after a given number of turns, where one turn corresponds to a single agent action (Z OOM _I N, Z OOM _O UT , S HIFT , or A NSWER ). Trajectories with more than 15 
+
+turns are discarded as outliers, and lengths beyond 10 are aggregated into a single “ > 10 ” bin. ZOOM_IN     
+
+> ZOOM_OUT
+> SHIFT
+> ANSWER
+> Action Type
+> 0
+> 500
+> 1000
+> 1500
+> 2000
+> 2500
+> 3000
+> 3500
+> 4000
+> Count
+> 63.4%
+> 10.2% 6.8%
+> 19.6%
+> CG-Bench (N=1144)
+> ZOOM_IN
+> ZOOM_OUT
+> SHIFT
+> ANSWER
+> Action Type
+> 0
+> 1000
+> 2000
+> 3000
+> 4000 59.2%
+> 15.5%
+> 8.7%
+> 16.5%
+> ZOOM_IN
+> ZOOM_OUT
+> SHIFT
+> ANSWER
+> Action Type
+> 0
+> 2000
+> 4000
+> 6000
+> 8000
+> 10000
+> 12000 63.5%
+> 9.5% 5.6%
+> 21.4%
+> LongClueQA (N=3692) Haystack-Ego4D (N=1130)
+
+Figure 7: Action type distribution across the three data sources. Counts of the four action types issued by the agent across all trajectories from the three data sources. 
+
+## D More Qualitative Results 
+
+Figures 8–9 show two additional qualitative results produced by VTS. Figures 8–9 present two additional qualitative results produced by VTS. Figure 8 illustrates a deeper nine-turn trajectory that uses both backtracking primitives. The question asks how many turkeys are placed on the table behind the man. The agent first follows several zoom_in actions into an incorrect branch, where the man is pouring liquid into a pot but no turkeys are visible on the table behind him. After recognizing this error, the agent issues zoom_out to return to the parent node, followed by shift to move laterally to an unvisited sibling. This sibling contains the both the turkeys on the table and the man, allowing the agent to terminate with answer . Figure 9 shows a short two-turn trajectory for a question asking about the types of fruits placed on the cabinet. In the first zoom_in turn, the agent directly reaches the segment containing both the fruits and the cabinet, and then terminates with answer in the next turn. This represents the common case for questions whose evidence is visually salient at a coarse level, showing that the agent avoids unnecessary exploration when the initial descent is already correct. 20 Segment 1 includes scenes of outdoor cooking with a person in a blue beanie stirring a pot , which matches the 
+
+description of the man preparing to cook soup. This segment also contains later kitchen activities involving 
+
+turkey preparation, making it the most relevant for finding turkeys on the table behind him. 
+
+zoom_in (segment=1)        
+
+> 0s 1711s
+> Seg. 1Seg. 0Seg. 2 Seg. 3 Seg. 4 Seg. 5
+
+The current segment shows the man pouring liquid into a pot, but the view is focused on the cooking activity 
+
+with no turkeys visible on the table behind him . The question asks about turkeys placed on the table during 
+
+soup preparation, which likely occurs in a different part of the parent segment. Zooming out allows exploration 
+
+of sibling segments that may show the relevant scene .
+
+zoom_ out  
+
+> 595s 611s
+
+The current segments show the man pouring liquids into pots or cooking with a deep fryer, but turkeys are not 
+
+clearly visible on tables behind him . The sibling segment 1 [642.4s -706.7s] continues the outdoor cooking 
+
+scene and is the next unvisited region that may reveal the turkeys behind him .
+
+shift ( sibling_segment =1)    
+
+> 578s 642s
+> Seg. 0Seg. 2 Seg. 1
+
+Turn 1
+
+Turn 2 zoom_in (segment=1) 
+
+Turn 5 zoom_in (segment=0) 
+
+Turn 7
+
+Turn 8
+
+Question . In the video, when the man in the blue hat is preparing to cook soup, how many turkeys are placed 
+
+on the table behind him? 
+
+Clue : 691 .0s – 694. 0sOptions . A: One . B: Six. C: Four. D: Two. E: Three . F: Two. G: Five. 
+
+In the video from 689.7s to 696.4s, I observe the man in the blue hat stirring a large pot outdoors . Behind him, 
+
+on a white table, three turkeys are clearly visible , confirming the answer. 
+
+answer (E, 689.7, 696.4)  
+
+> 642s 705s
+
+Turn 9
+
+Turn 3 zoom_in (segment= 0) Turn 4 zoom_in (segment=2) 
+
+Turn 6 zoom_in (segment=1) Figure 8: Qualitative example: recovery via zoom_out and shift . The question asks for the number of turkeys on the table behind the man. The agent first follows several zoom_in steps into an incorrect branch that shows the man but no turkeys (turns 1–6). It then recovers by using zoom_out 
+
+to ascend to the parent node (turn 7), followed by shift to move laterally to an unvisited sibling (turn 8). This sibling contains the relevant evidence—turkeys on the table behind the man—allowing the agent to answer correctly (turn 9). This trajectory illustrates how zoom_out and shift work together to recover from incorrect exploration. 21 Question 
+
+What fruits are there from left to right on the plate on the second layer of the fruit display cabinet? 
+
+Options 
+
+A: Strawberry, lemon, lemon. B: Grapes, strawberry, strawberry. C: Grapes, lemon, lemon. 
+
+D: Lemon, grapes, lemon. E: Lemon, lemon, grapes. F: Grapes, lemon, strawberry. 
+
+Clue 
+
+230.4s – 240.3s 
+
+Segment 2 includes a scene with a refrigerated display case containing strawberries, grapes, and lemons ,
+
+which directly relates to the question about fruits on a display cabinet. This segment is the only one showing a 
+
+fruit display, making it the most relevant for examining the arrangement of fruits. Zooming in will allow closer 
+
+inspection to identify the specific fruits from left to right .
+
+zoom_in (segment=2)               
+
+> 0s 700s
+> Seg. 0 Seg. 1 Seg. 2 Seg. 3Seg. 4 Seg. 5
+> 227s 527s
+> Seg. 0 Seg. 1 Seg. 2 Seg. 3Seg. 4 Seg. 5
+
+The video shows the second layer of the fruit display cabinet from 227.3s to 242.1s, where grapes are 
+
+visible on the left, followed by lemons in the middle, and more lemons on the right . This arrangement is 
+
+consistently observed across multiple frames within this interval, confirming the order from left to right. 
+
+answer (C, 227.3, 242.1) 
+
+Turn 1
+
+Turn 2Figure 9: Qualitative example: hierachical zoom_in without backtracking. The question asks about the types of fruits placed on the cabinet. The agent directly reaches the relevant segment containing both the fruits and the cabinet after a single zoom_in step (turn 1), and then terminates with answer in the next turn (turn 2). 22

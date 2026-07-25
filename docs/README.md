@@ -6,77 +6,71 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-24
-- 运行时间：2026-07-24 21:44:42 UTC
+- 最新运行日期：2026-07-25
+- 运行时间：2026-07-25 21:34:13 UTC
 - 运行状态：成功
-- 本次总论文数：19
-- 精读区：7
+- 本次总论文数：17
+- 精读区：5
 - 速读区：12
 
 ### 今日简报（AI）
-今日共收录19篇研究，精读7篇，重点关注VizRAG与分布对齐桥接两项高分工作。前者创新性地引入超图可视化增强检索生成，后者为文本-视频检索提供不确定性感知的分布对齐方案。建议优先精读这两篇论文，深入理解多模态检索在可视化整合与不确定性建模上的前沿进展。
-- 详情：[/202607/24/README](/202607/24/README)
+今日共推荐17篇论文，精读5篇、速读12篇。最值得关注的方向：多模态大语言模型在遥感图像理解中需权衡领域专用与通用性，以及双对抗微调策略可增强视觉语言模型的鲁棒性。建议读者优先精读这两篇高分论文，并关注多模态模型在垂直场景与对抗鲁棒性方面的交叉研究。
+- 详情：[/202607/25/README](/202607/25/README)
 
 ### 精读区论文标签
-1. [VizRAG: Enhancing Retrieval-Augmented Generation with Hypergraph Visualization](/202607/24/2607.19830v1-vizrag-enhancing-retrieval-augmented-generation-with-hypergraph-visualization)  
-   标签：评分：9.0/10、query:mr
-   evidence：利用超图可视化增强多模态RAG，直接针对多模态推理架构
-2. [Distribution-Alignment Bridge for Uncertainty-Aware Text-to-Video Retrieval](/202607/24/2607.20984v1-distribution-alignment-bridge-for-uncertainty-aware-text-to-video-retrieval)  
-   标签：评分：9.0/10、query:mr
-   evidence：通过分布对齐实现跨模态文本-视频检索
-3. [CRAG-MM-Diagnostics: Enabling Stage-Wise Analysis of Knowledge-Intensive VQA](/202607/24/2607.21155v1-crag-mm-diagnostics-enabling-stage-wise-analysis-of-knowledge-intensive-vqa)  
-   标签：评分：9.0/10、query:mr
-   evidence：面向知识密集型VQA的检索增强诊断基准
-4. [A Unified Moral-Value Dataset for Instruction Tuning](/202607/24/2607.21279v1-a-unified-moral-value-dataset-for-instruction-tuning)  
+1. [Multimodal Large Language Models for Remote Sensing Image Understanding: Domain-Specific or General-Purpose?](/202607/25/2607.20284v1-multimodal-large-language-models-for-remote-sensing-image-understanding-domain-specific-or-general-purpose)  
    标签：评分：9.0/10、query:post-multi
-   evidence：面向道德价值的指令微调数据集，直接针对后训练中的指令微调
-5. [C$^2$KV: Compressed and Composable KV Cache Reuse for Efficient LLM Inference](/202607/24/2607.17715v1-c2kv-compressed-and-composable-kv-cache-reuse-for-efficient-llm-inference)  
-   标签：评分：8.0/10、query:mr
-   evidence：面向高效检索增强生成的压缩KV缓存重用
-6. [Search-on-Graph-R1: Training Large Language Models to Search Knowledge Graphs with Reinforcement Learning](/202607/24/2607.18481v1-search-on-graph-r1-training-large-language-models-to-search-knowledge-graphs-with-reinforcement-learning)  
-   标签：评分：8.0/10、query:mr
-   evidence：基于强化学习的多跳知识图谱问答导航内化
-7. [Test-Time Training for Modality Order Consistency in Vision-Language Models](/202607/24/2607.20351v1-test-time-training-for-modality-order-consistency-in-vision-language-models)  
+   evidence：多模态大语言模型遥感综述
+2. [Dual Adversarial Fine-tuning for Enhancing Robustness of Large Vision Language Model](/202607/25/2607.18958v1-dual-adversarial-fine-tuning-for-enhancing-robustness-of-large-vision-language-model)  
    标签：评分：8.0/10、query:post-multi
-   evidence：提出视觉语言模型中模态顺序一致性的测试时训练方法
+   evidence：面向视觉语言模型的双对抗微调
+3. [Silent Failures in Multimodal Agentic Search:A Diagnostic Taxonomy and Cross-Judge Evaluation](/202607/25/2607.19793v1-silent-failures-in-multimodal-agentic-searcha-diagnostic-taxonomy-and-cross-judge-evaluation)  
+   标签：评分：8.0/10、query:mr
+   evidence：多模态智能搜索中静默失败的诊断分类，涉及检索
+4. [SoftReason: A Fully Differentiable Neuro-Soft-Symbolic Deductive Reasoning Architecture over High-Dimensional Perceptual Data](/202607/25/2607.20402v1-softreason-a-fully-differentiable-neuro-soft-symbolic-deductive-reasoning-architecture-over-high-dimensional-perceptual-data)  
+   标签：评分：8.0/10、query:mr
+   evidence：基于知识图谱的可微分演绎推理
+5. [PrefReward: Learning User Preference Matrix for Personalized Text Generation](/202607/25/2607.21067v1-prefreward-learning-user-preference-matrix-for-personalized-text-generation)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：用户偏好矩阵作为奖励信号用于个性化文本生成，与RLHF对齐
 
 ### 速读区论文标签
-1. [Mitigating Modality and Language-Style Gaps for Zero-Shot Video Moment Retrieval](/202607/24/2607.19027v1-mitigating-modality-and-language-style-gaps-for-zero-shot-video-moment-retrieval)  
-   标签：评分：8.0/10、query:mr
-   evidence：零样本视频时刻检索中的模态差距缓解
-2. [Diverse-Intent Multi-Turn Fashion Image Retrieval](/202607/24/2607.20291v1-diverse-intent-multi-turn-fashion-image-retrieval)  
-   标签：评分：8.0/10、query:mr
-   evidence：多轮时尚图像检索中的多模态对齐
-3. [PolySim: Deterministic Polynomial Surrogates for Cross-Modal Retrieval on CiM](/202607/24/2607.20358v1-polysim-deterministic-polynomial-surrogates-for-cross-modal-retrieval-on-cim)  
-   标签：评分：8.0/10、query:mr
-   evidence：基于存内计算的跨模态检索
-4. [C-PTQ: Fisher-weighted Channel-wise Sensitivity for Post-training Quantization of MLLMs](/202607/24/2607.21076v1-c-ptq-fisher-weighted-channel-wise-sensitivity-for-post-training-quantization-of-mllms)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：多模态大语言模型的后训练量化
-5. [ST-Veto: Spatio-Temporal Token Veto for Diffusion MLLMs via Taylor Prediction and Visual Grounding](/202607/24/2607.17884v1-st-veto-spatio-temporal-token-veto-for-diffusion-mllms-via-taylor-prediction-and-visual-grounding)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：面向扩散多模态大模型的免训练推理增强与视觉定位方法
-6. [Stochastic Meta-Unlearning: Bridging Language Backbone and Multimodal Unlearning](/202607/24/2607.18615v1-stochastic-meta-unlearning-bridging-language-backbone-and-multimodal-unlearning)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：面向视觉语言模型的多模态遗忘元学习框架
-7. [Supra Cognitive Modes: A Routed Architecture for Agent Memory](/202607/24/2607.19096v1-supra-cognitive-modes-a-routed-architecture-for-agent-memory)  
+1. [Supra Cognitive Modes: A Routed Architecture for Agent Memory](/202607/25/2607.19096v1-supra-cognitive-modes-a-routed-architecture-for-agent-memory)  
    标签：评分：7.0/10、query:mr
-   evidence：代理记忆架构中的多跳推理与检索
-8. [Adaptive Depth Sparse Framework: Similarity-Driven Resource Allocation for Pre-Trained LLMs](/202607/24/2607.21291v1-adaptive-depth-sparse-framework-similarity-driven-resource-allocation-for-pre-trained-llms)  
+   evidence：针对智能体记忆的图或多跳检索架构
+2. [Memory-Augmented Multimodal Large Language Models for Small Object Understanding in Streaming Aerial Videos](/202607/25/2607.19857v1-memory-augmented-multimodal-large-language-models-for-small-object-understanding-in-streaming-aerial-videos)  
+   标签：评分：7.0/10、query:mr
+   evidence：记忆增强的多模态模型，通过检索历史帧支持流式视频理解
+3. [MTVDiff: Multimodal Conditional Latent Diffusion for Enhanced Thermal-to-Visible Face Translation](/202607/25/2607.19886v1-mtvdiff-multimodal-conditional-latent-diffusion-for-enhanced-thermal-to-visible-face-translation)  
    标签：评分：7.0/10、query:post-multi
-   evidence：无需完整重训练的大语言模型后训练深度稀疏化
-9. [LLMs Encode Relevance as a Layer-Wise Cross-Lingual Signal](/202607/24/2607.15555v1-llms-encode-relevance-as-a-layer-wise-cross-lingual-signal)  
+   evidence：多模态条件潜扩散人脸翻译框架
+4. [PyroDash: Cost-Efficient Token-Level Small-Large Language Model Collaborative Inference](/202607/25/2607.20327v1-pyrodash-cost-efficient-token-level-small-large-language-model-collaborative-inference)  
+   标签：评分：7.0/10、query:post-multi
+   evidence：小语言模型的三阶段后训练实现与冻结大模型的协作推理
+5. [Achieving Text-based Person Retrieval with Any Granularity](/202607/25/2607.21057v1-achieving-text-based-person-retrieval-with-any-granularity)  
+   标签：评分：7.0/10、query:mr
+   evidence：任意粒度的文本人物检索，一种跨模态检索范式
+6. [Searching Videos as Trees: Self-Correcting Agents for Grounded Long Video QA](/202607/25/2607.16189v1-searching-videos-as-trees-self-correcting-agents-for-grounded-long-video-qa)  
    标签：评分：6.0/10、query:mr
-   evidence：研究LLM内部如何编码相关性，可应用于RAG
-10. [An Explicit World Model Based on Data-First Ontology: DaoQL Multimodal Storage Validation and Counterfactual Reasoning Evaluation](/202607/24/2607.17269v1-an-explicit-world-model-based-on-data-first-ontology-daoql-multimodal-storage-validation-and-counterfactual-reasoning-evaluation)  
+   evidence：通过自我纠正进行视频片段的多步推理
+7. [Exploratory and Assimilating Reflection: Reflective Recall Cycle for Long-term Memory](/202607/25/2607.17879v1-exploratory-and-assimilating-reflection-reflective-recall-cycle-for-long-term-memory)  
    标签：评分：6.0/10、query:mr
-   evidence：用于世界模型推理的显式多模态数据库
-11. [EmoEUS: Uncertainty Supervision for Multimodal Emotion Recognition in Conversation](/202607/24/2607.18336v1-emoeus-uncertainty-supervision-for-multimodal-emotion-recognition-in-conversation)  
+   evidence：为LLM智能体提供检索增强的记忆，类似于检索增强生成
+8. [DeLIVeR: Decomposed Learning for Information-grounded Veracity Recognition via Reinforced Knowledge Graph Exploration](/202607/25/2607.17935v1-deliver-decomposed-learning-for-information-grounded-veracity-recognition-via-reinforced-knowledge-graph-exploration)  
+   标签：评分：6.0/10、query:mr
+   evidence：将复杂声明分解为子问题，通过知识图谱多跳检索证据
+9. [PAGE-RAG: Evidence-Grounded Adaptive Graph Retrieval for Long-Document Question Answering](/202607/25/2607.19301v1-page-rag-evidence-grounded-adaptive-graph-retrieval-for-long-document-question-answering)  
+   标签：评分：6.0/10、query:mr
+   evidence：自适应图检索的RAG架构
+10. [Selective State-Space Adaptation and Retrieval for Language Model Reasoning](/202607/25/2607.19326v1-selective-state-space-adaptation-and-retrieval-for-language-model-reasoning)  
+   标签：评分：6.0/10、query:mr
+   evidence：面向语言模型推理的检索适配器
+11. [Appearance Pointers -- Multimodal Region Control of Diffusion Transformers](/202607/25/2607.19344v1-appearance-pointers----multimodal-region-control-of-diffusion-transformers)  
    标签：评分：6.0/10、query:post-multi
-   evidence：面向情感识别的不确定性感知多模态融合
-12. [One Model, Many Graphs: Learning over Attributed Graphs across Heterogeneous Modalities with Vision-Language Models](/202607/24/2607.19128v1-one-model-many-graphs-learning-over-attributed-graphs-across-heterogeneous-modalities-with-vision-language-models)  
-   标签：评分：6.0/10、query:mr
-   evidence：使用视觉语言模型学习跨异构模态的属性图
+   evidence：扩散变换器的多模态区域控制
+12. [Beyond Independent Optimization: Compression, MoE Routing, and Quantization Interactions in Multimodal Edge Intelligence](/202607/25/2607.20981v1-beyond-independent-optimization-compression-moe-routing-and-quantization-interactions-in-multimodal-edge-intelligence)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：多模态模型后训练优化技术综述，包括压缩、MoE、量化
 
 
 <div class="dpr-home-promo-card">
