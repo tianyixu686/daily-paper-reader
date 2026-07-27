@@ -6,62 +6,65 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-26
-- 运行时间：2026-07-26 20:59:17 UTC
+- 最新运行日期：2026-07-27
+- 运行时间：2026-07-27 21:38:25 UTC
 - 运行状态：成功
-- 本次总论文数：14
-- 精读区：2
-- 速读区：12
+- 本次总论文数：15
+- 精读区：7
+- 速读区：8
 
 ### 今日简报（AI）
-今日共推荐14篇论文，精读2篇（均获8.0分），速读12篇，涵盖视频MLLM适应、多模态推理及视觉语言模型优化。最值得关注的是视频MLLM的持续领域适应与多模态推理中的镜像学习方法，两者均为8.0高评分。建议优先精读这两篇论文，并留意速读中基于注意力引导的多模态LLM视频摘要技术。
-- 详情：[/202607/26/README](/202607/26/README)
+今日聚焦多模态预训练与推理，共解读15篇论文，其中7篇精读、8篇速读。最值得关注的是Scaling Native Multimodal Pre-Training From Scratch（9.0分）与MIRROR（8.0分），前者探索多模态原生预训练规模化，后者通过视角互学增强多模态推理。建议普通读者优先精读这两篇，把握当前多模态大模型从预训练到推理的核心路径。
+- 详情：[/202607/27/README](/202607/27/README)
 
 ### 精读区论文标签
-1. [Continual Video-MLLM Adaptation over Evolving Domains](/202607/26/2607.18716v1-continual-video-mllm-adaptation-over-evolving-domains)  
+1. [Scaling Native Multimodal Pre-Training From Scratch](/202607/27/2607.22043v1-scaling-native-multimodal-pre-training-from-scratch)  
+   标签：评分：9.0/10、query:post-multi
+   evidence：从零开始的原生多模态预训练缩放法则
+2. [MIRROR: Learning from the Other View for Multi-Modal Reasoning](/202607/27/2607.21552v1-mirror-learning-from-the-other-view-for-multi-modal-reasoning)  
    标签：评分：8.0/10、query:post-multi
-   evidence：视频多模态大模型的持续后训练适应
-2. [MIRROR: Learning from the Other View for Multi-Modal Reasoning](/202607/26/2607.21552v1-mirror-learning-from-the-other-view-for-multi-modal-reasoning)  
+   evidence：利用多视图不一致性进行多模态后训练
+3. [Data Quality over Capacity: Internalizing Documents into LoRA Adapters for Closed-Book QA](/202607/27/2607.21861v1-data-quality-over-capacity-internalizing-documents-into-lora-adapters-for-closed-book-qa)  
    标签：评分：8.0/10、query:post-multi
-   evidence：通过互补视角进行多模态推理及后训练分析
+   evidence：通过LoRA适配器将文档内化以进行闭卷问答，强调训练数据质量
+4. [Benchmarking Fine-tuning and Retrieval Strategies for a Multimodal Language Model on the NRC Reactor Operator Licensing Examination](/202607/27/2607.22067v1-benchmarking-fine-tuning-and-retrieval-strategies-for-a-multimodal-language-model-on-the-nrc-reactor-operator-licensing-examination)  
+   标签：评分：8.0/10、query:mr
+   evidence：多模态模型结合微调与检索在领域特定考试上的基准测试
+5. [Filling Before Advancing: Capability-Gap-Driven Post-Training for Scenario-Specialized Remote Sensing MLLMs](/202607/27/2607.22205v1-filling-before-advancing-capability-gap-driven-post-training-for-scenario-specialized-remote-sensing-mllms)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：面向遥感多模态大模型的能力差距驱动后训练
+6. [IFCLoRA: Topology-Aware Rank Allocation for Parameter-Efficient Fine-Tuning](/202607/27/2607.22251v1-ifclora-topology-aware-rank-allocation-for-parameter-efficient-fine-tuning)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：面向参数高效微调的拓扑感知秩分配
+7. [Towards Trustworthy and Cost-Efficient Data Integration: From Naïve RAG to Agentic RAG](/202607/27/2607.22319v1-towards-trustworthy-and-cost-efficient-data-integration-from-nave-rag-to-agentic-rag)  
+   标签：评分：8.0/10、query:mr
+   evidence：检索增强生成演化
 
 ### 速读区论文标签
-1. [HAS: Highlight-guided Attention Steering for Multimodal LLM Video Summarization](/202607/26/2607.17994v1-has-highlight-guided-attention-steering-for-multimodal-llm-video-summarization)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：基于多模态大模型的视频摘要
-2. [Attributes Should Come from Images, Not Class Names: Distribution-Conditioned Attribute Selection for Vision-Language Models](/202607/26/2607.18695v1-attributes-should-come-from-images-not-class-names-distribution-conditioned-attribute-selection-for-vision-language-models)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：面向视觉语言模型的零样本分类属性选择
-3. [Look Less, Think Faster: Joint Token-Compute Adaptation for Multimodal LLMs](/202607/26/2607.20357v1-look-less-think-faster-joint-token-compute-adaptation-for-multimodal-llms)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：多模态大模型高效推理
-4. [Chronofy: A Temporal-Logical Decay Architecture for Information Validity in Time-Aware Retrieval-Augmented Generation](/202607/26/2607.20560v1-chronofy-a-temporal-logical-decay-architecture-for-information-validity-in-time-aware-retrieval-augmented-generation)  
+1. [Debate-on-Graph: Reliable and Adaptive Reasoning of Large Language Model on Uncertain Knowledge Graph](/202607/27/2607.17266v1-debate-on-graph-reliable-and-adaptive-reasoning-of-large-language-model-on-uncertain-knowledge-graph)  
    标签：评分：7.0/10、query:mr
-   evidence：时间感知RAG架构解决时间幻觉
-5. [ProCap: Prominence-guided Object Rectification for Faithful and Comprehensive Video Captioning](/202607/26/2607.21022v1-procap-prominence-guided-object-rectification-for-faithful-and-comprehensive-video-captioning)  
+   evidence：在不确定知识图谱上利用LLM进行多跳推理
+2. [Unlearning Under Imbalance: Benchmarking Fairness in Multimodal LLM Unlearning](/202607/27/2607.21300v1-unlearning-under-imbalance-benchmarking-fairness-in-multimodal-llm-unlearning)  
    标签：评分：7.0/10、query:post-multi
-   evidence：无训练的视频字幕后处理修正，基于显著性评分
-6. [KroQuant: Kronecker-Structured Block Transforms for Efficient Post-Training Quantization of Diffusion Transformers](/202607/26/2607.21446v1-kroquant-kronecker-structured-block-transforms-for-efficient-post-training-quantization-of-diffusion-transformers)  
+   evidence：多模态大模型中的后训练反学习
+3. [UnDA: Unpaired Domain Alignment for Cross-Modal Knowledge Transfer in Medical Imaging](/202607/27/2607.21546v1-unda-unpaired-domain-alignment-for-cross-modal-knowledge-transfer-in-medical-imaging)  
    标签：评分：7.0/10、query:post-multi
-   evidence：扩散Transformer的后训练量化
-7. [Token-Wise Latent Streaming from Slow Reasoners to Fast Planners for Dynamic Vision Language Navigation](/202607/26/2607.16806v1-token-wise-latent-streaming-from-slow-reasoners-to-fast-planners-for-dynamic-vision-language-navigation)  
+   evidence：跨模态知识蒸馏，属于多模态学习方法
+4. [Unsupervised Multimodal Intent Discovery via MLLM-Guided Concept Generation and Semantic Propagation](/202607/27/2607.21908v1-unsupervised-multimodal-intent-discovery-via-mllm-guided-concept-generation-and-semantic-propagation)  
+   标签：评分：7.0/10、query:post-multi
+   evidence：使用MLLM指导的概念生成进行多模态意图发现
+5. [MoE$^2$-LoRA: When MoE Models Meet MoE-style Low-Rank Adaptation](/202607/27/2607.21978v1-moe2-lora-when-moe-models-meet-moe-style-low-rank-adaptation)  
+   标签：评分：7.0/10、query:post-multi
+   evidence：MoE模型的参数高效微调
+6. [Be Consistent! Enhancing Robust Visual Reasoning in LVLMs with Consistency Constraints](/202607/27/2607.21722v1-be-consistent-enhancing-robust-visual-reasoning-in-lvlms-with-consistency-constraints)  
+   标签：评分：6.0/10、query:mr
+   evidence：面向LVLMs的视觉推理一致性基准
+7. [Visual Saliency Steering Distillation for Multimodal Chain-of-Thought Reasoning](/202607/27/2607.22013v1-visual-saliency-steering-distillation-for-multimodal-chain-of-thought-reasoning)  
+   标签：评分：6.0/10、query:mr
+   evidence：用于多模态链式推理的视觉显著性蒸馏
+8. [Twins: Learn to Predict Unified Representations with Focal Loss](/202607/27/2607.22531v1-twins-learn-to-predict-unified-representations-with-focal-loss)  
    标签：评分：6.0/10、query:post-multi
-   evidence：多模态推理框架，使用VLM
-8. [Learning to Detect Cross-Modal Negation: An Analysis of Latent Representations and an Attention-Based Solution](/202607/26/2607.17712v1-learning-to-detect-cross-modal-negation-an-analysis-of-latent-representations-and-an-attention-based-solution)  
-   标签：评分：6.0/10、query:mr
-   evidence：跨模态注意力用于视觉与语言的否定检测
-9. [ExpertVerse: A General-Purpose Benchmark for Expert-Level Reasoning in Knowledge-Intensive Visual Synthesis](/202607/26/2607.19341v1-expertverse-a-general-purpose-benchmark-for-expert-level-reasoning-in-knowledge-intensive-visual-synthesis)  
-   标签：评分：6.0/10、query:mr
-   evidence：知识密集型多模态推理与生成基准
-10. [Adaptive Confidence-weighted Expansion for Trustworthy Multi-Omics Multimodal Fusion](/202607/26/2607.20742v1-adaptive-confidence-weighted-expansion-for-trustworthy-multi-omics-multimodal-fusion)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：多组学多模态融合方法
-11. [Uni-XAS: Alignment-Driven Bidirectional Multimodal Learning for X-ray Absorption Spectroscopy](/202607/26/2607.20906v1-uni-xas-alignment-driven-bidirectional-multimodal-learning-for-x-ray-absorption-spectroscopy)  
-   标签：评分：6.0/10、query:mr
-   evidence：跨模态对齐用于光谱分析
-12. [GRADRAG: Cross-Component Prompt Adaptation for Coordinated Multi-Agent RAG](/202607/26/2607.21324v1-gradrag-cross-component-prompt-adaptation-for-coordinated-multi-agent-rag)  
-   标签：评分：6.0/10、query:mr
-   evidence：多智能体RAG框架，包含跨组件提示优化
+   evidence：统一多模态标记空间与焦点损失
 
 
 <div class="dpr-home-promo-card">
