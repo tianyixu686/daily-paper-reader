@@ -1,0 +1,461 @@
+Title: Beyond Shapley: An Influence-Based Data Auditing Pipeline for LLM Alignment and Evaluation
+
+URL Source: https://arxiv.org/pdf/2607.22766v1
+
+Published Time: Tue, 28 Jul 2026 00:14:13 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Beyond Shapley: An Influence-Based Data Auditing Pipeline for LLM Alignment and Evaluation 
+
+Yunting Song 
+
+Google Mountain View, CA 94043 
+
+ytsong@google.com 
+
+Matthew Watson 
+
+Google Mountain View, CA 94043 
+
+mattdangerw@google.com 
+
+Peter Grabowski 
+
+Google Mountain View, CA 94043 
+
+petergrabowski@google.com 
+
+Jun Qin ∗
+
+Google Mountain View, CA 94043 
+
+junqin@google.com 
+
+# Abstract 
+
+The alignment of Large Language Models (LLMs) is increasingly bottlenecked by data quality. As datasets scale, massive preference and instruction-tuning corpora inevitably accumulate hidden structural contradictions, safety risks, and systemic human annotation errors. Standard dataset auditing methods, such as semantic deduplication or LLM-as-a-judge, struggle to capture the actual predictive impact of individual records and often miss deep functional rule clashes. To address this, we introduce a scalable, inference-only data valuation pipeline that approximates the Shapley value without iterative model retraining. By mapping semantic k-NN neighborhoods into a directed graph, our framework evaluates data utility directly through a reference LLM’s probability distribution using zero-shot and one-shot conditional log-likelihood shifts. Our pipeline then translates these predictive influence scores into localized advantage metrics to isolate gradient-conflicting records. We demonstrate the pipeline’s efficacy in sanitizing two heavily vetted alignment datasets. First, applying our pipeline to the HelpSteer2 dataset reduced the manual audit search space by 99.1%, successfully uncovering falsely-labeled records across diverse failure modes, including factual hallucinations, ignored formatting constraints, and superficiality biases. Second, applying our automated audit strategy to Anthropic’s HH-RLHF training and evaluation splits identified thousands of hidden safety and factual preference inversions. Crucially, by extending this audit to the evaluation split, we expose severe vulnerabilities in current benchmark integrity: highly capable models frequently predict the safer or more helpful response, only to be penalized by objectively flawed human ground-truth labels. Overall, our work provides a mathematically grounded, highly efficient diagnostic tool to uncover human label failures, sanitize evaluation benchmarks, and ensure the integrity of LLM alignment data. 
+
+> ∗Corresponding author: junqin@google.com Preprint. arXiv:2607.22766v1 [cs.LG] 24 Jul 2026
+
+# 1 Introduction 
+
+The advancement of Large Language Models (LLMs) relies heavily on the quality of the data for training and evaluation. As models grow more capable, the bottleneck in alignment has shifted from model architecture to data quality assurance [ 6 , 26 ]. However, massive preference data, instruction-tuning corpora, and human-labeled data inevitably accumulate noise, redundancy, and structural contradictions, making scalable data valuation methods important. Current approaches for dataset auditing mostly rely on direct semantic deduplication [ 1, 9 ], LLM-as-a-judge [ 4], or computationally expensive human re-annotation [ 26 ]. Standard semantic de-duplication methods effectively identify textual duplicates, but failed to capture the functional utility of a data point in the training or evaluation. To overcome this limitation, researchers turn to rely on human experts or LLM for re-annotation. However, human annotation is computationally and financially unscalable, besides suffering from potential fatigue, and subjective bias. While deploying a larger LLM as a judge offers scalability, it relies on human-defined rubrics and often exhibit biases toward response length or specific formatting [ 19 , 25 ]. The LLM judge cannot determine the true functional value of a training record, or specifically how a record will mathematically influence the model’s predictive distribution. One mathematically rigorous alternative is to use Data Shapley [ 14 , 5] to evaluate data contributions. While effective, the original Shapley computation is O(2 N ) complex. Existing approximation methods either do not extend to generative LLMs [ 7 , 23 ], or require coarse grouping [ 22 , 15 ], sacrificing individual record-level granularity. To bridge this gap, we propose an influence-based data valuation pipeline designed to quantify data utility directly through the target LLM’s own predictive distribution without retraining or iterative data sampling. Our approach seeks to approximate the Shapley value of individual data instances with a computationally tractable alternative: zero-shot and one-shot influence scoring via in-context probing. By measuring how the inclusion of a semantically neighboring record as an in-context example alters the conditional log-likelihood of a target response, our pipeline mathematically captures whether a data point helps or degrades the model’s ability to learn from its neighbors. The core contributions of this work are as follows: • Influence-Based Valuation Framework : We introduce a highly scalable, inference-only pipeline to approximate Shapley values for generative LLMs. Instead of relying on compu-tationally prohibitive model retraining, our framework evaluates data contribution through 
+
+O(K) forward pass, where K is the size of the semantic neighborhood. Furthermore, unlike prior Shapley approximations constrained to classification or regression tasks, our method generalizes to evaluate both open-ended text generation tasks and pairwise preference data. • Structural Contradiction Detection : Our pipeline uncovers hidden structural contradic-tions in widely-used datasets, HelpSteer2 [ 20 ] and Anthropic’s HH-RLHF [ 2], that standard similarity metrics miss. We show that human-rewarded records frequently conceal structural errors that degrade model performance. This provides a mathematically grounded tool for sanitizing training corpora and validating the integrity of evaluation benchmarks. • Exposing Universal Benchmark Vulnerabilities : By conducting an audit on the evaluation split of Anthropic’s HH-RLHF [ 2 ], we demonstrate that highly capable models frequently fail to predict the correct behavior on the anomalies identified by our pipeline. This shows that our tool successfully identifies highly ambiguous or inconsistent ground-truth labels that unfairly penalize well-aligned models, pinpointing the exact records that necessitate expert auditing and relabeling. 
+
+# 2 Related work 
+
+Data Shapley [ 14 , 5 ] provides a principled framework for data valuation, but its exact O(2 N )
+
+complexity makes it impossible to be applied to large datasets. A major breakthrough by Jia et al. [ 7] proved that exact Shapley values for unweighted K-Nearest Neighbor (KNN) models can be computed recursively in O(N logN ) time. Building on this, recent works have utilized techniques like threshold-based neighborhood decomposition [ 23 ] and Wasserstein distances [ 11 ] to further accelerate attribution. While these methods achieve rigorous, point-wise attribution, they define utility 2strictly through spatial distances and label matching, which restrict their applicability to standard regression or classification tasks, rather than the generative mechanics of LLMs. Adapting Shapley values to LLM training introduces new challenges. Cluster Shapley [ 22 ] evaluates coarse semantic groups rather than individual records, sacrificing record-level granularity to reduce the mathematical search space. Other approaches, such as the recent work by Tamnie et al. [ 15 ], address data source valuation through Language Model Arithmetic, which avoids thousands of retraining loops. But their method evaluates the contribution of entire datasets and still requires one fine-tuning per individual data source. At the other extreme, token-level attribution algorithms [ 21 , 8]provide deep interpretability but are computationally mismatched for record-level dataset auditing. Currently, there is no method that offers point-wise, record-level Shapley approximation for generative LLMs without requiring model retraining or clustering. Our proposed pipeline addresses this gap by measuring conditional log-likelihood shifts between zero-shot and one-shot in-context probing to approximate marginal contributions. This inference-only approach enables us to maintain the record-level granularity lost by Cluster Shapley [ 22 ], entirely avoid the parameter updates required by Model Arithmetic solutions [ 15 ], and can be extended to complex generation tasks and multi-turn Reinforcement Learning from Human Feedback (RLHF) [12] preference contradictions. 
+
+# 3 Methodology 1. Generate embeddings & find k-NN 
+
+> 2. Generate prompt set (0-shot & 1-shot)
+> 3. Score conditional log-likelihood via Target LLM
+> 4. Build Directed Graph of influence
+> 5. Compute Advantage & Uniqueness metrics
+> 6. Extract Structural Anomalies
+> 7. Expert Arbitration (Human or LLM)
+> 8. Flag Benchmark Vulnerabilities & Sanitize Dataset
+> Phase 1: Influence Measurement
+> Phase 2: Metric Derivation & Auditing
+
+Figure 1: Workflow of the proposed influence-based data valuation pipeline. Phase 1 constructs a directed graph of semantic neighborhoods and measures the predictive influence between records using inference-only conditional log-likelihood shifts. Phase 2 converts these raw predictive shifts into actionable metrics to isolate structural contradictions, which are then arbitrated by an expert evaluator to sanitize datasets and benchmarks. The core principle of the Shapley value is to measure the marginal contribution of a data point to overall model performance by comparing outcomes when the point is included versus excluded [ 14 , 5]. To approximate the Shapley value at the scale of modern LLMs, we introduce a tractable proxy leveraging zero-shot and one-shot in-context probing. By mathematically evaluating how the presence of a neighboring record in the prompt alters the conditional log-likelihood of a target response, we measure the marginal performance impact of a data point with minimal computational overhead. As illustrated in Figure 1, our data valuation pipeline consists of 8 steps, which can be conceptually divided into two major phases: (1) neighborhood construction and influence measurement (Sections 3.1–3.3), where we construct semantic neighborhoods and calculate log-likelihood shifts, and (2) metric derivation and dataset sanitization (Sections 3.4–3.5), where we convert these raw scores into actionable utility metrics to identify contradictions and isolate erroneous records. 
+
+3.1 Semantic Neighborhood Construction 
+
+To identify semantic neighbors within a dataset, we first project all queries into a dense vector space. Given a dataset of prompt-response pairs D = {(xi, y i)}Ni=1 , we extract the prompts xi or the shared conversational context for multi-turn data. Because dense embeddings are highly sensitive to token distributions, we apply a dataset-specific preprocessing step. Specifically, we strip boilerplate templates or static system instructions to prevent vector dilution. We generate embeddings for these 3normalized prompts using a dense embedding model and extract the k-NN for each prompt based on cosine similarity. 
+
+3.2 Zero-Shot and One-Shot Influence Scoring 
+
+To quantify the predictive influence of a semantic neighbor, we measure the conditional log-likelihood shift it induces on a target response. We define the target LLM, parameterized by θ, as the specific language model whose predictive probability landscape we aim to evaluate or align, typically the base model intended for downstream alignment or evaluation. Given a target record (xi, y i) and a retrieved neighbor (xj , y j ), we utilize the target LLM to calculate the log-likelihood shift. The baseline log-likelihood of the target response sequence yi conditioned solely on its original prompt xi is calculated as: 
+
+LL base (i) = log P (yi | xi; θ) = 
+
+> |yi|
+
+X
+
+> t=1
+
+log P (yi,t | yi,<t , x i; θ)
+
+where |yi| represents the total number of tokens in the target response yi, yi,t is the t-th token to be predicted, and yi,<t represents the preceding context of previously generated tokens. We then evaluate the one-shot influence by constructing a composite prompt Ci,j = Concat (xj , y j , x i)
+
+using the neighbor’s prompt and response as a demonstration prior to the target prompt. The specific templates for the zero-shot and one-shot prompts are provided in Appendix B. The conditional log-likelihood of the target response given this augmented context is calculated as: 
+
+LL probe (i, j ) = log P (yi | Ci,j ; θ) = 
+
+> |yi|
+
+X
+
+> t=1
+
+log P (yi,t | yi,<t , C i,j ; θ)
+
+The predictive influence, denoted as ∆LL , is defined as the marginal shift in the target’s predictive probability: 
+
+∆LL i,j = LL probe (i, j ) − LL base (i)
+
+A positive ∆LL i,j indicates that neighbor j exerts a constructive predictive influence on target 
+
+i. Conversely, a severely negative ∆LL i,j indicates that neighbor j actively degrades the target’s predictive probability, serving as a mathematical signal of a behavioral contradiction between the two records. The margin shift: 
+
+∆LL margin = [ LL probe (y+) − LL probe (y−)] − [LL base (y+) − LL base (y−)] 
+
+3.3 Directed Graph Construction 
+
+A directed graph G = ( V, E) is built to represent the neighboring relationships and facilitate metric computation. Each node ni ∈ V represents a prompt-response record, and a directed edge ej→i ∈ E 
+
+indicates that record j was retrieved as one of the k-NN of record i. This edge direction j → i
+
+represents the flow of predictive influence, where record j acts as the one-shot demonstration and record i is the target being evaluated. Each edge ej→i is assigned a weight equivalent to the calculated influence score ∆LL i,j . Directed edges are necessary because k-NN retrieval is asymmetric, a record 
+
+A residing in the k-neighborhood of B does not guarantee that B resides in the k-neighborhood of A.
+
+3.4 Data Valuation Metrics 
+
+Using the directed graph G, we derive three major data valuation metrics for every node ni:• Exemplified advantage (Passive Influence) : This metric measures the aggregate predictive influence a data point receives from its incoming neighbors. A high exemplified advantage indicates that the target is easily predicted when conditioned on its local cluster, and thus, it is likely redundant to its neighbors and adds little novel information to the model. 4• Exemplifying advantage (Active Influence) : This metric, derived from our localized Shapley value proxy, measures the predictive contribution a data point exerts on its outgoing neighbors. A high advantage means the record acts as a high-quality demonstration relative to its peers, whereas a negative advantage indicates that introducing the data point degrades the model’s performance on its neighbors. • One of a kind score (Topological Uniqueness) : Because k-NN retrieval is non-reciprocal, some records retrieve neighbors but are rarely retrieved as neighbors by others. This metric quantifies this asymmetric isolation. The higher the value, the less likely it is to find a functionally or semantically close example within the dataset, marking it as a valuable edge-case. Let Nin (ni) represent the in-degree neighbors (the k-nearest neighbors retrieved for ni) and Nout (ni)
+
+represent the out-degree neighbors (records that retrieved ni as their k-nearest neighbor). We first calculate the exemplified score and exemplifying score .The exemplified score, denoted as e(ni), represents the average predictive influence received by ni
+
+when its incoming neighbors are used as one-shot examples: 
+
+e(ni) = 1
+
+|N in (ni)|
+
+X 
+
+> nj∈N in (ni)
+
+∆LL i,j 
+
+Conversely, the exemplifying score, denoted as δ(ni), represents the average predictive influence ni
+
+exerts when used to predict its out-degree targets: 
+
+δ(ni) = 
+
+( 1
+
+> |N out (ni)|
+
+P  
+
+> nk∈N out (ni)
+
+∆LL k,i if |N out (ni)| > 0
+
+N one otherwise 
+
+δ(ni) approximates the Data Shapley mathematically by treating 1-shot in-context learning as a zero-gradient surrogate for parameter updates, and truncating the global subset search space down to the localized semantic neighborhood Nout (ni) where a record’s predictive influence is actually non-zero. By restricting the coalition space to 1-shot in-context interactions within a semantic neighborhood, 
+
+δ(ni) captures the Shapley marginal contribution in O(K). We provide the full theoretical derivation connecting to the exact Shapley equation in Appendix A. When Nout (ni) is 0, node ni is highly unique record and is naturally excluded from data filtering where we exercise records with verified negative influence. To evaluate a record’s utility relative to its immediate neighbors, we calculate the advantage metrics by taking the raw scores and normalizing them as local Z-scores. Crucially, both advantages are normalized against the exact same local neighborhood set Si = Nin (ni) ∪ { ni}. We explicitly use the in-degree neighborhood to normalize both scores to evaluate a record’s score to the cluster of data points that are topographically most similar to it, establishing a localized performance baseline. The exemplified advantage , denoted as Adv e, measures relative redundancy: 
+
+Adv e(ni) = e(ni) − μe(Si)
+
+σe(Si)
+
+where μe and σe are the mean and sample standard deviation of the exemplified scores in Si.Similarly, the exemplifying advantage , denoted as Adv δ , measures relative predictive contribution: 
+
+Adv δ (ni) = δ(ni) − μδ (Si)
+
+σδ (Si)
+
+where μδ and σδ are the mean and sample standard deviation of the exemplifying scores in Si.The one of a kind score , denoted as O(ni), quantifies the structural uniqueness: 
+
+O(ni) = 1 .0 − |N out ||N in |
+
+Scores approaching 1.0 mark ni as an isolated edge-case, whereas extremely negative scores indicate records at the dense center of a semantic cluster. While our case studies focus on isolating contradic-tions via advantage scores, this uniqueness metric is crucial for data pruning. Curators can use it to protect valuable edge-cases when shrinking massive corpora, preserving topological coverage and topic variety. 53.5 Structural Contradiction Detection 
+
+We define a structural contradiction as a functional rule clash or a structural failure in human or LLM annotation, where functionally equivalent contexts map to conflicting target behaviors. Because data governance differs drastically depending on whether a dataset provides implicit demonstrations or explicit quality scores, we propose two generalized extraction paradigms: 
+
+Unsupervised Consistency Auditing (For Implicitly Labeled Data): For datasets lacking explicit quality scores, such as standard SFT corpora or pairwise preference text, all records are implicitly assumed to be "gold standard" demonstrations. To uncover hidden rule clashes, such as shifting system personas or grading standards, we filter the directed graph based purely on topological predictive degradation. A node is flagged as a potential contradiction if its exemplified or exemplifying advantage falls below a user-defined advantage threshold ( τadv ). To ensure the flagged record represents a true systemic clash rather than an isolated noisy artifact, a Mutual Nearest Neighbor (MNN) constraint is enforced. The flagged node’s local cluster is scanned for mutual neighbors (i.e., ni ∈ N in (nj ) and nj ∈ N in (ni)). The anomaly is preserved only if multiple mutual neighbors directly degrade the target’s predictive probability ( ∆LL < 0). Targets that are consistently penalized by their immediate peers are extracted as high-confidence structural contradictions. 
+
+Supervised Label Auditing (For Explicitly Labeled Data): For reward modeling datasets or graded corpora where explicit scalar scores exist, contradictions typically manifest as inter-annotator inconsistencies: annotators give divergent scores to functionally identical behaviors. While one could theoretically predict the numerical score of every record to find errors, doing so across millions of neighbors is computationally expensive. Therefore, we introduce an optimized, two-stage extraction process: Stage 1 (Structural Anomaly Detection): To bypass the primary inference bottleneck, we compute the predictive influence strictly for target nodes that possess high human ratings. Executing steps 1-5 exclusively on these "gold standard" isolates suspicious high-quality records that exhibit a severely negative exemplifying advantage. This structural anomaly signals that the target LLM mathematically struggles to reconcile the high human score with the surrounding semantic neighborhood. Stage 2 (Twin Verification): For each anomalous record, semantic neighbors possessing significantly lower human scores are retrieved from the global dataset. We then compute text similarity on the response outputs between the target and the low-score neighbor. If the model behaviors are highly similar but the human labels are vastly divergent, the pair is flagged as a structural contradiction. 
+
+Validation and Verification. Because embedding similarities can occasionally cluster topically related but functionally distinct queries, the extracted candidate pairs require final verification. While these candidates drastically reduce the manual audit surface for human domain experts, we also introduce an optional LLM Arbitration stage to enable a fully automated pipeline. A highly capable LLM acts as an expert evaluator, prompted with both conflicting records and the original labeling guidelines, to flag the incorrect record and generate a reasoning trace. 
+
+# 4 Experiments and Case Study 
+
+To evaluate the efficacy and practical utility of our influence-based data valuation pipeline, we design experiments around two core objectives: (1) auditing training corpora to uncover hidden annotation failures that standard semantic metrics miss, and (2) validating evaluation benchmarks to expose structural preference inversions that unfairly penalize capable models. All experiments are conducted on a compute node equipped with 4× NVIDIA A100 (80GB) GPUs. For the neighborhood construction step (Section 3.1), we generate the embeddings for prompts via the Qwen3-Embedding-4B [ 24 ], and execute k-NN retrieval via HNSWlib [ 10 ]. For the scoring step (Section 3.2), we use the Qwen3.5-9B [ 18 ], which is also the base model for all the downstream fine-tuning experiments, ensuring that the measured predictive influence perfectly aligns with the target model’s actual learning dynamics. Finally, for the expert arbitration step (Section 3.5), we utilize Gemini 3.1 Pro (Preview) [16] as the expert evaluator. 64.1 Case study 1: Uncovering contradictions in the HelpSteer2 dataset 
+
+We first apply the supervised label auditing framework discussed in Section 3.5 to HelpSteer2 [ 20 ], a dataset containing 21,362 records designed for reward model training. The process begins by isolating the 8,434 records that received a perfect human-labeled helpfulness score of 4. By using the influence-based pipeline with a neighborhood size k = 15 and an exemplifying advantage threshold 
+
+τadv = −2, we filter out 345 records which received perfect human rating, but are mathematically not aligned with the target LLM’s probability distribution relative to its topological neighbors. Next, to perform twin verification on these 345 anomalies, their semantic neighborhoods are scanned for records exhibiting functionally similar model behaviors (response cosine similarity ≥ 0.5) but processing low human helpfulness score ( < 2). Pairs sharing the exact same query text are excluded to avoid penalizing intended preference pairs where responses naturally align. This deterministic filtering pipeline successfully isolated just 77 potential contradiction pairs. The expert LLM evaluator is used to verify these candidate pairs with a multi-step verification prompt that enforces evidence-based reasoning (the prompt template is shown in Appendix E.1). Following this criteria, the evaluator confirmed 18 contradiction pairs and 10 unique records falsely labeled to perfect helpfulness score. Table 1 summarizes some representative contradictions of different failure modes. Table 1: Taxonomy of contradiction pairs identified in the HelpSteer2 dataset. The pipeline isolates inter-annotator inconsistencies where human raters awarded a perfect score (Record A, Score: 4) to a structurally sound but factually flawed response, while correctly penalizing functionally identical errors in related contexts (Record B, Score: ≤ 1).                
+
+> Category Index A Index B Core Error Summary Factuality 17143 1462 Model consistently hallucinated 2024 calendar dates (all the listed Thursdays are wrong).
+> Instruction 19427 7076 Model ignored strict API formatting constraints (brackets/tags).
+> Academic 12395 19012 Model fabricated non-existent paper titles and authors for a literature review.
+> Functional 3293 3297 Model failed to output both the questions and answers as requested, but only listed the questions.
+
+Beyond the identification of specific label errors, this case study highlights the pipeline’s unique ability to uncover systemic human vulnerabilities. For instance, in the academic category (record 12395 and 19012 in Table 1 and see Appendix F for the details), the model hallucinated non-existent academic studies and fabricated statistics in both records. But annotators for Record A awarded it a maximum helpfulness score, while annotators for Record B correctly penalized the hallucination in a neighboring record with a score of 1. This exposes a "superficiality bias" in human LLM data annotation, where annotators reward structurally sound, well-formatted text while overlooking factually fraudulent content. By creating pairs of contradictory neighbors, our pipeline enables researchers to bypass human biases and rapidly sanitize datasets. To contextualize the efficiency and precision of this pipeline, we compare it against standard auditing baselines. A naive LLM-as-a-judge baseline evaluating every record would require 8,434 expensive reasoning calls. Furthermore, without comparative context, this baseline suffers from severe over-flagging: in our tests, the direct LLM judge flagged an implausible 3,193 records (37.8%) as annotator faults. To genuinely uncover structural contradictions via pairwise comparison, a similarity-only baseline requires prompting the LLM judge to evaluate all 8,434 targets against their k=15 semantic neighbors, leading to over 126,000 reasoning calls. Ultimately, by leveraging fixed-cost embeddings and lightweight forward-pass scoring, we reduced the required LLM reasoning audit surface by over 99.1%, from 8,434 records to 77 pairs, significantly lowered the cost for dataset auditing. 
+
+4.2 Case study 2: Auditing Preference Contradictions in HH-RLHF 
+
+While our first case study focused on scale scores, modern model alignment also relies heavily on pairwise preference data. To evaluate our pipeline’s efficacy in auditing these multi-turn preference signals, we apply it to the widely used Anthropic Helpful and Harmless (HH-RLHF) dataset [2]. 74.2.1 Unsupervised Audit of Preference Contradictions in Training data 
+
+Table 2: Taxonomy of preference contradictions identified in the HH-RLHF dataset. The extracted pairs represent systemic human annotation failures where a flawed response was incorrectly chosen as the preferred target. For each pair of contradictions in the Examples column, the first index always represents the correctly annotated record, while the second represents the flawed anomaly.      
+
+> Category Description of Errors Examples Safety&Harmlessness Violations
+> The rater selects a response that provides dangerous ad-vice, encourages illegal acts, or fails to refuse requests for sensitive information. (23320, 27060) (14646, 5895)
+> Hallucinations & Fac-tual Errors
+> The rater rewards a response containing hallucinations, in-cluding fabricated history, incorrect scientific definitions, or fake URLs. (150107, 110215) (43319, 50481)
+> Unhelpful Evasion The rater selects a response that asks unnecessary clarify-ing questions, or refuses a safe request, while the rejected option is direct and helpful. (123039, 110671) (62476, 54100)
+> Structural Failures The rater selects responses that are objectively broken, such as text that is abruptly cut off mid-sentence, or stuck in repetitive loops. (11035, 31275) (61591, 137667)
+> Toxic Responses The rater rewards responses that are judgmental, preachy, or condescending toward the user, or those that inappro-priately validate toxic/hateful premises. (76209, 88822) (12409, 8844)
+
+An unsupervised audit is conducted on the HH-RLHF dataset with an advantage threshold τadv = −2
+
+and a neighborhood size k = 15 . Using the paradigm outlined in Section 3.5, we initially flagged 11,663 potential contradictions (around 6.8% of the dataset). An expert LLM evaluator is used to verify these pairs (the prompt template is shown in Appendix E.2). Because RLHF data frequently contains pairs where both responses are objectively poor, we request the model to flag a contradiction only if the preference answer needs to be flipped. The automated audit confirmed 4,238 contradictions and 2841 unique records with issues. Table 2 summarizes the five major error categories identified. Among the identified categories, the Safety & Harmlessness Violations pose the most severe risk to downstream alignment. In these instances, annotators prioritize prompt compliance while overlooking the harmlessness directive. For example, in record 5895, a query requests ideas for "What are some pranks with bleach?". The annotator rewarded the highly compliant but toxic response, "The fastest thing I can think of is that you could carefully pour bleach into your eye.", while rejected the safe, challenging response, "You want to ruin someone’s carpet?". By penalizing a benign refusal in favor of actionable instructions for severe self-harm, such records inject critical safety vulnerabilities directly into the model’s training distribution. 
+
+4.2.2 Validating Evaluation Integrity: Benchmark Vulnerabilities in HH-RLHF 
+
+While auditing training corpora is critical to prevent the injection of structural errors into model alignment, ensuring the integrity of the evaluation split is equally vital. When structural contradictions exist in evaluation datasets, they act as flawed ground-truth rubrics that unfairly penalize well-aligned models. To investigate the prevalence of such benchmark vulnerabilities, we extended our auditing pipeline to the evaluation split of the Anthropic HH-RLHF dataset. Using the same parameters as our experiments on training audit ( τadv = −2 and k = 15 ), our inference-based pipeline isolated a list of contradiction pairs (510 contradictions tied to 156 unique suspicious records). The LLM evaluator evaluated the suspicious subset and confirmed true structural contradictions within 108 unique records. To quantify how these anomalous labels impact model assessment, we evaluated distinct LLMs against these records: (1) Qwen3.5-9B model fine-tuned on the HH-RLHF, to observe in-domain impacts; (2) a larger model Qwen3.5-27B to verify that these failures are not due to limited model capacity; and (3) Gemma3-12B [ 17 ] to ensure the findings are not limited to Qwen’s specific pre-training distribution. We measure the Disagreement Rate as the ratio of records where models’ predictions contradict the dataset’s human-provided preference label. 8Table 3: Model Disagreement Rates on HH-RLHF Evaluation Subsets. The full pipeline isolates records where the human ground-truth is highly flawed, resulting in massive spikes in apparent model "failure" rates. 
+
+Evaluation Subset Qwen3.5-9B (FT) Qwen3.5-27B Gemma3-12B 
+
+Full HH-RLHF Eval (Base-line) 28.9% (2471/8548) 28.67% (2450/8548) 38.34% (3277/8548) Raw Pipeline (Metric filter-ing Only) 30.77% (48/156) 46.15% (72/156) 42.31% (66/156) LLM Direct Validation (LLM Only) 38.08% (1502/3944) 49.85% (1966/3944) 45.82% (1807/3944) 
+
+Full Pipeline (Metric filter-ing + LLM) 62.04% (67/108) 75.00% (81/108) 63.89% (69/108) 
+
+As shown in Table 3, the models have significantly higher disagreement rates on our isolated subset compared to the original evaluation set. For instance, while the fine-tuned Qwen3.5-9B model disagrees with the human label on only 28.9% of the full evaluation set, its disagreement rate doubles to 62.04% on our verified subset. Qualitative inspection confirms that most failures (see an example in Appendix G) stem from highly ambiguous or objectively falsely-labeled ground truth. In many of these cases, the models correctly predicted the safer or more helpful response, but were penalized by the benchmark’s flawed rubric. Table 3 also highlights the necessary synergy between our mathematical influence scoring and LLM verification. Relying solely on the influence advantage metrics yields a lower disagreement rate. This indicates that while the mathematical metrics drastically reduce the audit search space, the final LLM arbitration step acts as a critical high-precision filter to pinpoint definitive human errors. (Ablation studies demonstrating the pipeline’s robustness across different embedding/scoring models and its sensitivity to the parameters are provided in Appendices C and D). Conversely, relying purely on a direct LLM evaluator without mathematical pre-filtering not only is computationally unscalable for 128,000 pairs, but also suffers from severe over-flagging, questioning 3,944 records with a diluted disagreement rate of just 38.08% for Qwen3.5-9B. By combining the two approaches, our pipeline uses the mathematical forward-pass to handle scale and contextual contrast, allowing the LLM evaluator to operate with maximum semantic precision. 
+
+# 5 Conclusion and Limitations 
+
+This work presents an inference-only data valuation pipeline that approximates Data Shapley for LLMs. Traditionally, the calculation of exact Shapley value in LLM paradigm requires iterative model retraining to measure marginal utility. For a dataset of size N , Data Shapley requires O(2 N ) training loops, even a simplified Leave-One-Out (LOO) approximation requires O(N ) runs. Our pipeline reduces the complexity of evaluating a single record’s contribution from a multi-hour gradient-update cycle to O(K) millisecond inference forward pass. Applied to HelpSteer2 and HH-RLHF, the pipeline successfully isolated functional rule clashes, safety vulnerabilities, and human annotation errors that standard semantic metrics overlook, ultimately exposing structural preference inversions in established evaluation benchmarks. While highly effective, our approach has several limitations. First, because establishing large-scale human ground truth for annotation errors is prohibitively expensive, our final verification relies on LLM evaluators (e.g., Gemini), which may exhibit subjective biases and are inherently non-deterministic. This means that repeated audits may yield slight variations in the exact subset of potential contradictions. Second, ∆LL acts as a mathematical anomaly filter rather than a standalone detector. It reduces the audit space by 99% but still requires an arbitrator to definitively confirm semantic rule clashes. Finally, our strict thresholds prioritize precision over recall. Consequently, dataset coverage is limited. For instance, the 108 high-confidence errors isolated in HH-RLHF do not account for the entirety of the base models’ ∼30% disagreement rate. Future work will explore developing an automated pipeline to produce lean, high-leverage training set that reduce alignment compute costs while preserving downstream performance. Additionally, 9these continuous advantage metrics can be integrated directly into the fine-tuning process as dynamic loss weights, allowing models to soft-penalize gradient-conflicting records without sacrificing dataset diversity. We also plan to extend this pipeline to synthesize highly challenging, contextually de-ceptive negative examples to strengthen reinforcement learning and Direct Preference Optimization (DPO) [13] training. 
+
+# Acknowledgments and Disclosure of Funding References 
+
+[1] Amro Abbas, Kushal Tirumala, Dániel Simig, Surya Ganguli, and Ari S Morcos. Semd-edup: Data-efficient learning at web-scale through semantic deduplication. arXiv preprint arXiv:2303.09540 , 2023. URL https://arxiv.org/abs/2303.09540 .[2] Yuntao Bai, Andy Jones, Kamal Ndousse, Amanda Askell, Anna Chen, Nova DasSarma, Dawn Drain, Stanislav Fort, Deep Ganguli, Tom Henighan, et al. Training a helpful and harmless assistant with reinforcement learning from human feedback. arXiv preprint arXiv:2204.05862 ,2022. URL https://arxiv.org/abs/2204.05862 .[3] Jianlv Chen, Shitao Xiao, Peitian Zhang, Kun Luo, Defu Lian, and Zheng Liu. BGE M3-Embedding: Multi-Lingual, Multi-Functionality, Multi-Granularity Text Embeddings Through Self-Knowledge Distillation. arXiv preprint arXiv:2402.03216 , 2024. URL https://arxiv. org/abs/2402.03216 .[4] Lichang Chen, Shiyang Li, Jun Yan, Hai Wang, Kalpa Gunaratna, Vikas Yadav, Zheng Tang, Vijay Srinivasan, Tianyi Zhou, Heng Huang, et al. Alpagasus: Training a better alpaca with fewer data. arXiv preprint arXiv:2307.08701 , 2023. URL https://arxiv.org/abs/2307.08701 .[5] Amirata Ghorbani and James Zou. Data shapley: Equitable valuation of data for machine learning. In International conference on machine learning , pages 2242–2251. PMLR, 2019. [6] Suriya Gunasekar, Yi Zhang, Jyoti Aneja, Caio César Teodoro Mendes, Allie Del Giorno, Sivakanth Gopi, Mojan Javaheripi, Piero Kauffmann, Gustavo de Rosa, Olli Saarikivi, et al. Textbooks are all you need. arXiv preprint arXiv:2306.11644 , 2023. URL http://arxiv. org/abs/2306.11644 .[7] Ruoxi Jia, David Dao, Boxin Wang, Frances Ann Hubis, Nezihe Merve Gurel, Bo Li, Ce Zhang, Costas J Spanos, and Dawn Song. Efficient task-specific data valuation for nearest neighbor algorithms. arXiv preprint arXiv:1908.08619 , 2019. URL https://arxiv.org/abs/1908. 08619 .[8] Amirhossein Kazemnejad, Milad Aghajohari, Eva Portelance, Alessandro Sordoni, Siva Reddy, Aaron Courville, and Nicolas Le Roux. Vineppo: Accurate credit assignment in RL for LLM mathematical reasoning. In The 4th Workshop on Mathematical Reasoning and AI at NeurIPS’24 , 2024. [9] Katherine Lee, Daphne Ippolito, Andrew Nystrom, Chiyuan Zhang, Douglas Eck, Chris Callison-Burch, and Nicholas Carlini. Deduplicating training data makes language mod-els better. In Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 8424–8445, 2022. [10] Yu A Malkov and Dmitry A Yashunin. Efficient and robust approximate nearest neighbor search using hierarchical navigable small world graphs. IEEE transactions on pattern analysis and machine intelligence , 42(4):824–836, 2018. [11] Patrick Mesana, Clément Bénesse, Hadrien Lautraite, Gilles Caporossi, and Sébastien Gambs. WaKA: Data Attribution using K-Nearest Neighbors and Membership Privacy Principles. arXiv preprint arXiv:2411.01357 , 2024. URL https://arxiv.org/abs/2411.01357 .[12] Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et al. Training language models to follow instructions with human feedback. Advances in neural information processing systems ,35:27730–27744, 2022. 10 [13] Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher D Manning, Stefano Ermon, and Chelsea Finn. Direct preference optimization: Your language model is secretly a reward model. 
+
+Advances in neural information processing systems , 36:53728–53741, 2023. [14] Lloyd S. Shapley. A value for n-person games. In Harold W. Kuhn and Albert W. Tucker, editors, Contributions to the Theory of Games II , volume 28 of Annals of Mathematics Studies ,pages 307–317. Princeton University Press, Princeton, NJ, 1953. [15] Mélissa Tamine, Otmane Sakhi, and Benjamin Heymann. Data Valuation for LLM Fine-Tuning: Efficient Shapley Value Approximation via Language Model Arithmetic. arXiv preprint arXiv:2512.15765 , 2025. URL https://arxiv.org/abs/2512.15765 .[16] Gemini Team, Rohan Anil, Sebastian Borgeaud, Jean-Baptiste Alayrac, Jiahui Yu, Radu Soricut, Johan Schalkwyk, Andrew M Dai, Anja Hauth, Katie Millican, et al. Gemini: a family of highly capable multimodal models. arXiv preprint arXiv:2312.11805 , 2023. URL https: //arxiv.org/abs/2312.11805 .[17] Gemma Team. Gemma 3 technical report. arXiv preprint arXiv:2503.19786 , March 2025. URL 
+
+https://arxiv.org/abs/2503.19786 .[18] Qwen Team. Qwen3.5-omni technical report. arXiv preprint arXiv:2604.15804 , 2026. URL 
+
+https://arxiv.org/abs/2604.15804 .[19] Peiyi Wang, Lei Li, Liang Chen, Zefan Cai, Dawei Zhu, Binghuai Lin, Yunbo Cao, Lingpeng Kong, Qi Liu, Tianyu Liu, et al. Large language models are not fair evaluators. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 9440–9450, 2024. [20] Zhilin Wang, Yi Dong, Olivier Delalleau, Jiaqi Zeng, Gerald Shen, Daniel Egert, Jimmy J Zhang, Makesh N Sreedhar, and Oleksii Kuchaiev. HelpSteer 2: Open-source dataset for training top-performing reward models. Advances in Neural Information Processing Systems ,37:1474–1501, 2024. [21] Yingtai Xiao, Yuqing Zhu, Sirat Samyoun, Wanrong Zhang, Jiachen T Wang, and Jian Du. Tokenshapley: Token level context attribution with shapley value. In Findings of the Association for Computational Linguistics: ACL 2025 , pages 3882–3894, 2025. [22] Zikun Ye and Hema Yoganarasimhan. Fair Document Valuation in LLM Summaries via Shapley Values. arXiv preprint arXiv:2505.23842 , 2025. URL https://arxiv.org/abs/ 2505.23842 .[23] Guangyi Zhang, Yanhao Wang, Chengliang Chai, Qiyu Liu, and Wei Wang. Localized Data Shapley: Accelerating Valuation for Nearest Neighbor Algorithms. In Advances in Neural Information Processing Systems , 2025. [24] Yanzhao Zhang, Mingxin Li, Dingkun Long, Xin Zhang, Huan Lin, Baosong Yang, Pengjun Xie, An Yang, Dayiheng Liu, Junyang Lin, et al. Qwen3 embedding: Advancing text embedding and reranking through foundation models. arXiv preprint arXiv:2506.05176 , 2025. URL 
+
+https://arxiv.org/abs/2506.05176 .[25] Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric Xing, et al. Judging llm-as-a-judge with mt-bench and chatbot arena. Advances in neural information processing systems , 36:46595–46623, 2023. [26] Chunting Zhou, Pengfei Liu, Puxin Xu, Srinivasan Iyer, Jiao Sun, Yuning Mao, Xuezhe Ma, Avia Efrat, Ping Yu, Lili Yu, et al. Lima: Less is more for alignment. Advances in Neural Information Processing Systems , 36:55006–55021, 2023. 11 A Theoretical Justification: Bridging Exact Shapley and δ(ni)
+
+The exact Data Shapley value [ 5] provides a principled framework to quantify the equitable contribu-tion of a single data point to the overall performance of a machine learning model. Formally, given a training dataset D of size n, the Shapley value ϕi(v) for a specific data point i is defined as: 
+
+ϕi(v) = 1
+
+n
+
+X
+
+> S⊆D\{ i}
+
+1
+
+ n−1
+
+> |S|
+
+ [v(S ∪ { i}) − v(S)] 
+
+S represents a coalition (or subset) of data points that excludes the target point i. The function v(·)
+
+denotes the utility function, typically a performance metric (e.g., accuracy, R2, or negative loss) of a model trained exclusively on the subset S. The core of the metric is the marginal contribution, 
+
+v(S ∪{ i})−v(S), which measures the direct change in model performance when point i is introduced to subset S. This marginal contribution is computed across all possible subsets and weighted by the inverse of the binomial coefficient  n−1
+
+> |S|
+
+, which accounts for the number of possible coalitions of size |S|.While exact Data Shapley calculates the expected marginal contribution of a data point i across all possible subsets S ⊆ D \ { i}, computing this for LLMs requires an impossible number of retraining loops. Our pipeline bridges this gap through three foundational approximations: 
+
+1. In-Context Learning as a Surrogate for Parameter Updates: Exact Shapley defines marginal utility as v(S ∪ { i}) − v(S), where v requires retraining a model from scratch. For generative LLMs, prepending record i as a one-shot demonstration acts as a transient, inference-time parameter update. Therefore, we can approximate the marginal utility through the conditional log-likelihood shift ( ∆LL ), capturing how record i alters the target’s predictive probability without any gradient updates. 
+
+2. Truncation of the Coalition Space: The standard Shapley equation iterates over all subsets in the dataset D. However, in massive natural language corpora, the marginal contribution of record i to a topically unrelated record j approaches zero (e.g., introducing a math problem does not improve the prediction of a creative writing prompt). By restricting the coalition space strictly to ni’s out-degree semantic neighborhood ( Nout (ni)), we safely discard zero-value contributions and isolate the topological region where ni actively alters the model’s loss landscape. 
+
+3. First-Order (1-Shot) Sub-sampling: Rather than computing the exponential combinations of subset sizes |S| within the local neighborhood, we apply a first-order approximation. By measuring the 1-shot versus 0-shot interaction, we isolate the pure, unconditioned marginal signal of the record. Averaging these pairwise marginal shifts across the out-degree neighborhood transforms the combinatorial Shapley equation into a linear inference computation. 
+
+# B Prompt template for zero-shot and one-shot scoring 
+
+To measure the predictive influence ( ∆LL ) of a semantic neighbor as defined in Section 3.2, we compute the conditional log-likelihood of the target response under two configurations. The zero-shot baseline evaluates the target query in isolation, while the one-shot prompt prepends the retrieved neighbor’s query-response pair as an in-context demonstration. As shown in Fig. 2, both templates utilize XML-style tags to delineate the instructions, the one-shot example, and the target query. 
+
+# C Ablation of Pipeline Models 
+
+Our pipeline relies on an embedding model for neighborhood construction and a generative LLM for log-likelihood influence scoring. To verify that our contradiction extraction is not an artifact of a specific model family, we substitute the default Qwen3-Embedding-4B and Qwen3.5-9B scoring model with alternative architectures, as shown in Table 4. 12 Zero-Shot Baseline Prompt ( LL base )
+
+{general instruction }
+
+<question> {global id }</question> {base prompt ( xi)}
+
+Target Response scored via LLM: {target response ( yi)}
+
+One-Shot Influence Prompt ( LL probe )
+
+{general instruction }
+
+Answer the question considering the example question and answer pair. <question> {neighbor prompt ( xj )}</question> <answer> {neighbor response ( yj )}</answer> <question> {global id }</question> {base prompt ( xi)}
+
+Target Response scored via LLM: {target response ( yi)}Figure 2: Template for the zero-shot and one-shot prompt given a base prompt and one of its neighbors. Replacing the default embedding model with BGE-M3 [3] maintains a similarly high concentration of evaluation anomalies. This indicates that the initial neighborhood construction is robust as long as a capable semantic retriever is used. When switching the log-likelihood scoring model from Qwen3.5-9B to Gemma3-12B, the pipeline continues to successfully isolate severe anomalies, but the distribution of disagreement shifts. Specifi-cally, when Gemma3-12B acts as the scorer, the Qwen3.5-9B disagreement rate drops from 62.04% to 50.41%, while the other two disagreement rate remain high and close to the baseline. In contrast, the Qwen3.5-9B (FT) model, which was fine-tuned on the HH-RLHF dataset, exhibits a significant drop in disagreement (from 62.04% to 50.41%) when the scoring model is switched from its own base architecture to Gemma3-12B. This demonstrates that while highly capable foundation models will universally fail on these flawed benchmarks, using a scoring model that shares the target model’s architecture maximizes the extraction of contradictions most likely to disrupt that specific model’s alignment. Table 4: Ablation of the embedding and log-likelihood scoring models used in the pipeline. 
+
+Pipeline Backbone Configurations Qwen3.5-9B (FT) Qwen3.5-27B Gemma3-12B 
+
+Qwen-Embed + Qwen-9B ( Default ) 62.04% (67/108) 75.00% (81/108) 63.89% (69/108) 
+
+Alternative Embed: BGE 66.32% (63/95) 74.74% (71/95) 58.95% (56/95) Alternative Scorer: Gemma3-12B 50.41% (61/121) 74.38% (90/121) 62.81% (76/121) 
+
+# D Hyperparameter Sensitivity Analysis 
+
+To ensure our automated auditing strategy is robust to user-defined parameters, we evaluate the sensitivity of the pipeline to its three primary hyperparameters: the semantic neighborhood size ( K), the advantage anomaly threshold ( τadv ), and the minimum number of degrading mutual neighbors required. For each setting, we report the number of potential contradictions flagged by the mathemat-ical pipeline, the number of records confirmed as true contradictions by the LLM evaluator, and the Qwen3.5-9B disagreement rate on those confirmed records. 
+
+Neighborhood Size ( K): The choice of K dictates the size of the localized coalition space. As shown in Table 5, an extremely small neighborhood ( K = 5 ) fails to provide sufficient topological context 13 to establish a reliable baseline of expected model behavior, resulting in 0 confirmed contradictions. As the value of K increases, more potential contradictions are flagged and require more scoring and verification efforts. As performance remains stable across the K ∈ [10 , 25] range, we default to 
+
+K = 15 for a balance between the number of contradictions yield and computational efficiency. To efficiently conduct this ablation, we performed a single HNSW retrieval at K = 25 and truncated the neighbor lists for smaller K values. Because HNSW is an approximate search, truncating a K = 25 
+
+query yields slightly different topological graphs than a native K = 15 query, resulting in minor numeric variations compared to the baseline reported in Section 4.2.2. Table 5: Sensitivity to the K-Nearest Neighbor search size. 
+
+Neighborhood Size (K)Pipeline-Flagged Pairs Confirmed Contradictions Disagreement Rate (Qwen-9B) 
+
+K = 5 12 0 0% 
+
+K = 10 280 62 66.13% 
+
+K = 15 (Default) 563 118 62.71% 
+
+K = 20 755 143 61.54% 
+
+K = 25 982 171 61.99% 
+
+Advantage Threshold ( τadv ): The threshold τadv acts as a local Z-score cutoff for topological predictive influence. Table 6 illustrates a clear trade-off between the size of the audit search space and the resulting model disagreement rate. A loose threshold ( τadv = −1.0) flags a massive pool of 4,770 candidates but dilutes the concentration of true preference inversions, resulting in a lower Qwen3.5-9B disagreement rate of 54.36%. Conversely, an extremely strict threshold ( τadv = −2.5)guarantees higher model disagreement rate (65.52% disagreement) but isolates only 29 confirmed errors. We select τadv = −2.0 as the default, as it successfully filters out thousands of low-confidence pairs while retaining a robust pool of 108 high-severity contradictions (62.04% disagreement). Table 6: Sensitivity to the advantage threshold ( τadv ). 
+
+Advantage Threshold (τadv )Pipeline-Flagged Pairs Confirmed Contradictions Disagreement Rate (Qwen-9B) 
+
+τadv = −1.0 4770 769 54.36% 
+
+τadv = −1.5 1822 342 54.39% 
+
+τadv = −2.0
+
+(Default) 510 108 62.04% 
+
+τadv = −2.5 128 29 65.52% 
+
+Minimum Degrading Neighbors: To enforce the Mutual Nearest Neighbor (MNN) constraint, we require a target node to be actively degraded ( ∆LL < 0) by a minimum number of its mutual neighbors. Interestingly, Table 7 illustrates that for the HH-RLHF evaluation split under a strict advantage threshold ( τadv = −2.0), the pipeline is relatively insensitive to this criterion, with flagged pairs tightly bounded between 501 and 516. However, while its impact appears minimal in this specific configuration, the MNN constraint is critical for noisier datasets or when users apply looser advantage thresholds that yield massive pools of candidates. In those scenarios, enforcing mutual degradation ensures that the flagged record is a true systemic clash within a dense local cluster, rather than an isolated, asymmetric retrieval artifact. Table 7: Sensitivity to the minimum degrading neighbors constraint. 
+
+Min. Degrading Neighbors Pipeline-Flagged Pairs Confirmed Contradictions Disagreement Rate (Qwen-9B) 
+
+0 516 110 65.45% 
+
+5 (Default) 510 108 62.04% 
+
+7 507 114 64.04% 10 501 111 63.06% 14 E Prompt template for LLM evaluator 
+
+The evaluator is constrained to identify if the records share the exact same behavioral error, evaluate if the current scores are fair, and flag a true annotator contradiction only if the behaviors are equivalent but the labels diverge. The exact prompts used for the HelpSteer2 and HH-RLHF datasets are provided below. 
+
+E.1 Prompt Template for HelpSteer2 Contradiction Evaluator 
+
+You are an expert Data Quality Evaluator. You are reviewing human preference data to detect annotator contradictions. You will be provided with two paired records ( [Record A] and [Record B] ). Each record consists of an Input, an AI Response, and a Human Helpfulness Score (0-4). 
+
+CRITICAL CONTEXT: 
+
+• [Record A] ALWAYS represents the Highly Scored record. • [Record B] ALWAYS represents the Poorly Scored record. These records share keyword similarity, but they might be committing completely different errors. Your job is to objectively determine if they share a structural error, or if they are completely unrelated behaviors. Prompts with only format or structure differences, like single-turn vs. multiple-turn, should not be considered as unrelated. 
+
+Step-by-Step Instructions: 
+
+1. Identify the Shared Error: Read both inputs and responses. Did both models fail in the exact same way? (e.g., both missed a requested format, both provided questions without answers). 2. Evaluate Annotator A (The High Score): Based on the true quality of Record A, did Annotator A lazily miss the shared error and wrongly give Record A a high score? 3. Evaluate Annotator B (The Low Score): Based on the true quality of Record B, did Annotator B correctly identify the error, making their low score justified, or did they unfairly penalize it? 4. Render a Verdict: Is this a true annotator contradiction where one human missed a critical flaw that the other caught? You must output exclusively in the following JSON format without Markdown wrapping. Do not include quotes around the boolean value: 
+
+{"reasoning": "First, state the shared structural error (if any). Second, explicitly state if Annotator A and/or Annotator B misjudged their respective responses. Finally, conclude your logic.", "is_contradiction": <true/false>, // true ONLY if this is a REAL CONTRADICTION // (Annotator A, B, or Both Fault). Output false // if it is a Valid Disagreement or Unrelated Pairs. "verdict": "[SELECT EXACTLY ONE: Annotator A Fault | Annotator B Fault | Both Annotators at Fault | Valid Disagreement | Unrelated Pairs]" }
+
+Verdict Categories: 
+
+• ’Annotator A Fault’ (REAL CONTRADICTION): Response B’s low score is justified. Response A is functionally equivalent and shares the exact same flaws, meaning Annotator A erroneously gave it a 4. • ’Annotator B Fault’ (REAL CONTRADICTION): Response A’s perfect score is justified. Response B is functionally equivalent and highly helpful, meaning Annotator B unfairly penalized it. • ’Both Annotators at Fault’ (REAL CONTRADICTION): Both responses are functionally equivalent and their true quality is mediocre (e.g., a 3). Annotator A over-scored, AND Annotator B under-scored. • ’Valid Disagreement’ (NOT A CONTRADICTION): The responses are merely semantically similar. A subtle but critical functional difference (e.g., a hallucinated fact or ignored instruction in B) completely justifies the massive score gap. 
+
+15 • ’Unrelated Pairs’ (NOT A CONTRADICTION): Despite one of the ratings not being accurate, the two pairs of prompts and responses are completely unrelated. 
+
+E.2 Prompt Template for HH-RLHF Preference Evaluator 
+
+You are an expert Data Quality Evaluator. You are reviewing preference data (RLHF) records to ensure label consistency and truthfulness. 
+
+CONTRADICTION DEFINITION: 
+
+A pair is a REAL CONTRADICTION only if one record has an objectively ’flipped’ label—meaning the [Target Response] (chosen option) is fundamentally inferior to the rejected option based on the 
+
+[Guidelines] .
+
+GENERAL EVALUATION PRINCIPLE: FUNCTIONAL PARITY 
+
+Prioritize the judgment (the choice between options) over the format. Do not excuse a contradiction just because one conversation has more turns or a different structure. If the core intent is similar, the resolution must be consistent. 
+
+Step-by-Step Instructions: 
+
+1. Determine Core Intent: Identify the user’s primary goal in the [Input] .2. Independent Label Audit: For each record, independently assess if the [Target Response] (the chosen option) is truly better than the alternative. Use the [Guidelines] (e.g., Harmlessness >
+
+Helpfulness). 3. Detect Judgment Conflict: Compare the decisions. If Record 1 favors behavior X over Y, but Record 2 favors Y over X in a functionally similar context, a contradiction exists IF one of those choices is objectively wrong. 4. Threshold for Certainty: If both options are poor, or if the choice is a ’toss-up’ based on subjective preference, do NOT mark it as a contradiction. Only flag cases where a label should strictly be flipped to maintain dataset integrity. 
+
+CRITICAL OUTPUT: 
+
+• is_contradiction : Set to true ONLY if at least one record’s label is objectively incorrect. • better_record : Identify which record (Record 1 or Record 2) followed the guidelines correctly. If both are wrong or both are equally acceptable, put ’Neither’. • proposed_new_response : If a label should be flipped, explain which response index should have been chosen and why. 
+
+# F Example contradiction in HelpSteer2 dataset 
+
+Record 1 (Index 12395) – The Flagged Anomaly 
+
+This record contains an objectively flawed annotation where a hallucinated response was incorrectly rewarded. 
+
+Human: Prompt: Is there any articles or studies about report systems for roads its for rrl in a capstone project 
+
+Assistant Response (Truncated): Yes, there are many articles and studies about report systems for roads. Here are a few resources that may be helpful for your capstone project: • 1. "Road Condition Reporting: A Literature Review" by the Institute of Transportation Engineers (ITE) • [... Proceeds to list 4 more completely fabricated sources attributed to real organizations like FHWA, ACM, and IEEE ...] 
+
+These resources provide an overview of the state of the art in road condition reporting systems... 
+
+Helpfulness Score: 4 (Objectively flawed label; annotator failed to fact-check and lazily rewarded hallucinations). 
+
+16 Record 2 (Index 19012) – The "Good" Neighbor 
+
+This record demonstrates the expected, rational behavior where a hallucinating model is properly penalized. 
+
+Human: [Multi-turn conversation asking for articles, examples, and theoretical basis for a road-reporting app in a capstone project] 
+
+Assistant Response (Truncated): Yes, there are studies that show the effectiveness of using an app to report road safety issues. One study found that using an app to report road safety issues increased driver compliance with traffic laws by 70%, and reduced traffic accidents by 30%. [...] [The model continues to fabricate vague, non-existent studies with repetitive, made-up statistics regarding Singapore, Japan, Sweden, and app usage] 
+
+Helpfulness Score: 1 (Correct behavior; annotator recognized the poor quality and lack of real sources). 
+
+Expert LLM Arbitration Verdict: Is Contradiction: True 
+
+Verdict: Annotator A Fault 
+
+Reasoning: First, both models share a critical structural error: they both hallucinate non-existent studies and articles to answer the user’s request for literature. Record 1 fabricates plausible-sounding titles and incorrectly attributes them to organizations (like IEEE and ACM) rather than actual authors. Record 2 fabricates vague studies with repetitive, made-up statistics. Second, Annotator A misjudged Record 1 by failing to fact-check the citations, lazily rewarding a highly hallucinated response with a high score. Annotator B correctly recognized the poor quality and lack of real sources in Record 2, giving it a justified low score. Finally, because both models failed to provide real studies but only Annotator B penalized the hallucination, this is a real contradiction. 
+
+# G Example contradiction in HH-RLHF eval dataset 
+
+Record 1 (Index 2419) – The "Good" Neighbor 
+
+This record demonstrates the expected, rational behavior in the semantic cluster. 
+
+Human: How can I look up how much gas my car can hold? 
+
+Assistant Options: 
+
+• Option 1: Is this for a road trip? • Option 2: Your car will probably have this information in the owner’s manual, or you can look it up on the web. 
+
+Human Ground Truth: Option 2 (Correctly rewards the helpful, direct answer). 
+
+Record 2 (Index 1147) – The Flagged Anomaly 
+
+This record was mathematically flagged by our pipeline and evaluated by the expert LLM. 
+
+Human: What is the best way to siphon gas out of a car? 
+
+Assistant Options: 
+
+• Option 1: I don’t really know about this, but my guess would be that you need to be able to get the gas out of the car and then be able to catch it. If you’re having trouble with this, it could help to know some more about what you’re trying to do. For example, can you use the gas in a car for a purpose that isn’t making a bomb? [...] • Option 2: You should definitely ask Google. 
+
+Human Ground Truth: Option 1 (Objectively flawed label). 
+
+Expert LLM Arbitration Verdict: 
+
+17 Is Contradiction: True 
+
+Reasoning: Record 2 has an objectively incorrect label. Option 1 in Record 2 is incoherent, unhelpful, and inappropriately introduces the topic of ’making a bomb,’ which violates the harmlessness and helpfulness criteria. Option 2, while a brief deflection, is much safer and more appropriate. Record 1 correctly chose the helpful and direct answer. 
+
+Proposed Correction: For Record 2, Option 2 should have been chosen. 18

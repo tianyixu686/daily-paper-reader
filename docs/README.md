@@ -6,65 +6,77 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-27
-- 运行时间：2026-07-27 21:38:25 UTC
+- 最新运行日期：2026-07-28
+- 运行时间：2026-07-28 21:46:39 UTC
 - 运行状态：成功
-- 本次总论文数：15
+- 本次总论文数：19
 - 精读区：7
-- 速读区：8
+- 速读区：12
 
 ### 今日简报（AI）
-今日聚焦多模态预训练与推理，共解读15篇论文，其中7篇精读、8篇速读。最值得关注的是Scaling Native Multimodal Pre-Training From Scratch（9.0分）与MIRROR（8.0分），前者探索多模态原生预训练规模化，后者通过视角互学增强多模态推理。建议普通读者优先精读这两篇，把握当前多模态大模型从预训练到推理的核心路径。
-- 详情：[/202607/27/README](/202607/27/README)
+今日精选19篇论文，精读7篇，重点攻克3D场景检索与推理逻辑补丁两大前沿方向。最值得看的是CR-Refiner（9.0分）用最优传输重排序革新编辑条件3D检索，以及Reason Popper-ly（9.0分）以归纳逻辑编程修补上下文推理。建议深度消化这两篇精读论文，再速读速读列表中免训练多跳问答与多模态重识别的新思路。
+- 详情：[/202607/28/README](/202607/28/README)
 
 ### 精读区论文标签
-1. [Scaling Native Multimodal Pre-Training From Scratch](/202607/27/2607.22043v1-scaling-native-multimodal-pre-training-from-scratch)  
+1. [CR-Refiner: An Object-Centric Optimal Transport Reranker for Edit-Conditioned 3D Scene Retrieval](/202607/28/2607.19115v1-cr-refiner-an-object-centric-optimal-transport-reranker-for-edit-conditioned-3d-scene-retrieval)  
+   标签：评分：9.0/10、query:mr
+   evidence：编辑条件3D场景检索，跨模态LLM重排序
+2. [Reason Popper-ly: Patching In-Context Reasoning with Inductive Logic Programming](/202607/28/2607.23019v1-reason-popper-ly-patching-in-context-reasoning-with-inductive-logic-programming)  
+   标签：评分：9.0/10、query:mr
+   evidence：通过归纳逻辑编程修复多步推理
+3. [Self-Boosting Vision-Language Models with Noisy Student On-Policy Self-Distillation](/202607/28/2607.23125v1-self-boosting-vision-language-models-with-noisy-student-on-policy-self-distillation)  
    标签：评分：9.0/10、query:post-multi
-   evidence：从零开始的原生多模态预训练缩放法则
-2. [MIRROR: Learning from the Other View for Multi-Modal Reasoning](/202607/27/2607.21552v1-mirror-learning-from-the-other-view-for-multi-modal-reasoning)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：利用多视图不一致性进行多模态后训练
-3. [Data Quality over Capacity: Internalizing Documents into LoRA Adapters for Closed-Book QA](/202607/27/2607.21861v1-data-quality-over-capacity-internalizing-documents-into-lora-adapters-for-closed-book-qa)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：通过LoRA适配器将文档内化以进行闭卷问答，强调训练数据质量
-4. [Benchmarking Fine-tuning and Retrieval Strategies for a Multimodal Language Model on the NRC Reactor Operator Licensing Examination](/202607/27/2607.22067v1-benchmarking-fine-tuning-and-retrieval-strategies-for-a-multimodal-language-model-on-the-nrc-reactor-operator-licensing-examination)  
+   evidence：无需外部监督的视觉-语言模型自蒸馏后训练方法
+4. [DeCoRAG: Cognitive Decoupling and Semantic-Aware Cropping for Complex Document Understanding](/202607/28/2607.24554v1-decorag-cognitive-decoupling-and-semantic-aware-cropping-for-complex-document-understanding)  
+   标签：评分：9.0/10、query:mr
+   evidence：面向复杂文档理解的多模态检索增强生成
+5. [LAMAR: An Open Language-Aware Multilingual Alignment Reranker](/202607/28/2607.22042v1-lamar-an-open-language-aware-multilingual-alignment-reranker)  
    标签：评分：8.0/10、query:mr
-   evidence：多模态模型结合微调与检索在领域特定考试上的基准测试
-5. [Filling Before Advancing: Capability-Gap-Driven Post-Training for Scenario-Specialized Remote Sensing MLLMs](/202607/27/2607.22205v1-filling-before-advancing-capability-gap-driven-post-training-for-scenario-specialized-remote-sensing-mllms)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：面向遥感多模态大模型的能力差距驱动后训练
-6. [IFCLoRA: Topology-Aware Rank Allocation for Parameter-Efficient Fine-Tuning](/202607/27/2607.22251v1-ifclora-topology-aware-rank-allocation-for-parameter-efficient-fine-tuning)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：面向参数高效微调的拓扑感知秩分配
-7. [Towards Trustworthy and Cost-Efficient Data Integration: From Naïve RAG to Agentic RAG](/202607/27/2607.22319v1-towards-trustworthy-and-cost-efficient-data-integration-from-nave-rag-to-agentic-rag)  
+   evidence：多语言检索增强生成的重排序器
+6. [Controlling Embedding Spaces with Text-Conditioned Transformations](/202607/28/2607.22919v1-controlling-embedding-spaces-with-text-conditioned-transformations)  
    标签：评分：8.0/10、query:mr
-   evidence：检索增强生成演化
+   evidence：文本条件变换的属性控制跨模态检索
+7. [MixQuant: Adaptive Mixed-Precision Quantization for Large Language Models](/202607/28/2607.23047v1-mixquant-adaptive-mixed-precision-quantization-for-large-language-models)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：大语言模型的后训练量化技术
 
 ### 速读区论文标签
-1. [Debate-on-Graph: Reliable and Adaptive Reasoning of Large Language Model on Uncertain Knowledge Graph](/202607/27/2607.17266v1-debate-on-graph-reliable-and-adaptive-reasoning-of-large-language-model-on-uncertain-knowledge-graph)  
+1. [Co-Evolving Graph and Text Memory for Training-Free Multi-Hop Question Answering](/202607/28/2607.23278v1-co-evolving-graph-and-text-memory-for-training-free-multi-hop-question-answering)  
+   标签：评分：8.0/10、query:mr
+   evidence：免训练多跳问答，图-文本记忆协同
+2. [Multi-Modal Object Re-Identification with Prompt-S6 and Semantic-Aware Knowledge Guidance](/202607/28/2607.23451v1-multi-modal-object-re-identification-with-prompt-s6-and-semantic-aware-knowledge-guidance)  
+   标签：评分：8.0/10、query:mr
+   evidence：多模态物体重识别，涉及跨模态交互
+3. [Training Language Models to Cooperate with Inference-Time Controllers](/202607/28/2607.23771v1-training-language-models-to-cooperate-with-inference-time-controllers)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：针对语言模型后训练与推理时控制器协作
+4. [Uncovering Latent Reasoning Strategies in Language Models](/202607/28/2607.17674v1-uncovering-latent-reasoning-strategies-in-language-models)  
    标签：评分：7.0/10、query:mr
-   evidence：在不确定知识图谱上利用LLM进行多跳推理
-2. [Unlearning Under Imbalance: Benchmarking Fairness in Multimodal LLM Unlearning](/202607/27/2607.21300v1-unlearning-under-imbalance-benchmarking-fairness-in-multimodal-llm-unlearning)  
+   evidence：语言模型中的潜在推理策略分解
+5. [Efficient Chain-of-Modality Reasoning via Progressive Compression for Spoken Language Models](/202607/28/2607.19932v1-efficient-chain-of-modality-reasoning-via-progressive-compression-for-spoken-language-models)  
+   标签：评分：7.0/10、query:mr
+   evidence：通过渐进压缩实现口语语言模型的链式模态推理
+6. [SEGRA: Structured Experience-Guided Graph Reasoning Agent for Gremlin Based Question Answering](/202607/28/2607.22713v1-segra-structured-experience-guided-graph-reasoning-agent-for-gremlin-based-question-answering)  
+   标签：评分：7.0/10、query:mr
+   evidence：在知识图谱上多跳推理生成Gremlin查询
+7. [Beyond Shapley: An Influence-Based Data Auditing Pipeline for LLM Alignment and Evaluation](/202607/28/2607.22766v1-beyond-shapley-an-influence-based-data-auditing-pipeline-for-llm-alignment-and-evaluation)  
    标签：评分：7.0/10、query:post-multi
-   evidence：多模态大模型中的后训练反学习
-3. [UnDA: Unpaired Domain Alignment for Cross-Modal Knowledge Transfer in Medical Imaging](/202607/27/2607.21546v1-unda-unpaired-domain-alignment-for-cross-modal-knowledge-transfer-in-medical-imaging)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：跨模态知识蒸馏，属于多模态学习方法
-4. [Unsupervised Multimodal Intent Discovery via MLLM-Guided Concept Generation and Semantic Propagation](/202607/27/2607.21908v1-unsupervised-multimodal-intent-discovery-via-mllm-guided-concept-generation-and-semantic-propagation)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：使用MLLM指导的概念生成进行多模态意图发现
-5. [MoE$^2$-LoRA: When MoE Models Meet MoE-style Low-Rank Adaptation](/202607/27/2607.21978v1-moe2-lora-when-moe-models-meet-moe-style-low-rank-adaptation)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：MoE模型的参数高效微调
-6. [Be Consistent! Enhancing Robust Visual Reasoning in LVLMs with Consistency Constraints](/202607/27/2607.21722v1-be-consistent-enhancing-robust-visual-reasoning-in-lvlms-with-consistency-constraints)  
+   evidence：用于大语言模型对齐与评估的数据审计流水线
+8. [VecTree-RAG: An Agentic Retrieval-Augmented Generation Framework Combining Vector and Tree Retrieval for Efficiency and Accuracy](/202607/28/2607.23006v1-vectree-rag-an-agentic-retrieval-augmented-generation-framework-combining-vector-and-tree-retrieval-for-efficiency-and-accuracy)  
+   标签：评分：7.0/10、query:mr
+   evidence：结合向量与树检索的RAG框架
+9. [Similarity Is Not Logic: Factored Inference for Dual-Encoder Vision-Language Models](/202607/28/2607.23052v1-similarity-is-not-logic-factored-inference-for-dual-encoder-vision-language-models)  
    标签：评分：6.0/10、query:mr
-   evidence：面向LVLMs的视觉推理一致性基准
-7. [Visual Saliency Steering Distillation for Multimodal Chain-of-Thought Reasoning](/202607/27/2607.22013v1-visual-saliency-steering-distillation-for-multimodal-chain-of-thought-reasoning)  
+   evidence：分解推理解决双编码器视觉语言模型中的组合推理失败问题
+10. [MemChain: Learning Interpretable Memory Traces for Memory-Augmented LLM Agents](/202607/28/2607.24097v1-memchain-learning-interpretable-memory-traces-for-memory-augmented-llm-agents)  
    标签：评分：6.0/10、query:mr
-   evidence：用于多模态链式推理的视觉显著性蒸馏
-8. [Twins: Learn to Predict Unified Representations with Focal Loss](/202607/27/2607.22531v1-twins-learn-to-predict-unified-representations-with-focal-loss)  
+   evidence：适用于RAG架构的检索后记忆策略
+11. [MAViE: A Multi-scale Adaptive Vision Encoder for Fine-grained Visual Perception and Efficient Multimodal Reasoning](/202607/28/2607.24424v1-mavie-a-multi-scale-adaptive-vision-encoder-for-fine-grained-visual-perception-and-efficient-multimodal-reasoning)  
    标签：评分：6.0/10、query:post-multi
-   evidence：统一多模态标记空间与焦点损失
+   evidence：多尺度自适应视觉编码器用于高效多模态推理
+12. [RP-OPSD: Resolution-Privileged On-Policy Self-Distillation for Multimodal Large Language Models](/202607/28/2607.24447v1-rp-opsd-resolution-privileged-on-policy-self-distillation-for-multimodal-large-language-models)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：多模态大语言模型的自蒸馏训练方法
 
 
 <div class="dpr-home-promo-card">
