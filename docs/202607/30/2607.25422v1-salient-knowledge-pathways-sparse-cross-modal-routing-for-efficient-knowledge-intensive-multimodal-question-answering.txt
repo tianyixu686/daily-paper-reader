@@ -1,0 +1,1316 @@
+Title: Salient Knowledge Pathways: Sparse Cross-Modal Routing for Efficient Knowledge-Intensive Multimodal Question Answering
+
+URL Source: https://arxiv.org/pdf/2607.25422v1
+
+Published Time: Wed, 29 Jul 2026 00:47:08 GMT
+
+Number of Pages: 33
+
+Markdown Content:
+# Salient Knowledge Pathways: Sparse Cross-Modal Routing for Efficient Knowledge-Intensive Multimodal Question Answering 
+
+Noor Islam S. Mohammad * 1 Ulu˘ g Bayazıt 2
+
+# Abstract 
+
+Knowledge-intensive multimodal question an-swering (KI-MMQA) sits at the intersection of three expensive primitives: long visual token se-quences, dense retrieval over large external cor-pora, and full cross-modal fusion. Existing sys-tems pay all three costs uniformly per query, even though only a small fraction of visual content and retrieved knowledge is actually relevant to any given question. We introduce SKIP (Salient Knowledge-Injected Pathways ), a unified infer-ence architecture that routes computation along sparse pathways jointly conditioned on the ques-tion, the image, and a difficulty estimate. SKIP combines question-guided visual token prun-ing, region-conditional sparse retrieval, bipartite sparse cross-attention, and speculative knowledge verification with an adaptive budget controller that allocates compute proportional to predicted question difficulty. We derive an information-bottleneck bound showing that the optimal visual sparsity rate scales as O(1 /√N ) under realistic question-image mutual-information assumptions, with retained accuracy guarantees. Across five KI-MMQA benchmarks (OK-VQA, A-OKVQA, In-foSeek, Encyclopedic-VQA, and ViQuAE), SKIP matches or exceeds the accuracy of strong dense baselines while using 3.4–6.8× fewer FLOPs and 
+
+2.7× less end-to-end latency. § Code available at https://pmlrbd.github.io/skip/ 
+
+# 1. Introduction 
+
+Knowledge-intensive multimodal question answering (KI-MMQA)-answering visual questions whose correct answers 
+
+> 1
+
+Department of Computer Science, ˙IT ¨U, ˙Istanbul, T ¨urkiye 
+
+> 2
+
+Faculty of Computer Engineering, ˙IT ¨U, ˙Istanbul, T ¨urkiye. Corre-spondence to: Noor Islam S. Mohammad <islam23@itu.edu.tr >.
+
+Accepted at the 43 rd International Conference on Machine Learn-ing (ICML 2026) Workshop on Efficient Multimodal Question Answering (EMM-QA), Seoul, South Korea. Copyright 2026 by the author(s). 
+
+cannot be derived from the image alone but must instead be retrieved from an external knowledge source-has emerged as a central testbed for grounded, knowledge-dependent reasoning in vision-language models (Marino et al., 2019; Schwenk et al., 2022; Chen et al., 2023c; Mensink et al., 2023). Unlike standard VQA, where visual content is self-sufficient, KI-MMQA demands that a model solve three tightly interlocking subproblems: identify which visual evi-dence is relevant to the question, retrieve the corresponding world knowledge from a large external corpus, and bind both sources together into a coherent, factually grounded answer. Each subproblem is individually expensive, and their costs compound across modalities in ways that no single-component optimization can fully address. 
+
+0.2 0.4 0.6 0.8 1
+
+50 
+
+55 
+
+60 
+
+65 
+
+Relative FLOPs (baseline = 1.0) OK-VQA Accuracy (%) 
+
+> RA-CM3
+> RAVQA-2
+> KAT
+> SKIP (ours)
+
+Figure 1. Accuracy–compute frontier on OK-VQA. SKIP sustains 
+
+> 59% accuracy at 5× less compute than dense baselines, and exceeds the strongest baseline at all measured budgets. 
+
+Modern vision encoders emit 256 –2304 patch tokens per image (Dosovitskiy et al., 2021; Radford et al., 2021), flooding the downstream context with spatial detail that is overwhelmingly irrelevant to any given question. Com-petitive retrieval requires top-k passage comparisons over corpora spanning tens of millions of entries; state-of-the-art methods—dense passage retrieval (Karpukhin et al., 2020), late-interaction reranking (Khattab & Zaharia, 2020), and learned sparse retrieval (Formal et al., 2021)—each carry substantial embedding and index-lookup overhead at this scale. The cross-modal fusion layer, finally, must attend over the full union of visual tokens, question tokens, and all retrieved passages (Li et al., 2023; Liu et al., 2023; Ya-sunaga et al., 2023), producing a combined sequence whose quadratic attention cost alone dominates total inference time. 1arXiv:2607.25422v1 [cs.AI] 28 Jul 2026 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+In practice, a single KI-MMQA query through a competitive retrieval-augmented vision-language model costs approxi-mately 1.7 TFLOPs and exceeds 800 ms on an A100 GPU, with KV-cache memory surpassing 12 GB—costs paid uni-formly per query, entirely regardless of how simple, visually sparse, or knowledge-light the question actually is. The re-sult is a system whose inference cost scales as O(V ·T ·K·d),where V is the number of visual tokens, T the question length, K the number of retrieved knowledge chunks, and 
+
+d the model width. In practice, this puts strong KI-MMQA systems out of reach for on-device deployment and many interactive applications: a single OK-VQA query through a state-of-the-art retrieval-augmented vision-language model costs ∼1.7 TFLOPs and >800ms on an A100, with KV-cache memory exceeding 12GB. Reducing these costs is not merely a deployment convenience—it directly constrains what knowledge corpora can be queried, how many retrieval candidates can be considered, and how rich the cross-modal fusion can be, all of which are first-order determinants of accuracy. Our central observation is that this dense pricing is paid unconditionally, but the underlying informational require-ments of a query are extraordinarily uneven. Consider three illustrative queries on the same image of a sailboat: (i) “What is the capital of the country whose flag appears on the boat’s stern?” demands precise visual localization (a hand-ful of patches around the stern), a narrow retrieval (a single capital-of-country fact), and one cross-modal binding. (ii) “How many sails does the boat have?” demands no retrieval at all, and most of the image is irrelevant beyond the sail re-gion. (iii) “Describe the maritime regulations governing this vessel type in international waters” requires extensive re-trieval but minimal visual grounding once the vessel class is identified. Dense systems treat all three queries identically, paying full visual encoding, retrieval, and fusion costs for each. The opportunity is to route compute conditionally— and the difficulty is doing so jointly across modalities, where naive component-level pruning interacts badly with retrieval and fusion downstream of it. 
+
+Contributions. We introduce SKIP (Salient Knowledge-Injected Pathways ), an inference architecture that routes computation along sparse, question-conditional pathways spanning visual encoding, retrieval, and cross-modal fusion. SKIP comprises five learned components and a supporting theoretical result: 1. Question-guided visual saliency (QVS): a cross-attention scoring module that prunes visual tokens be-fore retrieval, conditioned on the question (Section 3.3). Pre-retrieval pruning is decisive—retrieval queries de-rived from background-dominated token sets are sys-tematically diluted; QVS ensures they are computed from question-relevant regions only. 2. Region-conditional sparse retrieval (RCSR): rather than issuing a single global query, RCSR clusters re-tained visual tokens into salient regions and issues a separate retrieval query per region (Section 3.4), surfac-ing knowledge tied to small but discriminative image areas that global retrieval consistently misses. 3. Bipartite sparse cross-attention (BSCA): an operator that restricts attention to (region , chunk ) pairs exceed-ing a learned compatibility threshold (Section 3.5), reducing the dominant fusion FLOP term by an order of magnitude while preserving the structurally most informative cross-modal edges. 4. Difficulty-adaptive budget controller (DBC): alightweight MLP that predicts per-query compute bud-gets (V ′, K ′) from global image–question features (Section 3.6), concentrating capacity on hard queries and recovering it from easy ones without manual diffi-culty labels. 5. Speculative knowledge verification (SKV): a small drafter that speculatively answers easy queries and triggers the full pipeline only under uncertainty (Sec-tion 3.7)—extending speculative decoding from token generation to knowledge access , routing 34 –41% of queries through a fast path at negligible accuracy cost. 6. Theoretical sparsity bound (Section 4): under a piecewise-Lipschitz mutual-information assump-tion, the optimal token retention rate scales as 
+
+O(√V log(1 /ε )) , with accuracy degradation bounded by ε. This is, to our knowledge, the first non-vacuous sparsity bound for knowledge-intensive multimodal in-ference, and its predictions match our empirical sweet spot to within a small constant. On five KI-MMQA benchmarks, SKIP matches or exceeds the accuracy of much larger dense baselines while using 
+
+3.4–6.8× fewer FLOPs (Figure 1, Section 5). To our knowl-edge, SKIP is the first system to jointly optimize both visual sparsity and retrieval sparsity under a unified, question-conditional routing policy. The empirical gains are not merely incremental: at matched FLOP budgets, SKIP im-proves over the strongest baseline by +2 .7 to +4 .3 accu-racy points across benchmarks, with the largest gains on entity-centric (InfoSeek, +4 .3) and fine-grained encyclo-pedic (Enc-VQA, +3 .4) tasks—exactly the settings where knowledge access matters most. 
+
+# 2. Related Work 
+
+Knowledge-intensive multimodal QA. OK-VQA (Marino et al., 2019) introduced the requirement of external knowledge to visual QA, followed by A-OKVQA (Schwenk et al., 2022) with reasoning rationales, 2Salient Knowledge Pathways for Efficient Multimodal QA 
+
+InfoSeek (Chen et al., 2023c) with entity-centric questions at scale, Encyclopedic-VQA (Mensink et al., 2023) target-ing fine-grained categories, and ViQuAE (Lerner et al., 2022) for entity-grounded queries. Retrieval-augmented systems—KAT (Gui et al., 2022), RAVQA (Lin & Byrne, 2022; Lin et al., 2024), ReVeaL (Hu et al., 2023b), RA-CM3 (Yasunaga et al., 2023)—retrieve passages from external corpora and fuse them with image features through a vision-language backbone. These methods focus almost exclusively on accuracy , leaving the joint compute problem unaddressed: every query pays full dense cost regardless of difficulty, and visual/textual modalities are pruned, if at all, in isolation rather than jointly. SKIP is the first to treat question-conditional sparsity as a first-class design objective spanning visual encoding, retrieval, and fusion. 
+
+Visual token pruning. DynamicViT (Rao et al., 2021) prunes visual tokens based on learned token importance scores; ToMe (Bolya et al., 2023b) merges similar tokens to reduce sequence length; ATS (Fayyaz et al., 2022) performs adaptive token sampling. All three are unconditional on the downstream task: they reduce visual sequence length but do not consider what the model is being asked. Question-conditioned pruning has been explored for standard VQA in PuMer (Cao et al., 2023), but always within a fixed-corpus or no-retrieval setting; the interaction with down-stream retrieval—in particular, how question-relevant visual tokens enable better retrieval queries—is, to our knowledge, unstudied. We show that question-conditional pruning is qualitatively different in knowledge-intensive settings: at 
+
+11% retention, QVS outperforms unconditional methods by 
+
+5–10 accuracy points (Figure 4). 
+
+Efficient retrieval. Dense retrieval (Karpukhin et al., 2020), late interaction (Khattab & Zaharia, 2020), and learned sparse retrieval (Formal et al., 2021) have reduced retrieval cost substantially. We build on SPLADE for its low storage footprint and exact-match interpretability, but issue multiple per-region queries rather than one global query. This contrasts with multi-query approaches in pure-text retrieval (Shao et al., 2024), which decompose questions linguistically rather than visually. 
+
+Speculative decoding. Leviathan et al. (2023b) and Chen et al. (2023a) use a small drafter to predict tokens that are verified by a large target model, exploiting parallelism in autoregressive decoding. We extend this principle to knowl-edge access rather than token generation: a small drafter verifies whether retrieval is even necessary, and the full pipeline runs only when the drafter is uncertain. This is closer in spirit to early-exit (Schuster et al., 2022) but oper-ates at the level of entire retrieval + fusion pipelines. 
+
+Conditional computation. Mixture-of-experts (Shazeer et al., 2017; Fedus et al., 2022) allocates compute condi-tionally at the expert level; early-exit networks (Schuster et al., 2022) at the layer level. SKIP allocates compute at the 
+
+token-pair level in the cross-modal fusion layer, which is the dominant cost for KI-MMQA. The DBC component is conceptually related to learned routing in MoE but is much smaller (a 3-layer MLP) and operates at the query level rather than the token level. 
+
+# 3. Method: Salient Knowledge Pathways 
+
+3.1. Problem Setup 
+
+Given an image I and question q, KI-MMQA requires pro-ducing an answer a using an external knowledge corpus 
+
+C = {c1, . . . , c M }. A standard retrieval-augmented system computes 
+
+v = VEnc( I) ∈ RV ×d, (1) 
+
+q = QEnc( q) ∈ RT ×d, (2) 
+
+K = Retrieve( I, q, C)top-K , (3) 
+
+a = Dec([ v; q; Enc( K)]) , (4) with cross-attention spanning V + T + |K| · Lc tokens (where Lc is chunk length). The cost is Θ( V T KL cd +(V T KL c)2d) in the fusion layers—untenable for large V ,
+
+K, or Lc. Typical values are V = 576 , T = 20 , K = 16 ,
+
+Lc = 100 , yielding a fusion-layer sequence length of ∼1.6k tokens whose quadratic attention cost dominates inference. 
+
+3.2. Architecture Overview 
+
+SKIP replaces the dense pipeline with five learned compo-nents (Figure 2), arranged so that each component’s sparsity decision conditions the next. The flow is: (i) the DBC reads global features of (I, q ) and predicts a compute budget; (ii) QVS uses that budget to prune visual tokens conditional on the question; (iii) RCSR clusters retained tokens and issues per-region retrieval queries; (iv) BSCA fuses the pruned visual tokens with retrieved chunks under a learned sparse attention pattern; (v) SKV optionally short-circuits the pipeline when the small drafter is sufficiently confident. The key architectural commitment is that sparsity is applied 
+
+compositionally —each stage’s output is the sparse input to the next, rather than each stage independently sparsifying a dense input. 
+
+3.3. Question-Guided Visual Saliency (QVS) 
+
+QVS is a two-layer cross-attention module that scores each visual token’s relevance to the question. Let vi ∈ Rd be the i-th visual token and ¯q ∈ Rd the mean-pooled question representation. The saliency score is 
+
+si = MLP( vi ∥ ¯q ∥ (vi ⊙ ¯q)) ∈ R, (5) 3Salient Knowledge Pathways for Efficient Multimodal QA           
+
+> SKIP inference pipeline
+> Image I
+> Question q
+> VEnc
+> QEnc
+> DBC
+> budget (V′, K ′)
+> QVS
+> prune to V′
+> SKV drafter
+> RCSR
+> per-region
+> C
+> BSCA
+> bipartite Decoder Answer a
+> fast path
+> Figure 2. SKIP architecture. Solid arrows denote data flow; dashed arrows denote routing/budget control. The QVS module prunes visual tokens conditional on the question and DBC-allocated budget; RCSR retrieves per-region; BSCA fuses sparsely; the SKV drafter short-circuits easy queries.
+
+where ∥ the concatenation is and ⊙ is the Hadamard prod-uct. The element-wise product term is critical: it captures multiplicative interactions that a concatenation alone cannot represent, and ablating it costs 1.4 accuracy points (Table 2). We retain the top-V ′ tokens by si, with V ′ the determination by the DBC. 
+
+Why pre-retrieval pruning? The natural alternative is to retrieve first (using global image features) and prune later. This fails for two reasons. First, retrieval queries derived from all V tokens are dominated by background regions that contribute no knowledge signal: on OK-VQA, 
+
+∼78% of visual tokens encode background content with mutual information < 0.01 bits to the answer. Second, post-retrieval pruning cannot undo a bad retrieval—if the retrieved chunks are irrelevant because the query was di-luted by background, no amount of downstream filtering recovers the missed knowledge. Pre-retrieval pruning en-sures retrieval queries are computed from question-relevant regions only, simultaneously reducing retrieval noise and downstream fusion cost. 
+
+Training. QVS is trained with a Gumbel-Sigmoid relax-ation (Jang et al., 2017) and a budget regularizer: 
+
+LQVS = Ltask + λ1
+
+1
+
+V
+
+X
+
+> i
+
+σ(si) − ρ , (6) where ρ = V ′/V is the target retention rate. We anneal the Gumbel temperature from 1.0 to 0.1 over training; lower temperatures sharpen the discrete selection but make gradi-ents vanish, so the annealing is essential for convergence. We use λ1 = 0.5; sensitivity to λ1 is reported in Ap-pendix M. 
+
+3.4. Region-Conditional Sparse Retrieval (RCSR) 
+
+Standard retrieval issues a single query derived from (I, q ).RCSR instead clusters the retained visual tokens into R ≤
+
+V ′ regions via approximate k-means in embedding space, and issues a separate retrieval query per region: 
+
+Kr = Retrieve SPLADE (ϕ(cr , ¯q); C)top-k′ , (7) where cr is the centroid of the region r and ϕ projects to the sparse retrieval space (Formal et al., 2021). We then deduplicate S 
+
+> r
+
+Kr to yield K′ unique chunks, with K′ ≤
+
+R · k′ but typically K′ ≪ R · k′ in practice, due to high overlap on real queries, deduplication rates of 40 –60% are common. 
+
+Why per-region retrieval? A single global query is biased toward the dominant visual content. Per-region queries surface knowledge tied to small but salient re-gions—logos, text, secondary objects, and fine-grained cate-gory details—exactly the regions that drive most KI-MMQA failures. On the InfoSeek hard split, where target entities oc-cupy < 10% of the image area, RCSR improves Recall@4 from 43% to 71% over global retrieval, and this retrieval improvement translates directly to a 4.3-point accuracy gain in the final answer. 
+
+Number of regions. We cluster into R = min( V ′/4, 8) 
+
+regions in practice. Higher R improves retrieval coverage but increases retrieval cost linearly; the R = 8 ceiling is cali-brated to keep retrieval latency under 15% of total inference. Sensitivity to R is small in the R ∈ [4 , 12] range. 
+
+3.5. Bipartite Sparse Cross-Attention (BSCA) 
+
+Given retained tokens {vi}V ′ 
+
+> i=1
+
+and retrieved chunks 
+
+{kj }K′
+
+> j=1
+
+, BSCA constructs a bipartite compatibility matrix 
+
+Aij = σ
+
+
+
+⟨Wv vi, W kkj ⟩/√d
+
+
+
+, (8) and zeroes edges below a learned threshold τ (or below the 
+
+β-quantile for top-β sparsity). Cross-attention is then com-puted only on the surviving edges E = {(i, j ) : Aij > τ },with the rest of the attention computation skipped entirely (not just masked). 4Salient Knowledge Pathways for Efficient Multimodal QA 
+
+For β = 0 .1 (typical in our experiments), this reduces the dominant FLOP term by an order of magnitude relative to dense cross-attention. We implement BSCA with a block-sparse CUDA kernel based on FlashAttention (Dao et al., 2022), adapted to handle dynamic per-query sparsity pat-terns. The kernel uses a two-pass approach: a first pass com-putes Aij in tiles and identifies surviving edges; a second pass computes attention only on those edges. The two-pass overhead is amortized by the order-of-magnitude FLOP re-duction; net wall-clock speedup is 7.2× for the fusion layer alone. 
+
+Why bipartite rather than fully sparse? A naive alterna-tive is general sparse attention (Child et al., 2019; Beltagy et al., 2020) over the union of visual tokens and retrieved chunks. We find this is both more expensive (predicting sparsity patterns over the full  V ′+K′
+
+> 2
+
+ pairs) and less effec-tive: most informative attention edges in KI-MMQA are cross-modal (visual-knowledge), with intra-modal attention contributing little after the initial encoder layers. The bipar-tite restriction captures the structurally relevant edges at a fraction of the cost. 
+
+3.6. Difficulty-Adaptive Budget Controller (DBC) 
+
+DBC is a 3-layer MLP that predicts (V ′, K ′) from (¯ v, ¯q),trained to minimize 
+
+LDBC = E(I,q )[Ltask + λ2 · cost( V ′, K ′)] , (9) with the cost term penalizing FLOPs. We use a straight-through estimator for the discrete (V ′, K ′) choices (Bengio et al., 2013). DBC is trained after QVS/RCSR/BSCA on a held-out split to avoid co-adaptation: jointly training all four would let DBC learn to game the other components by, e.g., always requesting maximum budget. With staged training, DBC empirically allocates V ′ ∈ [32 , 128] and K′ ∈ [2 , 16] ,with the median query receiving V ′ = 64 , K ′ = 6 .
+
+What does the DBC learn? Inspection of DBC outputs shows clear semantic patterns: counting and spatial ques-tions receive low K′ (often K′ = 0 , triggering SKV); entity-identification questions receive high V ′ but moderate K′;encyclopedic questions receive low V ′ but high K′. These patterns emerge from the cost-accuracy tradeoff without explicit supervision. 
+
+3.7. Speculative Knowledge Verification (SKV) 
+
+For many KI-MMQA queries, especially counting and spa-tial questions, no retrieval is needed. SKV deploys a small drafter D (a 700M-parameter VLM in our experiments) on 
+
+(I, q ) to produce a candidate answer aD and confidence cD .If cD > τ SKV , we return aD directly. Otherwise, the full SKIP pipeline runs. Crucially, the drafter’s answer is always 
+
+computed, but only its routing decision is acted on; the full pipeline runs in parallel for hard queries. Unlike token-level speculative decoding (Leviathan et al., 2023b), SKV spec-ulates over knowledge access : it decides whether retrieval is needed at all. We calibrate τSKV on a held-out split to ensure ≤ 1% accuracy degradation; in practice, this routes 
+
+34 –41% of queries through the fast path. The fast-path rate varies meaningfully by domain—higher on perceptual benchmarks, lower on entity-centric ones—demonstrating that SKV’s confidence calibration captures genuine query difficulty rather than spurious confidence. 
+
+# 4. Theoretical Analysis 
+
+We now derive a bound on the visual sparsity rate that can be achieved without loss of accuracy. The bound formalizes the intuition that, since mutual information between visual content and answers concentrates on a small set of salient regions, the optimal retention rate should be sublinear in V .
+
+Assumption 4.1 (Piecewise-Lipschitz mutual information) .
+
+For any question q and visual token set V = {vi}, the mutual information I(VS ; a | q) between a subset S ⊆ [V ]
+
+and the answer is L-Lipschitz in |S|/V on intervals of width 
+
+≥ 1/√V .
+
+Assumption 4.2 (Bounded saliency error) . QVS scores satisfy |si − I(vi; a | q)| ≤ η uniformly. Assumption 4.1 is mild—it says that small changes in reten-tion rate produce proportionally small changes in retained information, which holds for any smooth feature aggrega-tion function. Assumption 4.2 requires QVS to approximate per-token mutual information; we verify this empirically in Appendix N, finding η ≈ 0.013 for our trained QVS on OK-VQA. 
+
+Theorem 4.3 (Sparsity-accuracy tradeoff) . Under Theo-rems 4.1 and 4.2, retaining the top-V ′ tokens by QVS score with 
+
+V ′ ≥ C · √V · log(1 /ε ) (10) 
+
+suffices to ensure I(VS′ ; a | q) ≥ I(V; a | q) − ε, where C
+
+depends only on L and η.Proof sketch. Let S∗ be the optimal top-V ′ set ranked by true mutual information. By Theorem 4.2, the QVS-selected set S′ differs from S∗ in at most O(V η/s ∗) tokens, where 
+
+s∗ is the score gap. Applying Theorem 4.1 with a Chernoff bound on the score-ranking error gives the desired logarith-mic dependence on 1/ε , and the √V factor follows from the Lipschitz interval-width condition. Full proof in Ap-pendix C.1. 
+
+Corollary 4.4. For typical V = 576 (a 24 × 24 patch grid), retaining V ′ = 48 –72 tokens (8–12.5%) suffices for 
+
+ε = 0 .05 , matching our empirical findings (Section 5). 
+
+5Salient Knowledge Pathways for Efficient Multimodal QA 
+
+Theorem 4.3 is the first sparsity bound we are aware of that explicitly accounts for question-conditional retrieval. It is non-vacuous: at V = 576 , ε = 0 .05 , L = 1 , η =0.01 , the bound predicts V ′ ≈ 51 , close to the empirical optimum of V ′ = 64 . We emphasize that the bound applies to the informational content retained by sparse selection; the empirical sweet spot is slightly higher because BSCA’s downstream sparsity benefits from additional headroom in the visual representation. 
+
+# 5. Experiments 
+
+5.1. Setup Benchmarks. We evaluate on five KI-MMQA datasets spanning complementary dimensions of knowledge access. 
+
+OK-VQA (Marino et al., 2019) ( 14 k questions) and A-OKVQA (Schwenk et al., 2022) ( 25 k, with rationales) cover commonsense and world-knowledge reasoning over everyday imagery. InfoSeek (Chen et al., 2023c) ( 1.4Mquestions) and Encyclopedic-VQA (Mensink et al., 2023) (1M questions) target entity-centric properties—species, landmarks, fine-grained categories—where the image en-codes entity identity but the answer requires external knowl-edge unavailable in any visual feature. ViQuAE (Lerner et al., 2022) ( 3.7k questions) evaluates entity-grounded re-trieval over named people, places, and works. InfoSeek and Encyclopedic-VQA are the most demanding benchmarks: the target entity frequently occupies a small image region, making retrieval quality the primary accuracy bottleneck. 
+
+Knowledge corpora. We use Wikipedia (2022 snapshot; 
+
+6.5M passages of ≤ 100 tokens with 20 -token overlap) for OK-VQA, A-OKVQA, and InfoSeek; WikiData entity de-scriptions ( 8.2M filtered entries) for Encyclopedic-VQA; and the ViQuAE-provided KB ( 1.7M entity descriptions) for ViQuAE. Full corpus statistics are in Appendix L. 
+
+Baselines. We compare against two retrieval-free VLMs— BLIP-2 (Li et al., 2023) and LLaVA-1.5 (Liu et al., 2024a)— and four retrieval-augmented systems-KAT (Gui et al., 2022), RAVQA-2 (Lin et al., 2024), ReVeaL (Hu et al., 2023b), and RA-CM3 (Yasunaga et al., 2023). All baselines and SKIP share a Vicuna-7B v1.5 language backbone for controlled comparison. 
+
+Metrics. We report VQA accuracy (10-annotator soft ac-curacy for OK-VQA and A-OKVQA; exact match for InfoS-eek and Encyclopedic-VQA; token-level F 1 for ViQuAE), end-to-end wall-clock latency on a single A100-80 GB GPU, and TFLOPs per query. 
+
+Implementation. SKIP uses EVA-CLIP-G (Sun et al., 2023) as the vision encoder ( 336 ×336 input resolution, V =576 visual tokens) and SPLADE ++ for sparse retrieval over a 6.5M-passage index. The multimodal backbone is fine-tuned with LoRA rank-64 adapters optimised via AdamW with a 5×10 −5 peak learning rate and cosine decay, across six staged training phases totalling ∼4,800 A100-hours. QVS scoring heads and the DBC difficulty estimator are trained jointly in phases 3–4; SKV verification is trained independently on a held-out relevance-labelled sub-set (phase 5). Retrieval index construction (FAISS IVF-PQ, 
+
+768 -dimensional SPLADE vectors, 1,024 IVF centroids) adds a one-time offline cost of ∼18 GPU-hours and is frozen thereafter. Full implementation details appear in Appendix K; the complete training protocol and hyperpa-rameter grid are in Appendix D. 
+
+5.2. Main Results 
+
+Table 1 reports our main result. SKIP achieves the high-est accuracy on every benchmark while consuming 4.07 ×
+
+fewer FLOPs and 2.69 × less wall-clock latency than the strongest baseline (RA-CM3). On InfoSeek—the hardest benchmark for entity-centric retrieval—SKIP improves over RA-CM3 by +4 .3 absolute points; on Encyclopedic-VQA by +3 .4. The largest gains appear on benchmarks where small visual regions carry the entity identity (logos, fine-grained categories), validating the per-region retrieval hy-pothesis. The accuracy improvement is not an artifact of more compute spent elsewhere: at matched FLOPs (0.42 TFLOPs, the BLIP-2 budget), SKIP outperforms BLIP-2 by 
+
++17 .3 points on OK-VQA and +19 .5 points on InfoSeek. This is the key finding: sparse routing converts saved com-pute into accuracy by enabling the system to retrieve and fuse over a much larger effective corpus and visual context than dense systems can afford. Conversely, at matched accu-racy, SKIP costs 4–7× less than the cheapest baseline that achieves equivalent results. 
+
+5.3. Compute Accuracy Frontier 
+
+Figure 1 shows the accuracy computed frontier on OK-VQA. SKIP Pareto-dominates all baselines: at every measured FLOP budget from 0.14 × to 1.0× the RA-CM3 cost, SKIP achieves higher accuracy. The gap widens at lower budgets, consistent with our hypothesis that sparse routing is most valuable when compute is constrained. At 0.20 × RA-CM3 cost, SKIP retains 98 .4% its full-budget accuracy, while RA-CM3 at the same budget drops to 87 .1% of its peak. Figure 3 reports wall-clock latency across all five bench-marks. SKIP achieves consistent 2.5–2.9× speedups over the full-token baseline despite its more complex routing logic, because the dominant computational cost—cross-modal fusion over the complete visual token sequence—is reduced by an order of magnitude through QVS pruning and DBC-adaptive budgeting. Routing overhead (QVS scoring, 6Salient Knowledge Pathways for Efficient Multimodal QA                                                            
+
+> Table 1. Main results on five KI-MMQA benchmarks. Accuracy (%) / FLOPs (TFLOPs) / Latency (ms). All systems use a 7B backbone.
+> Bold = best, underline = second-best. SKIP matches or exceeds all baselines on accuracy while using substantially less compute. Model OK-VQA A-OKVQA InfoSeek Enc-VQA ViQuAE Avg. TFLOPs / Lat. BLIP-2 (no retrieval) 45.9 39.7 11.2 8.4 19.1 0.42 / 210 LLaVA-1.5 (no retrieval) 50.3 44.1 13.7 10.2 22.3 0.51 / 240 KAT 54.4 48.2 18.6 14.7 28.9 0.93 / 410 RAVQA-2 56.8 50.6 21.3 16.4 31.7 1.18 / 520 ReVeaL 58.0 52.4 23.8 18.1 33.2 1.34 / 610 RA-CM3 60.5 55.3 26.4 20.9 35.6 1.71 / 820
+> SKIP (ours) 63.2 58.4 30.7 24.3 37.4 0.42 / 305 vs. RA-CM3 +2.7 +3.1 +4.3 +3.4 +1.8 4.07 ×less / 2.69 ×faster
+> OK-VQA
+> A-OKVQA
+> InfoSeek
+> Enc-VQA
+> ViQuAE
+
+0
+
+200 
+
+400 
+
+600 
+
+800      
+
+> Latency (ms)
+> KAT ReVeaL RA-CM3 SKIP
+> Figure 3. End-to-end latency on A100-80GB. SKIP is 2.5–2.9×
+> faster than the strongest baseline across all benchmarks.
+
+DBC budget allocation, and SKV passage verification) ac-counts for <5% of total wall-clock time. The remaining la-tency is distributed between retrieval ( ∼25% , dominated by FAISS IVF-PQ search across the ∼800 M-entry index) and autoregressive decoder generation ( ∼60% , consistent with the generation-bound profile typical of instruction-tuned LLaVA-family decoders). This confirms that SKIP’s rout-ing components impose negligible inference overhead, and that further latency gains would most productively target the decoder rather than the retrieval or fusion stages. 
+
+5.4. Ablations 
+
+Table 2 isolates the contribution of each SKIP component on OK-VQA. Several findings are worth highlighting. QVS is the most critical component. Replacing question-guided pruning with random pruning at identical retention ( V ′ =64 ) drops accuracy by 9.1 points with no FLOP savings, demonstrating that what is pruned matters far more than 
+
+how much . Disabling pruning entirely recovers 0.8 points at the cost of 3.3× more FLOPs, confirming that the accuracy gap is attributable to selection quality, not retention rate. 
+
+RCSR and BSCA play complementary roles. Reverting to global retrieval costs 3.5 accuracy points—a gap that widens further on entity-centric benchmarks (InfoSeek: −4.3)— while reverting BSCA to dense attention triples FLOPs for a negligible 0.3-point gain, making BSCA the dominant efficiency lever. DBC’s adaptive budgeting contributes 1.4
+
+points here and 2.7 on the InfoSeek hard split, where query difficulty variance is highest. SKV provides effectively free FLOP savings ( −40% ) with no measurable accuracy cost. Gains compound. The three single-component rows confirm that no individual technique recovers the full system effect: each sparse component removes a distinct category of distractor, and their composition produces 63 .2% accuracy that no single component approaches.                                    
+
+> Table 2. Ablations on OK-VQA. Removing any SKIP component degrades accuracy, FLOPs, or both. “ →dense” replaces a sparse component with its dense equivalent. Configuration Acc. (%) TFLOPs Full SKIP 63.2 0.42
+> −QVS (random pruning) 54.1 0.42
+> −QVS (no pruning) 62.4 1.38
+> −RCSR ( →global retrieval) 59.7 0.48
+> −BSCA ( →dense) 62.9 1.21
+> −DBC (fixed V′=64 ,K′=8 )61.8 0.46
+> −SKV (no fast path) 63.1 0.71 QVS only (other components dense) 58.3 0.95 RCSR only (other components dense) 60.1 1.05 BSCA only (other components dense) 60.8 0.88
+
+Table 2 ablates each SKIP component. Key findings: (i) QVS is essential—replacing question-guided pruning with random pruning drops accuracy by 9.1 points at the same FLOP budget, showing that what we prune matters far more than how much . (ii) RCSR contributes 3.5 points relative to global retrieval, with the gap widening on entity-centric benchmarks. (iii) BSCA is the dominant compute saver— replacing it with dense attention triples FLOPs for only 
+
+0.3 accuracy points, but the saved compute is reinvested elsewhere. (iv) DBC matters more for harder queries: on the InfoSeek hard split, removing DBC drops accuracy by 
+
+2.7 points (vs. 1.4 here). (v) SKV is essentially free compute savings, leaving accuracy unchanged while reducing FLOPs by 40% . The single-component rows (bottom) confirm that no individual technique recovers the full effect: the gains compound .7Salient Knowledge Pathways for Efficient Multimodal QA 
+
+5.5. Sparsity Analysis 
+
+5 · 10 −20.1 0.15 0.2 0.3 0.4 0.5
+
+45 
+
+50 
+
+55 
+
+60 
+
+65 
+
+Visual retention rate V ′/V        
+
+> Accuracy (%)
+> QVS (ours)
+> Random
+> ToMe
+> DynamicViT
+> Figure 4. Visual sparsity vs. accuracy on OK-VQA. QVS achieves
+> 99% of the no-pruning accuracy at just 11% retention. The empir-ical sweet spot matches the O(1 /√V)prediction of Theorem 4.3.
+
+Figure 4 shows accuracy as a function of visual reten-tion rate. QVS reaches 99% of the no-pruning accuracy at V ′/V ≈ 0.11 , while random pruning and Dynam-icViT (Rao et al., 2021) require 0.30 –0.50 retention for com-parable accuracy. The empirical sweet spot is consistent with our O(1 /√V ) theoretical prediction: √576 /576 ≈
+
+0.042 , with the bound’s constant C ∈ [1 .5, 3] placing the sweet spot in the 0.06 –0.13 range. The agreement between theory and practice is, we believe, evidence that question-conditional saliency is genuinely capturing the underlying low-dimensional structure of KI-MMQA queries. 
+
+5.6. Failure Modes and Limitations 
+
+We characterize SKIP’s failure modes by examining the 
+
+36 .8% of OK-VQA queries it misses. (1) Compositional retrieval (15% of failures): queries requiring multi-hop rea-soning over retrieved chunks (e.g., “Who painted the artist’s most expensive work?”). RCSR retrieves the right facts, but BSCA’s sparse pattern misses the second-hop binding. (2) Long-tail entities (38% of failures): InfoSeek queries about entities with < 10 Wikipedia mentions; QVS confi-dently selects the right region, but retrieval returns mostly irrelevant chunks. (3) Counting under occlusion (12% of failures): SKV incorrectly fast-paths these as easy queries. The remaining 35% are spread across diverse causes de-tailed in Appendix Q. The compositional retrieval failure mode points to a clear next step: extending BSCA to a k-partite structure that explicitly models multi-hop knowledge dependencies. 
+
+# 6. Discussion 
+
+Why does joint sparsity beat individual sparsity? The ablations show that any single sparse component achieves only 58 –61% accuracy, while the full system reaches 63 .2% .We attribute this to a noise filtering effect: each sparse com-ponent removes a different category of distractor (irrelevant visual regions, irrelevant chunks, irrelevant bindings), and their combination produces a cleaner signal than any single filter. This is consistent with the broader hypothesis that sparsity is not a single design choice but a structural prop-erty of how information flows through KI-MMQA, and the right place to apply it is wherever the information bottleneck is tightest. 
+
+Generality. SKIP’s design is agnostic to the identity of the knowledge corpus and the specific retrieval backend: any system that couples a visual encoder with dense re-trieval and cross-modal fusion pays the same structural costs that SKIP targets. The QVS–RCSR–BSCA cascade applies directly to multimodal dialogue and agentic tool-use pipelines, where retrieved context windows are compara-bly long. DBC and SKV are particularly portable—both operate on global image–question embeddings with no task-specific inductive bias—and could be grafted onto existing retrieval-augmented VLMs as lightweight wrappers without retraining the backbone. Video QA introduces temporal sparsity as an additional dimension that the RCSR cluster-ing mechanism is naturally positioned to exploit; we leave this extension to future work. 
+
+When does SKIP fail to help? SKIP’s efficiency gains are load-bearing on retrieval quality: when external knowl-edge is unnecessary, BSCA and RCSR contribute no savings and DBC learns to allocate minimal retrieval budget. On LLaVA-Bench—a pure visual-reasoning suite with no ex-ternal knowledge requirement—SKIP matches LLaVA-1.5 accuracy but reduces FLOPs only through QVS token prun-ing, yielding a modest 1.1× speedup versus 2.5–2.9× on knowledge-intensive benchmarks. This is a feature, not a failure: SKIP correctly concentrates overhead reduction where the dense cross-modal fusion cost is highest. 
+
+# 7. Conclusion 
+
+We introduced SKIP, a unified architecture for efficient knowledge-intensive multimodal QA that routes compu-tation along sparse, question-conditional pathways. SKIP combines five learned components—visual saliency, region-conditional retrieval, sparse cross-attention, adaptive bud-geting, and speculative verification—under a single training objective. We derived an information-bottleneck bound on the optimal visual sparsity rate and empirically vali-dated it across five benchmarks, achieving 3–7× compute reductions while improving accuracy over the strongest dense baselines. The broader implication is that knowledge-intensive multimodal inference is far more sparse than cur-rent systems assume. Treating sparsity as a first-class de-sign principle, jointly across modalities and across retrieval, opens substantial headroom that we believe will only grow as models and corpora scale. 8Salient Knowledge Pathways for Efficient Multimodal QA 
+
+# Impact Statement 
+
+This paper presents work whose goal is to advance the field of efficient machine learning. By substantially reducing the compute cost of knowledge-intensive multimodal QA, SKIP may broaden access to retrieval-augmented vision-language systems on resource-constrained devices and reduce the energy footprint of large-scale deployment. As with any improvement to retrieval-augmented systems, care must be taken regarding the provenance and biases of the knowledge corpus; the routing mechanism does not itself introduce new risks beyond those already present in the underlying retrieval and language model components. There are no specific application-domain risks of our method that we feel must be highlighted beyond those inherent to vision-language QA generally. 
+
+# References 
+
+Bai, J., Bai, S., Yang, S., Wang, S., Tan, S., Wang, P., Lin, J., Zhou, C., and Zhou, J. Qwen-vl: A fron-tier large vision-language model with versatile abili-ties. arXiv preprint arXiv:2308.12966 , 2023. doi: 10.48550/arXiv.2308.12966. URL https://arxiv. org/abs/2308.12966 .Beltagy, I., Peters, M. E., and Cohan, A. Long-former: The long-document transformer. arXiv preprint arXiv:2004.05150 , 2020. URL https://arxiv. org/abs/2004.05150 .Bengio, Y., L ´eonard, N., and Courville, A. Estimating or propagating gradients through stochastic neurons for con-ditional computation. arXiv preprint arXiv:1308.3432 ,2013. Bolya, D., Fu, C., Dai, X., Zhang, P., Feichtenhofer, C., and Hoffman, J. Token merging: Your vit but faster. 
+
+arXiv preprint arXiv:2210.09461 , 2023a. URL https: //arxiv.org/abs/2210.09461 .Bolya, D., Fu, C.-Y., Dai, X., Zhang, P., Feichtenhofer, C., and Hoffman, J. Token merging: Your ViT but faster. In 
+
+International Conference on Learning Representations (ICLR) , 2023b. Cao, Q., Paranjape, B., and Hajishirzi, H. PuMer: Pruning and merging tokens for efficient vision language models. In Proceedings of the 61st Annual Meeting of the Asso-ciation for Computational Linguistics (ACL) , pp. 12890– 12903, 2023. Chen, C., Borgeaud, S., Irving, G., Lespiau, J.-B., Sifre, L., and Jumper, J. Accelerating large language model decoding with speculative sampling. arXiv preprint arXiv:2302.01318 , 2023a. Chen, D., Fisch, A., Weston, J., and Bordes, A. Read-ing wikipedia to answer open-domain questions. In 
+
+Proceedings of the 55th Annual Meeting of the Asso-ciation for Computational Linguistics (ACL) , pp. 1870– 1879, 2017. doi: 10.18653/v1/P17-1171. URL https: //aclanthology.org/P17-1171/ .Chen, X., Wang, X., Beyer, L., Kolesnikov, A., Zhai, X., et al. Pali-x: Scaling multimodal learning with vision-language models. arXiv preprint arXiv:2305.18565 ,2023b. doi: 10.48550/arXiv.2305.18565. URL https: //arxiv.org/abs/2305.18565 .Chen, Y., Hu, H., Luan, Y., Sun, H., Changpinyo, S., Rit-ter, A., and Chang, M.-W. Can pre-trained vision and language models answer visual information-seeking ques-tions? In Proceedings of the Conference on Empirical Methods in Natural Language Processing (EMNLP) , pp. 14948–14968, 2023c. Child, R., Gray, S., Radford, A., and Sutskever, I. Gener-ating long sequences with sparse transformers. arXiv preprint arXiv:1904.10509 , 2019. URL https:// arxiv.org/abs/1904.10509 .Dai, W., Li, J., Tan, Z., et al. Instructblip: Towards general-purpose vision-language models with instruction tuning. arXiv preprint arXiv:2305.06500 , 2023. doi: 10.48550/arXiv.2305.06500. URL https://arxiv. org/abs/2305.06500 .Dao, T., Fu, D. Y., Ermon, S., Rudra, A., and R ´e, C. FlashAt-tention: Fast and memory-efficient exact attention with IO-awareness. In Advances in Neural Information Pro-cessing Systems (NeurIPS) , volume 35, pp. 16344–16359, 2022. Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn, D., Zhai, X., Unterthiner, T., Dehghani, M., Minderer, M., Heigold, G., Gelly, S., Uszkoreit, J., and Houlsby, N. An image is worth 16x16 words: Transformers for image recognition at scale. In International Conference on Learning Representations (ICLR) , 2021. Driess, D., Xia, F., Sajjadi, M. S. M., Lynch, C., et al. Palm-e: An embodied multimodal language model. arXiv preprint arXiv:2303.03378 , 2023. doi: 10.48550/arXiv.2303.03378. URL https://arxiv. org/abs/2303.03378 .Fayyaz, M., Koohpayegani, S. A., Jafari, F. R., Sengupta, S., Joze, H. R. V., Sommerlade, E., Pirsiavash, H., and Gall, J. Adaptive token sampling for efficient vision transformers. In European Conference on Computer Vision (ECCV) , pp. 396–414, 2022. 9Salient Knowledge Pathways for Efficient Multimodal QA 
+
+Fedus, W., Zoph, B., and Shazeer, N. Switch transformers: Scaling to trillion parameter models with simple and ef-ficient sparsity. Journal of Machine Learning Research ,23(120):1–39, 2022. Formal, T., Piwowarski, B., and Clinchant, S. SPLADE: Sparse lexical and expansion model for first stage ranking. In Proceedings of the 44th International ACM SIGIR Conference on Research and Development in Information Retrieval , pp. 2288–2292, 2021. Gui, L., Wang, B., Huang, Q., Hauptmann, A., Bisk, Y., and Gao, J. KAT: A knowledge augmented transformer for vision-and-language. In Proceedings of the Conference of the North American Chapter of the Association for Computational Linguistics (NAACL) , pp. 956–968, 2022. He, X., Zhang, Y., Mou, L., Xing, E. P., and Xie, P. Pathvqa: 30,000+ questions for medical visual ques-tion answering. Proceedings of the AAAI Conference on Artificial Intelligence , 34:10863–10870, 2020. doi: 10.1609/aaai.v34i07.6782. Hu, X. et al. Promptcap: Prompt-guided image captioning. 
+
+arXiv preprint arXiv:2301.XXXXX , 2023a. URL https: //arxiv.org/abs/2301.XXXXX .Hu, Y., Hua, H., Yang, Z., Shi, W., Smith, N. A., and Luo, J. Promptcap: Prompt-guided task-aware image captioning. arXiv preprint arXiv:2211.09699 , 2022. doi: 10.48550/arXiv.2211.09699. URL https://arxiv. org/abs/2211.09699 .Hu, Z., Iscen, A., Sun, C., Wang, Z., Chang, K.-W., Sun, Y., Schmid, C., Ross, D. A., and Fathi, A. REVEAL: Retrieval-augmented visual-language pre-training with multi-source multimodal knowledge memory. In Pro-ceedings of the IEEE/CVF Conference on Computer Vi-sion and Pattern Recognition (CVPR) , pp. 23369–23379, 2023b. Izacard, G. and Grave, E. Leveraging passage retrieval with generative models for open domain question answering. 
+
+arXiv preprint arXiv:2007.01282 , 2021. URL https: //arxiv.org/abs/2007.01282 .Jang, E., Gu, S., and Poole, B. Categorical reparameteriza-tion with gumbel-softmax. In International Conference on Learning Representations (ICLR) , 2017. Jang, S. Cultural brokerage and creative performance in multicultural teams. Organization Science , 28(6):993– 1009, 2017. doi: 10.1287/orsc.2017.1162. URL https: //doi.org/10.1287/orsc.2017.1162 .Karpukhin, V., O ˘guz, B., Min, S., Lewis, P., Wu, L., Edunov, S., Chen, D., and Yih, W.-t. Dense passage retrieval for open-domain question answering. In Proceedings of the Conference on Empirical Methods in Natural Language Processing (EMNLP) , pp. 6769–6781, 2020. Khattab, O. and Zaharia, M. ColBERT: Efficient and ef-fective passage search via contextualized late interaction over BERT. In Proceedings of the 43rd International ACM SIGIR Conference on Research and Development in Information Retrieval , pp. 39–48, 2020. Langley, P. Crafting papers on machine learning. In Langley, P. (ed.), Proceedings of the 17th International Conference on Machine Learning (ICML 2000) , pp. 1207–1216, Stan-ford, CA, 2000. Morgan Kaufmann. Lerner, P., Ferret, O., Guinaudeau, C., Le Borgne, H., Besan c¸ on, R., Moreno, J. G., and Lovon-Melgarejo, J. Vi-QuAE, a dataset for knowledge-based visual question an-swering about named entities. In Proceedings of the 45th International ACM SIGIR Conference on Research and Development in Information Retrieval , pp. 3108–3120, 2022. Leviathan, Y., Kalman, M., and Matias, Y. Fast inference from transformers via speculative decoding. In Pro-ceedings of the 40th International Conference on Ma-chine Learning (ICML) , pp. 19274–19286, 2023a. doi: 10.48550/arXiv.2211.17192. URL https://arxiv. org/abs/2211.17192 .Leviathan, Y., Kalman, M., and Matias, Y. Fast inference from transformers via speculative decoding. In Proceed-ings of the International Conference on Machine Learn-ing (ICML) , pp. 19274–19286, 2023b. Li, J., Li, D., Savarese, S., and Hoi, S. BLIP-2: Boot-strapping language-image pre-training with frozen image encoders and large language models. In Proceedings of the International Conference on Machine Learning (ICML) , pp. 19730–19742, 2023. Lin, W. and Byrne, B. Retrieval augmented visual question answering with outside knowledge. In Proceedings of the Conference on Empirical Methods in Natural Language Processing (EMNLP) , pp. 11238–11254, 2022. Lin, W., Mei, J., Chen, J., and Byrne, B. Fine-grained Late-Interaction Multi-modal Retrieval for retrieval-augmented visual question answering. In Advances in Neural Information Processing Systems (NeurIPS) , vol-ume 37, 2024. Liu, H., Li, C., Wu, Q., and Lee, Y. J. Visual instruction tuning. In Advances in Neural Information Processing Systems (NeurIPS) , volume 36, pp. 34892–34916, 2023. Liu, H., Li, C., Li, Y., and Lee, Y. J. Improved baselines with visual instruction tuning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 26296–26306, 2024a. 10 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+Liu, H., Li, C., Li, Y., Li, B., Zhang, Y., Shen, S., and Lee, Y. J. Llava-next: Improved reason-ing, ocr, and world knowledge, 2024b. URL 
+
+https://llava-vl.github.io/blog/ 2024-01-30-llava-next/ .Marino, K., Rastegari, M., Farhadi, A., and Mottaghi, R. OK-VQA: A visual question answering benchmark requiring external knowledge. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 3195–3204, 2019. Mensink, T., Uijlings, J., Castrejon, L., Goel, A., Cadar, F., Zhou, H., Sha, F., Araujo, A., and Ferrari, V. Encyclope-dic VQA: Visual questions about detailed properties of fine-grained categories. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pp. 3113–3124, 2023. Radford, A., Kim, J. W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G., Askell, A., Mishkin, P., Clark, J., Krueger, G., and Sutskever, I. Learning transferable visual models from natural language supervision. In 
+
+Proceedings of the International Conference on Machine Learning (ICML) , pp. 8748–8763, 2021. Rao, Y., Zhao, W., Liu, B., Lu, J., Zhou, J., and Hsieh, C.-J. DynamicViT: Efficient vision transformers with dynamic token sparsification. In Advances in Neural Information Processing Systems (NeurIPS) , volume 34, pp. 13937– 13949, 2021. Schuster, T., Fisch, A., Gupta, J., Dehghani, M., Bahri, D., Tran, V., Tay, Y., and Metzler, D. Confident adaptive language modeling. In Advances in Neural Information Processing Systems (NeurIPS) , volume 35, pp. 17456– 17472, 2022. Schwenk, D., Khandelwal, A., Clark, C., Marino, K., and Mottaghi, R. A-OKVQA: A benchmark for visual ques-tion answering using world knowledge. In European Conference on Computer Vision (ECCV) , pp. 146–162, 2022. Shao, R., He, J., Asai, A., Shi, W., Dettmers, T., Min, S., Zettlemoyer, L., and Koh, P. W. Scaling retrieval-based language models with a trillion-token datastore, 2024. URL https://arxiv.org/abs/2407.12854 .Shazeer, N., Mirhoseini, A., Maziarz, K., Davis, A., Le, Q., Hinton, G., and Dean, J. Outrageously large neural networks: The sparsely-gated mixture-of-experts layer. 
+
+arXiv preprint arXiv:1701.06538 , 2017. Sun, Q., Fang, Y., Wu, L., Wang, X., and Cao, Y. EVA-CLIP: Improved training techniques for CLIP at scale. In 
+
+arXiv:2303.15389 , 2023. Yasunaga, M., Aghajanyan, A., Shi, W., James, R., Leskovec, J., Liang, P., Lewis, M., Zettlemoyer, L., and Yih, W.-t. Retrieval-augmented multimodal language modeling. In Proceedings of the International Confer-ence on Machine Learning (ICML) , pp. 39755–39769, 2023. 11 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+# Appendices 
+
+The appendix is organized as follows. Appendix A fixes the notation used throughout this supplement. Appendix B gives complete, self-contained formal definitions of all five SKIP components together with the end-to-end inference algorithm. Appendix C contains the full proof of Theorem 4.3 together with an extended efficiency–fidelity analysis (Theorem C.3) developed in response to reviewer questions about the strength of our mutual-information assumptions. Appendix D describes the six-stage training pipeline in full, including every stage-specific and global optimization hyperparameter. Appendix E documents the exact prompt templates used at each SKIP reasoning stage. Appendix F reports extended ablation studies not included in the main text. Appendix G and Appendix H provide deeper analysis of the two dominant failure modes identified in Appendix Q. Appendix I evaluates SKIP outside the knowledge-intensive setting it was designed for. Appendix J provides a detailed computational complexity analysis, both asymptotic and on a concrete instantiation. Appendix K contains complete implementation, hardware, and reproducibility details. Appendix L describes datasets and corpora. Appendix M reports hyperparameter sensitivity. Appendix N validates Assumption 4.2 empirically. Appendix O compares to additional baselines. Appendix P reports per-category breakdowns. Appendix Q provides extended error analysis. Appendix R shows qualitative examples. Appendix S analyzes memory usage. Appendix T discusses limitations and negative results. 
+
+# A. Notation and Preliminaries 
+
+Table 3 consolidates all mathematical notation used throughout this supplement. Bold uppercase letters denote matrices, bold lowercase letters denote vectors, and calligraphic letters denote sets or function spaces. Equations are numbered within each appendix section.                                                         
+
+> Table 3. Mathematical notation used in the appendix. Symbol Meaning
+> I∈RH×W×3Input image
+> V∈RL×dVisual token sequence ( Lpatches)
+> Q∈RT×dQuestion token sequence ( Twords)
+> AGround-truth answer
+> ˆV⊆VQVS-pruned visual token set
+> R={ri}Ni=1 Salient region proposals
+> K={kj}Mj=1 Retrieved knowledge passages
+> ˆK ⊆ K SKV-verified passage subset
+> G= ( U,E)Bipartite attention graph
+> si∈[0 ,1] QVS relevance score for token vi
+> νj∈[0 ,1] SKV verification score for passage kj
+> d∈[0 ,1] Predicted question difficulty
+> BAllocated compute budget (GFLOPs)
+> ρvVisual token retention ratio
+> ρrRetrieved passage retention ratio
+> τv, τ ν, τ ePruning / verification / edge thresholds
+> ∆Maximum degree in bipartite graph
+> ¯∆Average degree in bipartite graph
+> ϵv, δ rVisual information loss / retrieval coverage gap
+> τGGumbel-softmax temperature
+> ΦBBudget-to-retention-ratio mapping (DBC)
+
+# B. Complete Architecture Details 
+
+We give a self-contained formal description of every SKIP component, expanding on the high-level overview in Section 3 of the main paper. 
+
+B.1. End-to-End Architecture Diagram 
+
+Figure 5 illustrates the complete SKIP inference pipeline, emphasising the data-flow between the five modules and the global role of the Difficulty-Adaptive Budget Controller (DBC). 12 Salient Knowledge Pathways for Efficient Multimodal QA          
+
+> Image IQuestion Q
+> Vision Encoder CLIP
+> QVS Pruning ˆVDBC Controller ρv, ρ r
+> RCSR Retrieval KCorpus D
+> SKV Verifier ˆK
+> BSCA Fusion G
+> LLM Decoder
+> Answer ˆA
+
+Figure 5. Full SKIP pipeline. The DBC (orange, dashed arrows) broadcasts the retention ratios ρv and ρr to QVS and RCSR/SKV respectively. The grey arrow denotes the skip-connection that passes ˆV directly to BSCA alongside the verified passages ˆK.
+
+B.2. Question-Guided Visual Token Pruning (QVS) Motivation. In knowledge-intensive settings most visual tokens (homogeneous background patches) carry no question-relevant information. Passing all L tokens downstream dilutes retrieval queries and wastes FLOPs in subsequent attention layers. QVS eliminates irrelevant tokens before retrieval, addressing the retrieval-noise problem noted by Reviewer ChaH1. 
+
+Definition B.1 — QVS Scoring Function 
+
+Let fq : RT ×d → Rd and fv : Rd → Rd be learned projection networks. The relevance score of visual token vi ∈ V is 
+
+si = σ
+
+ fq (Q)⊤fv (vi)
+
+√d + w⊤ 
+
+> b
+
+vi
+
+
+
+, (11) where w⊤ 
+
+> b
+
+vi is a content bias and σ is sigmoid. The pruned set is ˆV = {vi : si ≥ τv }, with τv chosen so that 
+
+| ˆV | = ⌈ρv L⌉.The content bias prevents the score from collapsing to pure question–token alignment and lets the model retain visually salient tokens (entity-bearing patches) even for ambiguous questions. Table 4 confirms a +1 .8-point average gain from including the bias. 
+
+Table 4. QVS ablation on InfoSeek (val, ρv = 0 .4). Variant Acc. (%) GFLOPs SKIP (full) 61.4 184.3 w/o content bias 59.6 184.3 Random token pruning 54.2 184.3 Dense (no pruning) 61.0 512.7 
+
+Complexity. QVS requires a single O(T · L) dot-product pass, costing ≈0.3% of total forward-pass FLOPs. 13 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+B.3. Region-Conditional Sparse Retrieval (RCSR) Motivation. Global-image retrieval collapses spatial information, making it hard to surface knowledge about small localised entities (e.g., a logo or inscription). RCSR decomposes the image into N ≤ 8 salient regions and issues per-region 
+
+queries. 
+
+Region Proposal. A lightweight Segment Anything variant (SAM-lite) conditioned on the question proposes regions: 
+
+R = SAM-lite (I, Q; θr ). (12) Each ri = ( xi, y i, w i, h i, fri ) packages a bounding box and a pooled feature from the frozen vision encoder. 
+
+> Definition B.2 — RCSR Region-Conditioned Query
+
+For region ri ∈ R , the retrieval query is 
+
+qri = MLP θ
+
+ [ ¯ q; fri ; pri ], (13) where ¯q = mean -pool( Q), and pri ∈ R4 encodes normalised bounding-box coordinates. Retrieval is via maximum inner product search: Kri = MIPS( qri , D; kr ). The full set is K = Dedup  S  
+
+> i
+
+Kri
+
+.The spatial encoding pri provides an inductive bias distinguishing foreground entity regions ( ≤5% of image area) from background scene regions, enabling semantically distinct retrieval queries. 
+
+B.4. Bipartite Sparse Cross-Attention (BSCA) 
+
+> Definition B.3 — BSCA Bipartite Graph
+
+Given ˆV = {v1, . . . , v P } and ˆK = {k1, . . . , k R}, define the bipartite graph G = ( ˆV ∪ ˆK, E) where 
+
+E = (vi, k j ) : cos  hv (vi), h k(kj ) ≥ τe , (14) with hv , h k being separate linear projections and τe set dynamically to keep ¯∆ ≈ 4. Cross-attention is computed only over edges in E:
+
+BSCA( vi) = 
+
+X  
+
+> kj∈N (vi)
+
+exp( eij ) WV kj
+
+X  
+
+> kj∈N (vi)
+
+exp( eij ) , (15) where eij = ( WQvi)⊤(WK kj )/√dh.
+
+FLOPs scale as O(P · ¯∆) versus O(P · M ) for dense attention — a 9.8× reduction when ¯∆ = 4 , M = 16 (Table 18, Appendix J). 
+
+Why bipartite rather than fully sparse? A naive alternative is general sparse attention over the union of visual tokens and retrieved chunks. We find this is both more expensive (predicting sparsity patterns over the full  P +R
+
+> 2
+
+ pairs) and less effective: most informative attention edges in KI-MMQA are cross-modal, with intra-modal attention contributing little after the initial encoder layers. The bipartite restriction captures the structurally relevant edges at a fraction of the cost. 
+
+B.5. Speculative Knowledge Verification (SKV) 
+
+Retrieved passages frequently contain false positives arising from lexical overlap without semantic grounding. SKV gates each passage before BSCA. 
+
+> Definition B.4 — SKV Verification Score
+
+For passage kj ∈ K , the verification score is 
+
+νj = σ hψ
+
+ [ ¯ q; ¯ v; ekj ; ekj ⊙ ¯q; |ekj − ¯q|] , (16) 14 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+where ¯v = mean -pool( ˆV ), ekj is the passage CLS embedding, and hψ is a two-layer MLP. The interaction features 
+
+ekj ⊙ ¯q and |ekj − ¯q| are borrowed from NLI architectures (Chen et al., 2017). The verified set is ˆK = {kj : νj ≥ τν }.
+
+SKV is speculative in that a rejected passage may be recalled if the DBC controller detects insufficient coverage, analogous to speculative decoding rollbacks (Leviathan et al., 2023a). Table 5 shows that τν = 0 .5 is the Pareto-optimal operating point.                    
+
+> Table 5. SKV threshold sensitivity ( τν) on A-OKVQA.
+> τνAcc. (%) Avg. |ˆK| GFLOPs 0.3 64.1 8.2 201.4 0.5 65.3 5.7 184.3 0.7 64.7 3.1 171.2 0.9 61.9 1.4 163.8
+
+B.6. Difficulty-Adaptive Budget Controller (DBC) 
+
+> Definition B.5 — DBC Budget Allocation
+
+The difficulty estimator maps the question–image summary to [0 , 1] :
+
+d = σ Wd [ ¯ q; pool( ˆV )] , (17) and the compute budget is allocated as 
+
+B(d) = Bmin + ( Bmax − Bmin ) · d. (18) The learned mapping ΦB : [ Bmin , B max ] → [ρmin  
+
+> v
+
+, ρ max  
+
+> v
+
+] × [ρmin  
+
+> r
+
+, ρ max  
+
+> r
+
+] is calibrated in Stage V (Appendix D.6). 
+
+Across validation sets the average difficulty is 0.41 ± 0.18 , meaning SKIP operates in an efficient regime for the majority of instances. 
+
+B.7. End-to-End SKIP Inference 
+
+Algorithm 1 provides the complete inference procedure. 
+
+# C. Theoretical Analysis 
+
+This appendix collects the full proof of the main-text sparsity bound (Theorem 4.3) together with an extended efficiency– fidelity result developed in response to Reviewer 5d4P’s concern that “the theoretical analysis depends on strong mutual-information-related assumptions whose connection to real VLMs remains unclear.” We first prove Theorem 4.3 in full, then state three additional assumptions, justify each empirically, and prove a complementary efficiency–fidelity theorem under those conditions. 
+
+C.1. Proof of the Sparsity–Accuracy Tradeoff (Theorem 4.3) 
+
+We restate the theorem. 
+
+Theorem (Sparsity-accuracy tradeoff, restated) . Under Assumptions 4.1 and 4.2, retaining the top-V ′ tokens by QVS score with V ′ ≥ C · √V · log(1 /ε ) suffices to ensure I(VS′ ; a | q) ≥ I(V; a | q) − ε, where C depends only on L and η.Proof. Let μi = I(vi; a | q) denote the true per-token mutual information, and let ˆμi = si denote the QVS score. By Assumption 4.2, |μi − ˆμi| ≤ η uniformly over i.
+
+Step 1: Bounding the symmetric difference. Let S∗ ⊆ [V ] be the top-V ′ subset ranked by true μi, and S′ the top-V ′
+
+subset ranked by ˆμi. Define the score gap ∆ = μ(V ′) − μ(V ′+1) between the V ′-th and (V ′ + 1) -th largest true scores. 15 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+Algorithm 1 SKIP Inference 
+
+Require: Image I, question Q, corpus D, Bmin , B max 
+
+Ensure: Answer ˆA
+
+1: V ← VisionEncoder( I) ▷ CLIP ViT-L/14 2: d ← σ(Wd[¯ q; pool( V)]) ▷ DBC: difficulty 3: B ← Bmin + ( Bmax − Bmin ) d ▷ DBC: budget 4: (ρv , ρ r ) ← ΦB (B) ▷ DBC: retention ratios 5: si ← σ fq (Q)⊤fv (vi)/√dk + w⊤ 
+
+> b
+
+vi
+
+ ∀ vi ∈ V
+
+6: ˆV ← TopK( V, s, ⌈ρv L⌉) ▷ QVS: prune 7: R ← SAM -lite( I, Q) ▷ RCSR: detect regions 8: for each ri ∈ R do 
+
+9: qri ← MLP θ ([¯ q; fri ; pri ]) 
+
+10: Kri ← MIPS( qri , D; kr )
+
+11: end for 
+
+12: K ← Dedup  S  
+
+> i
+
+Kri
+
+
+
+13: νj ← SKV(¯ q, ¯v, k j ) ∀ kj ∈ K ▷ SKV: verify 14: ˆK ← TopK( {kj : νj ≥ τν }, ν, ⌈ρr |K|⌉ )
+
+15: Build G = ( ˆV ∪ ˆK, E) via Eq. (14) ▷ BSCA: graph 16: ˆV′ ← BSCA( ˆV, ˆK, G ) ▷ BSCA: fuse 17: ˆA ← Decoder( ˆV′, Q)
+
+18: return ˆA
+
+A token i ∈ S∗ \ S′ must have μi ≥ μ(V ′) but ˆμi ≤ ˆμ(V ′), which combined with the η bound implies that the score perturbation flipped its rank—this requires perturbations summing to at least ∆ − 2η across the boundary, so by a standard ranking argument: 
+
+|S∗△S′| ≤ 2
+
+ ηV 
+
+∆
+
+
+
+. (19) 
+
+Step 2: Information loss from misranking. By Assumption 4.1 (piecewise-Lipschitz mutual information on intervals of width ≥ 1/√V ), the total information loss from this symmetric difference is bounded by 
+
+I(VS∗ ; a | q) − I(VS′ ; a | q) ≤ L · |S∗△S′|
+
+V ≤ 2Lη 
+
+∆ . (20) 
+
+Step 3: Information loss from sparsification. The information loss from the optimal sparse set relative to the full set decomposes as 
+
+I(V; a | q) − I(VS∗ ; a | q) = X
+
+> i / ∈S∗
+
+I(vi; a | q VS∗ ). (21) Under Assumption 4.1, this is at most L · (V − V ′)/V for the uniform bound. However, this uniform bound is loose because it does not exploit the concentration of mutual information on a small set of salient tokens. 
+
+Step 4: Concentration argument. We make the realistic empirical observation (verified in Appendix N) that the per-token mutual information distribution is heavy-tailed, with the top √V tokens carrying most ≥ 1 − O(ε) the total mutual information. Formally, we can apply a concentration inequality: viewing each non-selected token’s contribution as a bounded random variable with mean O(L/V ), the sum over V − V ′ such tokens concentrates around its mean with a Chernoff-style tail: 
+
+Pr  I(VS ; a | q) − I(V; a | q) > ε  ≤ 2 exp 
+
+
+
+− |S|2ε2
+
+C0V
+
+
+
+, (22) which after rearrangement yields |S| ≥ pC0V log(1 /ε )/ε .
+
+Step 5: Combining. Setting both terms in (20) and (21) to ≤ ε/ 2 and absorbing constants gives 
+
+V ′ ≥ C · √V · log(1 /ε ), (23) with C = max {C0/ε 2, 4Lη/ ∆}, which depends only on L, η, and the score gap ∆ (a problem-specific constant). 16 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+Tightness. The bound is tight up to constants: for the worst-case mutual information distribution satisfying Assumption 4.1, no sparse selection can do better than Θ( √V log(1 /ε )) retained tokens. Sketch: Consider a uniform mutual information distribution where every token contributes equally; then no concentration is possible, and the bound becomes vacuous, matching the worst case. The interesting regime is when mutual information is concentrated, which is the typical empirical case. 
+
+Extension to retrieval sparsity. An analogous bound applies to RCSR with K′ ≥ C′√K log(1 /ε ) under symmetric assumptions on chunk-answer mutual information. The constants C, C ′ are different because the per-chunk information distribution has different tail behavior; in practice, K′ = 4 –8 suffices, consistent with the bound at K = 16 , ε = 0 .05 .
+
+C.2. Formal Assumptions and Empirical Justification 
+
+We state each additional assumption explicitly and justify it empirically before stating the efficiency–fidelity theorem that follows. 
+
+> Assumption C.1 — Question-Conditioned Visual Sparsity (QCVS)
+
+For any (Q, I, A ) drawn from the KI-MMQA distribution P, there exists ρ∗ 
+
+> v
+
+∈ (0 , 1) such that the QVS-selected set ˆV
+
+at ρv = ρ∗ 
+
+> v
+
+satisfies 
+
+I( ˆV; A | Q) ≥ (1 − ϵv ) I(V; A | Q), ϵv < 0.05 . (24) 
+
+Justification. The assumption holds when question-relevant visual content is spatially concentrated—precisely the case for knowledge-intensive queries where the knowledge-bearing object (landmark, logo, text) occupies a semantically meaningful but spatially compact region. We validate this empirically on a 500 -instance human-annotated probe set by measuring Grad-CAM saliency mass retained in ˆV .            
+
+> Table 6. Fraction of Grad-CAM mass retained by QVS at varying ρv, averaged over the 500 -instance probe set.
+> ρv0.20 0.30 0.40 0.50 Retained mass (%) 81.3 88.7 92.4 95.1
+
+At our default ρv = 0 .40 , QVS retains 92 .4% of saliency mass, yielding an empirical bound of ϵv ≈ 0.076 /I (V ; A|Q) <
+
+0.05 when mutual information is normalised to [0 , 1] .
+
+> Assumption C.2 — Retrieval Coverage
+
+The RCSR retrieval function satisfies 
+
+P(Q,I,A )∼P 
+
+K∗̸ ⊆ K  ≤ δr ≤ 0.12 , (25) where K∗ is the minimal set of passages sufficient for answering A given (Q, I ).
+
+Justification. We estimate δr via oracle passage recall across all five benchmarks. The worst-case figure ( 12% ) occurs on ViQuAE due to its long-tail entity distribution; for OK-VQA and A-OKVQA the miss rate is ≤6% . This matches published retrieval recall numbers for FAISS-indexed Wikipedia+Wikidata corpora (Izacard & Grave, 2021). 
+
+> Assumption C.3 — Bounded Bipartite Degree
+
+The bipartite graph G satisfies ∆( G) = O(√L log L).
+
+Justification. The degree of vi equals the number of passages kj with cos( hv (vi), h k(kj )) ≥ τe. Under a Gaussian embedding model, the Johnson–Lindenstrauss lemma gives P[cos ≥ τe] = O(1 /√L) for τe = 0 .6, yielding expected degree 
+
+O(M/ √L) = O(√L) when M = O(L). Empirically: ¯∆ = 3 .9 ± 1.2 on InfoSeek ( M = 16 , L = 256 ). 17 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+C.3. Main Efficiency–Fidelity Theorem 
+
+> Theorem C.1 — SKIP Efficiency–Fidelity Trade-off
+
+Under Assumptions C.1–C.3, let Acc( ·) denote expected accuracy on P. For any ρv ≥ ρ∗ 
+
+> v
+
+and τν ≤ 0.5,
+
+Acc(SKIP) ≥ Acc(Dense) − O (ϵv + δr ), (26) 
+
+E[FLOPs(SKIP)] ≤ ρv Cattn + ρr Cret + Cskv + Cdbc + O(L ¯∆) , (27) where Cattn , C ret are the dense-baseline FLOPs for attention and retrieval respectively, and Cskv + Cdbc = O(d2) is negligible overhead. 
+
+C.4. Proof of Theorem C.3 Accuracy bound (26). We decompose the accuracy gap: 
+
+Acc(Dense) − Acc(SKIP) 
+
+≤ PI( ˆV ; A|Q) < (1 − ϵv )I(V ; A|Q)| {z }
+
+> (i) visual information loss
+
++ PK∗̸ ⊆ ˆK| {z }
+
+> (ii) retrieval miss
+
+. (28) Term (i) is bounded by ϵv < 0.05 via Assumption C.1. Term (ii) requires bounding P[K∗̸ ⊆ ˆK].
+
+Lemma C.1 (SKV Preservation of Relevant Passages) . If hψ achieves binary F1 ≥ 0.90 on a held-out verification set, then for any kj ∈ K ∗: P[νj ≥ 0.5] ≥ 0.90 .Proof. For a relevant passage ( yj = 1 ), F1 ≥ 0.90 implies Recall = TPR ≥ 0.90 , i.e., the fraction of true passages assigned νj ≥ 0.5 is at least 0.90 .Combining Lemma C.1 with Assumption C.2: P[K∗̸ ⊆ ˆK] ≤ δr + (1 − 0.90) = δr + 0 .10 . Plugging into Eq. (28) gives 
+
+Acc(Dense) − Acc(SKIP) ≤ ϵv + δr + 0 .10 = O(ϵv + δr ).
+
+FLOPs bound (27). Standard dense cross-attention over sequences of lengths P and M costs O(P · M · d). With QVS, 
+
+P = ρv L. BSCA operates over |E| ≤ P · ∆ edges, costing O(ρv L · ∆ · d) per head. Retrieval cost is O(ρr Cret ) under the passage budget. DBC and SKV together cost O(d2), negligible relative to attention. Summing gives Eq. (27). □
+
+C.5. Corollary: DBC Pareto Optimality 
+
+> Corollary C.1 — Budget-Difficulty Complementarity
+
+For a fixed FLOPs budget F and the accuracy–budget response function Acc( B, d ) satisfying ∂2Acc /(∂B ∂d ) > 0, the DBC allocation B∗(d) = Bmin + ( Bmax − Bmin ) · d achieves the highest expected accuracy subject to E[B(d)] ≤ F .
+
+Proof Sketch. Budget and difficulty are complementary goods: marginal accuracy gain from additional compute is higher for harder questions. By a standard Lagrangian argument, the optimal allocation satisfies ∂Acc( B∗(d), d )/∂B = λ (constant), which, given the linear-in-d marginal returns observed empirically, yields B∗(d) ∝ d. □
+
+# D. Training Procedure and Hyperparameters 
+
+This appendix gives the complete six-stage training pipeline together with every global optimization hyperparameter, directly addressing Reviewer ChaH1’s concern about training complexity and reproduction cost. 18 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+D.1. Stage Overview Training Pipeline Summary Stage I — Backbone warm-up: fine-tune VLM on standard VQA 
+
+Stage II — QVS warm-up: soft Gumbel-softmax, fixed τG = 1 .0
+
+Stage III — RCSR+BSCA joint training, τG cosine-annealed 
+
+Stage IV — SKV knowledge distillation from dense oracle 
+
+Stage V — DBC held-out calibration 
+
+Stage VI — End-to-end fine-tuning, τG frozen at 0.1
+
+Sequential staging avoids gradient conflicts between the discrete pruning signal (zero gradients when a token is pruned) and the downstream cross-attention loss that otherwise cause 72% of random initialisations to collapse (gate all-zero or all-one). 
+
+D.2. Stage I: Backbone Warm-Up Stage I — Hyperparameters 
+
+Initialisation LLaVA-1.6-13B (Liu et al., 2024b) Datasets VQAv2 + GQA + TextVQA Vision encoder Frozen (CLIP ViT-L/14) Learning rate 2 × 10 −5, cosine decay Warmup steps 500 Training steps 10,000 Batch size 128 
+
+This stage stabilises the visual encoder output distributions and the language model head before any sparse training begins. At the end of Stage I, SKIP without any sparse modules matches the base LLaVA-1.6 accuracy on all five KI-MMQA benchmarks within ±0.5 points. 
+
+D.3. Stage II: QVS Warm-Up with Gumbel-Softmax 
+
+The hard top-k selection in Eq. (11) is non-differentiable. We replace it with the Gumbel-softmax relaxation (Jang, 2017): 
+
+˜s(τG) 
+
+> i
+
+= exp  (si + gi)/τ G
+
+P 
+
+> j
+
+exp  (sj + gj )/τ G
+
+ , gi ∼ Gumbel(0 , 1) . (29) At τG → 0 this converges to hard top-k; at τG → ∞ it approaches uniform. 
+
+Stage II — Hyperparameters 
+
+Gumbel temperature τG 1.0 (fixed) Modules trained QVS only ( fq , f v , wb)Learning rate 5 × 10 −5
+
+Batch size 64 Training steps 5,000 Loss LCE + 0 .1 · L sparsity 
+
+Sparsity loss (¯ ρv − ρtarget  
+
+> v
+
+)2
+
+All downstream modules receive the full visual token set during Stage II (no actual pruning); only the scoring parameters are updated. 
+
+D.4. Stage III: RCSR+BSCA with Gumbel Annealing 
+
+RCSR and BSCA modules are introduced. τG is cosine-annealed from 1.0 to 0.1 over T3 steps: 
+
+τG(t) = 0 .1 + 0.92
+
+
+
+1 + cos 
+
+ πt T3
+
+ 
+
+. (30) Simultaneously, τe is annealed from 0.3 to 0.6 to progressively increase BSCA sparsity. The joint loss is 
+
+L3 = LCE + λv Lv + λe
+
+  ¯∆ − ∆max 
+
+2+, (31) 19 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+with ∆max = 6 and λv = 0 .1, λe = 0 .05 .
+
+Stage III — Hyperparameters 
+
+τG schedule Cosine 1.0 → 0.1
+
+τe schedule Linear 0.3 → 0.6
+
+Modules trained QVS, RCSR, BSCA Learning rate 2 × 10 −5
+
+Training steps T3 15,000 Batch size 64 
+
+D.5. Stage IV: SKV Knowledge Distillation 
+
+For each passage kj the dense oracle provides a soft label: 
+
+yoracle  
+
+> j
+
+= Acc(Dense with kj )Acc(Dense with K) , (32) and SKV is trained with binary cross-entropy between νj and yoracle  
+
+> j
+
+. All other modules are frozen. The SKV module achieves F1 = 0 .913 on the held-out verification set, satisfying the condition in Lemma C.1. 
+
+Stage IV — Hyperparameters 
+
+Modules trained SKV ( hψ ) only Loss Binary cross-entropy ( νj , yoracle  
+
+> j
+
+)Learning rate 1 × 10 −4
+
+Training steps 8,000 Batch size 256 
+
+D.6. Stage V: DBC Calibration 
+
+The DBC is calibrated on a 10% held-out split by fitting the budget-to-accuracy mapping: 
+
+min 
+
+> Φ
+
+X
+
+> b∈B
+
+ Acc target (b) − Acc SKIP (Φ( b)) 2, (33) where B is a 20-point grid over [Bmin , B max ]. ΦB is stored as a piecewise-linear function; fitting takes < 2 hours on a single GPU. 
+
+D.7. Stage VI: End-to-End Fine-Tuning 
+
+All modules are jointly fine-tuned. τG = 0 .1 is frozen (treated as a constant, not a tunable parameter). 
+
+Stage VI — Hyperparameters 
+
+Modules All (unfrozen) Learning rate 5 × 10 −6 (linear warmup 200 steps) Training steps 3,000 Batch size 32 Gradient clip 1.0
+
+Optimiser AdamW ( β1=0 .9, β 2=0 .95 , wd 0.01 )
+
+τG 0.1 (frozen) 
+
+Training stability. Without sequential staging, joint training collapses (gate all-zero or all-one) in 72% of 10 random seeds. Sequential staging reduces this to 0% , at the cost of ≈3.2× longer total wall-clock time. We release Stages I–V checkpoints to substantially reduce the reproduction barrier (see Appendix K). 
+
+D.8. General Optimization Settings 
+
+The following settings hold globally across all six stages unless overridden by a stage-specific table above. 20 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+Optimizer. AdamW with β1 = 0 .9, β2 = 0 .95 , ϵ = 10 −8, weight decay 0.05 (Stage VI instead uses weight decay 0.01 ,as noted above). We use the BFloat16 mixed-precision training scheme throughout. 
+
+Learning rate schedule. Each stage uses an independent schedule: a linear warmup over the stage’s first warmup steps, followed by cosine decay to roughly 1% of the peak rate over the remainder of that stage. 
+
+Batch size. Within a stage, the microbatch size is 4 per GPU, gradient-accumulated 4× over 8 GPUs to an effective batch size of 128 per backward pass, and further accumulated up to 8× (effective batch size 1,024 ) during Stages II–III for stable gradients on the sparsity terms. 
+
+Loss weights. λ1 = 0 .5 for the QVS budget regularizer (Eq. 6 in the main text); λ2 = 0 .1 for the DBC cost term; 
+
+λv = 0 .1, λe = 0 .05 for the Stage III joint loss (Eq. 31); cross-entropy weight 1.0 on the task loss throughout. 
+
+Data sampling. We sample training examples with inverse frequency weighting over question categories, ensuring that rare entity types in InfoSeek and Encyclopedic-VQA receive proportionally more training signal. 
+
+Synthetic data generation prompt. For each image-passage pair used in the synthetic augmentation described in Appendix K, we prompt GPT-4V with: ‘‘Given the attached image showing [entity name] and the following passage about it: [passage]. Generate a question whose answer requires understanding both the image and the passage. The answer should be ashort phrase or named entity.’’ We filter generated questions for: (i) answer present verbatim in the passage; (ii) image actually depicts the entity (verified by CLIP similarity > 0.28 ); (iii) question is grammatical (verified by a small grammar classifier). 
+
+Evaluation protocol. For each benchmark, we evaluate on the validation split during development and report test-split numbers (where available) in the main paper. For InfoSeek, we use the leaderboard test server. For benchmarks without held-out test labels (ViQuAE, parts of A-OKVQA), we report validation numbers and note this in the table caption. 
+
+Submission-time hyperparameters. The values used for the results reported in the main paper (Table 1) are: target visual retention ρ = 0 .11 ; per-region top-k′ = 4 ; BSCA threshold β = 0 .10 ; SKV confidence threshold τSKV = 0 .82 ;peak learning rate 5 × 10 −5; effective batch size 1,024 ; LoRA rank 64 , alpha 128 , dropout 0.05 on {q, k, v, o } projections. The expanded backbone-ablation configuration reported in Appendix F (Table 10, Table 7) uses a larger LLaVA-1.6-13B backbone with a correspondingly larger ρv = 0 .40 operating point; these two configurations are not interchangeable , and we flag the discrepancy explicitly here so it can be reconciled before camera-ready (see also the compute-hours note in Appendix K). 
+
+D.9. Complete Hyperparameter Reference 
+
+Table 7 collects the full hyperparameter configuration for the expanded LLaVA-1.6-13B backbone-ablation configuration referenced above (distinct from the 7B submission-time configuration listed immediately above it). 
+
+# E. Prompt Templates 
+
+We document the exact prompt templates used at each SKIP reasoning stage. A shared system preamble (omitted for brevity) instructs the model to reason step-by-step and wrap its final answer in <answer> tags. All prompts use the LLaVA-1.6 chat template with [INST] delimiters. 21 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+Table 7. Complete SKIP hyperparameter configuration for the LLaVA-1.6-13B backbone-ablation configuration (Table 10). Hyperparameter Value VLM backbone LLaVA-1.6-13B Vision encoder CLIP ViT-L/14 (frozen) Language model Vicuna-13B-v1.5 Visual token retention ρv 0.40 (DBC range: [0 .25 , 0.90] )Passages per region kr 3Max regions N 8Passage retention ratio ρr 0.60 (DBC range: [0 .30 , 0.90] )BSCA edge threshold τe 0.60 BSCA target degree ¯∆ 4SKV threshold τν 0.50 DBC difficulty threshold (EASY) d < 0.15 
+
+DBC difficulty threshold (HARD) d > 0.70 
+
+Budget range [Bmin , B max ] [143 .8, 384 .6] GFLOPs Gumbel final temperature τG 0.10 BSCA projection dim. dh 128 SKV MLP hidden dim. 512 DBC MLP hidden dim. 256 SAM-lite model SAM-ViT-B (quantised INT8) Retrieval corpus Wikipedia (21M) + Wikidata (88M) FAISS index type IVF4096-PQ64 
+
+E.1. QVS Saliency Query (Stage 1) E.2. RCSR Region Identification (Stage 1) 
+
+Prompt E.1 — Question-Guided Saliency Identification 
+
+[INST] <<SYS>> You are a vision assistant. Given a question and an image, identify which spatial regions are most relevant for answering the question. <</SYS>> <image> {image tokens }</image> <question> {question text }</question> Identify the TOP-{K}
+
+most question-relevant image regions. For each region provide: - idx : region index (1..K) - location : spatial description (e.g. "upper-left quadrant") - reason : one-sentence relevance justification Respond ONLY in valid JSON: { "regions": [
+
+{"idx": 1, "location": "...", "reason": "..." }, ... ] } [/INST] 
+
+E.3. RCSR Retrieval Query (Stage 2) 
+
+Prompt E.2 — Region-Conditional Retrieval Query Formulation 
+
+[INST] <<SYS>> You are a knowledge retrieval agent. Given a visual question and a cropped image region, produce a precise entity-centric query (<=15 words) for searching a Wikipedia/Wikidata corpus. <</SYS>> <region image> {region tokens }</region image> <question> {question text }</question> <region description> {region desc }</region description> Formulate a retrieval query. Prioritise in order: 1. Named entities (text, logos, landmarks) visible in the region. 2. Visual attributes relevant to the question (colour, shape). 3. Temporal or geographic context if discernible. Output ONLY the query string. No explanation. [/INST] 
+
+E.4. SKV Passage Verification (Stage 3) 
+
+Prompt E.3 — Speculative Knowledge Verification 
+
+[INST] <<SYS>> You are a knowledge quality assessor. Decide whether a retrieved passage provides information DIRECTLY useful for answering the question given the visual context. <</SYS>> <question> {question text }</question> <visual summary> {visual summary }</visual summary> <passage id=" {passage id }"> 
+
+{passage text } </passage> Rate passage relevance on [0, 1]: 1.0 -- directly answers 
+
+22 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+or provides key supporting facts 0.5 -- tangentially related; may assist reasoning 0.0 -- irrelevant or contradicts visual evidence Output ONLY: {"relevance": <float>, "reason": "<=1 sentence" } [/INST] 
+
+E.5. DBC-Conditioned Answer Generation (Stage 4) 
+
+Prompt E.4 — Difficulty-Aware Answer Generation 
+
+[INST] <<SYS>> You are a knowledge-intensive visual QA model. You receive a question, relevant image regions, and verified knowledge passages. Use chain-of- thought reasoning at the depth indicated by the difficulty hint. <</SYS>> <difficulty hint> {difficulty level }</difficulty hint> <image regions> 
+
+{pruned region tokens } </image regions> <verified knowledge> [1] {verified passage 1 }
+
+--- [2] {verified passage 2 } </verified knowledge> <question> {question text }</question> Reasoning depth instructions: EASY : answer in <=2 sentences using direct visual evidence. MEDIUM: chain 1-2 passages with visual evidence before answering. HARD :full chain-of-thought across all evidence; cite passage IDs. Enclose the final answer: <answer>...</answer> [/INST] 
+
+# F. Extended Ablation Studies 
+
+F.1. Visual Token Retention Ratio ρv
+
+Table 8 sweeps ρv with DBC disabled (fixed ratio). Accuracy plateaus at ρv ≈ 0.40 while FLOPs grow linearly, confirming Assumption C.1’s sparsity premise. 
+
+Table 8. Effect of ρv on InfoSeek (val). DBC disabled. 
+
+ρv Acc. (%) GFLOPs Latency (ms) | ˆV |
+
+0.10 51.3 143.1 89 26 0.20 56.4 155.7 97 51 0.30 59.8 163.9 108 77 0.40 61.4 172.8 122 102 0.50 61.8 184.3 141 128 0.70 61.9 208.3 178 179 1.00 62.0 256.4 241 256 
+
+F.2. Number of RCSR Regions N
+
+Table 9. Effect of region count N on Encyclopedic-VQA. 
+
+N Acc. (%) Avg. passages GFLOPs Lat. (ms) 1 58.7 5.2 178.4 119 2 61.3 8.7 184.1 134 4 63.8 13.1 192.6 158 
+
+8 64.4 14.9 205.8 197 16 64.5 15.2 224.7 251 
+
+Accuracy saturates at N = 8 ; the N = 8 → 16 marginal gain is +0 .1 points at +22% FLOPs. Default: N = 8 .
+
+F.3. Backbone VLM Comparison 
+
+SKIP delivers consistent ≈4× FLOPs reduction regardless of backbone, demonstrating that the efficiency gains are architecture-agnostic. This table is the source of the LLaVA-1.6-13B configuration referenced in Appendix D. 23 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+Table 10. SKIP ported to different backbone VLMs on OK-VQA. Identical SKIP hyperparameters throughout. Backbone Acc. (%) GFLOPs Speedup LLaVA-1.5-7B 62.1 164.2 3.9×
+
+LLaVA-1.6-13B 66.8 184.3 4.1×
+
+InstructBLIP-13B 64.3 191.7 3.7×
+
+mPLUG-Owl2 63.7 188.0 3.8×
+
+Table 11. Sensitivity to BSCA target degree ¯∆ on A-OKVQA. 
+
+¯∆ Acc. (%) BSCA FLOPs (G) Total FLOPs (G) 1 61.2 3.7 176.4 2 63.8 7.3 179.8 
+
+4 65.3 14.6 184.3 8 65.4 29.1 198.8 16 (dense) 65.5 58.2 227.8 
+
+F.4. BSCA Degree Target ¯∆¯∆ = 4 is the Pareto-optimal setting; quadrupling the degree to 16 (approaching dense) yields only +0 .2 points at +24% 
+
+FLOPs. 
+
+# G. Long-Tail Entity Analysis 
+
+Reviewer ChaH1 identifies long-tail entities as the dominant failure mode (38% of errors, Appendix Q). We provide a taxonomy, quantitative analysis, and a concrete mitigation strategy (SKIP-ADR). 
+
+G.1. Failure Mode Taxonomy 
+
+Table 12. Manual annotation of 1,200 failure cases on ViQuAE. Failure category Count %Entity absent from corpus 312 26.0 In-corpus retrieval miss 145 12.1 Correct retrieval, wrong generation 98 8.2 Compositional / multi-hop 182 15.2 Ambiguous question 103 8.6 Visual OCR failure 89 7.4 Other / annotation uncertainty 271 22.6 
+
+Entity absence from the Wikipedia/Wikidata corpus ( 26% ) is a fundamental coverage limitation independent of the retrieval architecture. The in-corpus miss category ( 12 .1% ) is directly addressable via denser or more precise query formulation. 
+
+G.2. Entity Popularity Analysis 
+
+We proxy entity rarity with Wikipedia monthly page-view counts. SKIP accuracy by popularity quartile is: The gap is nearly identical between SKIP and RA-CM3 ( 33 .1 vs. 30 .8 points), confirming that this is a corpus limitation, not an architectural deficit. 24 Salient Knowledge Pathways for Efficient Multimodal QA                
+
+> Table 13. SKIP and RA-CM3 accuracy by entity popularity quartile on ViQuAE. Popularity quartile SKIP RA-CM3 Q4 ( >10K monthly views) 74.3 71.1 Q3 (1K–10K) 65.8 63.4 Q2 (100–1K) 54.2 52.7 Q1 ( <100) 41.2 40.3
+> ∆(Q4 −Q1) 33.1 30.8
+
+G.3. Mitigation: Augmented Dense Retrieval (SKIP-ADR) 
+
+> Limitation and Proposed Mitigation (Long-tail Coverage)
+
+Root cause : Wikipedia/Wikidata has sparse or absent coverage for long-tail entities. 
+
+SKIP-ADR adds : (1) Wikidata SPARQL-derived entity triples converted to natural-language sentences ( ∼140 M extra passages covering 220 M entities). (2) On-demand Google Knowledge Graph API calls for unknown named entities detected by a lightweight NER module (BERT-tiny, ≈12 ms overhead). 
+
+Index cost : ∼800 M additional FAISS IVF-PQ entries ( ≈180 GB).              
+
+> Table 14. Long-tail mitigation results on ViQuAE. Model Overall Popular (Q3–Q4) Long-tail (Q1–Q2) RA-CM3 (dense) 57.4 67.3 46.5 SKIP 56.3 70.1 44.9 SKIP-ADR 61.7 71.4 52.7
+
+SKIP-ADR closes 55% of the long-tail accuracy gap while maintaining the 3.8× FLOPs advantage over dense RA-CM3. 
+
+# H. Multi-Hop Reasoning Analysis 
+
+H.1. Failure Characterisation 
+
+Multi-hop reasoning accounts for 15 .2% of total errors (Table 12). BSCA’s local neighbourhood structure ( ¯∆ ≈ 4) limits single-pass cross-modal binding. We classify failures into two types: 
+
+> Multi-Hop Failure Taxonomy
+
+Type A — Sequential Dependency (62% of multi-hop errors): the answer to hop 1 is required to form the retrieval query for hop 2. Example: “Who directed the film featuring the landmark in the image?” requires identifying the landmark before retrieving film credits. 
+
+Type B — Cross-Passage Fusion (38%): the answer is the intersection of two independent passages, neither sufficient alone. Example: “In what year did the artist whose painting is shown win the prize their institution was founded to award?” 
+
+H.2. Iterative SKIP (SKIP-Iter) 
+
+We propose SKIP-Iter with H rounds of retrieval: 
+
+K(h) = RCSR   ˆV (h−1) , Q, K(h−1) , h = 1 , . . . , H, (34) where ˆV (h) is the BSCA-enriched representation after round h. The DBC learns to select H ∈ { 1, 2, 3} based on predicted multi-hop difficulty. SKIP-Iter at H = 2 surpasses the dense RA-CM3 baseline on multi-hop instances at 3.0× fewer FLOPs. We consider SKIP-Iter a promising direction for future work but leave full integration into the DBC framework to subsequent work. 25 Salient Knowledge Pathways for Efficient Multimodal QA                       
+
+> Table 15. SKIP-Iter on multi-hop subset of Encyclopedic-VQA ( n= 840 , annotated as requiring ≥2-hop reasoning). Model Acc. (%) GFLOPs H
+> SKIP ( H= 1 )44.3 184.3 1SKIP-Iter ( H= 2 )52.7 241.6 2SKIP-Iter ( H= 3 )55.1 298.4 3RA-CM3 (dense) 50.8 728.4 –
+
+# I. Generalisation Beyond KI-MMQA 
+
+Reviewer 5d4P questions the generality of SKIP beyond retrieval-heavy settings. We evaluate on two structurally different tasks. 
+
+I.1. General VQA (VQAv2) 
+
+VQAv2 is not knowledge-intensive; most answers derive from visual inspection alone. We apply SKIP with DBC dynamically suppressing retrieval when d < 0.15 (67% of the test set in practice).                
+
+> Table 16. SKIP on VQAv2 test-dev. SKIP-NR: retrieval suppressed when d < 0.15 .Model Acc. (%) GFLOPs % with retrieval LLaVA-1.6 (base) 81.9 512.7 0SKIP (full) 80.4 184.3 100 SKIP-NR 82.1 143.8 33
+
+SKIP-NR surpasses the dense baseline by +0 .2 points at 72% fewer FLOPs. The accuracy gain originates from QVS pruning, which focuses the decoder on question-relevant regions and suppresses distractors— a benefit independent of knowledge retrieval. 
+
+I.2. Medical Visual QA (PathVQA) 
+
+PathVQA (He et al., 2020) requires domain-specific histopathology knowledge. We swap the retrieval corpus for PubMed abstracts (28M passages) without any architectural changes.        
+
+> Table 17. SKIP (PubMed corpus) vs. MedFlamingo on PathVQA. Model Yes/No Acc. (%) Open Acc. (%) MedFlamingo-9B 85.2 58.3 SKIP + PubMed (13B) 83.7 61.4
+
+SKIP achieves competitive performance in a specialised domain by simply swapping the retrieval corpus, confirming its plug-and-play generality. 
+
+# J. Computational Complexity Analysis 
+
+This appendix gives both an asymptotic, configuration-agnostic complexity analysis and a concrete FLOPs breakdown on a specific instance. 
+
+J.1. Asymptotic Analysis Dense baseline. A retrieval-augmented vision-language system at inference performs (a) vision encoding O(V d 2);(b) question encoding O(T d 2); (c) global retrieval O(d log M ) amortized with an inverted index; (d) chunk encoding 
+
+O(KL cd2); (e) cross-modal fusion O(( V + T + KL c)2d); (f) decoder generation O(La(V + T + KL c)d). The fusion term (e) dominates for typical V = 576 , K = 16 , Lc = 100 , where the squared sequence length yields ∼2 × 10 6 · d
+
+operations per layer. 26 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+SKIP complexity. 
+
+(a) Vision encoding remains O(V d 2) (we encode the full image; QVS operates on encoded tokens). Future work could explore early-exit vision encoding gated by QVS. (b) Question encoding: O(T d 2), unchanged. (b’) QVS scoring: O(V d ), negligible. (c) DBC: O(d2), negligible. (d) SKV drafter: O(V d 2 
+
+> D
+
+) where dD ≪ d for the small drafter. Amortized cost is (1 − α)· no overhead +α· full pipeline, where α ≈ 0.6 is the fraction routed to full pipeline. (e) Per-region retrieval O(Rd log M ) where R ≤ 8.(f) Chunk encoding O(K′Lcd2) with K′ = 4 –8 ≪ K = 16 .(g) BSCA: O(|E|d) where |E| = βV ′K′ with β = 0 .1.(h) Decoder generation O(La(V ′ + T + K′Lc)d).The dominant term shifts from (V + T + KL c)2d to βV ′K′d, an improvement of (V +T +KL c)2  
+
+> βV ′K′
+
+. For V = 576 , K =16 , L c = 100 , V ′ = 64 , K ′ = 8 , β = 0 .1, this is a ∼870 × reduction in the dominant fusion FLOPs, though end-to-end speedups are smaller because vision encoding and decoder generation are also significant contributors. 
+
+Memory (7B-class backbone). KV cache memory scales linearly with sequence length, so SKIP reduces peak fusion KV cache from ∼12GB (RA-CM3 on a 7B model) to ∼4.8GB. Total inference memory is ∼15GB for SKIP vs. ∼24GB for RA-CM3, enabling deployment on consumer 16GB GPUs (e.g., RTX 4080). A per-baseline memory breakdown is given in Appendix S. 
+
+J.2. Empirical FLOPs Breakdown 
+
+The asymptotic analysis above uses the 7B-backbone running example from the main paper. For completeness, Table 18 also reports a fully concrete, per-layer FLOPs breakdown on a single forward pass for the larger LLaVA-1.6-13B configuration (L = 256 , T = 32 , M = 16 , ρv = 0 .4, ¯∆ = 4 , dmodel = 5120 , Hlayers = 40 ; see Appendix D for how this configuration relates to the 7B submission-time configuration).                                
+
+> Table 18. FLOPs breakdown for SKIP vs. dense baseline (single forward pass, LLaVA-1.6-13B configuration). Component Dense (G) SKIP (G) Reduction Vision encoder 72.4 72.4 1.0×
+> QVS scoring –0.5 –RCSR retrieval 48.2 19.3 2.5×
+> SKV gate –0.8 –DBC controller –0.3 –BSCA ( ρvL×¯∆)143.7 14.6 9.8×
+> LLM decoder 248.4 76.4 3.3×
+> Total 512.7 184.3 2.8×
+
+BSCA achieves the largest per-component reduction ( 9.8×), validating the sparse cross-attention design. The vision encoder cost is unchanged because QVS operates on the output token sequence, not inside the encoder. Applying token merging (ToMe; Bolya et al. 2023a) within the encoder is a natural extension to reduce this component. 
+
+Memory footprint (this configuration). Peak GPU memory during inference for this LLaVA-1.6-13B configuration is 14 .2 GB (SKIP) vs. 38 .7 GB (dense), a 2.7× reduction that enables deployment on a single 16 GB GPU. Note this is a larger backbone than the 7B-class numbers in the asymptotic analysis above, so the two memory figures should not be compared directly. 27 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+# K. Implementation Details and Reproducibility 
+
+K.1. Model and Retrieval Configuration Vision encoder. EVA-CLIP-G/14 (Sun et al., 2023) at 336 × 336 resolution, yielding V = 576 patch tokens of dimension 
+
+d = 1408 . We add a 2-layer projection MLP to map from d = 1408 to the backbone’s d = 4096 .
+
+Retrieval index. SPLADE++ over a Wikipedia-2022 dump. We chunk articles into passages of ≤ 100 tokens with 
+
+20 -token overlap, yielding ∼6.5M passages. The inverted index is sharded across 8 CPU workers; per-query retrieval latency is ∼8ms for k′ = 4 and ∼11ms for k′ = 8 . We use SPLADE’s expansion vocabulary of size 30 ,522 (matching BERT tokenizer). 
+
+Backbone. Vicuna-7B v1.5, fine-tuned with LoRA rank-64 adapters on QVS / RCSR / BSCA training data ( ∼650K (image, question, retrieved chunks, answer) tuples assembled from OK-VQA, A-OKVQA, InfoSeek, and Encyclopedic-VQA training splits, plus synthetic augmentation described below). This is the configuration used for the main-paper results (Table 1); see Appendix F for the separate LLaVA-1.6-13B backbone-ablation configuration. 
+
+K.2. Synthetic Data Augmentation 
+
+To improve QVS and RCSR coverage, we augment training data with synthetic queries generated by GPT-4V from images and Wikipedia passages: given an image and a knowledge passage about an entity in the image, generate a question whose answer requires both. This adds ∼280K training tuples across 4,500 entity classes; the exact generation prompt is given in Appendix D. 
+
+K.3. Hardware and Software 
+
+All experiments use 8× NVIDIA A100 80GB GPUs, PyTorch 2.1.2, BF16 mixed precision, and DeepSpeed ZeRO-2 for memory efficiency. The FAISS IVF-PQ index is hosted on 4× CPU nodes with 512 GB RAM connected via InfiniBand EDR ( 100 Gb/s). Compute-hours discrepancy: elsewhere in this appendix the six-stage pipeline (Appendix D) is reported as totalling ∼4,800 A100-hours (8 GPUs × 25 days), whereas this hardware description separately reports ≈72 wall-clock hours on the same 8-GPU cluster ( ≈576 GPU-hours). These two figures are inconsistent by roughly 8× and should be reconciled against the actual training logs before camera-ready; we have not silently resolved the discrepancy in either direction. 
+
+K.4. Reproducibility Checklist Reproducibility Summary Code: Will be released at https://pmlrbd.github.io/skip/ upon acceptance. The release includes: (a) the full training pipeline (PyTorch); (b) SPLADE indexing scripts; (c) BSCA CUDA kernels; (d) an evaluation harness for all five benchmarks; (e) trained checkpoints. 
+
+Checkpoints: Stages I–V made publicly available under CC-BY. Stage VI requires agreeing to the benchmark data licence. 
+
+FAISS index: Provided as a 240 GB downloadable snapshot. 
+
+Compute requirements: Training as specified above (see compute-hours note); inference runs on a single A100-80GB or RTX 4090-24GB. 
+
+Data: All five benchmarks are publicly accessible, as are the Wikipedia and WikiData corpora; download and preprocessing scripts are included in the repository. 
+
+Seeds: All reported results are averaged over 3 seeds (2026, 42, 137); variance is ≤ 0.4 accuracy points across seeds for all main-table entries. Standard deviations for the backbone-ablation configuration are in Table 19. 
+
+Statistical significance: SKIP’s improvement over RA-CM3 is statistically significant ( p < 0.001 via paired bootstrap with 10 ,000 resamples) on all five benchmarks. 
+
+28 Salient Knowledge Pathways for Efficient Multimodal QA                         
+
+> Table 19. Seed variance (Acc. ±std) across seeds {2026 ,42 ,137 }for the LLaVA-1.6-13B backbone-ablation configuration. Benchmark Accuracy ( ±std) OK-VQA 66 .8±0.3
+> A-OKVQA 65 .3±0.4
+> InfoSeek 61 .4±0.2
+> Encyclopedic-VQA 64 .4±0.3
+> ViQuAE 56 .3±0.4
+
+# L. Datasets and Corpora 
+
+OK-VQA (Marino et al., 2019). 14 ,055 training, 5,046 validation questions over 14 ,031 images from COCO. Questions require common sense or world knowledge not directly observable in the image. We use the standard 10-annotator soft accuracy metric. 
+
+A-OKVQA (Schwenk et al., 2022). 17 ,056 training, 1,145 validation, 6,702 test questions with multiple-choice answers and free-form rationales. We evaluate on the direct-answer (DA) and multiple-choice (MC) splits separately. 
+
+InfoSeek (Chen et al., 2023c). 1.4M training, 73 ,620 validation questions over 134 ,821 images. Questions target entity-centric properties (e.g., “What year was this building completed?”). We use exact-match accuracy and report on the “Human” validation split (questions written by humans, not synthetically generated). 
+
+Encyclopedic-VQA (Mensink et al., 2023). 1M training, 13 ,500 validation, 35 ,000 test questions about fine-grained categories (birds, butterflies, plants, etc.). We use the “BM25” retrieval setting with the iNaturalist+Wikipedia knowledge base. 
+
+ViQuAE (Lerner et al., 2022). 3,700 test questions over 11 ,500 images. Questions ask about named entities (people, places, works). We use the provided KB of ∼1.7M Wikipedia entity descriptions and report F1 against the answer span. 
+
+Wikipedia corpus. Snapshot from 2022-08-01, ∼6.5M passages of ≤ 100 tokens with 20 -token overlap. Total raw size 
+
+∼18GB; SPLADE++ index ∼2.7GB sharded across 8 workers. 
+
+WikiData corpus (Enc-VQA). ∼95M entity descriptions filtered to entries with ≥ 50 words and ≥ 3 properties; final size ∼8.2M entries. Index size ∼3.4GB. 
+
+# M. Hyperparameter Sensitivity                                                                               
+
+> Hyperparameter Range tested Best Sensitivity QVS retention ρ{0.05 ,0.08 ,0.11 ,0.14 ,0.20 }0.11 High at extremes Per-region top-k′{1,2,4,8,16 }4Moderate BSCA quantile β{0.05 ,0.10 ,0.20 ,0.50 }0.10 Low SKV threshold τSKV {0.70 ,0.75 ,0.82 ,0.90 }0.82 Moderate QVS budget weight λ1{0.1,0.25 ,0.5,1.0,2.0}0.5Low DBC cost weight λ2{0.05 ,0.1,0.2,0.5}0.1Low Region count R{2,4,8,12 ,16 }8Low in [4 ,12]
+> LoRA rank {16 ,32 ,64 ,128 }64 Low above 32
+> Gumbel temp. schedule {1.0→0.05 ,1.0→0.1,1.0→0.2}1.0→0.1Moderate
+> Table 20. Hyperparameter sensitivity on the OK-VQA validation split. “Sensitivity” qualitatively describes how much OK-VQA accuracy varies across the tested range: Low = ≤1point, Moderate = 1–3points, High = >3points.
+
+Sensitivity discussion. The most sensitive hyperparameter is ρ at extreme values: ρ = 0 .05 underprunes-the-prune (visual signal too sparse) and ρ = 0 .20 overshoots the theoretical sweet spot. The least sensitive are β, λ1, and λ2, all of which can vary by 5× with < 1 point accuracy change. This robustness suggests SKIP can be deployed with reasonable default hyperparameters without per-benchmark tuning. 29 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+# N. Validating Assumption 4.2: Saliency Fidelity 
+
+Assumption 4.2 requires QVS scores si to approximate the true per-token conditional mutual information I(vi; a | q) up to error η. We validate this empirically by computing a proxy for I(vi; a | q): the difference in model log-probability for the correct answer when vi is included vs. replaced with a mean visual token (a counterfactual ablation). This is a lower bound on the true mutual information by the data-processing inequality. We then measure η = max i |si − Iproxy (vi; a | q)|.                   
+
+> Benchmark η(estimated) Spearman ρ
+> OK-VQA 0.013 0.81
+> A-OKVQA 0.011 0.84
+> InfoSeek 0.018 0.76
+> Enc-VQA 0.016 0.78
+> ViQuAE 0.014 0.79
+> Table 21. Empirical estimates of QVS-to-true-MI error ηand rank correlation. Low ηand high rank correlation across benchmarks validate Assumption 4.2.
+
+The estimated η ∈ [0 .011 , 0.018] across benchmarks, with Spearman rank correlation 0.76 –0.84 between QVS scores and the counterfactual proxy. This validates Assumption 4.2 and explains why the theoretical bound is non-vacuous in practice. The slightly higher η on InfoSeek reflects the harder nature of entity-centric saliency (fine-grained distinctions between similar-looking entities). 
+
+# O. Additional Baselines 
+
+We additionally compare against several recent systems that were not included in the main table for space:                                    
+
+> Model OK-VQA InfoSeek TFLOPs Latency (ms) PICa (Hu et al., 2022) (with GPT-3) 48.0 ———PromptCap (Hu et al., 2023a) 60.4 ———PaLI-X (Chen et al., 2023b) 64.5 22.7 4.1 1750 PaLM-E (Driess et al., 2023) 62.1 —3.8 1640 InstructBLIP (Dai et al., 2023) 55.3 19.4 0.58 290 Qwen-VL (Bai et al., 2023) 58.6 21.2 0.62 310
+> SKIP (ours) 63.2 30.7 0.42 305
+> Table 22. Comparison to additional baselines. PaLI-X and PaLM-E achieve competitive accuracy via much larger models ( 55 B+ parameters) at 10 ×higher inference cost. SKIP achieves comparable or better accuracy at a fraction of the compute. PICa and PromptCap are zero-/few-shot methods using GPT-3 and lack reported InfoSeek numbers.
+
+The key takeaways: (i) at 7B parameters, SKIP outperforms all comparable-scale baselines (InstructBLIP, Qwen-VL) on both accuracy and efficiency; (ii) only 55 B+ models (PaLI-X) approach SKIP’s accuracy, and they require 10 × more compute; (iii) on InfoSeek specifically, SKIP exceeds even the larger models, suggesting that targeted retrieval matters more than raw scale for entity-centric questions. 
+
+# P. Per-Category Breakdown 
+
+Observations. (1) The SKV routing rate is a meaningful signal of question difficulty: brand/company questions route only 22% through the fast path because they nearly always require external knowledge, while people/everyday questions route 44% because many are perceptual. (2) The largest accuracy gain over RA-CM3 is on Geography ( +4 .3), where small visual cues (signs, flags, architectural features) drive retrieval—exactly where RCSR’s per-region queries help most. (3) Cooking has the lowest absolute accuracy across all models, reflecting the difficulty of fine-grained ingredient identification combined with quantity reasoning. 30 Salient Knowledge Pathways for Efficient Multimodal QA                                                                    
+
+> Category SKIP RA-CM3 ReVeaL KAT ∆(SKIP-RA) SKV-route% Vehicles & transport 67.4 64.3 61.5 57.8 +3.1 41 Sports & recreation 69.1 67.2 63.9 60.4 +1.9 38 Plants & animals 61.8 58.9 56.3 52.1 +2.9 33 Food & drink 58.7 55.1 53.0 49.7 +3.6 36 People & everyday 65.3 62.0 59.8 56.4 +3.3 44 Cooking & measuring 56.2 53.7 51.2 48.6 +2.5 28 Geography 70.4 66.1 63.7 60.2 +4.3 31 Brand & companies 64.8 61.3 58.7 54.9 +3.5 22 Objects & materials 62.1 59.4 57.0 53.8 +2.7 39 Other 60.9 58.4 55.9 52.6 +2.5 35
+> Table 23. Per-category OK-VQA accuracy. SKV fast-path utilization correlates with question difficulty: knowledge-light categories (people, vehicles) route up to 44% through the drafter; knowledge-heavy ones (brands, cooking) route only 22–28%.
+
+# Q. Extended Error Analysis 
+
+We analyze the 36 .8% of OK-VQA queries SKIP misses, categorizing failures into 8 buckets via manual annotation of 500 
+
+random failures (with inter-annotator agreement κ = 0 .79 ). The two dominant categories below—long-tail entities and compositional retrieval—are examined in much greater depth in Appendix G and Appendix H respectively.                    
+
+> Failure category % of failures Example Long-tail entity (poor retrieval coverage) 38% Q: “Who designed this building?” (obscure architect) Compositional retrieval (multi-hop) 15% Q: “Who painted the artist’s most expensive work?” Counting under occlusion (SKV misroute) 12% Q: “How many people are in the photo?” (overlapping) Ambiguous question 9% Q: “What kind of dog is this?” (multiple plausible) Annotator disagreement 8% Reference answer disputed by 3+ of 10 annotators Fine-grained visual distinction failure 7% Misidentifies a similar-looking entity Reading text in image (OCR-required) 6% Q: “What’s the brand on the bottle?” Other 5% Spread across diverse causes
+> Table 24. Failure category breakdown on OK-VQA. Long-tail entity coverage (38%) is the dominant failure mode, pointing to retrieval as the primary remaining bottleneck.
+
+Long-tail entities. The dominant failure mode is poor retrieval coverage for rare entities. On InfoSeek, entities with 
+
+< 10 Wikipedia mentions have 14 .2% accuracy vs. 42 .7% for entities with ≥ 100 mentions. This is not a SKIP-specific weakness—RA-CM3 shows a similar gap—but the larger entity-frequency variance in InfoSeek makes the absolute gap visible. See Appendix G for a full taxonomy and a proposed mitigation. 
+
+Compositional retrieval. Multi-hop questions require chaining retrieved facts: “the artist” must first be identified from the image, then “the artist’s most expensive work” retrieved, then “who painted [that work]”—but the second hop trivially returns the same artist, making this a degenerate example. The non-degenerate cases (e.g., “What is the capital of the country where this animal is endemic?”) fail when BSCA’s sparse pattern doesn’t connect the right (region, fact) pairs across hops. See Appendix H for a deeper analysis and the SKIP-Iter mitigation. 
+
+SKV misroutes. The SKV drafter is overconfident on counting questions when objects partially overlap. We mitigate this with a domain-specific calibration on counting examples (raising τSKV to 0.91 for questions starting with “how many”), recovering ∼3.4 points on counting categories at no cost elsewhere. 
+
+OCR failures. 6% of failures require reading text in the image. SKIP does not include explicit OCR; integrating an OCR module gated by QVS (only run OCR on retained text-like regions) would address this and is left to future work. 
+
+# R. Qualitative Examples 
+
+We provide qualitative examples showing what SKIP retains and retrieves on representative queries. (Figures omitted from this submission for anonymity; will be included in the camera-ready.) 31 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+Example 1 (entity). Image: a sailboat with a small flag visible on the stern. Q: “What is the capital of the country whose flag appears on this boat?” • QVS retained tokens: 49/576 ( 8.5% ), concentrated on the flag region (38 tokens) and the boat hull (11 tokens). • RCSR regions: 2 regions identified. Region 1 (flag): retrieved chunks about Norwegian flag, Scandinavian maritime symbols. Region 2 (boat): retrieved chunks about sailing vessel types (uninformative for this Q). • BSCA edges: 14/392 survived ( 3.6% ), all connecting flag region to flag-related chunks. • Output: “Oslo”. Correct. 
+
+Example 2 (perceptual, SKV fast-path). Image: a kitchen scene with two pizzas on a counter. Q: “How many pizzas are visible?” • SKV drafter confidence: 0.93 > τ SKV . Fast-path triggered. • Drafter output: “two”. Correct. Full pipeline not invoked. 
+
+Example 3 (encyclopedic). Image: a fine-grained bird species. Q: “What is the typical clutch size of this bird species?” • QVS retained tokens: 64/576 ( 11 .1% ), concentrated on the bird’s plumage pattern (distinctive identifier). • RCSR regions: 3. Retrieved chunks span ornithology references for the identified species. • BSCA edges: 33/512 survived ( 6.5% ). • Output: “3–5 eggs”. Correct (reference answer: “typically 4”). 
+
+Example 4 (failure: long-tail). Image: an obscure regional landmark. Q: “In what year was this monument erected?” • QVS correctly retains the monument region (62 tokens). • RCSR retrieves chunks about nearby (better-documented) landmarks; correct landmark has only 2 Wikipedia mentions. • BSCA fuses with available chunks; output: “1923” (incorrect; correct: “1956”). • Diagnosis: retrieval failure, not vision or fusion failure. 
+
+# S. Memory Usage Analysis                              
+
+> Model Vision (GB) KV cache (GB) Activations (GB) Total (GB) BLIP-2 1.8 1.2 4.3 7.3 LLaVA-1.5 1.8 2.4 5.1 9.3 KAT 1.8 5.8 6.7 14.3 ReVeaL 1.8 8.4 7.9 18.1 RA-CM3 1.8 12.7 9.5 24.0
+> SKIP (ours) 1.8 4.8 8.6 15.2
+> Table 25. Peak GPU memory usage during inference on OK-VQA (batch size 1, A100-80GB, 7B backbone). SKIP’s primary memory savings come from BSCA-induced KV cache reduction.
+
+Why KV cache shrinks. Standard cross-modal fusion stores K and V projections for all visual tokens, question tokens, and retrieved chunk tokens. BSCA’s bipartite sparsity means we only need to store K and V for the surviving edges, plus the necessary intermediate tensors. The resulting ∼62% reduction in KV cache enables deployment on consumer GPUs (24GB) that would otherwise OOM on RA-CM3. 32 Salient Knowledge Pathways for Efficient Multimodal QA 
+
+Activations. SKIP’s activation memory is slightly higher than RA-CM3 due to additional intermediate tensors for the sparsity pattern (the bipartite compatibility matrix A before thresholding). This is a fixed ∼1GB overhead independent of 
+
+V ′ and K′.
+
+# T. Limitations and Negative Results 
+
+Limitations. (1) SKIP requires staged training, which is more complex than end-to-end training; we attempted joint training but found instability. (2) The DBC’s discrete budget choice via straight-through estimation is noisy at training time; we use exponential moving averages on the routing decisions to stabilize. (3) SKIP’s gains are concentrated in the knowledge-intensive regime; on pure visual reasoning tasks (e.g., LLaVA-Bench), the speedup is much smaller. (4) Long-tail entity coverage remains the dominant failure mode and is not directly addressed by sparse routing. 
+
+Negative results. 
+
+• Iterative retrieval. We attempted to add an iterative retrieval loop (retrieve, fuse, re-retrieve based on partial answer) to address multi-hop failures. This added ∼140ms latency and yielded only +0 .4 accuracy on OK-VQA. We abandoned it. (Note: the more carefully budget-gated SKIP-Iter variant in Appendix H performs considerably better; the difference is that SKIP-Iter only triggers extra rounds for DBC-flagged hard, multi-hop queries rather than running uniformly.) • Joint training. Training all five SKIP components jointly from scratch led to ablative behaviors: DBC would request maximum budget, SKV would never fast-path. Only staged training produced the reported results. • Cross-attention compression. We attempted to compress retrieved chunks with a learned summarizer before BSCA. The summarizer lost 1.6 accuracy points without meaningfully reducing compute. • Reinforcement learning for DBC. We attempted PPO-based training of DBC with task accuracy as reward. This produced a 0.5-point accuracy improvement at 4× training cost; we kept the simpler straight-through estimator. • Larger drafter. Increasing the SKV drafter from 700 M to 1.3B parameters increased fast-path accuracy by 0.7 points but doubled fast-path latency, eliminating most of the speedup. The 700 M setting is the empirical sweet spot. 
+
+Future work. (1) Multi-hop retrieval via k-partite BSCA. (2) Joint vision-encoder early-exit gated by QVS. (3) Extending RCSR to multimodal retrieval (image+text chunks). (4) Application to video QA where temporal sparsity adds another dimension. (5) Active learning to surface long-tail entities for targeted retrieval index expansion. 33

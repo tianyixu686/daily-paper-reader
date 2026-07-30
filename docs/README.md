@@ -6,77 +6,79 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-28
-- 运行时间：2026-07-28 21:46:39 UTC
+- 最新运行日期：2026-07-30
+- 运行时间：2026-07-30 21:49:21 UTC
 - 运行状态：成功
 - 本次总论文数：19
 - 精读区：7
 - 速读区：12
 
 ### 今日简报（AI）
-今日精选19篇论文，精读7篇，重点攻克3D场景检索与推理逻辑补丁两大前沿方向。最值得看的是CR-Refiner（9.0分）用最优传输重排序革新编辑条件3D检索，以及Reason Popper-ly（9.0分）以归纳逻辑编程修补上下文推理。建议深度消化这两篇精读论文，再速读速读列表中免训练多跳问答与多模态重识别的新思路。
-- 详情：[/202607/28/README](/202607/28/README)
+今日日报聚焦视觉语言模型效率优化与多模态检索增强生成，共19篇论文，精读7篇、速读12篇。  
+最值得关注：端侧视觉编码器延迟优化（UltraViT）和复杂文档多模态图RAG（HVM-GraphRAG），两篇均获9.0高分。  
+建议深入研究上述两篇核心工作，并关注多模态联邦学习（FedTaste）与模型剪枝（SepPrune）的实用技巧。
+- 详情：[/202607/30/README](/202607/30/README)
 
 ### 精读区论文标签
-1. [CR-Refiner: An Object-Centric Optimal Transport Reranker for Edit-Conditioned 3D Scene Retrieval](/202607/28/2607.19115v1-cr-refiner-an-object-centric-optimal-transport-reranker-for-edit-conditioned-3d-scene-retrieval)  
-   标签：评分：9.0/10、query:mr
-   evidence：编辑条件3D场景检索，跨模态LLM重排序
-2. [Reason Popper-ly: Patching In-Context Reasoning with Inductive Logic Programming](/202607/28/2607.23019v1-reason-popper-ly-patching-in-context-reasoning-with-inductive-logic-programming)  
-   标签：评分：9.0/10、query:mr
-   evidence：通过归纳逻辑编程修复多步推理
-3. [Self-Boosting Vision-Language Models with Noisy Student On-Policy Self-Distillation](/202607/28/2607.23125v1-self-boosting-vision-language-models-with-noisy-student-on-policy-self-distillation)  
+1. [UltraViT: Latency-Optimized On-device Vision Encoder for Large Vision-Language Models](/202607/30/2607.23373v1-ultravit-latency-optimized-on-device-vision-encoder-for-large-vision-language-models)  
    标签：评分：9.0/10、query:post-multi
-   evidence：无需外部监督的视觉-语言模型自蒸馏后训练方法
-4. [DeCoRAG: Cognitive Decoupling and Semantic-Aware Cropping for Complex Document Understanding](/202607/28/2607.24554v1-decorag-cognitive-decoupling-and-semantic-aware-cropping-for-complex-document-understanding)  
+   evidence：面向大型视觉语言模型的视觉编码器优化
+2. [HVM-GraphRAG: Holistic-View Multimodal Graph Retrieval-Augmented Generation on Complex Document](/202607/30/2607.24861v1-hvm-graphrag-holistic-view-multimodal-graph-retrieval-augmented-generation-on-complex-document)  
    标签：评分：9.0/10、query:mr
-   evidence：面向复杂文档理解的多模态检索增强生成
-5. [LAMAR: An Open Language-Aware Multilingual Alignment Reranker](/202607/28/2607.22042v1-lamar-an-open-language-aware-multilingual-alignment-reranker)  
-   标签：评分：8.0/10、query:mr
-   evidence：多语言检索增强生成的重排序器
-6. [Controlling Embedding Spaces with Text-Conditioned Transformations](/202607/28/2607.22919v1-controlling-embedding-spaces-with-text-conditioned-transformations)  
-   标签：评分：8.0/10、query:mr
-   evidence：文本条件变换的属性控制跨模态检索
-7. [MixQuant: Adaptive Mixed-Precision Quantization for Large Language Models](/202607/28/2607.23047v1-mixquant-adaptive-mixed-precision-quantization-for-large-language-models)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：大语言模型的后训练量化技术
+   evidence：面向复杂文档的整体视图多模态图检索增强生成
+3. [Text-Prompted CLAP: Learning Query-Conditioned Audio Representations via Contrastive Learning](/202607/30/2607.25085v1-text-prompted-clap-learning-query-conditioned-audio-representations-via-contrastive-learning)  
+   标签：评分：9.0/10、query:mr
+   evidence：文本与音频间的跨模态检索，使用查询条件表征
+4. [Salient Knowledge Pathways: Sparse Cross-Modal Routing for Efficient Knowledge-Intensive Multimodal Question Answering](/202607/30/2607.25422v1-salient-knowledge-pathways-sparse-cross-modal-routing-for-efficient-knowledge-intensive-multimodal-question-answering)  
+   标签：评分：9.0/10、query:mr
+   evidence：稀疏跨模态路由结合检索的多模态问答
+5. [CMT-RAG: Complementary Memory Traces for Multi-turn Multi-hop RAG](/202607/30/2607.26470v1-cmt-rag-complementary-memory-traces-for-multi-turn-multi-hop-rag)  
+   标签：评分：9.0/10、query:mr
+   evidence：多轮多跳RAG，使用互补记忆轨迹
+6. [SCALPEL: Semantic Cross-modal Alignment via LLM-Powered Encoder Learning for Medical Vision-Language Representation](/202607/30/2607.26885v1-scalpel-semantic-cross-modal-alignment-via-llm-powered-encoder-learning-for-medical-vision-language-representation)  
+   标签：评分：9.0/10、query:mr
+   evidence：医学视觉语言预训练的语义跨模态对齐
+7. [Dual-Path LLM Reasoning for Multimodal Few-Shot Knowledge Graph Completion](/202607/30/2607.26909v1-dual-path-llm-reasoning-for-multimodal-few-shot-knowledge-graph-completion)  
+   标签：评分：9.0/10、query:mr
+   evidence：多模态少样本知识图谱补全的双路径LLM推理
 
 ### 速读区论文标签
-1. [Co-Evolving Graph and Text Memory for Training-Free Multi-Hop Question Answering](/202607/28/2607.23278v1-co-evolving-graph-and-text-memory-for-training-free-multi-hop-question-answering)  
-   标签：评分：8.0/10、query:mr
-   evidence：免训练多跳问答，图-文本记忆协同
-2. [Multi-Modal Object Re-Identification with Prompt-S6 and Semantic-Aware Knowledge Guidance](/202607/28/2607.23451v1-multi-modal-object-re-identification-with-prompt-s6-and-semantic-aware-knowledge-guidance)  
-   标签：评分：8.0/10、query:mr
-   evidence：多模态物体重识别，涉及跨模态交互
-3. [Training Language Models to Cooperate with Inference-Time Controllers](/202607/28/2607.23771v1-training-language-models-to-cooperate-with-inference-time-controllers)  
+1. [FedTaste: Topology-Aware Structural Transfer for Multimodal Federated Learning with Missing Modalities](/202607/30/2607.23245v1-fedtaste-topology-aware-structural-transfer-for-multimodal-federated-learning-with-missing-modalities)  
    标签：评分：8.0/10、query:post-multi
-   evidence：针对语言模型后训练与推理时控制器协作
-4. [Uncovering Latent Reasoning Strategies in Language Models](/202607/28/2607.17674v1-uncovering-latent-reasoning-strategies-in-language-models)  
-   标签：评分：7.0/10、query:mr
-   evidence：语言模型中的潜在推理策略分解
-5. [Efficient Chain-of-Modality Reasoning via Progressive Compression for Spoken Language Models](/202607/28/2607.19932v1-efficient-chain-of-modality-reasoning-via-progressive-compression-for-spoken-language-models)  
-   标签：评分：7.0/10、query:mr
-   evidence：通过渐进压缩实现口语语言模型的链式模态推理
-6. [SEGRA: Structured Experience-Guided Graph Reasoning Agent for Gremlin Based Question Answering](/202607/28/2607.22713v1-segra-structured-experience-guided-graph-reasoning-agent-for-gremlin-based-question-answering)  
-   标签：评分：7.0/10、query:mr
-   evidence：在知识图谱上多跳推理生成Gremlin查询
-7. [Beyond Shapley: An Influence-Based Data Auditing Pipeline for LLM Alignment and Evaluation](/202607/28/2607.22766v1-beyond-shapley-an-influence-based-data-auditing-pipeline-for-llm-alignment-and-evaluation)  
+   evidence：多模态联邦学习处理缺失模态
+2. [SepPrune:A Separator-based Pruning Framework for Efficient Multimodal Large Language Models](/202607/30/2607.25818v1-sepprunea-separator-based-pruning-framework-for-efficient-multimodal-large-language-models)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：基于分隔符的视觉令牌剪枝，提升多模态大模型效率
+3. [KAMR: Grounding Generation via Knowledge-Aligned Multi-hop Retrieval](/202607/30/2607.27136v1-kamr-grounding-generation-via-knowledge-aligned-multi-hop-retrieval)  
+   标签：评分：8.0/10、query:mr
+   evidence：知识对齐的多跳检索用于图基RAG
+4. [MV-Bench: Benchmarking Multimodal Large Language Models for Coordinated Multi-View Interface Construction](/202607/30/2607.19910v1-mv-bench-benchmarking-multimodal-large-language-models-for-coordinated-multi-view-interface-construction)  
    标签：评分：7.0/10、query:post-multi
-   evidence：用于大语言模型对齐与评估的数据审计流水线
-8. [VecTree-RAG: An Agentic Retrieval-Augmented Generation Framework Combining Vector and Tree Retrieval for Efficiency and Accuracy](/202607/28/2607.23006v1-vectree-rag-an-agentic-retrieval-augmented-generation-framework-combining-vector-and-tree-retrieval-for-efficiency-and-accuracy)  
+   evidence：多模态大模型协调多视图界面构建基准
+5. [SHIFT: Self-reconstruction Harnesses Implicit Fine-grained Thinking for Retrieval](/202607/30/2607.21333v1-shift-self-reconstruction-harnesses-implicit-fine-grained-thinking-for-retrieval)  
    标签：评分：7.0/10、query:mr
-   evidence：结合向量与树检索的RAG框架
-9. [Similarity Is Not Logic: Factored Inference for Dual-Encoder Vision-Language Models](/202607/28/2607.23052v1-similarity-is-not-logic-factored-inference-for-dual-encoder-vision-language-models)  
-   标签：评分：6.0/10、query:mr
-   evidence：分解推理解决双编码器视觉语言模型中的组合推理失败问题
-10. [MemChain: Learning Interpretable Memory Traces for Memory-Augmented LLM Agents](/202607/28/2607.24097v1-memchain-learning-interpretable-memory-traces-for-memory-augmented-llm-agents)  
-   标签：评分：6.0/10、query:mr
-   evidence：适用于RAG架构的检索后记忆策略
-11. [MAViE: A Multi-scale Adaptive Vision Encoder for Fine-grained Visual Perception and Efficient Multimodal Reasoning](/202607/28/2607.24424v1-mavie-a-multi-scale-adaptive-vision-encoder-for-fine-grained-visual-perception-and-efficient-multimodal-reasoning)  
+   evidence：LLM检索器解决检索与生成目标不匹配
+6. [Visual Information Extraction from Documents via Classification-Guided Large Vision-Language Models](/202607/30/2607.22723v1-visual-information-extraction-from-documents-via-classification-guided-large-vision-language-models)  
+   标签：评分：7.0/10、query:post-multi
+   evidence：分类引导的大视觉语言模型用于文档信息提取，属于多模态学习方法
+7. [IKS-Instruct: A 24,000-Example Multilingual Dataset for Teaching Language Models Indian Knowledge Systems](/202607/30/2607.23322v1-iks-instruct-a-24000-example-multilingual-dataset-for-teaching-language-models-indian-knowledge-systems)  
+   标签：评分：7.0/10、query:post-multi
+   evidence：用于教授语言模型印度知识系统的大规模多语言指令数据集
+8. [LA-RL: Label-Aware Self-Reflection for Reinforcement Learning in Information Extraction](/202607/30/2607.23420v1-la-rl-label-aware-self-reflection-for-reinforcement-learning-in-information-extraction)  
+   标签：评分：7.0/10、query:post-multi
+   evidence：标签感知强化学习用于对齐
+9. [Be Consistent! Enhancing Robust Visual Reasoning in LVLMs with Consistency Constraints](/202607/30/2607.21722v1-be-consistent-enhancing-robust-visual-reasoning-in-lvlms-with-consistency-constraints)  
    标签：评分：6.0/10、query:post-multi
-   evidence：多尺度自适应视觉编码器用于高效多模态推理
-12. [RP-OPSD: Resolution-Privileged On-Policy Self-Distillation for Multimodal Large Language Models](/202607/28/2607.24447v1-rp-opsd-resolution-privileged-on-policy-self-distillation-for-multimodal-large-language-models)  
+   evidence：面向LVLM的复杂视觉推理基准与一致性约束
+10. [OmniScope: Modality-Decoupled Token Compression for Omnimodal Large Language Models](/202607/30/2607.23193v2-omniscope-modality-decoupled-token-compression-for-omnimodal-large-language-models)  
    标签：评分：6.0/10、query:post-multi
-   evidence：多模态大语言模型的自蒸馏训练方法
+   evidence：面向全模态大语言模型的模态解耦Token压缩
+11. [GOTS: Greedy Orthogonal Token Selection for High-Resolution Vision-Language Models](/202607/30/2607.23913v1-gots-greedy-orthogonal-token-selection-for-high-resolution-vision-language-models)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：视觉语言模型的token缩减多模态学习方法
+12. [Gaze-to-text Generation: Beyond Categorical Decoding of Human Attention](/202607/30/2607.23917v1-gaze-to-text-generation-beyond-categorical-decoding-of-human-attention)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：使用多模态大语言模型解码注视点
 
 
 <div class="dpr-home-promo-card">
