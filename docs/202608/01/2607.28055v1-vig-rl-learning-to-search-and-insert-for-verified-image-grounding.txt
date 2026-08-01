@@ -1,0 +1,780 @@
+Title: VIG-RL: Learning to Search and Insert for Verified Image Grounding
+
+URL Source: https://arxiv.org/pdf/2607.28055v1
+
+Published Time: Fri, 31 Jul 2026 00:55:43 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# VIG-RL: Learning to Search and Insert for Verified Image Grounding 
+
+# Qinhan Yu 1∗, Jun Guang 1∗, Chong Chen 2†, Wentao Zhang 1†
+
+> 1
+
+Peking University, 2Huawei Cloud BU yuqinhan@stu.pku.edu.cn, guangjun000000@gmail.com chenchong55@huawei.com, wentao.zhang@pku.edu.cn 
+
+Abstract 
+
+In knowledge-intensive scenarios, providing reliable inter-leaved text-image responses requires Verified Image Ground-ing (VIG)—the precise integration of retrieved authentic vi-sual evidence. Existing retrieval-augmented frameworks pre-dominantly rely on decoupled, static pipelines, inherently failing to dynamically reason about when external knowl-edge is required and where visual assets should be contex-tually inserted. To bridge this gap, we propose VIG-RL , an autonomous agentic framework that formulates the search-selection-insertion workflow as an active decision-making process. Operating within a dynamic ReAct-style loop, VIG-RL is optimized via reinforcement learning, guided by a com-posite reward system that holistically evaluates the agent’s step-by-step tool execution and final multimodal alignment. Extensive evaluations demonstrate that VIG-RL establishes a new state-of-the-art, significantly outperforming existing static baselines. 
+
+# Introduction 
+
+Large Language Models (LLMs) (Brown et al. 2020; Touvron et al. 2023; Liu et al. 2024) have demonstrated unparalleled proficiency in natural language understanding and genera-tion. However, while contemporary Multimodal Large Lan-guage Models (MLLMs) (Yin et al. 2024; Hurst et al. 2024; Bai et al. 2025; Comanici et al. 2025) have achieved signifi-cant progress in processing multimodal inputs, their genera-tion capabilities remain primarily restricted to single-modal text outputs. This limitation creates a critical gap in real-world scenarios, where users increasingly demand richer, reliably interleaved text-image responses to facilitate a more intuitive and comprehensive understanding of complex in-formation. To address these demands, recent advancements in inter-leaved multimodal generation (Dong et al. 2024; Wu et al. 2024; Wang et al. 2024; Chen et al. 2025) rely predomi-nantly on generative pipelines, whether through unified gen-erative models or the invocation of external image gener-ation tools, to synthesize visual content. While these ap-proaches are capable of producing aesthetically coherent images, their outputs are inherently synthetic, prioritizing visual plausibility over objective factual accuracy. How-ever, in knowledge-intensive scenarios, users explicitly de-mand factually-grounded, verified visual evidence rather than 
+
+> ∗
+
+These authors contributed equally. 
+
+> †
+
+Corresponding author. 
+
+Figure 1: Verified Image Grounding (VIG) vs. Pure Gen-eration. The model-generated image of the Giant Wild Goose Pagoda contains architectural inconsistencies, includ-ing an incorrect number of stories, wrong railing colors, and missing structural details near the arch openings. In con-trast, VIG retrieves authentic photographs, yielding factually grounded and visually consistent multimodal responses. synthetic approximations. As illustrated in Figure 1, when queried about the architectural features of the Giant Wild Goose Pagoda, a renowned historical landmark in China, a generative baseline renders a superficially plausible structure but catastrophically fails at a granular level, hallucinating an incorrect number of structural tiers, misrepresenting the col-oration of the balustrades, and distorting the number of facets surrounding the arched openings. Such deceptive halluci-nations corrupt the visual fidelity required for rigorous in-quiry and mislead textual reasoning. Photorealistic synthetic images cannot substitute for authentic, verifiable real-world documentation retrieved dynamically from reliable archives. This limitation of purely generative pipelines highlights the necessity of Verified Image Grounding (VIG) , where the core objective is to retrieve and seamlessly integrate contextually-aligned, authentic visual evidence into the gen-erated text stream. In this context, "verified images" serve as arXiv:2607.28055v1 [cs.IR] 30 Jul 2026 reliable visual references, generally spanning from naturally captured photographs (e.g., historical landmarks) to human-vetted schematics (e.g., model architectures in academic pa-pers). While recent retrieval-augmented frameworks (Ma et al. 2024; Zhu et al. 2025; Yu et al. 2025; Xiao et al. 2025) have attempted to incorporate such external visual evi-dence, they typically adopt a standard retrieve-then-generate paradigm. This decoupled approach makes it challenging to dynamically orchestrate fine-grained interactions during the generation process. To fulfill the stringent requirements of high-fidelity, interleaved multimodal generation, it is es-sential to develop dynamic reasoning capabilities that can precisely determine when to search, how to query, which evidence to select, and where to seamlessly insert it. To bridge this gap, we propose VIG-RL, an agentic re-inforcement learning framework tailored for the VIG task. Instead of relying on a decoupled retrieve-then-generate pipeline, VIG-RL trains an autonomous agent to dynamically orchestrate the entire search-and-insert process. Operating within a ReAct-style (Yao et al. 2022) interaction loop, the agent is equipped with a versatile action space: (i) text search 
+
+to acquire missing contextual knowledge, (ii) image search to retrieve factual visual evidence, and (iii) answer generation 
+
+to compose the interleaved response. To effectively teach the agent exactly when to execute these actions and where to em-bed the retrieved visual identifiers, we optimize the agent via the GRPO algorithm (Shao et al. 2024). Driven by a multi-dimensional composite reward system that jointly evaluates precise format adherence, efficient search behavior, and the factual accuracy of the final answer, Reinforcement Learning (RL) efficiently aligns the agent’s step-by-step reasoning. By explicitly learning to autonomously manage the provenance and integration of visual evidence, VIG-RL transcends static heuristics, charting a viable path for reliable, knowledge-intensive interleaved multimodal generation. More precisely, our main contributions are summarized as follows: 
+
+• We propose VIG-RL, an agentic framework for the VIG task. By shifting from static heuristics to a dynamic ReAct-style loop, it empowers the agent to autonomously orchestrate complex search and insertion actions. 
+
+• We design a specialized RL paradigm for multimodal agents using GRPO. Guided by a multi-dimensional com-posite reward system, this approach effectively aligns the agent’s step-by-step reasoning to master precise retrieval and insertion policies. 
+
+• Extensive evaluations demonstrate that VIG-RL estab-lishes a new state-of-the-art in interleaved multimodal generation under the VIG paradigm, consistently outper-forming static retrieval-augmented baselines. 
+
+# Related Work 
+
+Interleaved Multimodal Generation. Interleaved text– image generation has been explored through unified mod-els (Chern et al. 2024; Wang et al. 2024; Xie et al. 2025; Zhou et al. 2025; Chen et al. 2025) and tool-use frameworks (Koh, Fried, and Salakhutdinov 2023; Dong et al. 2024; Wu et al. 2024; Shi et al. 2026), but remains prone to factual dis-tortions in knowledge-intensive settings, motivating Verified Image Grounding (VIG) with retrieved authentic images. Recent retrieval-augmented methods have begun addressing VIG (Ma et al. 2024; Zhu et al. 2025); MRAMG-Bench (Yu et al. 2025) is currently the only open-source benchmark with explicit ground-truth placement annotations, while M2IO-R1 (Xiao et al. 2025) adopts a decoupled text-then-insertion pipeline. Unlike these static workflows, VIG-RL formulates VIG as an agentic process that jointly learns when to search, which evidence to select, and where to insert it. 
+
+Agentic Reinforcement Learning. Reasoning models such as OpenAI-o1 (Jaech et al. 2024) and DeepSeek-R1 (Guo et al. 2025) have spurred RL-based agentic rea-soning. Search-R1 (Jin et al. 2025) and R1-Searcher (Song et al. 2025) train LLMs to interact with search engines, while MMSearch-R1 (Wu et al. 2025) and DeepEyes V2 (Hong et al. 2025) extend this paradigm to visual retrieval. VRAG-RL (Wang et al. 2025) and Vision-DeepResearch (Huang et al. 2026) further support iterative visual exploration through operations such as cropping and region-level search, but ultimately produce text-only answers. In contrast, VIG requires agents to retrieve, select, and insert visual evidence into the final interleaved response. 
+
+# Method 
+
+Problem Formulation 
+
+We formally define the task of Verified Image Grounding (VIG). Given a text query q, the objective is to generate an interleaved text-image response A = ( t1, i 1, . . . , t n), where 
+
+tk is a text segment and ik is an inserted image. To ensure factual authenticity and preclude visual hallucinations, VIG strictly prohibits generative image synthesis. Instead, it im-poses a hard provenance constraint: any inserted image must originate from an externally retrieved candidate pool, de-noted as ∀ik ∈ A, i k ∈ I retrieved . The core challenge shifts from pixel-level synthesis to learning an optimal agentic pol-icy that autonomously searches, selects, and inserts verified visual evidence. 
+
+Agentic Interaction Framework 
+
+To solve the VIG task, we formulate the evidence gather-ing and response generation as a sequential decision-making process driven by a ReAct-style (Yao et al. 2022) thinking-then-acting paradigm. Let St denote the accumulated con-text state at step t, initialized with the user query ( S0 = q). At each step, the agent’s policy πθ first generates a rea-soning trace (thinking) to analyze current information gaps: 
+
+rt ∼ πθ (· | St). Conditioned on this reasoning, the agent samples an executable action: at ∼ πθ (· | St, r t) from a pre-defined action space A. The environment executes at, returns an observation ot, and appends it to the context for the next step: St+1 = St ⊕ ⟨ rt, a t, o t⟩, where ⊕ denotes sequence concatenation. To empower the agent to navigate multimodal docu-ments autonomously, we define the action space as A =
+
+{atxt (·), a img (·), a ans }:1. Text Search atxt (qtxt ): The agent formulates a text search query qtxt . The environment invokes a text retriever to Figure 2: Illustration of the VIG-RL workflow. Given a user question, the agent iteratively reasons, performs text/image search, retrieves verified evidence, and composes an interleaved multimodal answer. search an external corpus, returning an observation ot
+
+containing the top-Ktxt relevant textual passages. 2. Image Search aimg (qimg ): The agent generates an image search query qimg . The environment calls a visual retriever to fetch the top-Kimg visual assets from multimodal doc-uments. The observation ot presents each retrieved item to the MLLM as the raw image, its associated textual context, and a unique identifier (e.g., <img:id> ). The identifier is also recorded in the candidate pool Iretrieved 
+
+for subsequent selection and insertion. 3. Answer Generation aans : Once the reasoning trace rt
+
+concludes that sufficient evidence has been aggregated, the agent triggers aans . This action explicitly terminates the search loop. The agent then utilizes the terminal state 
+
+ST to autoregressively decode the final interleaved re-sponse A ∼ πθ (· | ST ).
+
+Symbolic Visual Referencing. To bypass the modality gap, since LLMs cannot natively output visual pixels, we implement symbolic referencing to guarantee factual authen-ticity. The environment maps each retrieved image in Iretrieved 
+
+to a unique discrete identifier (e.g., <img:id> ). During final decoding, the policy simply predicts these symbolic tags to indicate spatial placements within the text stream. These tags are then deterministically replaced with the original source images during rendering, circumventing pixel-level halluci-nation. Additionally, to prevent infinite execution, the interaction loop strictly terminates either upon invoking aans or reaching a maximum horizon Tmax .
+
+Training the agent via GRPO and Composite Rewards 
+
+To endow the MLLM with autonomous agentic capabilities, we optimize it via reinforcement learning using the Group Relative Policy Optimization (GRPO) algorithm (Shao et al. 2024). To holistically supervise the entire trajectory (from intermediate exploration St to the terminal generation A)we design a composite reward system comprising four sub-components as follows: 
+
+Format Reward rformat . This reward ensures the rollout trajectory strictly conforms to the predefined interaction syn-tax, which acts as a binary indicator: rformat = 1 if the roll-out trajectory correctly alternates between reasoning traces 
+
+rt and actions at according to our ReAct-style framework, and all tool invocations are structurally parsable; otherwise, 
+
+rformat = 0 .
+
+Textual Outcome Reward rtxt,LLM . Unlike traditional QA or VQA tasks in Jin et al. (2025); Wu et al. (2025) where Ex-act Match (EM) serves as a reliable metric, the open-ended nature of VIG responses renders rule-based text matching excessively sparse. Since this specific reward focuses exclu-sively on the natural language quality, we isolate the purely textual content Atxt from the generated interleaved response 
+
+A. We then employ a model-based evaluator πjudge to assess the semantic alignment and factual correctness of Atxt against the textual reference A∗
+
+> txt
+
+:rtxt,LLM ∼ πjudge (· | q, A ∗
+
+> txt
+
+, A txt ).
+
+The judge’s raw score is linearly normalized to the interval 
+
+[0 , 1] before being used as the reward signal. Image Insertion Reward rimg,pre . To supervise the in-serted image quality, employing a model-based judge (akin to rtext ) makes the policy highly susceptible to reward hack-ing. Inspired by DeepSeek-R1 (Guo et al. 2025), we combat this using a verifiable, rule-based outcome reward. Let Ians 
+
+denote the explicit image identifiers inserted in A. We com-pute a strict precision score against the ground-truth set I∗.Specifically, we set rimg,pre = 1 when Ians = ∅ and I∗ = ∅,
+
+rimg,pre = 0 when Ians = ∅ and I∗̸ = ∅, and otherwise compute rimg,pre = |I ∗ ∩ I ans |/|I ans |. This objective metric explicitly penalizes the indiscriminate insertion of irrelevant visual assets, anchoring the agent’s multimodal alignment without relying on exploitable evaluators. 
+
+Search Process Reward rsearch . To provide dense supervi-sion over the intermediate retrieval process, we compute the recall of the ground-truth image set I∗ within the accumu-lated candidate pool Iretrieved : rsearch = |I ∗ ∩ I retrieved |/|I ∗|.
+
+This explicitly encourages the policy to actively explore and gather highly relevant visual evidence. 
+
+Gated Composite Reward. Finally, these signals are ag-gregated into a unified reward R:
+
+R = rformat · (rtxt,LLM + rimg,pre + rsearch ).
+
+The multiplicative rformat acts as a strict structural gate, completely zeroing out rewards for invalid trajectories. This forces the agent to master the ReAct execution syntax before optimizing for reasoning and multimodal content quality. 
+
+# Experiments 
+
+Experimental Settings 
+
+Baselines. We compare VIG-RL with strong MLLMs and prior VIG systems under two settings. (1) Static RAG Work-flow: A fixed retrieve-then-generate pipeline retrieves textual and visual evidence once and provides it with the query for direct interleaved response generation. We evaluate GPT-5 (OpenAI 2025), Gemini-2.5-Flash (Comanici et al. 2025), and five Qwen3-VL variants—30B-A3B-Instruct/Thinking, 8B-Instruct/Thinking, and 4B-Instruct (Bai et al. 2025). We also include M2IO-R1-3B (Xiao et al. 2025), which generates a text-only answer before inserting images with a separately trained module. (2) Agentic Search: We deploy the same general-purpose MLLMs as zero-shot agents in the VIG-RL workflow, with identical retrieval tools and action space but no additional training. 
+
+SFT Baseline and Retrieval-Depth Selection. To isolate the benefit of RL from exposure to agentic demonstrations, we train an SFT baseline from the same Qwen3-VL-8B-Instruct initialization on the same 1.1k instances. For each instance, we sample five Gemini-2.5-Flash rollouts under the same agentic workflow and retain the one with the highest final-answer Image F1, yielding 1.1k trajectories for fine-tuning with LLaMA-Factory (Zheng et al. 2024). Thus, SFT and RL share the base model, training instances, action space, and retrieval environment, differing only in offline imitation versus reward-driven optimization. For static RAG, we tune 
+
+K ∈ { 2, 5, 10 } and use K = 5 by default, as it performs best overall. Each agentic search call also returns the top-5 images, while the agent adaptively decides whether and when to retrieve again. 
+
+Implementation Details. We use BGE-M3 (Chen et al. 2024) for both text and image retrieval. Instead of direct cross-modal matching (e.g., CLIP), our Context-Anchored Image Retrieval associates each image ij with its surrounding text tj , forming C = {(tj , i j )}. Given an image query qimg ,we retrieve the images whose anchor texts have the highest cosine similarity to the query:         
+
+> Iretrieved =
+> n
+> ij(tj, i j)∈TopK (t,i )∈C cos  E(qimg ),E(t)o
+> ,
+
+where E is the BGE-M3 text encoder. This avoids the seman-tic mismatch of direct visual embeddings, as examined in our ablation. Using Qwen3-VL-4B/8B-Instruct as base models, we train VIG-RL-4B/8B with GRPO in veRL (Sheng et al. 2024; Wu et al. 2025) for 20 epochs ( 720 steps). Qwen3-8B-Instruct serves as the textual-reward judge. Training uses 
+
+1.1k cross-modally consistent samples from an 80 /20 split of the Web , Wiki , and Arxiv subsets of MRAMG-Bench (Yu et al. 2025). To prevent retrieval-evidence leakage, the train-ing and test sets contain no overlap in the textual chunks or images required to answer their questions. 
+
+Benchmarks. We evaluate on all six datasets of MRAMG-Bench (Yu et al. 2025), one of the few publicly available retrieval-grounded VIG benchmarks with explicit ground-truth interleaved answers. Spanning Web, academic, and lifestyle domains, they provide broad coverage beyond a single-domain evaluation. We evaluate In-Domain perfor-mance on the held-out splits of Web , Wiki , and Arxiv ,and OOD generalization on Wit , Recipe , and Manual .
+
+Metrics. Our metrics jointly evaluate which images are inserted, where , and in what order . Image F1 measures set-level selection precision and recall; unlike the precision-based training reward, it also captures visual-evidence cov-erage but ignores placement. Comprehensive Score (C.S.) 
+
+uses GPT-4o (OpenAI 2024) to assess textual correctness, image relevance, insertion-position appropriateness, text– image alignment, and overall coherence, thereby explicitly evaluating where to insert . On the procedural Manual and 
+
+Recipe datasets, Order Score (Yu et al. 2025) additionally measures the relative image order via weighted edit distance. 
+
+Main Results 
+
+Overall Performance. Table 1 reports results across the six MRAMG-Bench datasets. VIG-RL-8B achieves the strongest overall performance, attaining the best C.S. on all six datasets together with consistently strong Image F1 and Order scores. Its robust performance across image se-lection, semantic placement, and sequence ordering demon-strates that VIG-RL successfully learns an effective search– selection–insertion policy. 
+
+VIG-RL Surpasses Static RAG. VIG-RL-8B consis-tently outperforms strong static RAG systems in overall re-sponse quality. Relative to the same Qwen3-VL-8B backbone under static RAG, it improves the six-dataset macro-average Image F1 from 57 .7 to 78 .9 (+21 .2) and C.S. from 56 .4 to 
+
+78 .1 (+21 .7), showing that the gains cannot be attributed Model In-Domain Out-of-Domain Web Wiki Arxiv Wit Manual Recipe F1 C.S. F1 C.S. F1 C.S. F1 C.S. F1 C.S. Order F1 C.S. Order                                                                                                                                                                                                                                                                           
+
+> RAG Workflow
+> GPT-5 96.0 85.7 83.2 74.0 75.6 71.5 84.3 87.7 40.6 42.7 30.0 54.9 55.5 45.0
+> Gemini-2.5-Flash 95.9 86.4 94.1 80.9 83.1 67.3 94.2 93.1 32.9 41.6 24.3 40.5 44.1 30.4 Qwen3-VL-30B 90.2 78.3 90.8 83.4 69.4 53.4 97.0 91.4 31.5 32.2 21.5 25.5 30.8 15.2 Qwen3-VL-30B-Thinking 92.0 86.8 81.2 81.7 70.3 64.6 97.0 94.3 31.6 37.6 22.3 45.9 54.4 39.1 Qwen3-VL-8B 76.5 74.6 81.5 70.9 65.7 60.0 92.5 87.2 14.4 21.0 7.1 15.3 24.8 8.4 Qwen3-VL-8B-Thinking 83.2 81.8 63.4 65.2 68.1 55.9 95.6 93.4 22.1 31.5 16.7 22.4 33.6 17.4 Qwen3-VL-4B 48.3 53.4 63.4 60.0 43.2 45.9 95.4 88.3 10.4 21.0 3.5 5.4 22.7 1.0 M2IO-R1-3B ----72.0 ---40.0 -29.1 51.2 -31.1
+> Agentic Search
+> GPT-5 71.2 55.3 30.7 56.9 20.3 35.4 18.2 40.9 44.7 32.5 28.8 40.5 41.4 26.9 Gemini-2.5-Flash 79.5 66.2 46.5 58.0 23.3 34.9 39.9 68.1 34.3 34.2 24.1 43.4 47.2 28.4 Qwen3-VL-30B 58.9 53.0 18.4 35.8 38.4 39.5 44.5 53.7 19.9 22.5 12.1 16.6 24.0 8.0 Qwen3-VL-30B-Thinking 60.8 55.9 42.1 47.9 51.3 41.5 69.8 68.7 28.0 28.5 12.8 24.7 32.4 16.0 Qwen3-VL-8B-Thinking 36.2 37.3 35.6 42.9 20.8 25.9 31.4 44.5 12.7 21.5 5.8 12.6 23.2 6.3
+> Ours
+> Qwen3-VL-4B (Agentic) 47.8 42.5 20.5 37.2 18.8 31.0 20.4 41.4 14.7 20.0 7.8 14.5 24.4 6.6 VIG-RL-4B (Ours) 95.6 80.7 94.7 75.5 80.6 63.9 95.3 86.5 40.5 42.7 29.0 55.3 46.3 35.1
+> ∆+47.8 +38.2 +74.3 +38.3 +61.8 +32.9 +74.9 +45.1 +25.8 +22.7 +21.2 +40.8 +21.9 +28.5
+> Qwen3-VL-8B (Agentic) 50.4 46.7 36.6 46.5 24.1 36.1 29.5 44.3 22.9 24.1 12.4 20.0 27.3 10.9 VIG-RL-8B (Ours) 97.2 94.0 95.7 88.9 84.2 81.7 96.7 94.5 44.3 48.1 32.2 55.1 61.4 40.9
+> ∆+46.8 +47.3 +59.1 +42.4 +60.1 +45.6 +67.2 +50.2 +21.4 +24.0 +19.8 +35.0 +34.1 +30.0
+
+Table 1: Main results on six MRAMG-Bench datasets under static RAG and agentic search. Image F1 measures image selection; C.S. jointly evaluates text quality, image relevance, semantic placement, text–image alignment, and multimodal coherence; and Order measures image sequence on Manual and Recipe . ∆ denotes gains over the corresponding zero-shot agentic baseline, computed from unrounded scores. Best and second-best results are bolded and underlined. merely to the underlying model checkpoint. Even against a conservative per-dataset oracle that selects the strongest static RAG system for each benchmark, VIG-RL-8B im-proves macro-averaged C.S. from 72 .4 to 78 .1 (+5 .7). The advantage remains pronounced when image selection is al-ready accurate: on Web , RAG-based GPT-5 obtains 96 .0 Im-age F1 but only 85 .7 C.S., whereas VIG-RL-8B reaches 97 .2
+
+F1 and 94 .0 C.S. This large C.S. gain despite similar Image F1 indicates improvements beyond set-level selection, par-ticularly in semantic placement, text–image alignment, and overall multimodal coherence. 
+
+Zero-Shot Generalization and Ordered Image Ground-ing. On the unseen Wit , Manual , and Recipe domains, VIG-RL-8B achieves the best C.S. of 94 .5, 48 .1, and 61 .4,respectively, demonstrating strong zero-shot transfer. This is particularly notable on the order-sensitive Manual and 
+
+Recipe datasets, where successful grounding requires both selecting relevant images and organizing them according to the underlying procedural structure. VIG-RL-8B achieves the best Order Score on Manual (32 .2 vs. 30 .0 for the strongest baseline) and the second-best Image F1 and Or-der Score on Recipe (55 .1 and 40 .9), while attaining the best C.S. These results show that the learned policy transfers across domains while preserving both semantic grounding and the relative organization of visual evidence. 
+
+Effectiveness at the 4B Scale. VIG-RL remains effective at a smaller model scale. Compared with the corresponding zero-shot Qwen3-VL-4B agentic baseline, VIG-RL-4B im-proves every metric, including Image F1 from 18 .8 to 80 .6
+
+and C.S. from 31 .0 to 63 .9 on Arxiv . It also outperforms the similarly sized M2IO-R1-3B on four of the five metrics available for comparison, improving Arxiv F1 from 72 .0 to 
+
+80 .6 and Recipe F1/Order from 51 .2/31 .1 to 55 .3/35 .1.These results demonstrate that the effectiveness of VIG-RL is not confined to the larger 8B model. 
+
+Further Analysis 
+
+RL versus Supervised Trajectory Imitation. We com-pare three variants initialized from Qwen3-VL-8B-Instruct: the zero-shot agentic baseline (Base), SFT, and VIG-RL. SFT uses best-of-five Gemini-2.5-Flash trajectories gener-ated from the same 1.1k instances and agentic workflow as VIG-RL, providing a strong matched imitation baseline. Figure 3 shows that SFT consistently improves over Base, confirming the value of trajectory supervision. Nevertheless, VIG-RL achieves higher C.S. on all six datasets, with large gains over SFT on Arxiv (81 .7 vs. 41 .8), Manual (48 .1 vs. 
+
+33 .0), and Recipe (61 .4 vs. 48 .4). Unlike SFT’s imitation of fixed demonstrations, VIG-RL optimizes its own interactions using rewards for evidence acquisition and final grounding, jointly adapting its search, selection, and insertion decisions. 
+
+Adaptive Retrieval beyond Fixed-Depth RAG. For one-shot static RAG, K reflects a coverage–noise trade-off rather than a monotonically increasing information budget: too few candidates omit necessary evidence, whereas too many Web Wiki Arxiv Wit Manual Recipe       
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> C.S.
+> Base SFT VIG-RL SFT ΔVIG-RL Δ
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Δ C.S. over Base
+
+Figure 3: Comparison of the zero-shot agentic baseline (Base), supervised trajectory imitation (SFT), and VIG-RL. Bars show C.S., and dashed lines show absolute gains over Base. SFT and VIG-RL share the same initialization and 1.1k training instances. introduce irrelevant context. We therefore compare VIG-RL against static RAG at its empirically strongest retrieval depth, rather than matching raw candidate counts across the two workflows. Using Qwen3-VL-8B-Instruct, we tune 
+
+K ∈ { 2, 5, 10 }. As shown in Figure 4, Arxiv F1/C.S. in-creases from 55 .5/51 .7 at K = 2 to 65 .7/60 .0 at K = 5 ,but decreases to 50 .9/50 .2 at K = 10 ; Recipe exhibits the same trend. We thus use K = 5 , the strongest tested static-RAG setting, in all main comparisons. VIG-RL also retrieves top-5 candidates per call, but adaptively decides whether, when, and how to search again. Its advantage there-fore reflects adaptive retrieval over a tuned fixed-depth work-flow, rather than comparison with an arbitrarily small static candidate pool. 
+
+VIG-RL Learns to Search, Select, and Insert. Figure 5 decomposes performance on Wit into search triggering and post-retrieval grounding. Qwen3-VL-8B-Instruct and Gemini-2.5-Flash invoke image search on only 36 .4% and 
+
+30 .6% of examples, despite conditional retrieval recalls of 
+
+95 .5% and 100 .0% , indicating their main bottleneck is fail-ing to search when visual evidence is required. VIG-RL raises the search rate to 100% and improves conditional Ans. F1/C.S. to 96 .7/94 .5, compared with 81 .1/78 .0 for Qwen and 91 .0/90 .5 for Gemini. Thus, VIG-RL learns when to re-trieve and how to select and integrate the retrieved evidence, forming an effective search–selection–insertion policy. 
+
+Ablation Studies. 
+
+Reward Design. Necessity of Hybrid Reward Design. Table 2 and Fig-ure 6 reveal the limitations of standard reward formulations for VIG. An Exact-Match (EM) reward yields only 22 .0 An-swer F1 and 30 .5 C.S. on Arxiv , as exact matching penal-izes valid paraphrases in long-form responses and provides a sparse, brittle signal. Conversely, a pure MLLM-judge re-ward is vulnerable to reward hacking: despite a high Text Score of 80 .5, Answer F1 collapses to 0.0 because the policy favors fluent text while hallucinating image identifiers. These complementary failures motivate our hybrid reward, which combines model-based evaluation for semantic text quality with a verifiable rule-based reward for image grounding. top2 top5 top10 
+
+> 40
+> 50
+> 60
+> 70
+
+ArXiv   
+
+> 55.5
+> 65.7
+> 50.9
+> 51.7
+> 60.0
+> 50.2
+> top2 top5 top10
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+
+Recipe    
+
+> 10.7
+> 15.3
+> 4.7
+> 24.6 24.8
+> 21.1
+> 5.5
+> 8.4
+> 0.4
+> F1 C.S. Order
+
+Figure 4: Effect of static-RAG retrieval depth K with Qwen3-VL-8B-Instruct. Among the tested settings, K = 5 performs best overall on Arxiv and Recipe , balancing evidence coverage and context noise. Image Search Rate Ret. Recall        
+
+> (if triggered)
+> Ans. F1
+> (if triggered)
+> Ans. C.S.
+> (if triggered)
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Score
+> 36.4
+> 95.5
+> 81.1 78.0
+> 100.0 99.2 96.7 94.5
+> 30.6
+> 100.0
+> 91.0 90.5
+> Qwen3-VL-8B-Instruct VIG-RL Gemini-2.5-Flash
+
+Figure 5: Agentic retrieval and response quality on Wit .Search Rate is the fraction of examples triggering image retrieval; Ret. Recall measures the fraction of gold images retrieved; Ans. F1 and C.S. evaluate image selection and overall interleaved-response quality, respectively. All met-rics except Search Rate are computed only on examples that trigger retrieval. 
+
+Necessity of Process-Level Supervision. Terminal super-vision alone is insufficient for multimodal retrieval. As shown in Table 2, removing the process reward reduces Retrieval Recall on Arxiv from 92 .7 to 87 .8 and consequently lowers Answer F1 from 84 .2 to 77 .6, demonstrating the value of ex-plicitly supervising evidence acquisition. Moreover, once the process reward promotes high candidate recall, the terminal image reward should emphasize precision to suppress irrele-vant insertions. Replacing it with Recall- or F1-based rewards encourages over-insertion and reduces C.S. to 50 .2 and 62 .2,respectively. These results reveal a complementary division of labor: process supervision promotes evidence coverage, while precision-based outcome reward filters noise. 
+
+Strict Reward Decoupling Enables Emergent Placement. 
+
+Our reward is deliberately factorized: the process term pro-motes candidate coverage, the precision-based image reward filters irrelevant evidence, and the text-only judge evaluates semantic quality. Replacing the latter with a holistic MLLM judge introduces overlapping and exploitable visual supervi-sion, reducing Answer F1/C.S. from 84 .2/81 .7 to 70 .4/68 .0
+
+on Arxiv and from 44 .3/48 .1 to 29 .5/34 .3 on Manual ;pure MLLM supervision also exhibits reward hacking (Fig-ure 6). Although final-answer recall is not directly rewarded, Variants Arxiv (In-domain) Manual (Out-of-Domain) Final Answer Retrieval Final Answer Retrieval F1 C.S. Recall Recall F1 C.S. Recall Recall 
+
+Qwen3-VL-8B-Instruct (w/o RL) 24.1 36.1 29.3 29.3 22.9 24.1 26.8 36.5 
+
+Reward Design 
+
+rformat · rEM 22.0 30.5 24.4 26.8 22.9 21.0 25.1 32.1 
+
+rformat · rMLLM 0.0 33.4 0.0 0.0 0.0 29.1 0.0 0.0 
+
+rformat · (rtxt,LLM + rimg,pre ) 77.6 67.6 76.4 87.8 34.9 42.2 32.0 52.9 
+
+rformat · (rtxt,LLM + rimg,rec + rsearch ) 70.7 50.2 87.8 87.8 36.4 32.8 43.1 52.6 
+
+rformat · (rtxt,LLM + rimg,F1 + rsearch ) 78.0 62.2 87.8 90.2 42.4 36.6 44.6 53.9 
+
+rformat · (rMLLM + rimg,pre + rsearch ) 70.4 68.0 71.5 92.7 29.5 34.3 25.9 53.7 
+
+rformat · (rtxt,LLM + rimg,pre + rsearch ) 84.2 81.7 87.8 92.7 44.3 48.1 42.5 55.1 
+
+Retrieval Strategy   
+
+> CLIP-Style Image Search +Text Search
+
+51.1 42.0 68.3 84.6 29.6 30.4 37.1 47.9  
+
+> Context-Anchored Image Search
+
+63.5 50.5 73.6 74.4 38.3 36.5 39.9 51.8  
+
+> Context-Anchored Image Search +Text Search
+
+84.2 81.7 87.8 92.7 44.3 48.1 42.5 55.1 
+
+Table 2: Ablation study of reward designs and retrieval strategies. Final-answer Recall measures the fraction of ground-truth images included in the generated response, while retrieval Recall measures the fraction retrieved before answer generation. EM Model Judge    
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Score
+> 22.0
+> 0.0
+> 74.4 80.5
+> ArXiv
+> EM Model Judge
+> 22.9
+> 0.0
+> 57.6
+> 71.5
+> Manual
+> Answer F1 Text Score
+
+Figure 6: Comparison of EM and model-judge-only re-wards on Arxiv and Manual . Answer F1 measures image-selection accuracy, and Text Score measures textual quality. Recall- and F1-based alternatives encourage over-insertion and reduce C.S. to 50 .2 and 62 .2, supporting this coverage– filtering decomposition. More importantly, our reward is in-variant to image placement and order: any two format-valid outputs with the same stripped text, image-ID set, and search trajectory receive identical rewards. Nevertheless, with the backbone and prompt fixed, VIG-RL raises Order Score from 
+
+12 .4 to 32 .2 on Manual and from 10 .9 to 40 .9 on Recipe .These gains therefore emerge without positional labels or re-ward shaping, suggesting that sequence-level RL amplifies the pretrained MLLM’s latent text–image alignment prior once retrieval and selection become reliable. 
+
+Retrieval Strategy Context-Anchored vs. Direct Visual Retrieval. We com-pare our context-anchored image retrieval with direct text-to-image matching using BGE-VL-Base (Zhou et al. 2024). As shown in Table 2, direct retrieval reduces Retrieval Re-call from 92 .7 to 84 .6 and Answer F1 from 84 .2 to 51 .1
+
+on Arxiv . This indicates visual embeddings alone struggle with knowledge-intensive figures whose meanings depend heavily on captions and surrounding text. By ranking image-associated textual contexts and returning corresponding fig-ures, our method better preserves such semantic information. 
+
+Text Search Supports Multi-Hop Retrieval. Removing text search on Manual reduces C.S. from 48 .1 to 36 .5 and Image Retrieval Recall from 55 .1 to 51 .8. The decline in vi-sual recall suggests that text search not only supplies knowl-edge for answer generation, but also provides context for refining subsequent image queries. Text and image search therefore operate jointly as a multi-step evidence-acquisition policy. 
+
+Case Study 
+
+Detailed case studies are provided in Appendix. On the 
+
+Manual dataset, Qwen3-VL-8B-Instruct (Figure 8) retrieves text but skips image search, producing a text-only response, whereas Gemini-2.5-Flash (Figure 9) selects an irrelevant figure and misplaces a relevant one. In contrast, VIG-RL-8B (Figure 7) retrieves evidence from both modalities and accu-rately anchors verified figures to the corresponding content, demonstrating superior multimodal grounding. 
+
+# Conclusion 
+
+In this paper, we tackle Verified Image Grounding (VIG)—the precise integration of retrieved visual evidence into generated text streams. Overcoming static baselines that fail to dynamically decide when to search and where to in-sert images, we propose VIG-RL. This autonomous agentic framework formulates the search-selection-insertion work-flow as an active decision-making process. Optimized via GRPO within a ReAct-style loop, VIG-RL pairs intermedi-ate retrieval supervision with strictly decoupled text-image terminal evaluation, achieving state-of-the-art performance and internalizing a robust search-and-insert policy. References 
+
+Bai, S.; Cai, Y.; Chen, R.; Chen, K.; Chen, X.; Cheng, Z.; Deng, L.; Ding, W.; Gao, C.; Ge, C.; et al. 2025. Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 .Brown, T.; Mann, B.; Ryder, N.; Subbiah, M.; Kaplan, J. D.; Dhariwal, P.; Neelakantan, A.; Shyam, P.; Sastry, G.; Askell, A.; et al. 2020. Language models are few-shot learners. Ad-vances in neural information processing systems , 33: 1877– 1901. Chen, J.; Xiao, S.; Zhang, P.; Luo, K.; Lian, D.; and Liu, Z. 2024. BGE M3-Embedding: Multi-Lingual, Multi-Functionality, Multi-Granularity Text Embeddings Through Self-Knowledge Distillation. arXiv:2402.03216. Chen, X.; Wu, Z.; Liu, X.; Pan, Z.; Liu, W.; Xie, Z.; Yu, X.; and Ruan, C. 2025. Janus-pro: Unified multimodal under-standing and generation with data and model scaling. arXiv preprint arXiv:2501.17811 .Chern, E.; Su, J.; Ma, Y.; and Liu, P. 2024. Anole: An open, autoregressive, native large multimodal mod-els for interleaved image-text generation. arXiv preprint arXiv:2407.06135 .Comanici, G.; Bieber, E.; Schaekermann, M.; Pasupat, I.; Sachdeva, N.; Dhillon, I.; Blistein, M.; Ram, O.; Zhang, D.; Rosen, E.; et al. 2025. Gemini 2.5: Pushing the fron-tier with advanced reasoning, multimodality, long context, and next generation agentic capabilities. arXiv preprint arXiv:2507.06261 .Dong, R.; Peng, Y.; Qi, Z.; Ge, Z.; Yang, J.; Zhao, L.; Sun, J.; Zhou, H.; Wei, H.; Kong, X.; et al. 2024. Dreamllm: Syn-ergistic multimodal comprehension and creation. In Inter-national Conference on Learning Representations , volume 2024, 6666–6702. Guo, D.; Yang, D.; Zhang, H.; Song, J.; Zhang, R.; Xu, R.; Zhu, Q.; Ma, S.; Wang, P.; Bi, X.; et al. 2025. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948 .Hong, J.; Zhao, C.; Zhu, C.; Lu, W.; Xu, G.; and Yu, X. 2025. Deepeyesv2: Toward agentic multimodal model. arXiv preprint arXiv:2511.05271 .Huang, W.; Zeng, Y.; Wang, Q.; Fang, Z.; Cao, S.; Chu, Z.; Yin, Q.; Chen, S.; Yin, Z.; Chen, L.; et al. 2026. Vision-deepresearch: Incentivizing deepresearch capabil-ity in multimodal large language models. arXiv preprint arXiv:2601.22060 .Hurst, A.; Lerer, A.; Goucher, A. P.; Perelman, A.; Ramesh, A.; Clark, A.; Ostrow, A.; Welihinda, A.; Hayes, A.; Rad-ford, A.; et al. 2024. Gpt-4o system card. arXiv preprint arXiv:2410.21276 .Jaech, A.; Kalai, A.; Lerer, A.; Richardson, A.; El-Kishky, A.; Low, A.; Helyar, A.; Madry, A.; Beutel, A.; Carney, A.; et al. 2024. Openai o1 system card. arXiv preprint arXiv:2412.16720 .Jin, B.; Zeng, H.; Yue, Z.; Yoon, J.; Arik, S.; Wang, D.; Zamani, H.; and Han, J. 2025. Search-r1: Training llms to reason and leverage search engines with reinforcement learning. arXiv preprint arXiv:2503.09516 .Koh, J. Y.; Fried, D.; and Salakhutdinov, R. R. 2023. Gener-ating images with multimodal language models. Advances in Neural Information Processing Systems , 36: 21487–21506. Liu, A.; Feng, B.; Xue, B.; Wang, B.; Wu, B.; Lu, C.; Zhao, C.; Deng, C.; Zhang, C.; Ruan, C.; et al. 2024. Deepseek-v3 technical report. arXiv preprint arXiv:2412.19437 .Ma, Z.-A.; Lan, T.; Tu, R.-C.; Hu, Y.; Zhu, Y.-S.; Zhang, T.; Huang, H.; Wu, Z.; and Mao, X.-L. 2024. Multi-modal retrieval augmented multi-modal generation: Datasets, eval-uation metrics and strong baselines. arXiv preprint arXiv:2411.16365 .OpenAI. 2024. Hello GPT-4o. OpenAI Blog .OpenAI. 2025. Introducing GPT-5. https://openai.com/ index/introducing-gpt-5/. Shao, Z.; Wang, P.; Zhu, Q.; Xu, R.; Song, J.; Bi, X.; Zhang, H.; Zhang, M.; Li, Y.; Wu, Y.; et al. 2024. Deepseekmath: Pushing the limits of mathematical reasoning in open lan-guage models. arXiv preprint arXiv:2402.03300 .Sheng, G.; Zhang, C.; Ye, Z.; Wu, X.; Zhang, W.; Zhang, R.; Peng, Y.; Lin, H.; and Wu, C. 2024. HybridFlow: A Flexible and Efficient RLHF Framework. arXiv preprint arXiv: 2409.19256 .Shi, M.; Zeng, X.; Huang, J.; Cui, Y.; Ferroni, F.; Li, J.; Pa-chori, S.; Li, Z.; Balaji, Y.; Wang, H.; et al. 2026. DuoGen: Towards General Purpose Interleaved Multimodal Genera-tion. arXiv preprint arXiv:2602.00508 .Song, H.; Jiang, J.; Min, Y.; Chen, J.; Chen, Z.; Zhao, W. X.; Fang, L.; and Wen, J.-R. 2025. R1-searcher: Incentivizing the search capability in llms via reinforcement learning. arXiv preprint arXiv:2503.05592 .Touvron, H.; Lavril, T.; Izacard, G.; Martinet, X.; Lachaux, M.-A.; Lacroix, T.; Rozière, B.; Goyal, N.; Hambro, E.; Azhar, F.; et al. 2023. Llama: Open and efficient founda-tion language models. arXiv preprint arXiv:2302.13971 .Wang, Q.; Ding, R.; Zeng, Y.; Chen, Z.; Chen, L.; Wang, S.; Xie, P.; Huang, F.; and Zhao, F. 2025. Vrag-rl: Empower vision-perception-based rag for visually rich information un-derstanding via iterative reasoning with reinforcement learn-ing. Advances in Neural Information Processing Systems ,38: 57133–57160. Wang, X.; Zhang, X.; Luo, Z.; Sun, Q.; Cui, Y.; Wang, J.; Zhang, F.; Wang, Y.; Li, Z.; Yu, Q.; et al. 2024. Emu3: Next-token prediction is all you need. arXiv preprint arXiv:2409.18869 .Wu, J.; Deng, Z.; Li, W.; Liu, Y.; You, B.; Li, B.; Ma, Z.; and Liu, Z. 2025. Mmsearch-r1: Incentivizing lmms to search. 
+
+arXiv preprint arXiv:2506.20670 .Wu, S.; Fei, H.; Qu, L.; Ji, W.; and Chua, T.-S. 2024. Next-gpt: Any-to-any multimodal llm. In Forty-first International Conference on Machine Learning .Xiao, Z.; Yu, Q.; Li, B.; Chen, G.; Chen, C.; and Zhang, W. 2025. M2io-r1: An efficient rl-enhanced reasoning frame-work for multimodal retrieval augmented multimodal gener-ation. arXiv preprint arXiv:2508.06328 .Xie, J.; Mao, W.; Bai, Z.; Zhang, D. J.; Wang, W.; Lin, K. Q.; Gu, Y.; Chen, Z.; Yang, Z.; and Shou, M. Z. 2025. Show-o: One single transformer to unify multimodal understanding and generation. In International Conference on Learning Representations , volume 2025, 28240–28264. Yao, S.; Zhao, J.; Yu, D.; Du, N.; Shafran, I.; Narasimhan, K.; and Cao, Y. 2022. React: Synergizing reasoning and acting in language models. arXiv preprint arXiv:2210.03629 .Yin, S.; Fu, C.; Zhao, S.; Li, K.; Sun, X.; Xu, T.; and Chen, E. 2024. A survey on multimodal large language models. 
+
+National Science Review , 11(12): nwae403. Yu, Q.; Xiao, Z.; Li, B.; Wang, Z.; Chen, C.; and Zhang, W. 2025. MRAMG-Bench: a comprehensive benchmark for ad-vancing multimodal retrieval-augmented multimodal gener-ation. In Proceedings of the 48th International ACM SIGIR Conference on Research and Development in Information Retrieval , 3616–3626. Zheng, Y.; Zhang, R.; Zhang, J.; Ye, Y.; Luo, Z.; Feng, Z.; and Ma, Y. 2024. LlamaFactory: Unified Efficient Fine-Tuning of 100+ Language Models. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 3: System Demonstrations) . Bangkok, Thailand: Association for Computational Linguistics. Zhou, C.; Yu, L.; Babu, A.; Tirumala, K.; Yasunaga, M.; Shamis, L.; Kahn, J.; Ma, X.; Zettlemoyer, L.; and Levy, O. 2025. Transfusion: Predict the next token and diffuse images with one multi-modal model. In International Conference on Learning Representations , volume 2025, 6446–6469. Zhou, J.; Liu, Z.; Liu, Z.; Xiao, S.; Wang, Y.; Zhao, B.; Zhang, C. J.; Lian, D.; and Xiong, Y. 2024. MegaPairs: Massive Data Synthesis For Universal Multimodal Retrieval. 
+
+arXiv preprint arXiv:2412.14475 .Zhu, Z.; Lee, D.; Zhang, H.; Harsha, S. S.; Feujio, L.; Ma-haraj, A.; and Li, Y. 2025. Murar: A simple and effective multimodal retrieval and answer refinement framework for multimodal question answering. In Proceedings of the 31st International Conference on Computational Linguistics: Sys-tem Demonstrations , 126–135. Appendix 
+
+Implementation Details. 
+
+We employ BGE-M3 (Chen et al. 2024) as the unified re-trieval backbone for both textual and visual retrieval. For the latter, rather than computing direct cross-modal similar-ity (i.e., CLIP-style text-to-image matching), we introduce 
+
+Context-Anchored Image Retrieval to preserve semantic cou-pling in knowledge-intensive domains. Formally, we repre-sent the multimodal corpus as a set of context-image pairs 
+
+C = {(tj , i j )}, where each image ij is strictly anchored to its surrounding textual context tj . Given an image search query qimg , the environment fetches the top-K visual assets by ranking these pairs based on the text-to-text cosine simi-larity between the query and the anchor texts:          
+
+> Iretrieved =
+> (
+> i(t, i )∈Top-K
+> (tj,i j)∈C
+> cos  E(qimg ),E(tj))
+> ,
+
+where E(·) denotes the BGE-M3 text encoder. This mech-anism explicitly bypasses the semantic mismatch of direct visual embeddings (ablated later). Our RL training framework is implemented with veRL (Sheng et al. 2024; Wu et al. 2025) using GRPO. VIG-RL is trained for 20 epochs ( 720 optimization steps) with a learning rate of 2 × 10 −6, rollout.n =8, and a KL penalty coefficient of 0. The agent is allowed to perform at most Tmax = 5 reasoning-action interaction rounds. The training set comprises 1.1k curated samples, derived from an 
+
+8 : 2 train-test split of the Web , Wiki , and Arxiv subsets of MRAMG-Bench (Yu et al. 2025), inspected for cross-modal consistency. To assess whether the gains of VIG-RL can be ex-plained merely by supervised exposure to agentic rollouts, we construct an SFT baseline using the same Qwen3-VL-8B-Instruct initialization and the same 1.1k training instances as VIG-RL. Specifically, for each training instance, we sample five rollouts from Gemini-2.5-Flash under the same agentic workflow, action space, retrieval environment, and maximum interaction horizon. We compute the final-answer Image F1 score for each rollout and retain the rollout with the highest score. We use Image F1 as an objective, rule-based selection criterion that does not rely on an LLM judge. This best-of-five rollout selection produces exactly one trajectory per training instance, resulting in 1.1k SFT training trajectories. We fine-tune the base model on the selected trajectories using the LLaMA-Factory (Zheng et al. 2024) framework. The model is trained for 3 epochs with an effective batch size of 32 and a learning rate of 1 × 10 −5. We use a cosine learning-rate scheduler with a warmup ratio of 0.03 and apply a weight decay of 0.01 . The SFT and RL settings therefore share the base-model initialization, training instances, action space, and retrieval environment, while contrasting offline imitation of best-of-five Gemini-generated rollouts with on-policy reward-driven optimization. 
+
+Datasets and Evaluation Metrics 
+
+Datasets. We conduct experiments on MRAMG-Bench (Yu et al. 2025). MRAMG-Bench consists of six datasets covering diverse text-image resources and information-seeking scenarios. Each example provides a user query paired with a ground-truth interleaved text-image response. This structure allows us to evaluate whether a model can retrieve, select, and insert verified visual evidence into long-form multimodal responses. The benchmark consists of six datasets: 
+
+• Web contains dual-entity web queries paired with two corresponding verified images, requiring multi-image grounding within a single response. 
+
+• Wiki contains Wikipedia-style entity-centric examples that mainly require single-image factual grounding. 
+
+• Wit provides broad-domain image-text examples with single-image grounding derived from web and Wikipedia resources. 
+
+• Arxiv is collected from academic papers, where figures and diagrams are closely associated with technical textual contexts. 
+
+• Manual contains instruction manuals with dense text-image content and diverse visual evidence types. 
+
+• Recipe contains recipe-oriented multimodal examples, often requiring grounding over procedural text and visual cooking evidence. Following our experimental setting, we use Web , Wiki ,and Arxiv as in-domain datasets, and evaluate out-of-domain generalization on Wit , Manual , and Recipe . This split allows us to test both the agent’s ability to learn from familiar retrieval patterns and its robustness to different doc-ument structures, image densities, and multimodal informa-tion needs. 
+
+Evaluation Metrics. We evaluate models using both image-grounding metrics and overall response-quality met-rics. 
+
+• F1 (Yu et al. 2025) measures the image-level F1 score between the inserted image set Ians and the ground-truth verified image set I∗. We first compute image-level Pre-cision and Recall as: Precision = |I ∗ ∩ I ans ||I ans | .
+
+Recall = |I ∗ ∩ I ans ||I ∗| .
+
+The final F1 score is then computed as: F1 = 2 × Precision × Recall Precision + Recall .
+
+This metric evaluates whether the model selects the cor-rect verified images for the final response. 
+
+• Comprehensive Score (C.S.) evaluates the overall quality of the final interleaved multimodal response, jointly considering textual correctness, image relevance, insertion-position appropriateness, text–image align-ment, and overall multimodal coherence. Following Yu et al. (2025), we use GPT-4o as the LMM-based judge with the evaluation prompt shown in Table 8. • Image Ordering Score (Yu et al. 2025) is additionally reported for the Manual and Recipe datasets, whose responses often contain multiple images with a meaning-ful procedural order. Based on the weighted edit distance between the generated and ground-truth image sequences, this metric assesses whether the selected images follow the correct relative or procedural order, complementing the broader assessment of image placement and text– image coherence provided by C.S. Let the ground-truth and generated image sequences be defined as follows: 
+
+Ground truth: I∗ = i∗ 
+
+> 1
+
+→ i∗ 
+
+> 2
+
+→ · · · → i∗
+
+> n
+
+, where i∗
+
+> j
+
+denotes the image at the j-th position in the ground-truth sequence. 
+
+Prediction: I = i1 → i2 → · · · → im, where a pre-dicted image ij is not necessarily contained in I∗, and the number of predicted images m may differ from the number of ground-truth images n.The Order Score is computed as follows: Order Score = |I ∗ ∩ I| 
+
+n
+
+×
+
+
+
+1 − 1
+
+p min 
+
+ dist( I∗, I)max( n, m ) , p 
+
+ 
+
+.
+
+(1) The first term measures the coverage of ground-truth im-ages in the generated response, while the second term pe-nalizes discrepancies between the generated and ground-truth image orders. Here, dist( S, S′) denotes the weighted edit distance be-tween two image sequences. It is defined as the minimum total cost required to transform S′ into S using the fol-lowing operations: 
+
+Insertion: Insert into S′ an image that appears in S but is missing from S′. The operation cost is p1.
+
+Deletion: Delete from S′ an image that does not appear in S. The operation cost is p2.
+
+Substitution: Replace an image in S′ with the corre-sponding image from S at the appropriate position. The operation cost is p3.The operation costs satisfy p1 > p 2 > p 3. The normal-ization constant p ≥ p1 ensures that the final Order Score falls within the range [0 , 1] . The weighted edit distance can be computed using dynamic programming with a time complexity of O(mn ).Unless otherwise specified, all metrics in tables and figures are reported on a 0–100 scale. 
+
+Prompt Details 
+
+The LLM prompts used in this study are presented below. 
+
+Case Analysis 
+
+In this section, we provide representative examples to illus-trate the differences in output quality between VIG-RL and existing baselines. As shown in Figure 7, VIG-RL retrieves the relevant man-ual instructions and the two verified figures required for the door-removal procedure. It places each figure at the corre-sponding procedural step: the first supports lifting and push-ing the catches forward, while the second illustrates closing, lifting, turning, and releasing the door. This shows that VIG-RL aligns retrieved visual evidence with the local semantics of the answer, rather than simply appending images. Figures 8 and 9 illustrate two representative failure modes of existing agentic baselines. Qwen3-VL-8B-Instruct re-trieves partially relevant textual evidence but stops after text search, producing a text-only answer without the required verified figures. Gemini-2.5-Flash performs image search and inserts images, but selects an irrelevant figure and places a relevant one at an incorrect step. These cases show that tool use alone is insufficient for verified image grounding: the model must learn not only when to search, but also how to select and align visual evidence. Overall, this example highlights the benefit of learning the complete search-and-insert behavior. Compared with general agentic models, VIG-RL more effectively retrieves textual evidence, selects verified figures, and integrates them into semantically appropriate positions, leading to more faithful and useful interleaved responses. #Task 
+
+Imagine that you are a multimodal large language model proficient in processing text–image inputs and producing interleaved text–image outputs. You will be given a question and must generate a comprehensive multimodal response iteratively. 
+
+#Action Space 
+
+At each iteration, your action should include two parts: First, you must conduct reasoning inside <thinking>...</thinking>. After reasoning, choose exactly one of the following three options as the second part: 1. If you determine that visual evidence would improve the accuracy or clarity of the answer, you can invoke an image search engine using <img_search>query</img_search>. It will return the top-ranked retrieved images and their associated information between <retrieved_img> and </retrieved_img>. 2. If additional factual or contextual information is needed, you can invoke a text search engine using <text_search>query</text_search>. It will return the top-ranked textual results between <retrieved_text> and </re-trieved_text>. 3. If no further external information or visual evidence is required, provide the final response inside <answer>...</answer> without any additional explanation. Assess the relevance of the retrieved images and select suitable ones. While generating the textual response, determine the most appropriate placement for each selected image. Within <answer>, integrate the selected images naturally into the narrative by placing <img:id> at the most appropriate positions. Use only image IDs that appear in <retrieved_img>; never invent image IDs. 
+
+#Action Examples ## Example 1 
+
+<thinking>your reasoning process</thinking> <img_search>key differences between mitosis and meiosis</img_search> 
+
+## Example 2 
+
+<thinking>your reasoning process</thinking> <text_search>recommended daily protein intake in grams per kilo-gram</text_search> 
+
+## Example 3 
+
+<thinking>your reasoning process</thinking> <answer>Doing household chores helps maintain a clean and comfortable home. In the kitchen, the dishes have been washed and placed neatly in the drying rack, ready to be put away once they are dry.<img:152> Similarly, in the living room, the sofa cushions have been fluffed and arranged neatly, creating a comfortable space for relaxation.<img:100> </answer> 
+
+#Input 
+
+Question: {query} Table 3: Prompt template used for training the VIG-RL model. #Task 
+
+Imagine that you are a multimodal large language model proficient in processing text–image inputs and producing interleaved text–image outputs. You will be given a question and must generate a comprehensive multimodal response iteratively. 
+
+#Action Space 
+
+At each iteration, your action should include two parts: First, you must conduct reasoning inside <thinking>...</thinking>. After reasoning, choose exactly one of the following two options as the second part: 1. If you determine that visual evidence would improve the accuracy or clarity of the answer, you can invoke an image search engine using <img_search>query</img_search>. It will return the top-ranked retrieved images and their associated information between <retrieved_img> and </retrieved_img>. 2. If no further visual evidence is required, provide the final response inside <answer>...</answer> without any additional explanation. Assess the relevance of the retrieved images and select suitable ones. While generating the textual response, determine the most appropriate placement for each selected image. Within <answer>, integrate the selected images naturally into the narrative by placing <img:id> at the most appropriate positions. Use only image IDs that appear in <retrieved_img>; never invent image IDs. 
+
+#Action Examples ## Example 1 
+
+<thinking>your reasoning process</thinking> <img_search>key differences between mitosis and meiosis</img_search> 
+
+## Example 2 
+
+<thinking>your reasoning process</thinking> <answer>Doing household chores helps maintain a clean and comfortable home. In the kitchen, the dishes have been washed and placed neatly in the drying rack, ready to be put away once they are dry.<img:152> Similarly, in the living room, the sofa cushions have been fluffed and arranged neatly, creating a comfortable space for relaxation.<img:100> </answer> 
+
+#Input 
+
+Question: {query} Table 4: Prompt template used for VIG-RL training without textual retrieval. 
+
+#Task Imagine you are a multimodal large model proficient in processing text-image input and providing interwoven text-image responses. You will receive a context that includes several images represented as placeholders, along with a query related to the given context. Your task is to select appropriate images from the provided context (if none are suitable, you may choose not to include any) and generate a mixed media response to the query, combining text and the selected images. Please note, your answer should be presented in an interwoven text-image format, where you select images from the context and output them in the corresponding placeholder format. Please provide only the answer, without including any analysis. Each candidate image is associated with a unique identifier in the format <img:id>. Image Insert: When inserting image placeholders, place them at the most appropriate point within the answer. Image placeholders should be embedded naturally in the answer to support and enhance understanding, such as when describing specific locations, historical events, or notable buildings. Use only image placeholders that explicitly appear in the provided context or image-caption list. Never invent, modify, or refer to an image placeholder that is not provided. 
+
+# Output Format Please output the answer in an interwoven text-image format, where you select images from the context provided and output them in the corresponding placeholder format. 
+
+# Output Example Doing household chores is a daily task that helps maintain a clean home. At the kitchen, dishes are neatly washed and placed in the drying rack, ready to be put away once they dry.<img:152> Similarly, in the living room, the sofa cushions are fluffed and arranged properly, creating a comfortable space for relaxation.<img:100> 
+
+#Input 
+
+Question:{query} Context:{context} Image Caption:{image_captions} Table 5: Answer Generation Prompt for RAG workflow. Your job is to act as an Evaluation Judge. You must look at a question, a gold textual answer, and a predicted textual answer, and assign a score from 1 to 5, where 5 is the highest. 
+
+Scoring Definitions (1-5 Scale) 
+
+Score 5 - Excellent (Fully Correct): The predicted answer is fully accurate, complete, and directly addresses the question. It contains all essential information present in the gold target and introduces NO factual errors or contradictions. Differences in wording, order, or phrasing do not matter. Score 4 - Mostly Correct (Minor Omission/Flaw): The predicted answer is largely correct. It may have a very minor omission of non-critical detail OR a small phrasing issue that does not impact correctness. The main information is correct and there are NO factual errors or contradictions. Score 3 - Partially Correct (Attempted): The predicted answer provides some correct and relevant information, but is significantly incomplete, vague, OR missing critical parts of the required answer. It contains NO factual errors or contradictions, but is insufficient for a higher score. Score 2 - Mostly Incorrect (Significant Error): The predicted answer attempts to address the question but includes significant factual errors, contradictions, or misleading information. Some correct elements may be present, but the response is overall unreliable. Score 1 - Failure (Contradiction or Not Attempted): The predicted answer either directly contradicts the gold target or known facts, OR is irrelevant, nonsensical, empty, or otherwise fails to attempt the question. 
+
+Additional Grading Rules 
+
+Scope: Only evaluate the predicted answer based on what the question asks. If the gold target includes extra, unrequested detail, the prediction is not penalized for omitting it. Numeric Answers: Numeric correctness is determined by matching the gold target’s value and significant figures. Minor deviations or incorrect significant figures typically result in Score 2. Typos: Minor typos or naming variations are acceptable if the meaning is clear. Mixed Information: If the response contains both correct and significantly incorrect information, assign Score 2. 
+
+#Evaluation Input 
+
+Question: {question} Gold textual answer: {correct_answer_text} Predicted textual answer: {response_text} Output only the single integer score (1, 2, 3, 4, or 5). No explanation or other text. Table 6: Prompt template used for answer evaluation during training. Your job is to act as an Evaluation Judge. You must look at a question, a gold target, and a predicted answer, and assign a score from 1 to 5, where 5 is the highest. The gold target and predicted answer may contain interleaved text and images. You must evaluate both the textual content and the actual visual content of the images. 
+
+Scoring Definitions (1-5 Scale) 
+
+Score 5 - Excellent (Fully Correct): The predicted answer is fully accurate, complete, and directly addresses the question. Its text is correct, all necessary images are correct and relevant, and the images are appropriately placed and aligned with the surrounding text. It contains all essential information present in the gold target and introduces NO factual errors, visual errors, or contradictions. Differences in wording, order, or phrasing do not matter unless the order is semantically or procedurally important. Score 4 - Mostly Correct (Minor Omission/Flaw): The predicted answer is largely correct. It may have a very minor omission of non-critical textual or visual detail, OR a small phrasing, image-placement, or text-image alignment issue that does not substantially impact correctness. The main information and visual evidence are correct, and there are NO significant factual errors or contradictions. Score 3 - Partially Correct (Attempted): The predicted answer provides some correct and relevant textual or visual information, but is significantly incomplete, vague, missing critical information or images, OR contains noticeable image-placement or text-image alignment problems. It is insufficient for a higher score but still provides meaningful correct information. Score 2 - Mostly Incorrect (Significant Error): The predicted answer attempts to address the question but includes significant factual or visual errors, contradictions, misleading information, incorrect or irrelevant images, or serious text-image misalignment. Some correct elements may be present, but the response is overall unreliable. Score 1 - Failure (Contradiction or Not Attempted): The predicted answer either directly contradicts the gold target or known facts, uses images that are largely unrelated or misleading, OR is irrelevant, nonsensical, empty, or otherwise fails to attempt the question. 
+
+Additional Grading Rules 
+
+Scope: Only evaluate the predicted answer based on what the question asks. If the gold target includes extra, unrequested detail, the prediction is not penalized for omitting it. Image Evaluation: Evaluate whether the predicted images are correct and relevant, whether necessary images are missing, whether each image is placed at an appropriate semantic position, and whether it supports the surrounding text. For procedural or ordered content, also evaluate whether the relative image order is correct. Do not require an exact token-level insertion-position match. Visual Content: Evaluate the actual visible content of the images. Do not determine visual correctness solely from image identifiers or placeholder names. Alternative Evidence: Semantically equivalent images may be accepted if they provide equally correct and relevant visual evidence, unless the question explicitly requires the exact gold image. No-Image Cases: If neither answer contains images and the question does not require visual evidence, evaluate only the textual content. If necessary visual evidence is missing from the predicted answer, lower the score accordingly. Numeric Answers: Numeric correctness is determined by matching the gold target’s value and required precision. Reasonable rounding is acceptable unless the question explicitly requires exact significant figures. Typos: Minor typos or naming variations are acceptable if the meaning is clear. Mixed Information: If the response contains both correct and significantly incorrect textual or visual information, assign Score 2. 
+
+#Evaluation Input 
+
+Question: {question} Gold target: {correct_answer} Predicted answer: {response} Image captions: {image_captions} The images are provided in the following order: first, all images appearing in the Gold target, followed by all images appearing in the Predicted answer. Within each answer, the images follow the order of their image placeholders. The image captions correspond one-to-one with the images and are provided in the same order. Output only the single integer score (1, 2, 3, 4, or 5). No explanation or other text. Table 7: Prompt template used for holistic multimodal answer evaluation in the MLLM-reward ablation. You are an evaluator for interleaved multimodal responses. You will be given: - a user Question. - a Gold Answer. - and a Predicted Answer. - the actual images appearing in the Gold Answer and Predicted Answer. - and the corresponding image captions. The images are ordered as follows: all images from the Gold Answer first, followed by all images from the Predicted Answer. Within each answer, the images follow the order of their placeholders. The captions correspond one-to-one with the images and are provided in the same order. Each image is referenced by a unique placeholder such as <img:id>. Your task is to evaluate the overall quality of the Predicted Answer. Image Evaluation: - Evaluate the actual visual content of the images used in the Predicted Answer, as well as the information conveyed by those images. - Use image IDs to associate images across the Gold and Predicted Answers. For image selection, compare the deduplicated ID sets, but do not judge visual correctness solely from the identifiers. - Evaluate image placement by checking whether each selected image appears at an appropriate semantic position in the response. - Evaluate text-image alignment by checking whether each image supports or illustrates the surrounding textual content. - Evaluate image ordering by comparing the relative order of the selected images with the logical or procedural order in the Gold Answer. - Do not require an exact token-level position match; evaluate whether the semantic placement is appropriate. - Duplicate occurrences of the same image should not affect image-selection matching, but unnecessary repetition should be penalized under placement and presentation quality. - Any referenced image ID that is not present in the provided image list should be treated as an incorrect image. - Strongly reward correct image selection, appropriate placement, and coherent text-image alignment. - Strongly penalize incorrect, missing, misplaced, or incorrectly ordered images. Textual Consistency: - Check whether the Predicted Answer preserves the main meaning of the Gold Answer. - Penalize semantic inconsistency or missing key information. - Minor wording differences are acceptable. - Good text alone should NOT receive a high score if the images are wrong. Scoring Reference (0-1): - 1.0: The textual response is fully correct; all necessary visual evidence is correct and relevant; and the images are appropriately placed, ordered, and aligned with the surrounding text. - 0.8: Image selection is nearly perfect with only minor omissions, and the text is mostly correct. - 0.5: Some images are correct but important images are missing or partially incorrect. Text may still be reasonably consistent. - 0.2: Many important images are incorrect or missing, even if parts of the text are correct. - 0: Images are completely wrong, severely mismatched, or largely unrelated to the Gold Answer. Use this range even if the text appears reasonable. Special Rule: - If both Gold Answer and Predicted Answer contain no images, evaluate only textual consistency. 
+
+Evaluation Input 
+
+Question: {question} Gold Answer: {correct_answer} Predicted Answer: {response} Image captions: {image_captions} Output only the final score as a float between 0 and 1 rounded to 3 decimal places. Do not output explanations or additional text. Table 8: Prompt template used to evaluate the Comprehensive Score of interleaved multimodal responses. Question: How can you remove the door of an oven? 
+
+<thinking>The question is asking for a step-by-step guide to remove an 
+
+oven door, which is a practical, hands-on task. I need to gather 
+
+reliable instructions and visual aids to ensure accuracy and clarity. 
+
+First, I should research the general procedure for removing an oven 
+
+door.</thinking> 
+
+<text_search> how to remove oven door step by step </text_search> 
+
+<thinking>The textual results confirm that oven door removal 
+
+involves safety precautions, such as disconnecting power and 
+
+allowing the oven to cool. The steps involve releasing latches or 
+
+hinges, often requiring physical manipulation. An image would help 
+
+visualize the components and actions involved. I will now search for 
+
+images of oven door removal.</thinking> 
+
+<img_search>how to remove oven door step by step </img_search> 
+
+<thinking>The diagrams are clear and show the exact movements 
+
+required: releasing catches, closing the door, lifting, and rotating. I 
+
+will now synthesize the information and integrate the image to 
+
+create a coherent, step-by-step guide.</thinking> 
+
+<answer> To remove an oven door, first ensure the oven is unplugged 
+
+and completely cool. Open the door fully. Then lift the catches and 
+
+push them forward as far as possible. 
+
+<img:oven_01> 
+
+Next, close the door as far as it will go (A), then lift it upward (B) 
+
+and turn it (C) until it is released from the hinges (D) 
+
+<img:oven_02> 
+
+The door should now be free to be removed for cleaning or repair. 
+
+</answer> 
+
+<retrieved_img> 
+
+</retrieved_img> 
+
+<retrieved_text> 
+
+Doc 1: • Operate the oven empty with the fan-assisted function at 
+
+$200^{\\circ}\\mathsf{C}$ for about one hour • Next, leave the 
+
+appliance to cool down before removing any food residue with a sponge. 
+
+\n# Use protective gloves. Ensure the oven is cold before carrying out 
+
+the following operations. Disconnect power before servicing. #
+
+REMOVING THE DOOR # To remove the door: ...... 
+
+</retrieved_text> 
+
+VIG-RL 
+
+VIG-RL 
+
+VIG-RL Figure 7: Case study on the Manual dataset. VIG-RL-8B retrieves both textual evidence and verified figures from the source manual and inserts the figures at the corresponding procedural steps, demonstrating its ability to jointly perform evidence retrieval, image selection, and text-image alignment. Question: How can you remove the door of a n oven? 
+
+<thinking>Removing an oven door typically requires specific tools and 
+
+knowledge of the appliance ’s design, as oven doors are secured with 
+
+hinges, latches, or bolts. I should first search for general guidelines 
+
+or step-by-step instructions on how to safely remove an oven door, as 
+
+this may vary depending on the oven model and manufacturer. This will 
+
+help ensure accurate and safe advice.</thinking> 
+
+<text_search> How to remove an oven door? </text_search> 
+
+<thinking>The retrieved text provides step-by-step instructions for 
+
+removing an oven door, specifically mentioning lifting catches, 
+
+closing the door, and turning it until it is released. This information 
+
+is sufficient to provide a clear, safe, and accurate response. No 
+
+further external search is needed, and no images are required to 
+
+explain the process. I will now compile the final answer based on the 
+
+retrieved instructions.</thinking> 
+
+<answer> To remove the oven door safely, follow these steps:\n\n1. 
+
+Ensure the oven is completely cool and disconnected from power to 
+
+avoid injury or damage.\n2. Open the oven door fully.\n3. Lift the 
+
+catches (usually located at the top of the door) and push them 
+
+forward as far as they will go.\n4. Close the door as far as it will 
+
+go.\n5. Lift the door upward and turn it (typically clockwise or 
+
+counterclockwise, depending on the model) until it releases from the 
+
+hinges.\n\nAlways refer to your oven ’s user manual for model-
+
+specific instructions, as mechanisms may vary. If unsure or if the 
+
+door is stuck, consult a professional technician. 
+
+</answer> 
+
+<retrieved_text> 
+
+Doc 1: • Operate the oven empty with the fan-assisted function at 
+
+$200^{\\circ}\\mathsf{C}$ for about one hour • Next, leave the 
+
+appliance to cool down before removing any food residue with a sponge. 
+
+\n# Use protective gloves ...... 
+
+</retrieved_text> 
+
+Qwen3-VL-8B-Instruct 
+
+Missing image 
+
+selection. 
+
+Qwen3-VL-8B-Instruct Figure 8: Case of Qwen3-VL-8B-Instruct under the agentic setting on the Manual dataset. Although the model retrieves partially relevant textual evidence from the source manual, it fails to further retrieve and select the verified figures required by the procedure, producing a text-only answer with missing visual grounding. Question: How can you remove the door of an oven? 
+
+<thinking>The user wants to know how to remove an oven door. This is 
+
+a practical, step-by-step process that can vary slightly between oven 
+
+models. I should search for common methods and instructions, and it 
+
+would be very beneficial to include images to illustrate the steps, as 
+
+this is a visual task. I'll start with a general search for \"how to 
+
+remove oven door\ ”</thinking> 
+
+<img_search>how to remove oven door </img_search> 
+
+<thinking>The diagrams are clear and show the exact movements 
+
+required: releasing catches, closing the door, lifting, and rotating. I 
+
+will now synthesize the information and integrate the image to 
+
+create a coherent, step-by-step guide.</thinking> 
+
+<answer> Removing an oven door is a common task for cleaning or 
+
+maintenance. While the exact method can vary slightly depending 
+
+on your oven model, the general process often involves disengaging 
+
+the hinge mechanisms. Always consult your oven's user manual for 
+
+specific instructions for your model, but here's a common 
+
+procedure:\n\n **Step-by-Step Guide to Removing an Oven 
+
+Door: **\n\n1. Open the Oven Door Fully: Start by opening the oven 
+
+door completely until it is in a horizontal position. 
+
+n.\n\n2. **Unlock the Hinges: ** Locate the hinge locks on both 
+
+sides. These are usually small metal levers or latches. Flip them 
+
+forward toward the door frame to disengage the tension. 
+
+<img:oven_01> 
+
+\n\n3. **Position the Door: ** Slowly close the door until it stops 
+
+at the "broil" or partially open position (usually about a 45-degree 
+
+angle). 
+
+<img:oven_03> 
+
+\n\n **4. Lift and Remove: ** Firmly grasp the sides of the door. 
+
+Lift it straight up and out at the same angle to pull the hinge arms 
+
+out of the slots in the oven frame. \n\n5. **Placement: ** Gently 
+
+place the door flat on a soft surface, such as a towel or rug, to 
+
+prevent scratching the glass or the floor. \n\nBy following these 
+
+steps, you should be able to safely remove your oven door. 
+
+<img:oven_02> 
+
+The door should now be free to be removed for cleaning or repair. 
+
+</answer> 
+
+<retrieved_img> 
+
+</retrieved_img> 
+
+Gemini-2.5-Flash 
+
+Incorrect image 
+
+selection. 
+
+Misplaced image 
+
+positioning. 
+
+Gemini-2.5-Flash Figure 9: Case of Gemini-2.5-Flash under the agentic setting on the Manual dataset. Although the model performs image search and inserts retrieved figures into the response, it selects an irrelevant figure and places a relevant figure at an incorrect procedural position, leading to inaccurate visual grounding.

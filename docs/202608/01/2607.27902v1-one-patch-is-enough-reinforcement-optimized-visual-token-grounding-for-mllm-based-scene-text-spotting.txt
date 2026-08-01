@@ -1,0 +1,771 @@
+Title: One Patch Is Enough: Reinforcement-Optimized Visual Token Grounding for MLLM-Based Scene Text Spotting
+
+URL Source: https://arxiv.org/pdf/2607.27902v1
+
+Published Time: Fri, 31 Jul 2026 00:53:57 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# One Patch Is Enough: Reinforcement-Optimized Visual Token Grounding for MLLM-Based Scene Text Spotting 
+
+# Rui Tang 
+
+eeruitang@mail.scut.edu.cn South China University of Technology Guangzhou, China 
+
+# Wentao Yang 
+
+wente_young@foxmail.com South China University of Technology Guangzhou, China HiThink Research Hangzhou, China 
+
+# Peirong Zhang 
+
+eeprzhang@mail.scut.edu.cn South China University of Technology Guangzhou, China 
+
+# Yongxin Shi 
+
+yongxin_shi@foxmail.com South China University of Technology Guangzhou, China 
+
+# Shun Zhang 
+
+scutzhangs@163.com South China University of Technology Guangzhou, China 
+
+# Huiguo He 
+
+hehuiguo@scut.edu.cn South China University of Technology Guangzhou, China 
+
+# Lianwen Jin ∗
+
+eelwjin@scut.edu.cn South China University of Technology Guangzhou, China 
+
+## Abstract 
+
+Scene text spotting requires high-precision alignment between textual recognition and spatial localization. While visual-token grounding has emerged as a promising formulation for Multimodal Large Language Models (MLLMs), the previous multi-patch para-digm often introduces redundant noise and localization ambiguity, particularly for dense or small text instances. To address this, we propose Single-Patch Text Spotting (SPaTS) , a vision-centric framework that routes each text instance through a single anchor vi-sual token and then recovers geometry via full-image refinement. To accurately identify this anchor without oracle labels, we introduce 
+
+Single-Patch Selective Optimization (SPaSO) , a reinforcement learning framework that optimizes discrete visual-token selection using patch-level rewards. To further improve representation ro-bustness and localization precision, we introduce Directional Em-bedding Alignment (DEA) to suppress unstable norm bias by decoupling feature magnitude and direction, and Patch-Enhanced Decoding (PED) to fuse the routed anchor with language seman-tics and cross-attend over the full-image feature map for geometry-aware boundary regression beyond coordinate-space surrogates. Extensive experiments demonstrate that SPaTS consistently and significantly outperforms both frontier closed-source MLLMs and OCR MLLMs. Code will be released soon. 
+
+## CCS Concepts 
+
+• Computing methodologies → Scene understanding . 
+
+> ∗Corresponding author.
+> This work is licensed under a Creative Commons Attribution 4.0 International License.
+> MM ’26, Rio de Janeiro, Brazil.
+> ©2026 Copyright held by the owner/author(s). ACM ISBN 979-8-4007-2213-4/2026/11 https://doi.org/10.1145/3767308.3835174
+
+## Keywords 
+
+Scene Text Spotting, Multimodal Large Language Models, Visual Patch Decoding, Visual Reinforcement Learning 
+
+ACM Reference Format: 
+
+Rui Tang, Wentao Yang, Peirong Zhang, Yongxin Shi, Shun Zhang, Huiguo He, and Lianwen Jin. 2026. One Patch Is Enough: Reinforcement-Optimized Visual Token Grounding for MLLM-Based Scene Text Spotting. In Pro-ceedings of the 34th ACM International Conference on Multimedia (MM ’26), November 10–14, 2026, Rio de Janeiro, Brazil. ACM, New York, NY, USA, 15 pages. https://doi.org/10.1145/3767308.3835174 
+
+## 1 Introduction 
+
+Scene text spotting requires simultaneous text recognition and spatial grounding of each transcription to its corresponding image region. Specialized spotters have evolved from end-to-end pipelines that jointly optimize detection and recognition [ 21 , 22 ] to arbitrary-shape frameworks based on segmentation, curve regression, and query decoding [ 13 , 20 , 23 , 26 , 50 , 56 ]. These expert models achieve strong geometric precision, yet their reasoning capability remains task-specific and constrained to predefined spotting workflows. Multimodal Large Language Models (MLLMs), conversely, provide semantic understanding and flexible generation [ 12 , 43 , 58 ], but lack the fine-grained spatial control requisite for precise localization. Visual Token Grounding (VTG) provides a bridge between lan-guage generation and spatial localization. Methods such as Shikra [ 4]and Kosmos-2 [ 36 ] encode grounding through coordinate tokens [ 54 ]. Later approaches, including Groma [ 29 ] and Osprey [ 51 ], replace coordinates with region proxies or mask-like abstractions. More recent methods, such as ClawMachine [ 30 ] and PaDT [ 40 ], move one step closer to native visual evidence by grounding on image-derived patch tokens. This evolution is encouraging, but it also leaves a key question: what granularity of visual evidence is most appropriate for each grounding decision? 
+
+The appropriate visual granularity is inherently domain depen-dent [ 8 ]. For generic objects, region-level or relatively coarse visual arXiv:2607.27902v1 [cs.CV] 30 Jul 2026 MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil. Rui Tang et al. a) Current Multi-Patch Representation 
+
+> b) Single-Patch Representation (Ours)
+
+Less, Yet Better       
+
+> “MANOEI-HEATHER ”,
+> “PLEASE ”,
+> “TOGETHER ”,“FOREVER ”,
+> “WHENEVER ”,“FREE ”,“PLEASE ”,“HEATHER ”,“FEEl ”,“WE ”
+> Multi-Patch
+> Single-Patch
+
+Figure 1: Motivation for SPaTS. In current multi-patch grounding, mislocalization refers to irrelevant background patches, redundancy refers to multiple patches assigned to the same text instance, and ambiguity refers to mixed evi-dence from neighboring words or regions. 
+
+evidence is often sufficient to establish instance identity [ 37 ]. In con-trast, scene text instances are typically small in scale and embedded in complex scenes, where neighboring patches are more susceptible to spatial ambiguity due to adjacent words and background clut-ter [ 28 , 49 ]. As illustrated in Fig. 1(a), aggregating multiple patches may entangle informative cues with irrelevant or misleading sig-nals, leading to coupled errors in recognition and localization and introducing significant ambiguity in scene text spotting. Therefore, a natural question is whether a single informative patch is sufficient for further grounding, given that aggregating additional patches may introduce noise and exacerbate ambiguity [31, 55]. To address these limitations, we propose Single-Patch Text Spotting (SPaTS) , a paradigm that routes each text instance through a single anchor visual token. Instead of aggregating multiple patches at the language-model interface, SPaTS selects one anchor patch per instance and then delegates geometry recovery to PED, which cross-attends over the full-image feature map. In other words, SPaTS is a 
+
+single-anchor grounding with full-image geometric refinement design rather than a single-patch-only decoder. As shown in Fig. 1(b), this formulation yields a more compact routing signal and preserves a tighter coupling between the predicted geometry and the target image region, thereby reducing recognition-localization drift. This definition presents a critical optimization challenge: patch informativeness is a latent attribute lacking explicit ranking, mak-ing it difficult for supervised learning (SL) to identify the most discriminative evidence [ 18 ]. Since the optimal patch is only re-vealed by final spotting quality, this problem is naturally suited to reinforcement learning, which directly optimizes sampled dis-crete decisions using delayed task-level rewards [ 27 , 34 , 38 , 39 ]. We therefore reformulate patch selection as a discrete decision problem with task-level feedback, and introduce Single-Patch Selective Optimization (SPaSO) , a reinforcement learning framework that directly optimizes patch selection using patch-level rewards de-rived from the final spotting outcome while jointly optimizing the continuous decoder. In this way, SPaSO learns which patch to select, while continuous supervision learns how to regress its geometry. To endow the single patch with robust representations across heterogeneous grounding formats and facilitate tighter alignment with linguistic semantics, we further address the architectural in-tegration of the selected patch features. First, to stabilize selected patch features in the unified head, we introduce Directional Em-bedding Alignment (DEA) , which decouples feature magnitude and direction. This design suppresses unstable norm bias in patch competition and makes the selected representation focus more on directional alignment with the language state. Second, we propose 
+
+Patch-Enhanced Decoding (PED) to alleviate the information bottleneck of decoding from a selected patch alone by fusing the selected visual patch with language hidden states, so the decoder can exploit richer visual-semantic cues for geometry prediction. In summary, the main contributions of this work are as follows: 
+
+• We introduce SPaTS , a single-anchor visual-token paradigm for scene text spotting. It replaces noisy multi-patch routing with one anchor token per instance and full-image geometric refinement, leading to more compact and less ambiguous grounding. 
+
+• We propose SPaSO , a patch-level reinforcement learning frame-work that directly optimizes discrete visual-token selection when oracle optimal labels are unavailable, yielding state-of-the-art results across multiple benchmarks. 
+
+• We propose DEA and PED . DEA decouples patch magnitude and direction, using warmup to calibrate magnitude and later training to focus on directional alignment, while PED combines routed local evidence with language semantics to recover precise boundaries without reintroducing multi-patch noise. 
+
+## 2 Related Work 2.1 Scene Text Spotting 
+
+Scene text spotting has evolved from early end-to-end frameworks that jointly optimize detection and recognition [ 21 , 22 ] to more advanced methods for arbitrary-shaped text. Representative di-rections include segmentation-based approaches such as Mask TextSpotter [ 20 ], regression-based methods such as ABCNet [ 23 ]and TextDragon [ 9 ], and Transformer-based frameworks such as TESTR [ 56 ], DeepSolo [ 50 ], and SPTS v2 [ 26 ]. More recently, MLLM-based OCR systems have reformulated spotting as a generative rea-soning problem [ 19 , 45 , 53 ]. PaddleOCR-VL [ 7], HunyuanOCR [ 41 ], and dots.mocr [ 57 ] have achieved notable progress in spotting with MLLMs. Despite these advances, existing methods still face a trade-off between geometric precision and semantic reasoning ability. One Patch Is Enough: Reinforcement-Optimized Visual Token Grounding for MLLM-Based Scene Text Spotting MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil. LLM Backbone    
+
+> Image
+> Encoder
+> [wh] [at] [ t ][ex ]
+> What text can you see in this image?
+
+tokenize 
+
+Language Head 
+
+Directional Embedding 
+
+Alignment 
+
+a) SPaTS Overview 
+
+c) Directional Embedding Alignment    
+
+> Full Visual
+> Feature
+> Normed Visual
+> Feature
+> Scale
+> Visual
+> Prototype
+> L2 Norm
+> There are 2 ["text"], <c> LA BELLE PROVINCE </c>, <c> RESTAURANT </c> .
+> Patch-Enhanced
+> Decoding
+
+b) Training Pipeline 
+
+Base SPaTS 
+
+> SFT
+
+LSPaSO 
+
+Lgeo 
+
+> Patch-level
+> Reward
+> RL
+> Hidden State
+> Unified Head
+
+d) Patch-Enhanced Decoding 
+
+> hIndex Select
+> h
+
+Cross Attention Decoder     
+
+> Curve
+> BBox
+> Point
+> Full Image Feature
+> CBP
+> QK, V
+> C
+> B
+> P
+> Task Query
+> Patch
+> Feature
+> Hidden
+> State
+> Text Prototype Visual
+> Legend
+
+Figure 2: Overview of SPaTS. (a) Autoregressive spotting architecture. (b) Two-stage training with supervised fine-tuning and SPaSO. (c) DEA decouples feature direction and magnitude to form stable visual prototypes. (d) PED fuses the selected patch with language context for continuous geometry decoding. 
+
+## 2.2 Unified Visual Tokenization for Grounding 
+
+A related line of work studies how MLLMs bind language to vi-sual evidence. Early methods such as Shikra [ 4] and Kosmos-2 [ 36 ]serialize grounding into coordinate or location tokens. Later ap-proaches, including Groma [ 29 ] and Osprey [ 51 ], replace coor-dinates with region-level proxies. More recent methods such as ClawMachine [ 30 ] and PaDT [ 40 ] move grounding closer to image-derived patch tokens. These advances motivate our use of visual tokens, but they are still not ideal for scene text spotting. In small, curved, and dense text scenes, coarse regions or multiple patches can mix the target text with nearby words and background content. 
+
+## 2.3 Reinforcement Learning in MLLMs 
+
+Reinforcement learning (RL) [11, 34] is used to align MLLMs with objectives beyond token-level likelihood, enabling models to op-timize for reasoning quality, output structure, and performance. Group Relative Policy Optimization (GRPO) [ 38 ] improves effi-ciency by removing the critic and normalizing rewards within groups of responses, thereby reducing memory and computation overhead. Works such as VLM-R1 [ 39 ], VLM-RL [ 14 ], and Visual-RFT [ 27 ] extend this paradigm to multimodal reasoning and deci-sion making, demonstrating RL’s potential to improve perception-grounded outputs. However, most methods optimize textual spa-tial surrogates rather than geometric predictions, weakly coupling localization with policy objectives and limiting spatial rewards. 
+
+## 3 Method 3.1 Overall Architecture 
+
+Following the pipeline design of PaDT [ 40 ], SPaTS performs text recognition and spatial grounding within a vision-token framework. As shown in Fig. 2(a), given an input image I ∈ R𝐻 ×𝑊 ×3, where 𝐻 
+
+and 𝑊 denote the image height and width, the vision encoder 𝐸 (·) 
+
+extracts 𝑁 patch features 
+
+Vpatch = 𝐸 (I) = [v1, . . . , v𝑁 ] ∈ R𝑁 ×𝑑 , (1) where v𝑖 ∈ R𝑑 is the visual feature of the 𝑖 -th image patch and 𝑑 
+
+is the hidden dimension. Then all the current-image patches are adapted into image-specific visual prototypes: 
+
+Pvis = 𝑓 adapt (Vpatch ) = [p1, . . . , p𝑁 ] ∈ R𝑁 ×𝑑 . (2) Here p𝑖 ∈ R𝑑 is the visual prototype corresponding to the 𝑖 -th patch. These prototypes are appended to both the text embedding table and the language head: 
+
+Euni = [Etext ; Pvis ], Wuni = [Wtext ; Pvis ], (3) where Etext and Wtext denote the original textual embedding and language head weight, respectively. This yields an image-specific visual vocabulary Vvis = {𝑣 1, . . . , 𝑣 𝑁 } derived from its native patch features, where token 𝑣 𝑖 indexes visual prototype p𝑖 for grounding. MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil. Rui Tang et al. There are 
+
+> There are
+> There are
+> There are
+
+a) Single-Patch Selective Optimization 
+
+1) Patch Generation Reward 
+
+2) Patch Dominance Reward    
+
+> There are 2["text"],
+
+# 1.0 
+
+# 0.5 
+
+# 0.4 
+
+# 0.0  
+
+> There are 2 ["text"],
+
+0.75 
+
+0.25 There are 2 ["text"], 
+
+Top-k Candidate          
+
+> GT Patches Right Patch Wrong Patch
+> There are 2["text"],
+> There are 3["text"],
+> There are 2["text"],
+
+Reward 
+
+> Patch-Enhanced
+> Decoding
+> GT
+> Groundnings
+> Pred
+> Groundnings
+> SPaTS
+
+Advantage 
+
+0.1 
+
+-0.1 
+
+0.4 
+
+-0.4 
+
+b) Joint Optimization LSPaSO Lgeo 
+
+> BBox
+> Bezier
+> Point
+
+Figure 3: Illustration of SPaSO. (a) Selection Optimization & Reward Modeling: The model selects a visual patch from candidates (blue: GT; orange: incorrect; green: correct). Patch Generation Reward measures spotting quality, while Patch Dominance Reward keeps correct patches among the top-k candidates. (b) Joint Optimization: SPaSO optimizes discrete selection with rewards while preserving geometry supervision for coordinate decoding. 
+
+Given a spotting prompt P, the MLLM backbone performs au-toregressive decoding over the unified vocabulary: 
+
+h𝑡 = 𝑓 mllm (P , I, 𝑦 <𝑡 ), 𝑝 (𝑦 𝑡 | 𝑦 <𝑡 , P, I) = Softmax (Wuni h𝑡 ),
+
+(4) where h𝑡 ∈ R𝑑 is the hidden state at decoding step 𝑡 , 𝑦 <𝑡 denotes the previously generated tokens, and 𝑦 𝑡 ∈ V text ∪ V vis is the cur-rent output token. Text tokens continue the transcription, while corresponding visual patches are selected for grounding. In our setting, each text instance is associated with one visual token 𝑣 𝑎 𝑡 ,where 𝑎 𝑡 is the selected patch index and p𝑎 𝑡 is its corresponding visual prototype: 
+
+g𝑡 = 𝑓 geo (h𝑡 , p𝑎 𝑡 , Vpatch ), (5) where g𝑡 denotes the decoded geometry for the current instance, including bounding box, Bézier curve, or point sequence. 
+
+## 3.2 Single-Patch Selective Optimization (SPaSO) 
+
+SFT Stage. As shown in Figure 2(b), before reinforcement learning, SPaTS is initialized through supervised fine-tuning (SFT) using ground-truth supervision. Given an image I and a spotting prompt 
+
+P, the MLLM generates the ground-truth interleaved sequence of text and visual patches, while PED decodes spatial grounding from the selected patch. The SFT loss consists of a token-level cross-entropy term and a direct geometry term: 
+
+LSFT = −∑︁ 
+
+> 𝑡
+
+log 𝑝 (𝑦 ★ 
+
+> 𝑡
+
+| 𝑦 ★<𝑡 , P, I) + L BBox + L Bezier + L Point . (6) Here 𝑦 ★ 
+
+> 𝑡
+
+denotes the ground-truth token at step 𝑡 , and 𝑦 ★<𝑡 is the ground-truth prefix. The terms LBBox , LBezier , and LPoint repre-sent the losses for bounding boxes, Bézier curves, and point sets, respectively, during supervised model training; their detailed math-ematical formulations are provided in Appendix A.3. 
+
+SPaSO Stage. The main challenge of single-patch grounding lies in defining the optimal patch, since no oracle label specifies the 
+
+optimal patch for the model. We formulate patch-selection as a discrete decision problem, where task-level feedback serves as the optimization signal. To address this, we propose Single-patch Selec-tive Optimization (SPaSO), a reinforcement learning objective built upon the GRPO framework. As illustrated in Fig. 3(a), SPaSO applies RL to visual-token selection, while geometry regression is retained under matched continuous supervision. Following GRPO [ 38 ], the policy 𝜋 𝜃 is updated by maximizing the expected advantage over a One Patch Is Enough: Reinforcement-Optimized Visual Token Grounding for MLLM-Based Scene Text Spotting MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil. 
+
+sampled group of 𝐺 outputs: 
+
+JSPaSO (𝜃 ) = E
+
+"
+
+1
+
+𝐺 
+
+> 𝐺
+
+∑︁ 
+
+> 𝑖 =1
+
+min 
+
+
+
+𝜌 𝑖 (𝜃 ) ˆ𝐴 𝑖 , clip (𝜌 𝑖 (𝜃 ), 1 − 𝜖, 1 + 𝜖 ) ˆ𝐴 𝑖 
+
+#
+
+,
+
+(7) where 𝜌 𝑖 (𝜃 ) = 𝜋 𝜃 (𝑜 𝑖 | 𝑞 )/ 𝜋 𝜃 old (𝑜 𝑖 | 𝑞 ) denotes the policy ratio and 
+
+ˆ𝐴 𝑖 is the normalized advantage. In SPaSO, the RL action space con-sists of sampling sequences characterized by patch indices rather than raw coordinate text. Consequently, the patch sampling distri-bution is optimized via the following patch-level rewards. 
+
+Patch Generation Reward. As shown in Fig. 3(a), we evaluate the quality of sampled patches through the lens of final spotting perfor-mance. A prediction is a True Positive (TP) if its corresponding patch resides within the ground-truth boundary and its generated text matches the ground truth within a predefined edit distance threshold. Combined with the average Intersection-over-Union (IoU avg ) of matched pairs, the reward 𝑟 gen is defined as: 
+
+𝑟 gen = HM (𝐹 1, IoU avg ) = 2 · 𝐹 1 · IoU avg 
+
+𝐹 1 + IoU avg 
+
+, (8) where 𝐹 1 is the instance-level score calculated from the matching re-sults. This formulation forces the policy to select patches that yield both high-fidelity transcriptions and precise geometric boundaries. 
+
+Patch Dominance Reward. To complement the sparse set-level reward, we further define a dense reward over the top-𝑘 routed candidates. At each visual-token step 𝑡 , let 𝑝 𝑡 ∈ R𝑁 be the predictive distribution over candidate patches and let G𝑡 be the set of ground-truth candidates. We measure ground-truth coverage within the Top-𝑘 predictions: 
+
+𝑟 dom = 1
+
+𝑇 
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡 =1
+
+1
+
+|G 𝑡 |∑︁ 𝑔 ∈ G 𝑡 
+
+1(𝑔 ∈ TopK (𝑝 𝑡 , 𝑘 )) . (9) This reward encourages the policy to retain the correct patches before geometry decoding, providing sufficient optimization signals even when the generation reward is sparse or low. 
+
+Joint Optimization. As shown in Fig. 3(b), SPaSO is trained jointly with continuous geometry supervision. For each sampled pair 𝑗 ,PED decodes geometry as ˆg𝑗 = 𝑓 𝜙 (F( 𝑗 )
+
+> ped
+
+) and reuses the same bipar-tite matching M★ = Match ( ˆY, Y) for geometry supervision. The geometry loss is 
+
+Lgeo = 1
+
+|M ★|∑︁ ( 𝑗,𝑚 ) ∈ M ★
+
+
+
+L 𝑗,𝑚  
+
+> BBox
+
++ L 𝑗,𝑚  
+
+> Bezier
+
++ L 𝑗,𝑚 
+
+> Point
+
+
+
+,
+
+Ltotal = −J SPaSO + L geo .
+
+(10) Here LBBox , LBezier , and LPoint denote the regression losses for bounding boxes, Bézier curves, and point sets, respectively. In this way, SPaSO learns which patch to select, while matched geometry supervision learns how to recover its geometry. 
+
+## 3.3 Directional Embedding Alignment (DEA) 
+
+Since visual prototypes serve as decoding weights whose dot prod-ucts with h𝑡 determine the visual logits, the logits can be dominated by feature magnitude, biasing selection toward high-energy patches. To ensure the model learns precise directional alignment, it is cru-cial to decouple feature direction from magnitude. Furthermore, to maintain the structural integrity of the pre-trained vision-language space, the visual prototypes p𝑖 should remain aligned with the orig-inal image-patch features v𝑖 . We therefore adopt a design where the prototype is strictly proportional to the image feature, ensuring that the visual distribution of the unified head preserves image-specific semantics. As shown in Fig. 2(c), DEA implements this by parameterizing each visual prototype via a normalized direction and a learnable scale. Given patch features Vpatch = [v1, . . . , v𝑁 ], we compute: 
+
+ˆv𝑖 = v𝑖 
+
+∥v𝑖 ∥2
+
+, 𝛾 𝑖 = W𝛾 v𝑖 , p𝑖 = 𝛾 𝑖 ˆv𝑖 . (11) The resulting prototypes are stacked as Pvis = [p1, . . . , p𝑁 ] and appended to the textual head, yielding the unified output matrix 
+
+Wuni = [Wtext ; Pvis ].Under this decoupled parameterization, the visual logits in the unified head take the form: 
+
+Z = [Wtext h𝑡 ;𝛾 1 ∥h𝑡 ∥2 cos (𝜃 1), . . . , 𝛾 𝑁 ∥h𝑡 ∥2 cos (𝜃 𝑁 )] , (12) where 𝜃 𝑖 is the angle between h𝑡 and ˆv𝑖 . Isolating the scale 𝛾 𝑖 
+
+prevents raw feature norms from dominating selection decisions. Crucially, by freezing 𝛾 𝑖 after warmup, DEA forces the model to focus on learning directional semantic alignment (cosine similarity). At a fixed decoding step, ∥h𝑡 ∥2 is shared across all candidate patches, and the cross-entropy over visual logits becomes: 
+
+LCE = − log exp  𝛾 target ∥h𝑡 ∥2 cos (𝜃 target )Í𝑗 exp (𝑧 𝑗 ) . (13) 
+
+## 3.4 Patch-Enhanced Decoding (PED) 
+
+After SPaTS selects the visual token v𝑎 𝑡 and its corresponding pro-totype p𝑎 𝑡 , the model still needs to recover g𝑡 = 𝑓 geo (h𝑡 , p𝑎 𝑡 , Vpatch ).Using only p𝑎 𝑡 is insufficient: it indicates where to attend, but does not fully indicate which text instance is being decoded or how its boundary should be traced. PED addresses this by combining the routed prototype with the language hidden state and using the fused query to read from the full-image feature map. Specifically, as shown in Fig. 2(d), given p𝑎 𝑡 and h𝑡 , we form an object query 
+
+q𝑡 = 𝜙  [p𝑎 𝑡 || h𝑡 ] , (14) where p𝑎 𝑡 provides local visual evidence and h𝑡 specifies the de-coded text content. We then prepend four learnable readout tokens for box, point, curve, and score prediction: 
+
+Q0 
+
+> 𝑡
+
+= [q𝑡 ; tbbox ; tpoint ; tcurve ; tscore ], K𝑡 = V𝑡 = Vpatch . (15) The query sequence Q0 
+
+> 𝑡
+
+is refined by a three-layer cross-attention decoder over Vpatch , and the first four output tokens are fed to the bounding-box, point, Bézier-curve, and score heads to predict g𝑡 .
+
+## 4 Experiments 4.1 Experimental Setup 
+
+Datasets. We train SPaTS on a multi-source collection for geo-metric robustness, including Curved Synthetic 150k [ 23 ] for pre-training, supplemented by real-world datasets: MLT-2017 [ 32 ], IC-DAR 2013/2015 [ 16 , 17 ], Total-Text [ 5], and SCUT-CTW1500 [ 24 ]. These cover diverse challenges including horizontal, multi-oriented, and highly curved text. Evaluation is performed on the test sets of Total-Text, SCUT-CTW1500, and ICDAR 2015. MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil. Rui Tang et al. 
+
+Table 1: Comparison of text spotting performance. SPaTS-2B and SPaTS-4B denote the 2B and 4B model variants, respectively. "P", "R", and "F" represent Precision, Recall, and F-measure. "E2E" denotes end-to-end spotting results under "None", "Full" (Total-Text/CTW1500), and "S", "W", "G" (ICDAR 2015) lexicon protocols. Bold and underlined values indicate the best and second-best results. 
+
+Methods Total-Text CTW1500 ICDAR 2015 Detection E2E Detection E2E Detection E2E P R F None Full P R F None Full P R F S W G
+
+Closed-Source 
+
+Claude-Sonnet-4.6 [1] 43.1 15.5 22.8 14.1 15.9 64.7 46.8 54.3 30.9 35.3 20.6 10.1 13.5 11.7 10.3 10.2 Gemini-3.1-Flash [10] 68.9 59.2 63.7 56.6 59.8 47.1 68.5 55.8 43.3 48.5 48.9 38.8 43.2 38.0 36.9 36.5 GPT-5.4 [33] 53.4 19.5 28.6 17.2 20.2 44.3 34.2 38.6 27.9 32.4 37.9 18.2 24.6 12.4 11.9 11.9 seed-2.0-pro [3] 69.8 25.8 37.6 30.8 35.6 81.7 78.5 80.1 62.8 76.5 37.1 26.9 31.2 27.6 27.0 26.9 
+
+Open-Source 
+
+Kimi-K2.5 [42] 73.0 35.8 48.1 42.3 46.3 72.3 77.8 75.0 58.2 70.1 48.5 36.9 41.9 35.9 35.1 34.6 Qwen3.5-397B-A17B [44] 62.7 34.5 44.5 38.2 42.5 45.5 51.3 48.2 37.1 44.6 55.8 42.8 48.4 42.6 41.9 41.3 InternVL3.5-241B-A28B [48] 31.6 9.0 14.1 9.2 10.2 58.1 52.5 55.1 29.3 35.9 19.5 11.1 14.1 7.4 7.1 6.9 GLM-4.6V [52] 65.7 18.2 28.6 23.5 27.1 68.0 54.3 60.4 47.2 56.0 38.9 21.3 27.6 23.8 22.8 22.6 
+
+Specialized 
+
+HunyuanOCR [41] 77.9 35.9 49.2 41.5 44.3 76.5 89.9 82.7 63.8 77.7 56.8 49.5 52.9 43.2 40.1 39.8 PaddleOCR-VL-1.5 [7] 69.2 36.8 48.1 37.8 45.1 62.9 80.5 70.6 50.4 66.2 42.6 59.8 49.8 45.1 44.4 42.1 dots.mocr [57] 60.3 36.9 45.8 39.3 44.1 29.4 46.1 35.9 26.6 33.8 7.3 29.4 11.7 10.8 10.7 10.7 
+
+Ours 
+
+SPaTS-2B 82.3 80.9 81.7 63.3 74.3 87.9 75.8 81.4 47.0 75.1 89.1 70.0 78.4 72.1 69.1 61.6 SPaTS-4B 80.4 82.7 81.5 64.9 74.9 89.9 75.9 82.4 51.2 79.6 86.2 73.9 79.5 73.4 71.7 65.7 Table 2: End-to-end results of grounding formulations us-ing the same backbone after SFT. “Coord-Text” denotes co-ordinate generation in text space, while “Multi-Patch” and “Single-Patch” denote visual-token grounding with multiple routed patches and a single routed patch, respectively. “P”, “R”, and “F” denote Precision, Recall, and F-measure.                                       
+
+> Methods Total-Text CTW1500 ICDAR 2015 PRFPRFPRFCoord-Text 53.2 46.3 49.5 39.7 45.8 42.6 48.5 39.1 43.3 Multi-Patch 30.6 16.7 21.6 34.7 24.3 28.6 47.8 39.8 43.4 Single-Patch 63.0 64.5 63.7 40.3 57.9 47.6 66.1 57.3 61.4
+
+Implementation Details. We build SPaTS on Qwen3-VL 2B/4B [ 43 ], incorporating a three-layer cross-attention decoder for fine-grained geometric refinement [ 40 ]. The training follows a two-stage pipeline: (1) SFT stage : The model is trained for 16 epochs using the AdamW optimizer with a learning rate of 4 × 10 −5 and a cosine decay sched-ule. Training is executed on 8 NVIDIA A6000 GPUs with an effective batch size of 128. (2) RL stage : We further optimize visual patch selection via SPaSO for 30 epochs using GRPO [ 38 ] with a group size of 4 and a reduced learning rate of 5 × 10 −6. The vision en-coder and scale head are both frozen during this phase. Additional implementation details are provided in Appendix A.2. 
+
+Table 3: End-to-end results across post-training stages. "Base" is the pre-trained model; "SFT" and "SPaSO" denote subse-quent supervised fine-tuning and reinforcement learning on target datasets, respectively.                  
+
+> Stage Total-Text CTW1500 None Full None Full Base 56.8 63.7 41.8 47.6 SFT 61.2 69.7 53.1 58.9 SPaSO 64.9 74.9 51.2 79.6
+
+## 4.2 Main Results 
+
+Comprehensive State-of-the-Art Performance. As shown in Table 1, both SPaTS variants (2B and 4B) achieve significant im-provements across three benchmarks: Total-Text, CTW1500, and ICDAR 2015. They dominate almost all core metrics in both text detection and end-to-end (E2E) spotting, demonstrating robust gen-eralization and superior capability across diverse text scenarios. 
+
+Superiority over Specialized Models. Compared with specialized OCR models such as HunyuanOCR and PaddleOCR-VL-1.5, SPaTS demonstrates performance gains, particularly in the challenging E2E spotting task. On the ICDAR 2015 benchmark, for instance, SPaTS raises the E2E metrics (S/W/G) from previous state-of-the-art levels of approximately 50%. This notable improvement in accuracy suggests that our approach can effectively address complex spotting scenarios where traditional methods have faced limitations. One Patch Is Enough: Reinforcement-Optimized Visual Token Grounding for MLLM-Based Scene Text Spotting MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil. 
+
+Table 4: End-to-end results of different localization rep-resentations. "Bezier", "BBox", and "Point" denote explicit coordinate-based variants using Bezier curves, bounding boxes, and central points, respectively, while "Patch" rep-resents our single-patch selection formulation.                                
+
+> Variants Total-Text CTW1500 PRFPRFBezier 53.7 52.8 53.3 60.2 50.9 55.1 BBox 73.8 75.9 74.9 87.1 73.5 79.7 Point 75.4 75.6 75.5 87.6 73.9 80.1 Patch 73.9 76.4 75.2 88.5 74.9 81.2
+
+Table 5: Ablation study on SPaTS components. 𝐿 2 norm and Scale denote 𝐿 2 normalization and learnable scaling, respec-tively; h𝑡 and p𝑎 𝑡 represent the language hidden state and routed prototype. Results are reported on the SFT-trained model to isolate the effects of different training stages.                                                                             
+
+> Components Total-Text CTW1500 ICDAR 2015 PRFPRFPRF
+> 𝐿 2Norm Scale DEA
+> ✗✗53.1 53.7 53.4 29.6 26.9 28.2 41.7 47.8 44.5
+> ✓✗60.3 61.7 61.0 32.6 54.7 40.9 53.5 44.6 48.7
+> ✗✓68.5 47.0 55.8 31.1 58.4 40.6 63.8 53.2 58.0
+> ✓✓63.0 64.5 63.7 40.3 57.9 47.6 66.1 57.3 61.4
+> h𝑡 p𝑎 𝑡 PED
+> ✓✗50.9 35.1 41.5 31.9 32.3 32.1 43.0 30.4 35.6
+> ✓✓63.0 64.5 63.7 40.3 57.9 47.6 66.1 57.3 61.4
+
+High Parameter Efficiency vs. MLLMs. Despite utilizing a rela-tively lightweight 2B/4B architecture, SPaTS decisively outperforms both massive open-source MoE models and frontier closed-source systems (e.g., GPT-5.4, Claude-Sonnet-4.6, and Gemini-3.1-Flash), achieving superior results with significantly higher parameter effi-ciency. This highlights the extreme efficiency of our architectural design for vision-language alignment, effectively achieving superior text spotting results with a fraction of the parameter scale. 
+
+## 4.3 Further Analysis 
+
+Superiority of Single-Patch Grounding. As evidenced in Ta-ble 2, Single-Patch selection consistently outperforms both Coord-Text and Multi-Patch formulations. Unlike text-space tokenization which suffers from precision loss, our approach establishes a di-rect semantic-to-visual correspondence. The poor performance of 
+
+Multi-Patch further suggests that multiple visual tokens introduce substantial selection ambiguity; thus, by constraining SPaTS to a single high-quality patch, we achieve a more efficient and stable grounding interface with superior representational sparsity. 
+
+Synergy between SFT and RL Stages. The performance evolu-tion in Table 3 highlights the distinct optimization goals of each post-training stage. While SFT maintains a slight lead in blind set-tings by strictly minimizing character-level cross-entropy, SPaSO 
+
+leverages edit-distance tolerance to prioritize semantic utility. This strategic shift facilitates a massive 20.7% leap under the Full lexicon protocol, confirming that RL-optimized selection logic is signifi-cantly more effective at aligning visual prototypes with candidate lexical sequences than standard supervised fine-tuning. 
+
+Table 6: Ablation of Reward Modeling in SPaSO. "Gen" and "Dom" denote Patch Generation Reward and Patch Domi-nance Reward, respectively. End-to-end Performance is re-ported across three text spotting benchmarks. Bold and un-derlined values indicate the best and second-best results.                                            
+
+> Reward Total-Text CTW1500 ICDAR 2015 Gen Dom PRFPRFPRF
+> ✓✗72.8 74.4 73.6 81.4 68.6 74.5 76.6 59.3 66.8
+> ✗✓66.7 67.8 67.3 58.9 57.1 58.0 65.5 62.5 64.0
+> ✓✓73.8 75.9 74.9 86.1 74.2 79.7 82.1 64.0 72.0
+
+Representational Robustness and Complexity. Beyond spe-cific training stages, SPaTS exhibits remarkable robustness across diverse grounding protocols, maintaining consistent performance as evidenced in Table 4. Notably, our framework maintains stable performance even with Bezier curves—a highly non-linear param-eterization nearly impossible to learn within standard text-space paradigms. While BBox excels in blind localization, Point and Patch 
+
+show superior scalability, with Patch reaching an impressive F-measure of 81.2% on CTW1500. This underscores that discrete visual patches serve as more robust semantic anchors for selec-tion and alignment than discrete geometric text coordinates. More detailed analyses are provided in Appendix B. 
+
+## 4.4 Ablation Study 
+
+Contribution of Architectural Components. As evidenced in Table 5, the DEA module relies on the joint application of 𝐿 2 nor-malization and learnable scaling to ensure robust similarity compu-tation. Without this stabilization, selection is dominated by feature norms rather than semantic relevance, causing detrimental feature drift. Critically, the PED module acts as a necessary bottleneck for visual grounding; while the language state h𝑡 maintains temporal coherence, it struggles with fine-grained occlusions. The collapse in accuracy following the removal of the corresponding prototype 
+
+p𝑎 𝑡 confirms that grounding the language prior in explicit visual signals is essential to prevent model hallucination. 
+
+Dual Reward Synergy. Table 6 highlights the complementarity of our reward design in SPaSO . The Patch Generation Reward ( 𝑟 gen )serves as the primary objective, ensuring that selection decisions directly optimize end-to-end spotting. However, the Patch Domi-nance Reward ( 𝑟 dom ) is essential for stabilization—it provides dense credit assignment when 𝑟 gen is sparse, ensuring the model identifies the most informative patch even in early RL stages. Combined, they yield the most robust selection policy across all benchmarks. 
+
+## 4.5 Qualitative Evaluation 
+
+Robustness Across Complex Scenarios. As illustrated in Fig. 4, SPaTS effectively navigates curved and irregular geometries that often hinder conventional VLMs. On CTW1500 and Total-Text, it maintains precise instance-level grounding where BBox and Curve baselines suffer from geometric drift. By employing selected patches as stable semantic anchors, SPaTS ensures transcriptions remain strictly coupled to instances despite non-rigid boundaries. This robustness extends to ICDAR 2015, where it captures weak or oc-cluded text frequently overlooked by general-purpose MLLMs. MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil. Rui Tang et al. Input Patch BBox Curve Point 
+
+Figure 4: Qualitative comparison of localization representa-tions. Columns show the input, SPaTS-routed patches and labels, and BBox/Curve/Point results (green: GT; red: predic-tion). Our method handles curved text (rows 1–2, CTW1500), dense or multi-oriented text (rows 3–4, Total-Text), and low-contrast text (rows 5–6, ICDAR 2015). Zoom in for better view. Interpretability of Visual Selection. We examine the underlying selection mechanism through the cross-attention heatmaps visu-alized in Fig. 5. During the visual-token selection phase, attention is observed to concentrate sharply on the target text regions, ef-fectively isolating the relevant features from surrounding clutter and distractors. Such a focused pattern explains the reliability of SPaTS in crowded scenes; the high degree of alignment between attention peaks and text geometry confirms that our lightweight interface successfully distills the most informative local evidence while suppressing interference in downstream decoding. 
+
+Impact of Selection on Spotting Quality. The correlation be-tween selection precision and final spotting fidelity is clearly demon-strated in Fig. 6. Our analysis reveals that localization quality is fundamentally sensitive to selection decisions at inference: while an optimal, centered patch yields tight and accurate results, peripheral or mismatched patches lead to immediate grounding degradation. These observations validate the core motivation of SPaSO—that op-timizing discrete patch selection is a prerequisite for high-precision spotting in practice, as the decoder’s performance is inherently upper-bounded by the quality of the visual evidence it receives. 
+
+## 5 Limitations 
+
+Despite its effectiveness, SPaTS still has several limitations. First, although SPaSO optimizes selection without oracle labels, the RL stage introduces additional training overhead and depends on care-fully designed reward shaping for stable optimization. Second, al-though DEA stabilizes prototypes and improves alignment, freezing the magnitude branch after warmup may reduce flexibility under extreme illumination changes, where feature scales can vary more drastically than in standard settings. These factors may limit the model’s robustness and efficiency in highly challenging real-world scenarios. Future work will focus on reducing the optimization cost of SPaSO and improving robustness under more extreme conditions. 
+
+Figure 5: Attention heat map during visual-token selection. Brighter regions indicate stronger focus on the grounded text instance. Zoom in for better view. 
+
+Figure 6: Localization quality varies across different sampled patches. Different selection choices can lead to noticeably different grounding quality, even for the same text instance. Zoom in for better view. 
+
+## 6 Conclusion 
+
+In this paper, we introduce SPaTS , a new framework that explicitly rethinks visual grounding granularity for MLLM-based scene text spotting. By routing each text instance through a single, instance-specific, task-optimized anchor visual token and recovering geom-etry via full-image refinement, we replace noisy and redundant multi-patch aggregation with a more compact, precise formula-tion that enforces a tighter coupling between visual evidence and geometric prediction. We further propose SPaSO , a reinforcement learning method that reformulates the latent visual token assign-ment problem as a discrete policy optimization problem without extra annotations, bypassing the need for oracle patch supervision during optimization while directly maximizing end-to-end spot-ting quality through dual complementary rewards. Coupled with 
+
+DEA ’s norm-decoupled directional prototype alignment and PED ’s cross-attention-driven dense geometry recovery, SPaTS bridges the gap between the semantic reasoning capacity of large multimodal models and the fine-grained geometric rigor required for high-fidelity text spotting, offering a novel visual grounding paradigm for precision-demanding OCR applications in complex scenarios. One Patch Is Enough: Reinforcement-Optimized Visual Token Grounding for MLLM-Based Scene Text Spotting MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil. 
+
+## Acknowledgments 
+
+This research is supported in part by the National Natural Science Foundation of China (Grant No. 62476093), the Natural Science Foundation of Guangdong Province (Grant No. 2026A1515012038), the China Postdoctoral Science Foundation (Grant No. 2026M791625), and the Postdoctoral Fellowship Program (Grade B) of the China Postdoctoral Science Foundation (Grant No. GZB20260386). 
+
+## References 
+
+[1] Anthropic. 2026. Introducing Claude Sonnet 4.6. https://www.anthropic.com/ news/claude-sonnet-4-6 [2] Youngmin Baek, Seung Shin, Jeonghun Baek, Sungrae Park, Junyeop Lee, Dae-hyun Nam, and Hwalsuk Lee. 2020. Character Region Attention for Text Spotting. In Computer Vision - ECCV 2020 - 16th European Conference, Glasgow, UK, August 23-28, 2020, Proceedings, Part XXIX (Lecture Notes in Computer Science) , Andrea Vedaldi, Horst Bischof, Thomas Brox, and Jan-Michael Frahm (Eds.). Springer, 504–521. doi:10.1007/978-3-030-58526-6_30 [3] Bytedance. 2026. Seed 2.0 Official Launch. https://seed.bytedance.com/zh/blog/ seed-2-0-official-launch?view_from=content_recommend [4] Keqin Chen, Zhao Zhang, Weili Zeng, Richong Zhang, Feng Zhu, and Rui Zhao. 2023. Shikra: Unleashing Multimodal LLM’s Referential Dialogue Magic. CoRR 
+
+abs/2306.15195 (2023). arXiv:2306.15195 doi:10.48550/ARXIV.2306.15195 [5] Chee Kheng Chng and Chee Seng Chan. 2017. Total-Text: A Comprehensive Dataset for Scene Text Detection and Recognition. In 14th IAPR International Conference on Document Analysis and Recognition, ICDAR 2017, Kyoto, Japan, November 9-15, 2017 . IEEE, 935–942. doi:10.1109/ICDAR.2017.157 [6] Cheng Cui, Ting Sun, Suyin Liang, Tingquan Gao, Zelun Zhang, Jiaxuan Liu, Xueqing Wang, Changda Zhou, Hongen Liu, Manhui Lin, Yue Zhang, Yubo Zhang, Yi Liu, Dianhai Yu, and Yanjun Ma. 2026. PaddleOCR-VL-1.5: Towards a Multi-Task 0.9B VLM for Robust In-the-Wild Document Parsing. CoRR abs/2601.21957 (2026). arXiv:2601.21957 doi:10.48550/ARXIV.2601.21957 [7] Cheng Cui, Ting Sun, Suyin Liang, Tingquan Gao, Zelun Zhang, Jiaxuan Liu, Xueqing Wang, Changda Zhou, Hongen Liu, Manhui Lin, Yue Zhang, Yubo Zhang, Handong Zheng, Jing Zhang, Jun Zhang, Yi Liu, Dianhai Yu, and Yanjun Ma. 2025. PaddleOCR-VL: Boosting Multilingual Document Parsing via a 0.9B Ultra-Compact Vision-Language Model. CoRR abs/2510.14528 (2025). arXiv:2510.14528 doi:10.48550/ARXIV.2510.14528 [8] Rongyao Fang, Chengqi Duan, Kun Wang, Hao Li, Hao Tian, Xingyu Zeng, Rui Zhao, Jifeng Dai, Hongsheng Li, and Xihui Liu. 2024. PUMA: Empowering Unified MLLM with Multi-granular Visual Generation. CoRR abs/2410.13861 (2024). arXiv:2410.13861 doi:10.48550/ARXIV.2410.13861 [9] Wei Feng, Wenhao He, Fei Yin, Xu-Yao Zhang, and Cheng-Lin Liu. 2019. TextDragon: An End-to-End Framework for Arbitrary Shaped Text Spotting. In 2019 IEEE/CVF International Conference on Computer Vision, ICCV 2019, Seoul, Korea (South), October 27 - November 2, 2019 . IEEE, 9075–9084. doi:10.1109/ICCV. 2019.00917 [10] Gemini Team. 2025. Gemini 3 Flash: frontier intelligence built for speed. https: //blog.google/products/gemini/gemini-3-flash/ [11] Daya Guo, Dejian Yang, Haowei Zhang, et al . 2025. DeepSeek-R1 incentivizes reasoning in LLMs through reinforcement learning. Nature 645 (2025), 633–638. doi:10.1038/s41586-025-09422-z [12] Jiaxing Huang, Jingyi Zhang, Kai Jiang, Han Qiu, Xiaoqin Zhang, Ling Shao, Shijian Lu, and Dacheng Tao. 2025. Visual Instruction Tuning towards General-Purpose Multimodal Large Language Model: A Survey. Int. J. Comput. Vis. 133, 11 (2025), 8151–8189. doi:10.1007/S11263-025-02572-7 [13] Mingxin Huang, Yuliang Liu, Zhenghao Peng, Chongyu Liu, Dahua Lin, Shenggao Zhu, Nicholas Jing Yuan, Kai Ding, and Lianwen Jin. 2022. SwinTextSpotter: Scene Text Spotting via Better Synergy between Text Detection and Text Recognition. In IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2022, New Orleans, LA, USA, June 18-24, 2022 . IEEE, 4583–4593. doi:10.1109/CVPR52688. 2022.00455 [14] Zilin Huang, Zihao Sheng, Yansong Qu, Junwei You, and Sikai Chen. 2025. VLM-RL: A Unified Vision Language Models and Reinforcement Learning Framework for Safe Autonomous Driving. Transportation Research Part C: Emerging Tech-nologies (2025). doi:10.1016/j.trc.2025.105321 [15] Hugging Face. 2026. TRL: Transformers Reinforcement Learning . Accessed: 2026-04-09. https://huggingface.co/docs/trl [16] Dimosthenis Karatzas, Lluis Gomez-Bigorda, Anguelos Nicolaou, Suman K. Ghosh, Andrew D. Bagdanov, Masakazu Iwamura, Jiri Matas, Lukás Neumann, Vijay Ramaseshan Chandrasekhar, Shijian Lu, Faisal Shafait, Seiichi Uchida, and Ernest Valveny. 2015. ICDAR 2015 competition on Robust Reading. In 
+
+13th International Conference on Document Analysis and Recognition, ICDAR 2015, Nancy, France, August 23-26, 2015 . IEEE Computer Society, 1156–1160. doi:10.1109/ICDAR.2015.7333942 [17] Dimosthenis Karatzas, Faisal Shafait, Seiichi Uchida, Masakazu Iwamura, Lluis Gomez i Bigorda, Sergi Robles Mestre, Joan Mas, David Fernández Mota, Jon Almazán, and Lluís-Pere de las Heras. 2013. ICDAR 2013 Robust Reading Competition. In 12th International Conference on Document Analysis and Recog-nition, ICDAR 2013, Washington, DC, USA, August 25-28, 2013 . IEEE Computer Society, 1484–1493. doi:10.1109/ICDAR.2013.221 [18] Tao Lei, Regina Barzilay, and Tommi S. Jaakkola. 2016. Rationalizing Neural Predictions. In Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing, EMNLP 2016, Austin, Texas, USA, November 1-4, 2016 , Jian Su, Xavier Carreras, and Kevin Duh (Eds.). The Association for Computational Linguistics, 107–117. doi:10.18653/V1/D16-1011 [19] Zhang Li, Biao Yang, Qiang Liu, Zhiyin Ma, Shuo Zhang, Jingxu Yang, Yabo Sun, Yuliang Liu, and Xiang Bai. 2024. Monkey: Image Resolution and Text Label are Important Things for Large Multi-Modal Models. In IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2024, Seattle, WA, USA, June 16-22, 2024 . IEEE, 26753–26763. doi:10.1109/CVPR52733.2024.02527 [20] Minghui Liao, Pengyuan Lyu, Minghang He, Cong Yao, Wenhao Wu, and Xiang Bai. 2021. Mask TextSpotter: An End-to-End Trainable Neural Network for Spotting Text with Arbitrary Shapes. IEEE Trans. Pattern Anal. Mach. Intell. 43, 2 (2021), 532–548. doi:10.1109/TPAMI.2019.2937086 [21] Minghui Liao, Zhisheng Zou, Zhaoyi Wan, Cong Yao, and Xiang Bai. 2023. Real-Time Scene Text Detection With Differentiable Binarization and Adaptive Scale Fusion. IEEE Trans. Pattern Anal. Mach. Intell. 45, 1 (2023), 919–931. doi:10.1109/ TPAMI.2022.3155612 [22] Xuebo Liu, Ding Liang, Shi Yan, Dagui Chen, Yu Qiao, and Junjie Yan. 2018. FOTS: Fast Oriented Text Spotting With a Unified Network. In 2018 IEEE Conference on Computer Vision and Pattern Recognition, CVPR 2018, Salt Lake City, UT, USA, June 18-22, 2018 . Computer Vision Foundation / IEEE Computer Society, 5676–5685. doi:10.1109/CVPR.2018.00595 [23] Yuliang Liu, Hao Chen, Chunhua Shen, Tong He, Lianwen Jin, and Liangwei Wang. 2020. ABCNet: Real-Time Scene Text Spotting With Adaptive Bezier-Curve Network. In 2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2020, Seattle, WA, USA, June 13-19, 2020 . Computer Vision Foundation / IEEE, 9806–9815. doi:10.1109/CVPR42600.2020.00983 [24] Yuliang Liu, Lianwen Jin, Shuaitao Zhang, Canjie Luo, and Sheng Zhang. 2019. Curved scene text detection via transverse and longitudinal sequence connection. 
+
+Pattern Recognit. 90 (2019), 337–345. doi:10.1016/J.PATCOG.2019.02.002 [25] Yuliang Liu, Chunhua Shen, Lianwen Jin, Tong He, Peng Chen, Chongyu Liu, and Hao Chen. 2022. ABCNet v2: Adaptive Bezier-Curve Network for Real-Time End-to-End Text Spotting. IEEE Trans. Pattern Anal. Mach. Intell. 44, 11 (2022), 8048–8064. doi:10.1109/TPAMI.2021.3107437 [26] Yuliang Liu, Jiaxin Zhang, Dezhi Peng, Mingxin Huang, Xinyu Wang, Jingqun Tang, Can Huang, Dahua Lin, Chunhua Shen, Xiang Bai, and Lianwen Jin. 2023. SPTS v2: Single-Point Scene Text Spotting. IEEE Trans. Pattern Anal. Mach. Intell. 
+
+45, 12 (2023), 15665–15679. doi:10.1109/TPAMI.2023.3312285 [27] Ziyu Liu, Zeyi Sun, Yuhang Zang, Xiaoyi Dong, Yuhang Cao, Haodong Duan, Dahua Lin, and Jiaqi Wang. 2025. Visual-RFT: Visual Reinforcement Fine-Tuning. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) .2034–2044. https://openaccess.thecvf.com/content/ICCV2025/html/Liu_Visual-RFT_Visual_Reinforcement_Fine-Tuning_ICCV_2025_paper.html [28] Shangbang Long, Xin He, and Cong Yao. 2021. Scene Text Detection and Recog-nition: The Deep Learning Era. Int. J. Comput. Vis. 129, 1 (2021), 161–184. doi:10.1007/S11263-020-01369-0 [29] Chuofan Ma, Yi Jiang, Jiannan Wu, Zehuan Yuan, and Xiaojuan Qi. 2024. Groma: Localized Visual Tokenization for Grounding Multimodal Large Language Models. In Computer Vision - ECCV 2024 - 18th European Conference, Milan, Italy, September 29-October 4, 2024, Proceedings, Part VI (Lecture Notes in Computer Science) , Ales Leonardis, Elisa Ricci, Stefan Roth, Olga Russakovsky, Torsten Sattler, and Gül Varol (Eds.). Springer, 417–435. doi:10.1007/978-3-031-72658-3_24 [30] Tianren Ma, Lingxi Xie, Yunjie Tian, Boyu Yang, and Qixiang Ye. 2025. Claw-Machine: Learning to Fetch Visual Tokens for Referential Comprehension. In 
+
+The Thirteenth International Conference on Learning Representations, ICLR 2025, Singapore, April 24-28, 2025 . OpenReview.net. https://openreview.net/forum?id= TOtk9dTYGG [31] Zhibin Ma, Pengwen Dai, Wei Zhuo, and Xugong Qin. 2026. One2Seq: One-Token Wise Decoder for Efficient Scene Text Recognition. Proceedings of the AAAI Conference on Artificial Intelligence (2026). https://api.semanticscholar.org/ CorpusID:286656590 [32] Nibal Nayef, Fei Yin, Imen Bizid, Hyunsoo Choi, Yuan Feng, Dimosthenis Karatzas, Zhenbo Luo, Umapada Pal, Christophe Rigaud, Joseph Chazalon, Wafa Khlif, Muhammad Muzzamil Luqman, Jean-Christophe Burie, Cheng-Lin Liu, and Jean-Marc Ogier. 2017. ICDAR2017 Robust Reading Challenge on Multi-Lingual Scene Text Detection and Script Identification - RRC-MLT. In 14th IAPR International Conference on Document Analysis and Recognition, ICDAR 2017, Kyoto, Japan, November 9-15, 2017 . IEEE, 1454–1459. doi:10.1109/ICDAR.2017.237 [33] OpenAI. 2026. Introducing GPT-5.4. https://openai.com/index/introducing-gpt-5-4/ MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil. Rui Tang et al. 
+
+[34] Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll L. Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, John Schulman, Jacob Hilton, Fraser Kelton, Luke Miller, Maddie Simens, Amanda Askell, Peter Welinder, Paul F. Christiano, Jan Leike, and Ryan Lowe. 2022. Train-ing language models to follow instructions with human feedback. In Advances in Neural Information Processing Systems 35: Annual Conference on Neural Informa-tion Processing Systems 2022, NeurIPS 2022, New Orleans, LA, USA, November 28 - December 9, 2022 , Sanmi Koyejo, S. Mohamed, A. Agarwal, Danielle Belgrave, K. Cho, and A. Oh (Eds.). http://papers.nips.cc/paper_files/paper/2022/hash/ b1efde53be364a73914f58805a001731-Abstract-Conference.html [35] Dezhi Peng, Xinyu Wang, Yuliang Liu, Jiaxin Zhang, Mingxin Huang, Songxuan Lai, Jing Li, Shenggao Zhu, Dahua Lin, Chunhua Shen, Xiang Bai, and Lianwen Jin. 2022. SPTS: Single-Point Text Spotting. In MM ’22: The 30th ACM International Conference on Multimedia, Lisboa, Portugal, October 10 - 14, 2022 , João Magalhães, Alberto Del Bimbo, Shin’ichi Satoh, Nicu Sebe, Xavier Alameda-Pineda, Qin Jin, Vincent Oria, and Laura Toni (Eds.). ACM, 4272–4281. doi:10.1145/3503161. 3547942 [36] Zhiliang Peng, Wenhui Wang, Li Dong, Yaru Hao, Shaohan Huang, Shuming Ma, and Furu Wei. 2024. Kosmos-2: Grounding Multimodal Large Language Models to the World. In The Twelfth International Conference on Learning Representations, ICLR 2024, Vienna, Austria, May 7-11, 2024 . https://openreview.net/forum?id= lLmqxkfSIw [37] Shaoqing Ren, Kaiming He, Ross B. Girshick, and Jian Sun. 2017. Faster R-CNN: Towards Real-Time Object Detection with Region Proposal Networks. IEEE Trans. Pattern Anal. Mach. Intell. 39, 6 (2017), 1137–1149. doi:10.1109/TPAMI.2016. 2577031 [38] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. 2024. DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models. CoRR abs/2402.03300 (2024). arXiv:2402.03300 doi:10.48550/ARXIV.2402.03300 [39] Haozhan Shen, Peng Liu, Jingcheng Li, Chunxin Fang, Yibo Ma, Jiajia Liao, Qiaoli Shen, Zilun Zhang, Kangjia Zhao, Qianqian Zhang, Ruochen Xu, and Tiancheng Zhao. 2025. VLM-R1: A Stable and Generalizable R1-style Large Vision-Language Model. CoRR abs/2504.07615 (2025). arXiv:2504.07615 doi:10.48550/ARXIV.2504. 07615 [40] Yongyi Su, Haojie Zhang, Shijie Li, Nanqing Liu, Jingyi Liao, Junyi Pan, Yuan Liu, Xiaofen Xing, Chong Sun, Chen Li, Nancy F. Chen, Shuicheng Yan, Xulei Yang, and Xun Xu. 2026. Patch-as-Decodable-Token: Towards Unified Multi-Modal Vision Tasks in MLLMs. In The International Conference on Learning Representations (ICLR) . https://openreview.net/forum?id=xF0Dcmvsl0 [41] Hunyuan Vision Team, Pengyuan Lyu, Xingyu Wan, Gengluo Li, Shangpin Peng, Weinong Wang, Liang Wu, Huawen Shen, Yu Zhou, Canhui Tang, Qi Yang, Qiming Peng, Bin Luo, Hower Yang, Xinsong Zhang, Jinnian Zhang, Houwen Peng, Hongming Yang, Senhao Xie, Longsha Zhou, Ge Pei, Binghong Wu, Rui Yan, Kan Wu, Jieneng Yang, Bochao Wang, Kai Liu, Jianchen Zhu, Jie Jiang, Linus, Han Hu, and Chengquan Zhang. 2025. HunyuanOCR Technical Report. CoRR 
+
+abs/2511.19575 (2025). arXiv:2511.19575 doi:10.48550/ARXIV.2511.19575 [42] Kimi Team. 2026. Kimi K2.5: Visual Agentic Intelligence. CoRR abs/2602.02276 (2026). arXiv:2602.02276 doi:10.48550/ARXIV.2602.02276 [43] Qwen Team. 2025. Qwen3-VL Technical Report. CoRR abs/2511.21631 (2025). arXiv:2511.21631 doi:10.48550/ARXIV.2511.21631 [44] Qwen Team. 2026. Qwen3. 5: Towards native multimodal agents. URL: https://qwen. ai/blog (2026). [45] Haoqin Tu, Chenhang Cui, Zijun Wang, Yiyang Zhou, Bingchen Zhao, Junlin Han, Wangchunshu Zhou, Huaxiu Yao, and Cihang Xie. 2024. How Many Unicorns Are in This Image? A Safety Evaluation Benchmark for Vision LLMs. In Proceedings of the European Conference on Computer Vision (ECCV) . https://eccv.ecva.net/ virtual/2024/poster/1855 [46] Jianqiang Wan, Sibo Song, Wenwen Yu, Yuliang Liu, Wenqing Cheng, Fei Huang, Xiang Bai, Cong Yao, and Zhibo Yang. 2024. OMNIPARSER: A Unified Framework for Text Spotting, Key Information Extraction and Table Recognition. In IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2024, Seattle, WA, USA, June 16-22, 2024 . IEEE, 15641–15653. doi:10.1109/CVPR52733.2024.01481 [47] Hao Wang, Pu Lu, Hui Zhang, Mingkun Yang, Xiang Bai, Yongchao Xu, Mengchao He, Yongpan Wang, and Wenyu Liu. 2020. All You Need Is Boundary: Toward Arbitrary-Shaped Text Spotting. In The Thirty-Fourth AAAI Conference on Artifi-cial Intelligence, AAAI 2020, The Thirty-Second Innovative Applications of Artificial Intelligence Conference, IAAI 2020, The Tenth AAAI Symposium on Educational Advances in Artificial Intelligence, EAAI 2020, New York, NY, USA, February 7-12, 2020 . AAAI Press, 12160–12167. doi:10.1609/AAAI.V34I07.6896 [48] Weiyun Wang, Zhangwei Gao, Lixin Gu, Hengjun Pu, Long Cui, Xingguang Wei, Zhaoyang Liu, Linglin Jing, Shenglong Ye, Jie Shao, Zhaokai Wang, Zhe Chen, Hongjie Zhang, Ganlin Yang, Haomin Wang, Qi Wei, Jinhui Yin, Wenhao Li, Erfei Cui, Guanzhou Chen, Zichen Ding, Changyao Tian, Zhenyu Wu, JingJing Xie, Zehao Li, Bowen Yang, Yuchen Duan, Xuehui Wang, Zhi Hou, Haoran Hao, Tianyi Zhang, Songze Li, Xiangyu Zhao, Haodong Duan, Nianchen Deng, Bin Fu, Yinan He, Yi Wang, Conghui He, Botian Shi, Junjun He, Yingtong Xiong, Han Lv, Lijun Wu, Wenqi Shao, Kaipeng Zhang, Huipeng Deng, Biqing Qi, Jiaye Ge, Qipeng Guo, Wenwei Zhang, Songyang Zhang, Maosong Cao, Junyao Lin, Kexian Tang, Jianfei Gao, Haian Huang, Yuzhe Gu, Chengqi Lyu, Huanze Tang, Rui Wang, Haijun Lv, Wanli Ouyang, Limin Wang, Min Dou, Xizhou Zhu, Tong Lu, Dahua Lin, Jifeng Dai, Weijie Su, Bowen Zhou, Kai Chen, Yu Qiao, Wenhai Wang, and Gen Luo. 2025. InternVL3.5: Advancing Open-Source Multimodal Models in Versatility, Reasoning, and Efficiency. CoRR abs/2508.18265 (2025). arXiv:2508.18265 doi:10.48550/ARXIV.2508.18265 [49] Xue Yang, Jirui Yang, Junchi Yan, Yue Zhang, Tengfei Zhang, Zhi Guo, Xian Sun, and Kun Fu. 2019. SCRDet: Towards More Robust Detection for Small, Cluttered and Rotated Objects. In 2019 IEEE/CVF International Conference on Computer Vision, ICCV 2019, Seoul, Korea (South), October 27 - November 2, 2019 .IEEE, 8231–8240. doi:10.1109/ICCV.2019.00832 [50] Maoyuan Ye, Jing Zhang, Shanshan Zhao, Juhua Liu, Tongliang Liu, Bo Du, and Dacheng Tao. 2023. DeepSolo: Let Transformer Decoder with Explicit Points Solo for Text Spotting. In IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2023, Vancouver, BC, Canada, June 17-24, 2023 . IEEE, 19348– 19357. doi:10.1109/CVPR52729.2023.01854 [51] Yuqian Yuan, Wentong Li, Jian Liu, Dongqi Tang, Xinjie Luo, Chi Qin, Lei Zhang, and Jianke Zhu. 2024. Osprey: Pixel Understanding with Visual Instruction Tuning. In IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2024, Seattle, WA, USA, June 16-22, 2024 . IEEE, 28202–28211. doi:10.1109/ CVPR52733.2024.02664 [52] Z.ai Team. 2025. GLM-4.6V: Open Source Multimodal Models with Native Tool Use. https://z.ai/blog/glm-4.6v [53] Peirong Zhang, Haowei Xu, Jiaxin Zhang, Xuhan Zheng, Guitao Xu, Yuyi Zhang, Junle Liu, Zhenhua Yang, Wei Zhou, and Lianwen Jin. 2025. OCRGenBench: A Comprehensive Benchmark for Evaluating OCR Generative Capabilities. arXiv preprint arXiv:2507.15085 (2025). [54] Peirong Zhang, Jiaxin Zhang, Jiahuan Cao, Hongliang Li, and Lianwen Jin. 2025. Smaller But Better: Unifying Layout Generation with Smaller Large Language Models. International Journal of Computer Vision (IJCV) 133 (2025), 3891–3917. [55] Shaolei Zhang, Qingkai Fang, Zhe Yang, and Yang Feng. 2025. LLaVA-Mini: Efficient Image and Video Large Multimodal Models with One Vision Token. In 
+
+The Thirteenth International Conference on Learning Representations, ICLR 2025, Singapore, April 24-28, 2025 . OpenReview.net. https://openreview.net/forum?id= UQJ7CDW8nb [56] Xiang Zhang, Yongwen Su, Subarna Tripathi, and Zhuowen Tu. 2022. Text Spotting Transformers. In IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2022, New Orleans, LA, USA, June 18-24, 2022 . IEEE, 9509–9518. doi:10.1109/CVPR52688.2022.00930 [57] Handong Zheng, Yumeng Li, Kaile Zhang, Liang Xin, Guangwei Zhao, Hao Liu, Jiayu Chen, Jie Lou, Jiyu Qiu, Qi Fu, et al . 2026. Multimodal OCR: Parse Anything from Documents. arXiv preprint arXiv:2603.13032 (2026). [58] Jinguo Zhu, Weiyun Wang, Zhe Chen, Zhaoyang Liu, Shenglong Ye, Lixin Gu, Hao Tian, Yuchen Duan, Weijie Su, Jie Shao, Zhangwei Gao, Erfei Cui, Xuehui Wang, Yue Cao, Yangzhou Liu, Xingguang Wei, Hongjie Zhang, Haomin Wang, Weiye Xu, Hao Li, Jiahao Wang, Nianchen Deng, Songze Li, Yinan He, Tan Jiang, Jiapeng Luo, Yi Wang, Conghui He, Botian Shi, Xingcheng Zhang, Wenqi Shao, Junjun He, Yingtong Xiong, Wenwen Qu, Peng Sun, Penglong Jiao, Han Lv, Lijun Wu, Kaipeng Zhang, Huipeng Deng, Jiaye Ge, Kai Chen, Limin Wang, Min Dou, Lewei Lu, Xizhou Zhu, Tong Lu, Dahua Lin, Yu Qiao, Jifeng Dai, and Wenhai Wang. 2025. InternVL3: Exploring Advanced Training and Test-Time Recipes for Open-Source Multimodal Models. CoRR abs/2504.10479 (2025). arXiv:2504.10479 doi:10.48550/ARXIV.2504.10479 One Patch Is Enough: Reinforcement-Optimized Visual Token Grounding for MLLM-Based Scene Text Spotting MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil. 
+
+# Appendix 
+
+## A Additional Implementation Details A.1 Dataset Statistics 
+
+We evaluate our framework on diverse scene text benchmarks, with detailed statistics provided in Table 7. To ensure a robust training signal while maintaining computational efficiency, the training partition undergoes a targeted refinement protocol: images whose long edge exceeds 1440 pixels are excluded, and samples devoid of valid textual annotations are discarded. This curation ensures a high-quality supervision signal for the Single-Patch pipeline. In contrast, the test sets remain entirely unaltered and are evaluated in their native format to provide a fair performance assessment. 
+
+## A.2 Training Configuration 
+
+SPaTS is optimized in two stages to facilitate multi-task learning and policy refinement. The initial Supervised Fine-Tuning (SFT) stage synchronizes the learning of interleaved transcription–patch sequences with continuous geometric coordinate decoding. Build-ing upon this foundation, the Single-Patch Selective Optimiza-tion (SPaSO) phase leverages reinforcement learning to optimize the patch selection policy based on task-level rewards. The hy-perparameter configurations for optimization, RL-specific settings, and training strategies are summarized in Table 8. Reinforcement learning is implemented using TRL [15]. 
+
+## A.3 Loss Formulation 
+
+To enable joint optimization of sequence generation and geometric grounding, we formulate the overall objective as a multi-task loss: 
+
+L = LSFT + L BBox + L Point + L Bezier + L Score , (16) where LSFT denotes the standard cross-entropy loss for supervised fine-tuning of text–patch sequence generation. All loss terms are equally weighted. 
+
+Bounding Box Regression. The bounding box branch regresses the predicted coordinates ˆb𝑛 in (𝑐 𝑥 , 𝑐 𝑦 , 𝑤, ℎ ) format. To ensure scale-invariant optimization and coordinate-level precision, we employ a combination of Generalized IoU (GIoU) and 𝐿 1 losses: 
+
+LBBox = 1
+
+𝑁 
+
+> 𝑁
+
+∑︁ 
+
+> 𝑛 =1
+
+
+
+1 − GIoU (xyxy ( ˆb𝑛 ), b𝑛 ) + ∥ ˆb𝑛 − cxcywh (b𝑛 )∥ 1
+
+
+
+.
+
+(17) 
+
+Point Supervision. To assist in localized feature alignment, the point branch is supervised by the canonical 𝐿 1 distance between 
+
+Table 7: Dataset statistics for scene text spotting benchmarks.                                 
+
+> Dataset Venue Train Test Text Type
+> ICDAR 2013 [17] ICDAR’13 171 233 Horizontal ICDAR 2015 [16] ICDAR’15 979 500 Multi-oriented Total-Text [5] ICDAR’17 1,087 300 Curved CTW1500 [24] PR’19 560 500 Curved (line-level) MLT-2017 [32] ICDAR’17 3,073 -Multi-lingual SynText [23] CVPR’20 147,788 -Synthetic Total -153,658 1,533 -
+
+the predicted point ˆp𝑛 and the ground-truth center point p𝑛 :
+
+LPoint = 1
+
+𝑁 
+
+> 𝑁
+
+∑︁ 
+
+> 𝑛 =1
+
+∥ ˆp𝑛 − p𝑛 ∥1. (18) 
+
+Bézier Curve Alignment. Following the parametric design of ABCNet [ 23 ], the Bézier branch optimizes both control-point coor-dinates and sampled-curve consistency: 
+
+LBézier = 1
+
+𝑁 
+
+> 𝑁
+
+∑︁ 
+
+> 𝑛 =1
+
+∥ ˆC𝑛 − C𝑛 ∥1 +
+
+> 2
+
+∑︁  
+
+> 𝑟 =1
+
+1
+
+𝐾 
+
+> 𝐾
+
+∑︁ 
+
+> 𝑘 =1
+
+∥ˆs𝑛,𝑟 (𝑡 𝑘 ) − s𝑛,𝑟 (𝑡 𝑘 )∥ 1
+
+!
+
+,
+
+(19) where 𝑟 denotes the top and bottom boundaries of a text instance, and 𝐾 = 20 denotes the number of sampled points on each curve. 
+
+Quality Score Calibration. To align the model’s confidence with its actual localization accuracy, the score branch regresses the GIoU of the predicted bounding boxes. The raw prediction ˆ𝑧 𝑛 is mapped to the [− 1, 1] range via a scaled sigmoid activation: 
+
+LScore = 1
+
+𝑁 
+
+> 𝑁
+
+∑︁ 
+
+> 𝑛 =1
+
+∥2𝜎 ( ˆ𝑧 𝑛 ) − 1 − 𝑔 𝑛 ∥22, (20) where 𝑔 𝑛 = GIoU (xyxy ( ˆb𝑛 ), b𝑛 ) is treated as a detached supervision target to stabilize the training process. 
+
+## A.4 Prompt Design and Structured Output 
+
+To unify text spotting and grounding, we adopt a structured prompt template. As shown in Fig. 7, each detected text instance is repre-sented by a visual reference token, e.g., <|VRT_i|> , together with its transcription in the <content> tag. This unified output binds recognition and grounding in a single unit, and the selected token is further used by PED for continuous geometry decoding. 
+
+## A.5 Baseline Implementations 
+
+Table 2 compares three grounding formulations built on the same backbone after SFT. Coord-Text uses the vanilla Qwen3-VL archi-tecture and predicts bounding-box coordinates as JSON-formatted text tokens. Multi-Patch and Single-Patch both use the SPaTS architecture and differ only in the number of routed patches: five potentially redundant patches per instance for Multi-Patch follow-ing PaDT, and one task-routing anchor patch for Single-Patch. All variants share the same SFT setting and training data to ensure a fair comparison and isolate the grounding representation itself. 
+
+Table 8: Training hyperparameters used in SPaTS. Category Hyperparameter SFT Stage SPaSO Stage                                   
+
+> Optimization Learning Rate 4×10 −55×10 −6
+> Batch Size 128 32 Epochs 16 30 Optimizer AdamW AdamW Scheduler Cosine Linear RL-specific GRPO Group Size 𝐺 –4Clip Ratio 𝜖 –0.2 Top-𝐾 in 𝑟 dom –10 Edit-Distance Threshold in 𝑟 gen –0.2 Training strategy DEA Scale Warmup 0.05 –DEA Scale Head warmup frozen Vision Encoder warmup frozen MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil. Rui Tang et al.
+
+## Prompt Template 
+
+USER ：<|image_pad|>Please carefully check the image and detect the following objects: ["text"]. 
+
+SYSTEM ：You are an expert system specialized in scene text spotting, with performance exceeding that of 
+
+human experts. 
+
+ASSISTANT ：There are N "text " <VRT_0><content>{text1}</content>, <VRT_1><content>{text2}</content>, ···, 
+
+<VRT_N><content>{textN}</content>. 
+
+Figure 7: Prompt template for unified text spotting and grounding. The template includes the SYSTEM prompt, USER query, and the structured ASSISTANT output for joint text recognition and grounding. Table 9: Prompt styles used for MLLM evaluation in Table 1. General-purpose VLMs use our unified JSON-based spotting prompt, while OCR-specialized VLMs follow native task-oriented prompts from their official implementations.   
+
+> Model Family Prompt Style
+> General VLMs Unified JSON-based text spotting prompts with nor-malized boxes and transcriptions, provided in the released code. Specialized OCR VLMs Native task-oriented prompts recommended by each model’s official implementation.
+
+Table 10: Comparisons with representative Expert Models un-der standard end-to-end evaluation on Total-Text, CTW1500, and ICDAR 2015. Method Venue Total-Text CTW1500 ICDAR 2015                                                               
+
+> None Full None Full SWGTextDragon [9] ICCV’19 48.8 74.8 39.7 72.4 82.5 78.3 65.2 Boundary [47] AAAI’20 65.0 76.1 --79.7 75.2 64.1 SPTS [35] MM’22 74.2 82.4 63.6 83.8 77.5 70.2 65.8 ABCNet V2 [25] TPAMI’22 70.4 78.1 57.5 77.2 82.7 78.5 73.0 OmniParser [46] CVPR’24 84.0 88.9 66.8 85.1 89.6 84.5 79.9
+> SPaTS-2B Ours 63.3 74.3 47.0 75.1 72.1 69.1 61.6 SPaTS-4B Ours 64.9 74.9 51.2 79.6 73.4 71.7 65.7
+
+## A.6 Patch Supervision and Candidate Sets 
+
+For each text instance 𝑖 , the candidate set G𝑖 contains every grid cell whose overlap with the ground-truth polygon mask exceeds a fixed threshold. This set is constructed deterministically from standard polygon annotations and requires no extra labeling. Because long or curved text spans multiple valid cells, no single oracle patch exists. During SFT, we therefore randomly sample one patch from 
+
+G𝑖 per step, teaching the model that any polygon-interior patch is acceptable. During SPaSO, the patch dominance reward checks whether the model’s top-𝑘 predictions, with 𝑘 = min (10 , |G 𝑖 |) ,contain at least one member of G𝑖 , rewarding coarse localization even when the generation reward is sparse. 
+
+## A.7 Evaluation Protocols 
+
+We report all main-paper results using a unified evaluation pipeline with consistent lexicon settings and score-thresholding criteria. For the format-specific ablations in Table 4, each representation is evaluated with its corresponding matching protocol: VRT-index matching for Patch, IoU-based matching for BBox and Bezier, and minimum center-distance matching for Point. Detection perfor-mance is measured using standard polygon- or box-IoU matching, whereas end-to-end performance follows the official lexicon proto-col of each benchmark. 
+
+## A.8 MLLM Evaluation Prompts 
+
+For general-purpose VLMs in Table 1, we use a unified JSON-based text spotting prompt that instructs the model to detect and rec-ognize all visible and legible English text instances and return a JSON array containing normalized bounding boxes, transcriptions, and confidence scores. The prompt explicitly enforces several con-straints to improve evaluation stability: (1) only English letters, numbers, and punctuation are retained, while Chinese/CJK text is discarded or stripped from mixed-language outputs; (2) all co-ordinates must be normalized to [0, 1] to avoid coordinate hallu-cination; (3) repetitive or looping outputs are disallowed; and (4) severely blurred, heavily occluded, or purely decorative patterns are excluded. For OCR-specialized models, we use their native task-oriented prompts or official prompt settings whenever available, following each model family’s released implementation to ensure a fair comparison. In particular, for OCR-oriented systems such as PaddleOCR-VL, we follow the official task configuration provided by the released implementation rather than rewriting a unified prompt for these models. Table 9 summarizes the prompt style used for each evaluated model family. 
+
+## B Extended Experimental Analysis B.1 Comparison with Several Expert Models 
+
+We further compare SPaTS with several expert spotters. As shown in Table 10, SPaTS still trails the strongest specialist systems on most benchmarks, especially against highly optimized methods such as OmniParser [ 46 ], CRAFTS [ 2 ], and ABCNet V2 [ 25 ]. We attribute this gap to the fact that these expert models are trained exclusively for scene text spotting and typically undergo substantially more task-specific training than SPaTS, allowing them to reach stronger convergence. In contrast, SPaTS is designed as a general-purpose MLLM spotter and therefore does not trade away broader multi-modal generalization for extreme task-specific optimization. Even in this more general setting, SPaTS remains competitive against sev-eral earlier expert methods and already exceeds TextDragon [ 9] in One Patch Is Enough: Reinforcement-Optimized Visual Token Grounding for MLLM-Based Scene Text Spotting MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil. 
+
+Table 11: Comparisons between PaDT and SPaTS on scene text spotting after SFT. Precision, recall, and F-measure are reported on Total-Text and CTW1500.                                     
+
+> Paradigm Param. Total-Text CTW1500
+> PRFPRFPaDT 3B 43.5 23.6 30.7 25.7 19.1 22.0 PaDT 7B 45.7 24.8 32.2 42.7 31.8 36.4 SPaTS 2B 68.3 58.0 62.7 34.5 58.2 43.3
+> SPaTS 4B 63.0 64.5 63.7 40.3 57.9 47.6
+
+Table 12: Inference latency (ms/image) and peak GPU mem-ory (MB) per ablation stage. 
+
+Stage Latency (ms/img) Peak Mem (MB) 
+
+Base MLLM 120.9 (—) 4833 (—) 
+
++ DEA 124.4 (+3.5) 4833 (+0) 
+
++ PED 130.8 (+9.9) 4841 (+8) 
+
+Table 13: Per-step wall-clock time for SFT and SPaSO. SPaSO uses 4 rollouts per step. 
+
+Metric SFT SPaSO 
+
+Per-step wall-clock (s) 0.90 7.20 
+
+of which: rollout — 6.53 (91%) 
+
+of which: update — 0.68 (9%) 
+
+SPaSO / SFT wall-clock ratio 7.99 ×
+
+multiple metrics, indicating that the proposed single-patch ground-ing design provides a strong balance between spotting performance and generality. 
+
+## B.2 Comparison with PaDT 
+
+We further compare SPaTS with PaDT [ 40 ]. While both methods follow the general paradigm of patch-based visual grounding, their designs differ fundamentally: PaDT associates each target with 5
+
+random visual reference tokens, whereas SPaTS grounds each in-stance with a single random visual reference token. As shown in Table 11, SPaTS consistently outperforms PaDT, even when com-pared with the larger PaDT-7B model. These results indicate that the proposed single-patch design is more effective than the multi-patch routing strategy of PaDT for scene text spotting. We attribute this advantage to the stronger semantic-spatial coupling induced by single-patch grounding, which reduces decoding ambiguity and provides a cleaner anchor for downstream geometry prediction. 
+
+## B.3 Ablation of Normalization Strategy 
+
+To further clarify the role of normalization itself, Fig. 8 presents the ablation from a normalization-centric perspective and includes an additional RMSNorm variant for comparison. As shown in the figure, 𝐿 2 normalization consistently yields faster and stronger convergence than RMSNorm on both IoU and GIoU, with a par-ticularly clear advantage on curve prediction. We conjecture that this gap arises from the normalization form of RMSNorm, which introduces an additional scaling factor proportional to the inverse root of the feature dimensionality. In our setting, this coefficient may be overly strong, making the normalized feature magnitude less directly aligned with the true norm relationship between vi-sual and textual features. As a result, the subsequent scale branch has to compensate for a more distorted magnitude space, which makes it harder to accurately learn the desired norm correspon-dence across modalities. By contrast, 𝐿 2 normalization enforces a cleaner unit-direction representation, allowing the learnable scale to more directly capture the relative norm structure between routed visual patches and language features, thereby leading to more stable optimization and better geometric convergence. 
+
+## B.4 Geometric Training Strategy 
+
+We further study the effect of geometric training strategy under the same spotting pipeline. Specifically, we compare two settings: in-terleaved training , where each batch supervises only one geometric target, and joint training , where all geometric losses are optimized simultaneously within each batch. As reported in Table 14, joint training consistently yields better results than interleaved training, indicating that jointly decoding multiple geometric targets is not only feasible but also more effective than optimizing them sepa-rately. This suggests that the different geometric branches provide complementary supervision rather than interfering with each other during training, likely because they capture different yet compat-ible aspects of localization. While the Bézier variant remains the most difficult case, the overall trend is clear: our unified decoding strategy is well supported by joint optimization and can stably accommodate multiple geometric losses within a single framework. 
+
+## B.5 Efficiency Analysis 
+
+Table 12 reports inference latency and peak GPU memory for SPaTS-4B on a single NVIDIA A6000 GPU. DEA adds only +3.5 ms with zero extra memory, while PED adds 6.4 ms and 8 MB through a three-layer cross-attention decoder, yielding a total overhead of 
+
++9.9 ms ( +8.2% ) over the base MLLM. Table 13 and Fig. 10 further summarize SPaSO training cost. SPaSO is 7.99 × slower per step than SFT ( 7.20 s vs. 0.90 s), with 91% of the overhead coming from on-policy rollouts; the policy update itself costs only 0.68 s/step. This additional cost is confined to post-training, while inference directly uses the learned single-patch policy without RL sampling. 
+
+Figure 8: Effect of normalization strategy on geometry con-vergence. MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil. Rui Tang et al. Input GT SPaTS Qwen3.5-397B-A17B GPT-5.4 PaddleOCR-VL-1.5 
+
+Figure 9: Qualitative comparisons on scene text spotting. We compare SPaTS with three representative baselines from different model families: Qwen3.5-397B-A17B, a large open-source MoE MLLM; GPT-5.4, a strong closed-source proprietary model; and PaddleOCR-VL, a specialized MLLM designed for OCR. The examples highlight their differences in text recognition, instance grounding, and robustness under challenging layouts such as dense, curved, and low-quality text. Zoom in for the best view. Table 14: End-to-end results of different geometric training strategies after SFT. I denotes Interleaved Training , where dif-ferent geometric targets are optimized in alternating batches, while J denotes Joint Training , where all geometric targets are optimized simultaneously within each batch. 
+
+Variants Total-Text CTW1500 ICDAR 2015 
+
+I J I J I JBezier 44.0 47.2 24.5 34.2 53.7 56.1 BBox 59.7 63.4 34.8 37.1 56.3 56.5 Point 63.9 68.8 36.1 38.5 61.6 64.1 
+
+Patch 63.5 65.3 38.3 40.2 59.2 61.4 
+
+## C More Qualitative Cases 
+
+A direct qualitative comparison with recent multimodal baselines is shown in Fig. 9. Across circular logos, artistic storefronts, dense multi-word signs, and cluttered small-text scenes, SPaTS more con-sistently preserves word-level decomposition and aligns each tran-scription with the correct visual instance. This is more obvious when multiple short text instances appear in close proximity or when the target text follows curved, stylized, or irregular layouts. In such cases, robust grounding must simultaneously avoid merg-ing neighboring words and prevent missing small auxiliary text. 
+
+Figure 10: SPaSO reward and visual-metric convergence over training steps. One Patch Is Enough: Reinforcement-Optimized Visual Token Grounding for MLLM-Based Scene Text Spotting MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil. Input Patch BBox Curve Point 
+
+Figure 11: More qualitative comparisons of different grounding representations. Columns show the input image together with predictions from the Patch, BBox, Curve, and Point formulations. Patch denotes the selected patch location, while BBox/Curve/Point show the predicted grounding geometry. Zoom in for the best view. 
+
+By comparison, Qwen3.5-397B-A17B [ 44 ] and GPT-5.4 [ 33 ] more frequently merge adjacent words into a single long phrase or pro-duce overly coarse regions for non-linear text, while PaddleOCR-VL-1.5 [ 6 ] is stronger on regular layouts but still tends to under-separate nearby instances and overlook small words in complex scenes. These cases collectively highlight the importance of fine-grained instance separation for accurate scene text spotting in real-world images. Different localization formulations within SPaTS are further compared in Fig. 11. The qualitative evidence suggests that once the routed patch is correctly selected, the BBox, Curve, and Point formulations can all produce high-quality grounding. This indicates that the primary role of the patch-based design is to establish a stable and informative visual anchor, from which different downstream geometric parameterizations can be decoded reliably. In other words, the patch serves as the key intermediate representation that couples recognition with localization before the final geometric form is produced. This observation also suggests that failures across formats are more likely caused by incorrect patch selection than by limitations of the geometric representation itself in downstream geometry decoding.

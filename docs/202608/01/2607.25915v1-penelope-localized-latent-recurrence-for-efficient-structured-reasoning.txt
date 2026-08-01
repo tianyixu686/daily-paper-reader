@@ -1,0 +1,396 @@
+Title: Penelope: Localized Latent Recurrence for Efficient Structured Reasoning
+
+URL Source: https://arxiv.org/pdf/2607.25915v1
+
+Published Time: Wed, 29 Jul 2026 01:22:31 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Penelope: Localized Latent Recurrence for Efficient Structured Reasoning 
+
+Yutong Chen, Shouqian Shi, Xinran Liu, Haochen Wang, Jiaying Wang, Tianxing Xu, Yuanxi Wang, Zirui Ding 
+
+Abstract 
+
+Complex structured reasoning tasks often require additional computation, yet current language models obtain it mainly by increasing parameter scale or by serializing intermediate steps as chain-of-thought (CoT) tokens. The former raises training and deployment costs, while the latter ties reason-ing computation to autoregressive output length. We intro-duce Penelope, an efficient latent-reasoning framework for pretrained decoder-only Transformers that localizes recurrent computation to a selected decoder interval. The lower decoder prefix is evaluated once to construct a problem-conditioned boundary memory, which is then iteratively refined through time-modulated GRU dynamics and recurrent readout states before answer generation. A progressive CoT-to-latent cur-riculum transfers visible reasoning into this internal recur-rent path, allowing additional computation to be allocated in latent space without repeatedly executing the complete de-coder or generating a long intermediate trace. Experiments on open-source structured-reasoning benchmarks show that, at validation-selected latent budgets, Penelope attains compet-itive accuracy relative to established latent-reasoning mod-els while reducing measured inference latency. These results show that latent refinement can be localized to a narrow de-coder interval, reducing repeated full-decoder execution with-out generating a long visible reasoning trace and providing a practical accuracy–efficiency tradeoff for decoder-only Trans-former models. 
+
+1 Introduction 
+
+Reasoning ability often depends on the amount of computa-tion available for a problem. Current language models obtain additional reasoning computation primarily along two axes. Scaling increases model capacity and inference cost, while also raising training, deployment, and serving costs. Chain-of-thought (CoT) reasoning instead introduces additional au-toregressive steps by expressing intermediate computation as generated tokens (Wei et al. 2022). CoT provides an ex-plicit and effective reasoning trace, while coupling the added computation to sequential generation length. Consequently, the two dominant routes bind reasoning computation either to model size or to the number of visible tokens. Latent reasoning moves intermediate computation from generated tokens into hidden states. Continuous-thought methods show that latent representations can replace portions of a textual trace (Hao et al. 2025; Shen et al. 2025), while recurrent-depth models expose hidden-state refinement as a test-time compute axis (Dehghani et al. 2019; Geiping et al. 2025). Many approaches, however, repeatedly execute sub-stantial decoder portions. Their latent trajectories avoid long visible traces, but the marginal refinement cost remains tied to broad model execution. We ask whether comparable rea-soning capability can instead be preserved through localized recurrent computation. Obtaining more reasoning computation and allocating it efficiently are distinct problems. Existing methods largely address the first; we ask how a fixed pretrained backbone can support latent refinement without repeatedly executing the complete decoder. Structured reasoning offers a controlled setting because proof search, graph traversal, and expres-sion reduction naturally evolve compact internal states. Our objective is a computation interface that preserves a problem-specific state while localizing repeated execution at a com-petitive accuracy–latency operating point. Realizing such localized latent computation requires addressing three coupled challenges. Sufficient problem-conditioned information must persist without repeated full-decoder execution, motivating a one-time lower-prefix pass and a persistent boundary interface with cached prompt-side context. Reusing only a selected decoder interval must then produce meaningful, stable refinement rather than redun-dant state updates, motivating fixed-size latent memory, step conditioning, and recurrent updates through a shared output-side interval. Finally, the evolving trajectory must remain ac-cessible to standard answer generation, motivating recurrent readout states and layer-consistent answer-context construc-tion through a final interface pass. These requirements jointly motivate the following design. We present Penelope, a localized latent-reasoning frame-work for decoder-only Transformers. The name draws on Penelope’s recurrent weaving: the lower decoder prefix is executed once to establish a stable, problem-conditioned boundary, while a shared output-side interval repeatedly weaves refinements into this persistent latent interface. After a single latent trajectory, the refined interface conditions an-swer generation. Crucially, Penelope is not simply a looped decoder block: it computes the prompt prefix once, caches prompt-side context within the selected interval, and there-after iterates only fixed-size memory and readout states. This organization separates reusable problem contextualization arXiv:2607.25915v1 [cs.AI] 28 Jul 2026 from the computation allocated to refinement, reducing re-peated decoder execution without assigning unique reasoning semantics to individual layers. Our contributions are: 
+
+• We introduce a cache-compatible latent-reasoning frame-work that separates one-time prompt contextualization from latent-interface recurrence in a selected decoder in-terval, avoiding repeated full-decoder execution. 
+
+• We couple a problem-conditioned boundary memory with recurrent readout states and a layer-consistent answer-context construction, exposing one internal tra-jectory to standard autoregressive answer generation. 
+
+• Across three tasks and two decoder-only backbones, matched comparisons maintain competitive reasoning ac-curacy while reducing sequential decoder-layer applica-tions and measured inference latency. 
+
+2 Related Work 
+
+Latent reasoning. CoT prompting and self-consistency al-locate additional inference computation through generated reasoning traces (Wei et al. 2022; Wang et al. 2023). Coconut progressively replaces textual reasoning steps with continu-ous states fed back through the decoder, while CODI dis-tills explicit reasoning into implicit trajectories (Hao et al. 2025; Shen et al. 2025). DART instead distills an autore-gressive trace into parallel silent-thought tokens and aligns them through a reasoning-evolvement module (Jiang et al. 2025). Looped Transformers provide theoretical and empir-ical evidence that effective recurrent depth can support la-tent iterative computation without a proportionate increase in distinct parameters (Saunshi et al. 2025). SeLaR takes a complementary selective-computation view, activating soft latent representations at uncertain decoding steps while re-taining discrete decoding at confident steps (Fu and Luo 2026). Together, these methods establish latent states as a viable reasoning substrate. Penelope studies the allocation question of how to preserve such an internal trajectory while localizing the decoder computation used to refine it. 
+
+Recurrent computation and memory. Adaptive Compu-tation Time and PonderNet learn variable internal depth (Graves 2016; Banino, Balaguer, and Blundell 2021), whereas Universal Transformers share a transition across depth (Dehghani et al. 2019). Mixture-of-Recursions com-bines such parameter sharing with lightweight token-level routers that assign dynamic recursive depths (Bae et al. 2025). Block-Recurrent and Recurrent Memory Transform-ers maintain state across blocks or sequence segments (Hutchins et al. 2022; Bulatov, Kuratov, and Burtsev 2022). Recent recurrent-depth language models expose latent depth as a test-time compute axis (Geiping et al. 2025). Loop-Former and LoopCoder-v2 further explore looped computa-tion for language and code reasoning (Jeddi, Ciccone, and Taati 2026; Yang et al. 2026). Fixed-Point Reasoners stabilize deep loops with pre-normalization and residual scaling, and use convergence as a learned stopping criterion (Movahedi et al. 2026). Penelope instead adapts a pretrained decoder by coupling a persistent latent interface to recurrent execution within a cached output-side interval; token-level routing and convergence-based halting are complementary to the fixed-depth system evaluated here. 
+
+Localized recurrence. Existing studies establish that re-currence need not span an entire Transformer. Intra-Layer Recurrence selectively repeats individual layers (Nguyen and Lin 2025), while Training-Free Looped Transformers damp and reapply a contiguous middle block (Chen et al. 2026). LOTUS instead loops latent blocks and supervises their posi-tions with gold CoT-step tokens (Fan, Svete, and Lee 2026). Penelope advances this direction through a distinct cache-compatible latent computation interface: prompt contextu-alization is performed once, while only fixed memory and readout states recur within a selected output-side interval before answer generation. The placement analysis evaluates this interval as one efficient operating point; exact placement remains backbone-dependent. 
+
+3 Method 
+
+We consider a decoder-only Transformer with L decoder lay-ers and denote layer j by Fj . Penelope chooses a recurrent interval [ℓs, ℓ e) of width r = ℓe − ℓs, giving the decomposi-tion 
+
+F = F[ℓe:L) ◦ F[ℓs:ℓe) ◦ F[0: ℓs). (1) This decomposition also gives the architectural mean-ing of the name Penelope: F[0: ℓs) establishes a stable, problem-conditioned foundation once, repeated applications of F[ℓs:ℓe) weave successive updates into its persistent latent interface, and the resulting state conditions the final answer-context pass. 
+
+3.1 Localized Latent Interface 
+
+Let X = E(x) denote the prompt embeddings, A ∈ Rm×d
+
+a fixed-size set of latent anchors, G ∈ Rm×d their learned group embeddings, and Q ∈ Rq×d the readout anchors. The lower decoder prefix jointly contextualizes the prompt and anchors: 
+
+[Hx, M0, R0] = F[0: ℓs)([ X; A + G; Q]) . (2) Although A is shared before contextualization, causal at-tention to the prompt makes M0 problem-conditioned. The boundary memory serves as a persistent interface between the contextualized problem representation Hx and localized recurrent refinement. These latent states do not represent additional reasoning tokens; they provide fixed internal posi-tions for storing and refining problem-conditioned states. In-creasing recurrent depth applies more transformations to this fixed-size interface without extending the latent sequence. 
+
+3.2 Localized Recurrent Refinement 
+
+Latent recurrence commonly increases reasoning depth by re-executing substantial portions of a model. Penelope in-stead keeps the reusable representation formed by F[0: ℓs)
+
+fixed and repeatedly applies only F[ℓs:ℓe). The cached prefix and recurrent interval thus separate problem contextualiza-tion from the decoder workload allocated to refinement: more A. Overall Architecture  K: number of latent refinement steps 
+
+> One-time
+> Lower
+> Decoder
+> Prefix
+> F[0:ℓ s)
+> Single
+> Answer-
+> Context
+> Pass
+> F[ℓ s:L)
+> + LM head
+
+B. Localized Recurrent Refinement (Detailed)      
+
+> Cx=KV Cache [ℓ s:ℓ e)(Hx)
+> (build once from Hx)
+> Mt− 1+G+et
+> (state + slot + step)
+> Shared
+> Output-Side
+> Late
+> Interval
+> F[ℓ s:ℓ e)
+
+Htlat 
+
+> Time
+> Modulation
+> Aϕ
+> (adapter)
+> GRU M
+
+Mt*       
+
+> Mt=Mt−1
+> +gt(Mt*−Mt−1 )
+> gt= 0.5 αt
+
+Mt            
+
+> mean mem (Htlat ) + etR
+> （summary + step embedding ）
+> PR
+> (proj.)
+> qtGRU R
+> Cached context
+> (Fixed over t)
+> Latent memory
+> (Varies with t)
+> Shared refinement modules
+> (Shared parameters )
+> Readout state
+> (Varies with t)Recurrent update
+> Recurrent module
+> (Shared parameters )
+> Localized Recurrent
+> Refinement
+> F[ℓ s:ℓ e)shared
+> ×
+
+K steps    
+
+> Prompt x
+> 8 memory
+> anchors A
+> 2 readout
+> anchors Q
+> Persistent Boundary
+> Interface
+
+Hx (fixed) 
+
+M0 (8 slots) 
+
+R0 (2 registers) 
+
+Hx
+
+MK
+
+RK
+
+Answer 
+
+y
+
+Rt                               
+
+> One refinement step t
+> (repeated K times with shared parameters)
+> Compute Once
+> (prompt side prefill)
+> Compute Once
+> (answer-context pass)
+> Allocate compute here (× K)
+> (recurrent latent refinement)
+> prompt boundary + initial recurrent states fixed Hx+ final recurrent sates
+> (fixed)
+> (8 slots)
+> (2 registers)
+> Legend(symbols)
+> previous memory Mt-1
+> previous readout Rt-1
+> next step: Mt→Mt-1
+> Hxprompt boundary states from the lower prefix
+> Cxprompt-side KV Cache built from Hx
+> Htlat output-side hidden states at step t
+> Mtlatent memory after step t
+> Rtreadout state after step t
+> K / K max inference / training refinement depth
+> [ℓ s, ℓ e)recurrent layer interval
+> Ltotal decoder depth
+> Gmemory-group embeddings(shared across t)
+> etmemory step embedding at step t(varies with t)
+> etRreadout step embedding at step t(varies with t)
+
+Figure 1: Overview of Penelope. A: a one-time lower prefix forms problem-conditioned boundary states Hx, constructs the prompt-side cache Cx, and initializes (M0, R 0). The shared output-side interval refines only this interface for K steps before one answer-context pass. B: Hx remains fixed across steps, while time-modulated memory and recurrent readout updates produce 
+
+(Mt, R t).reasoning computation corresponds to more localized refine-ment steps, whose marginal decoder depth is r rather than 
+
+L. Whether the boundary remains sufficiently expressive is evaluated by the placement controls in Section 4, rather than assumed from a fixed interpretation of individual layers. The integer K denotes the number of recurrent refine-ment steps. The selected interval first processes the bound-ary prompt states once and retains their layerwise key–value tensors: 
+
+Cx = KVCache [ℓs:ℓe)(Hx). (3) In the evaluated output-side configuration, ℓe = L, so Cx
+
+covers every decoder layer traversed by the final interface. At step t ∈ { 1, . . . , K }, a learned step embedding et and the group embeddings condition the incoming memory. Only these m memory positions are queried through the selected interval against Cx:
+
+Hlat 
+
+t = F[ℓs:ℓe)(Mt−1 + G + et; Cx)mem . (4) Here the semicolon denotes memory queries attending to cached prompt keys and values. Across steps, prompt-side keys and values remain fixed; only memory queries and readout states recur. Equation 4 returns one feature vector per memory position. To distinguish successive applications of the shared interval, a time network receives the normalized coordinates [t/K max , 1/K max ] and produces feature modu-lation and a positive update scale: 
+
+(γt, β t, s t) = gτ ([ t/K max , 1/K max ]) , (5) 
+
+eHt = [1 + 0 .1 tanh( γt)] ⊙ Hlat 
+
+t + 0 .1βt, (6) 
+
+bHt = eHt + Aϕ( eHt), (7) 
+
+αt = 1 + 0 .5 tanh( st), (8) 
+
+fMt = GRU M ( bHt, Mt−1), (9) 
+
+Mt = Mt−1 + 0 .5 αt(fMt − Mt−1). (10) Here γt, β t ∈ Rd modulate the interval features, st ∈ R con-trols the step magnitude, and Aϕ is a residual adapter. Equa-tion 9 defines the candidate memory fMt, whereas Equa-tion 10 defines the persistent state Mt passed to the next refinement. The bounded coefficient 0.5αt interpolates from the incoming memory toward the candidate, allowing the recurrent transformation to change with latent depth while retaining Mt−1 when the proposed correction is small. Fig-ure 1 abbreviates 0.5αt as gt; its update glyph composes Equations 6–10 rather than introducing another module. 
+
+3.3 Recurrent Answer Interface 
+
+Additional latent computation can affect the output only if the answer path can access the evolving trajectory. Penelope therefore maintains answer-accessible recurrent states along-side the boundary memory. Let Hlat 
+
+t denote the selected-interval hidden states at the memory positions, ¯Hlat 
+
+t =mean mem (Hlat 
+
+t ) their mean, and eRt a readout step embed-ding: 
+
+qt = PR( ¯Hlat  
+
+> t
+
++ eRt ) ∈ R2×d, (11) 
+
+Rt = GRU R(qt, Rt−1). (12) Equation 11 compresses the current memory-position fea-tures into two readout proposals, and Equation 12 integrates them with the persistent answer state. Every refinement therefore updates a compact state that remains accessible to the final answer path. After K refinements, the final inter-face [MK ; RK ] traverses F[ℓs:L) once as queries against the cached prompt-side keys and values. The resulting interface keys and values are appended to the prompt cache to form one layer-consistent answer context. Standard autoregressive decoding then generates the answer from this cache without any further recurrent refinement. Thus the complete infer-ence path consists of one lower-prefix contextualization, one prompt-side interval cache construction, K latent-interface refinements, one final interface pass, and ordinary cached answer decoding. 
+
+3.4 Progressive Latent Training 
+
+The curriculum transfers computation from explicit token trajectories into the localized latent trajectory. Training starts from the same visible-CoT checkpoint used to initialize the shared-source Coconut baseline. Let a supervised trace con-tain reasoning steps (c1, . . . , c J ) followed by answer a. For replacement depth u, the target is 
+
+y(u) =
+
+(cu+1 , . . . , c J , a ), u < J, a, u ≥ J. (13) Each stage removes one visible reasoning step while adding one latent refinement. The first half of training traverses 
+
+K = u = 1 , . . . , 6 in equal update blocks; the second half fixes K = 6 and consolidates answer-only generation. A stage-global pair (Ks, u s) is shared by every example in a minibatch, and traces shorter than us deterministically yield the answer-only target. For stage s, the objective is target-token cross-entropy: 
+
+L(s) = CE 
+
+
+
+pθ (· | x, MKs , RKs ), y (us)
+
+. (14) Prompt, memory, and readout positions are masked, and the loss is averaged only over non-padding target tokens. The changing target supplies the acquisition signal, while the final stage optimizes the same latent-to-answer path used at inference. 
+
+3.5 Implementation Details 
+
+The experiments use Llama-3.2-1B (Dubey et al. 2024) with 
+
+L = 16 , the recurrent interval [ℓs, ℓ e) = [11 , 16) , eight la-tent interface states, and two readout states. This output-side interval is the evaluated operating point rather than a univer-sal layer optimum. Shared time modulation, residual adapta-tion, and recurrent updates implement Equations 4–12. These modules operate only on the fixed memory/readout positions; they neither extend the prompt nor process generated answer tokens. The final interface pass is included in the pre-answer accounting below, whereas autoregressive answer decoding is excluded. Exact initialization and module hyperparameters are provided in the supplement. 
+
+3.6 Pre-Answer Execution Accounting 
+
+We count sequential decoder-layer applications before an-swer generation, including cache construction and the final interface pass but excluding autoregressive answer decoding. One unit denotes one causally ordered application of one de-coder layer to its active positions. It is a serial decoder-depth proxy, not a FLOP count or hardware-independent complex-ity measure. Penelope forms the boundary through ℓs layers, applies the interval of width r once to construct the reusable prompt-side key–value cache, performs K latent-interface refinements through that interval, and passes the final inter-face through F[ℓs:L):
+
+Cpreans Penelope (K) = L + ( K + 1) r. (15) A full-decoder latent-recurrence path with an initial pass, K
+
+latent refinements, and a final answer-context pass uses 
+
+Cpreans full (K) = ( K + 2) L. 
+
+Equation 15 makes the marginal cost of one additional re-finement r rather than L, and 
+
+lim 
+
+> K→∞
+
+Cpreans Penelope (K)
+
+Cpreans full (K) = rL . (16) The inference-only K = 0 diagnostic in Section 4 executes no recurrent update, but still constructs the boundary and output-side cache and performs the final answer-context pass. It therefore uses Cpreans Penelope (0) = L + r = 21 applications in the evaluated topology. This count summarizes serial de-coder depth, not aggregate FLOPs: active sequence length, attention, memory movement, and kernel behavior remain implementation dependent. The supplement provides cache-aware layer-position accounting and aligns both topology proxies with synchronized wall-clock measurements. 
+
+4 Experiments 
+
+4.1 Experimental Setup 
+
+Datasets and metrics. Deep ListOps evaluates composi-tional expression reduction across controlled nesting depths in a task derived from ListOps (Nangia and Bowman 2018; Tay et al. 2021). The train and validation sets contain 4,800 and 800 expressions, respectively; the 1,600-example test set spans depths 1–12. Answer digits are balanced, and no identi-fier or normalized-question hash overlaps across the underly-ing files. Each reasoning trace follows recursive expression-tree reduction and retains the first depth-indexed transitions, followed by the final answer digit. ProsQA extends the evaluation to synthetic multi-step logical deduction (Hao et al. 2025), and PrOntoQA eval-uates compositional ontology reasoning (Saparov and He 2023). ProsQA contains 17,886/300/500 train/validation/test examples; our PrOntoQA split contains 9,000/200/800 exam-ples. Every split passes the same identifier and normalized-question-hash audit. Answer-generation methods decode greedily until EOS or a 32-token cap; Visible CoT uses a 256-token cap. Task-specific extractors are fixed across methods, and empty or nonmatching extractions are incorrect. Baselines and comparison protocol. We compare with Visible CoT (Wei et al. 2022), Coconut (Hao et al. 2025), CODI (Shen et al. 2025), and a full-decoder recurrence refer-ence. On Deep ListOps and ProsQA, Penelope and Coconut share Llama-3.2-1B, one visible-CoT source checkpoint, data files, three latent-stage runs, effective batch size four, and 1,500 optimizer updates per run. The Visible-CoT and CODI controls use each task’s matched continuation-update count and effective batch size while retaining their native targets and objectives. As a cross-backbone compatibility control, we repeat Deep ListOps with Qwen3.5-0.8B-Base (Qwen Team 2026). Training disables automatic mixed precision; model-storage dtypes follow the released configurations. Pri-mary accuracy and synchronized latency results use runtime-verified BF16 inference. The source uses rank-16 LoRA (Hu et al. 2022) ( α = 32 , dropout .05) on all attention and MLP projections. Penelope and Coconut continue these adapters at learning rate 2 × 10 −5 and train method-specific modules at 
+
+10 −4; CODI retains its projection-and-distillation protocol. Optimization uses AdamW, weight decay .01, cosine decay, 5% warm-up, and gradient-norm clipping at 1.0. This design matches the source checkpoint, dataset, base minibatch size, latent-stage runs, optimizer-update count, and data exposure while preserving each method’s native objective. It does not parameter-match the methods or equal-ize training FLOPs, wall-clock time, or target presenta-tions. The pretrained backbone parameter count remains unchanged. Runtime auditing gives Coconut 11.28M train-able parameters, while Penelope uses 11.27M LoRA plus 64.08M recurrent-module parameters (75.35M total). The latter instantiate the latent memory, readout, and refinement interface, so method-specific trainable capacities and stor-age footprints differ. Our efficiency claim concerns inference topology and measured latency, not parameter efficiency. The supplement reports the audit and a separately qualified continuation-time estimate. On Deep ListOps, Coconut uses K = 8, and CODI uses six implicit states. Validation independently selects the smallest best Penelope depth for each run, giving 
+
+(5 , 4, 2) . The continuation methods use the same three latent-stage seeds; full-decoder recurrence is evaluated separately through a matched interval analysis. On ProsQA, Coconut ends at six latent steps, while validation selects Penelope depths (1 , 1, 6) .PrOntoQA uses 3,000 optimizer updates and effective batch size eight for both methods because its traces contain at most six reasoning steps. Coconut uses six latent steps, and Penelope selects the smallest validation-optimal depth from K ∈ { 1, . . . , 6} before test evaluation, giving (3 , 3, 1) .All main comparisons use fixed validation-selected depths rather than online input-adaptive halting. We report mean and sample standard deviation over three latent-stage runs drawn from the same visible-CoT source checkpoint. The readout and curriculum controls retain FP32 within each matched comparison, whereas the placement analysis and cross-method rankings use runtime-verified BF16 inference. 
+
+Inference timing. Unless noted otherwise, latency mea-sures greedy generation with batch size one and runtime-verified BF16 on an NVIDIA RTX PRO 6000. Inputs are tokenized and transferred before timing, and CUDA syn-chronization brackets every generation. Latency uses paired-checkpoint measurements for direct comparisons or run-level measurements for averaged reporting. The specified Deep ListOps pair and all ProsQA runs use 32 warm-up examples per method; Qwen and PrOntoQA use 16. Deep ListOps and PrOntoQA report synchronized per-example distributions for one specified checkpoint pair, whereas ProsQA reports the mean and sample standard deviation of three paired run-level means. Table 1 distinguishes these latency objects from the three-run EM statistic. Hardware, software, and distribu-tional details appear in the supplement. 
+
+4.2 Accuracy–Efficiency Comparison 
+
+We evaluate whether Penelope maintains competitive latent-reasoning accuracy while reducing repeated decoder compu-tation. Table 1(a) shows that Penelope maintains competitive reasoning accuracy relative to full-decoder latent reason-ing while reducing repeated decoder execution. Under matched optimizer-update and data-exposure budgets, Pene-lope reaches 52 .25 ± 0.72% EM, within 0.54 point of Co-conut, while exceeding Visible CoT and CODI by 0.98 and 1.08 points, respectively. Its four-token answer path avoids the long visible trace and repeatedly executes only the five-layer output-side interval. The placement analysis below iso-lates this computational choice from the method-specific training objectives. The same localized path transfers to logical deduction and ontology reasoning. On ProsQA, Penelope obtains 
+
+78 .27 ±0.90% EM compared with Coconut’s 79 .87 ±1.80% 
+
+and CODI’s 78 .27 ± 1.10% ; the matched-update Visible-CoT reference reaches 45 .87 ± 0.46% . Across three paired checkpoint runs, Penelope uses validation-selected depths 
+
+(1 , 1, 6) and records 168 .19 ± 27 .70 ms, whereas Coconut uses K = 6 and records 252 .25 ± 15 .94 ms. Pooling the paired per-example timings gives a 33.3% relative reduction (paired-bootstrap 95% CI: 33.0–33.6%). On PrOntoQA, Visible CoT reaches 99 .71 ± 0.19% ,while Penelope and Coconut obtain 99 .67 ± 0.07% and 
+
+99 .58 ± 0.14% ; the official-aligned CODI transfer reaches 
+
+96 .00 ± 2.39% . The specified first continuation checkpoint pair uses Penelope at K = 3 and Coconut at K = 6 , re-quiring 92 .85 ± 16 .70 and 160 .71 ± 0.63 ms, respectively, or 42.2% lower mean latency. The dispersions describe the per-example timing distributions for that pair, not the three-run EM replication. The selected Penelope depths (3 , 3, 1) 
+
+remain fixed before test evaluation. The principal advantage over full-decoder latent reasoning is inference efficiency. At the specified Deep ListOps check-point pair, Penelope and Coconut use K = 5 and K = 8 ,corresponding to 46 and 160 sequential decoder-layer ap-plications before answer generation. Their synchronized complete-subset means are 99 .82 ± 0.65 and 188 .15 ± 1.02 
+
+ms, a 46.9% reduction. Unlike the three-run EM, the disper-sions summarize per-example timing for this locked check-point pair. (a) Deep ListOps                                                                                        
+
+> Method Inference path Runs EM (%) ↑Output Tokens ↓Latency (ms) ↓
+> Visible CoT autoregressive trace 351 .27 ±0.92 69.00 1047 .46 ±63 .74 ‡
+> Coconut 8 full-decoder latent steps 352 .79 ±0.36 4.00 188 .15 ±1.02 †
+> CODI 6 implicit thought states 351 .17 ±0.31 3.00 161 .19 §
+> Penelope validation-selected fixed K352 .25 ±0.72 4.00 99 .82 ±0.65 †
+> (b) ProsQA
+> Method Inference path Runs EM (%) ↑Output Tokens ↓Latency (ms) ↓
+> Visible CoT autoregressive trace 345 .87 ±0.46 52.07 780 .69 ±187 .00 ‡
+> Coconut 6 full-decoder latent steps 379 .87 ±1.80 8.65 252 .25 ±15 .94 ‡
+> CODI 6 implicit thought states 378 .27 ±1.10 7.65 231 .86 ±3.42 ‡
+> Penelope validation-selected fixed K378 .27 ±0.90 8.65 168 .19 ±27 .70 ‡
+> (c) PrOntoQA
+> Method Inference path Runs EM (%) ↑Output Tokens ↓Latency (ms) ↓
+> Visible CoT autoregressive trace 399 .71 ±0.19 87.79 1295 .99 ±9.33 ‡
+> Coconut 6 full-decoder latent steps 399 .58 ±0.14 3.00 160 .71 ±0.63 †
+> CODI 6 implicit thought states 396 .00 ±2.39 2.00 145 .50 ±0.38 ‡
+> Penelope validation-selected fixed K399 .67 ±0.07 3.00 92 .85 ±16 .70 †
+
+Table 1: Accuracy–latency comparison on three structured-reasoning tasks with Llama-3.2-1B. Penelope maintains competitive exact-match accuracy while reducing inference latency relative to the evaluated full-decoder latent-reasoning path. Within each panel, bold and underlined entries denote the best and second-best EM, or the lowest and second-lowest latency, respectively. EM reports mean ±sample standard deviation over three continuation runs. Latency reports paired checkpoints for direct comparisons or run-level measurements for averages; all use batch-1, runtime-verified BF16 generation. † marks one specified synchronized checkpoint pair; its ± value is the per-example timing standard deviation. ‡ marks mean ±sample standard deviation across three run-level latency means; § marks one run-level mean. Latency statistics are therefore distinct from the EM statistics. Penelope and Coconut train approximately 75.35M and 11.28M parameters, respectively; the efficiency claim concerns inference execution and measured latency, not parameter efficiency. The Qwen control in Table 3(a) tests architectural compat-ibility under a second decoder-only backbone. In the matched run, Penelope reaches 52.06% EM, within 0.19 point of Co-conut and 0.81 point above CODI. At the paired operating point on the same RTX PRO 6000, Penelope uses K = 4 
+
+and requires 207.11 ms, whereas Coconut uses K = 8 and requires 469.00 ms, a 55.8% reduction in mean latency. The Visible-CoT and CODI latencies are separate single-run mea-surements and do not enter the paired ratio. All four methods parse 100% of the 1,600 test examples. The three-run replication in Table 3(b) gives 52 .00 ±
+
+0.78% EM for Penelope and 51 .38 ± 0.78% for Coconut under the same source and update budget. A zero-shot large-model reference and the protocol-specific continuation-time estimate are reported separately in the supplement because neither is a parameter- or timing-matched comparison. Figure 2 applies the same smallest-best validation rule to both recurrent paths. Across K = 1 , . . . , 6, Penelope re-mains within a 0.50-point accuracy band and reaches its max-imum of 56.25% at K = 5 ; Coconut first reaches its maxi-mum of 55.50% at K = 3 , with additional steps increasing cost without improving the selected score. At these operating points, panel (a) reports 105.10 versus 123.28 ms, and panel (b) reports 46 versus 80 sequential decoder-layer applica-tions. Localization therefore reduces the repeated workload by 42.5% at the validation-selected comparison while main-taining comparable exact-match performance. The curves are discrete budget sweeps rather than evidence of mono-tonic test-time scaling, and no test prediction participates in depth selection. 
+
+4.3 Mechanism and Placement Analysis 
+
+As a mechanism diagnostic, inference-only K = 0 iso-lates the contextualized boundary from recurrent refine-ment. Across the three Penelope checkpoints, K = 0 ob-tains 51 .56 ± 0.81% pooled test EM, whereas independently validation-selected depths obtain 52 .25 ± 0.72% . The gain is positive in all three runs and averages 0.69 point; a paired bootstrap over test identifiers gives a 95% confidence in-terval of [0 .27 , 1.10] points. This small, consistent differ-ence shows that the selected recurrent path can correct some boundary-only predictions. It is not a training-matched com-parison, however: K = 0 uses the same recurrence-trained checkpoints rather than a separately optimized boundary-only model, and the nonmonotonic sweep does not imply that every additional step improves accuracy. The transition dynamics are tested as a single architectural unit. Replacing time modulation, the residual adapter, gated integration, and the memory GRU with the direct overwrite 
+
+Mt = Hlat  
+
+> t
+
+, while retaining boundary memory and recurrent readout, lowers test EM from 52 .25 ± 0.72% to 51 .44 ±
+
+0.35% . The paired improvement is positive in all three runs and averages 0.81 point. This control supports regulated state refinement without attributing the gain to an individual MLP, 80 100 120 140 160 180 
+
+Mean latency (ms)         
+
+> 53.5
+> 54.0
+> 54.5
+> 55.0
+> 55.5
+> 56.0
+> 56.5
+> Validation exact match (%)
+> K=0*
+> selected K=5
+> selected K=3
+> (a) Accuracy--latency operating points
+> Penelope
+> Coconut 012345678
+
+Latent depth K 
+
+> 0
+> 40
+> 80
+> 120
+> 160
+> Sequential decoder-layer applications
+> 5 applications/step
+> 16 applications/step
+> (b) Repeated workload by latent depth
+
+Figure 2: Runtime-verified BF16 validation efficiency for one matched Penelope/Coconut checkpoint. (a) Exact match versus synchronized mean latency; annotations mark the smallest validation optima, and K = 0 ∗ is an inference-only boundary diagnostic. (b) Sequential decoder-layer applications versus latent depth. Dashed segments connect discrete evaluated budgets.                      
+
+> Recurrent interval Layers Layer calls ↓EM (%) ↑
+> Early [0 ,5) 51 52 .04 ±0.47
+> Middle [6 ,11) 51 52 .23 ±0.85
+> Output-side [11 ,16) 51 52 .17 ±0.97
+> Full decoder [0 ,16) 128 52 .44 ±0.81
+
+Table 2: Matched Deep ListOps placement control at fixed 
+
+K = 6 and three continuation seeds. Only the recurrent inter-val changes; EM uses runtime-verified BF16 test evaluation. gate, or GRU term; complete per-run values and schedule sensitivity appear in the supplement. Table 2 varies only the interval at fixed K = 6 ; the source, interface, transition modules, curriculum, data, up-date budget, and continuation seeds remain fixed. Early, mid-dle, and output-side recurrence lie within 0.19 point, while full-decoder recurrence is only 0.27 point above the output-side interval despite 2.51 × more sequential decoder-layer applications. The differences are smaller than run-level vari-ation, supporting the computational sufficiency of localiza-tion rather than a universal layer ranking. Per-run placement results and descriptive layerwise analyses appear in the sup-plement. 
+
+5 Discussion and Future Work 
+
+The evaluation covers three structured-reasoning settings with deterministic answer metrics; detailed depth and place-ment analyses use compositional expression reduction. This matched-source setting isolates the accuracy–latency trade-off induced by localization. On Deep ListOps, validation-selected recurrence provides a small, consistent gain over the strong inference-only K = 0 boundary rather than mono-tonic improvement with depth. The demonstrated advantage is competitive accuracy with reduced repeated decoder exe-cution. The system selects a fixed validation depth per run; online per-input halting, larger backbones, and more hetero-                         
+
+> (a) Matched Qwen3.5-0.8B control
+> Method EM (%) ↑Output Tokens ↓Latency (ms) ↓
+> Visible CoT 50.31 125.13 3962 .08 §
+> CODI 51.25 3.00 374 .06 §
+> Coconut 52.25 3.00 469 .00 †
+> Penelope 52.06 3.00 207 .11 †
+> (b) Three-run replication
+> Method Runs EM (%) ↑
+> Coconut 351 .38 ±0.78
+> Penelope 352 .00 ±0.78
+
+Table 3: Qwen3.5-0.8B-Base cross-backbone evidence on Deep ListOps. Panel (a) uses one matched continuation run and BF16 inference; bold and underlined entries denote the best and second-best EM, or the lowest and second-lowest latency, respectively. Its † entries form a paired RTX PRO 6000 measurement (Penelope K = 4 , Coconut K = 8 ); 
+
+§ marks separate single-run task measurements. Panel (b) reports mean ±sample standard deviation across three con-tinuation runs. geneous state transitions remain future work. 
+
+6 Conclusion 
+
+We present Penelope, which allocates latent computation through cache-compatible recurrence over a selected decoder interval. A persistent, problem-conditioned interface sepa-rates reusable contextualization from latent-interface refine-ment, while layer-consistent caches expose the refined trajec-tory to answer generation. Across three structured-reasoning tasks, Penelope preserves comparable exact-match perfor-mance with less repeated full-decoder execution and lower measured latency. This is efficient latent-computation allo-cation, not parameter efficiency or monotonic depth scaling. References 
+
+Bae, S.; Kim, Y.; Bayat, R.; Kim, S.; Ha, J.; Schuster, T.; Fisch, A.; Harutyunyan, H.; Ji, Z.; Courville, A. C.; and Yun, S.-Y. 2025. Mixture-of-Recursions: Learning Dynamic Recursive Depths for Adaptive Token-Level Computation. In Advances in Neural Infor-mation Processing Systems , volume 38. Banino, A.; Balaguer, J.; and Blundell, C. 2021. PonderNet: Learn-ing to Ponder. In Proceedings of the 8th ICML Workshop on Auto-mated Machine Learning .Bulatov, A.; Kuratov, Y.; and Burtsev, M. S. 2022. Recurrent Mem-ory Transformer. In Advances in Neural Information Processing Systems , volume 35, 11079–11091. Chen, L.; Li, J.; Liang, C.; Lao, N.; and Liu, Q. 2026. Training-Free Looped Transformers. arXiv:2605.23872. Dehghani, M.; Gouws, S.; Vinyals, O.; Uszkoreit, J.; and Kaiser, L. 2019. Universal Transformers. In International Conference on Learning Representations .Dubey, A.; Jauhri, A.; Pandey, A.; Kadian, A.; Al-Dahle, A.; Let-man, A.; Mathur, A.; Schelten, A.; Yang, A.; Fan, A.; et al. 2024. The Llama 3 Herd of Models. arXiv preprint arXiv:2407.21783 .Fan, Y.; Svete, A.; and Lee, K. 2026. Bridging the Gap Be-tween Latent and Explicit Reasoning with Looped Transformers. arXiv:2606.31779. Fu, R.; and Luo, G. 2026. SeLaR: Selective Latent Reasoning in Large Language Models. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 7073–7087. San Diego, California, United States: Association for Computational Linguistics. Geiping, J.; McLeish, S.; Jain, N.; Kirchenbauer, J.; Singh, S.; Bartoldson, B. R.; Kailkhura, B.; Bhatele, A.; and Goldstein, T. 2025. Scaling up Test-Time Compute with Latent Reasoning: A Recurrent Depth Approach. In Advances in Neural Information Processing Systems , volume 38. Graves, A. 2016. Adaptive Computation Time for Recurrent Neural Networks. arXiv:1603.08983. Hao, S.; Sukhbaatar, S.; Su, D.; Li, X.; Hu, Z.; Weston, J.; and Tian, Y. 2025. Training Large Language Models to Reason in a Continuous Latent Space. In Second Conference on Language Modeling .Hu, E. J.; Shen, Y.; Wallis, P.; Allen-Zhu, Z.; Li, Y.; Wang, S.; Wang, L.; and Chen, W. 2022. LoRA: Low-Rank Adaptation of Large Language Models. In International Conference on Learning Representations .Hutchins, D.; Schlag, I.; Wu, Y.; Dyer, E.; and Neyshabur, B. 2022. Block-Recurrent Transformers. In Advances in Neural Information Processing Systems , volume 35, 33248–33261. Jeddi, A.; Ciccone, M.; and Taati, B. 2026. LoopFormer: Elastic-Depth Looped Transformers for Latent Reasoning via Shortcut Modulation. In International Conference on Learning Representa-tions .Jiang, N.; Wu, Z.; Zhan, D.-C.; Lai, F.; and Lian, S. 2025. DART: Distilling Autoregressive Reasoning to Silent Thought. In Pro-ceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , 5100–5108. Suzhou, China: Association for Computational Linguistics. Movahedi, S.; Milovanović, V.; Feigin, S. L.; Theus, A.; Hofmann, T.; Boeva, V.; Rusch, T. K.; and Orvieto, A. 2026. Fixed-Point Reasoners: Stable and Adaptive Deep Looped Transformers. In 
+
+ICML 2026 Workshop on Adaptive Foundation Models (AdaptFM) .Poster. Nangia, N.; and Bowman, S. R. 2018. ListOps: A Diagnostic Dataset for Latent Tree Learning. In Proceedings of the 2018 Conference of the North American Chapter of the Association for Computational Linguistics: Student Research Workshop , 92–99. Nguyen, A.; and Lin, W. 2025. Intra-Layer Recurrence in Trans-formers for Language Modeling. In Proceedings of the 38th Cana-dian Conference on Artificial Intelligence . Canadian Artificial In-telligence Association. Short Paper, Article 2025S202. Qwen Team. 2026. Qwen3.5-0.8B-Base Model Card. Hugging Face model repository. Saparov, A.; and He, H. 2023. Language Models Are Greedy Reasoners: A Systematic Formal Analysis of Chain-of-Thought. In 
+
+International Conference on Learning Representations .Saunshi, N.; Dikkala, N.; Li, Z.; Kumar, S.; and Reddi, S. J. 2025. Reasoning with Latent Thoughts: On the Power of Looped Trans-formers. In The Thirteenth International Conference on Learning Representations .Shen, Z.; Yan, H.; Zhang, L.; Hu, Z.; Du, Y.; and He, Y. 2025. CODI: Compressing Chain-of-Thought into Continuous Space via Self-Distillation. In Proceedings of the 2025 Conference on Empir-ical Methods in Natural Language Processing , 677–693. Suzhou, China: Association for Computational Linguistics. Tay, Y.; Dehghani, M.; Abnar, S.; Shen, Y.; Bahri, D.; Pham, P.; Rao, J.; Yang, L.; Ruder, S.; and Metzler, D. 2021. Long Range Arena: A Benchmark for Efficient Transformers. In International Conference on Learning Representations .Wang, X.; Wei, J.; Schuurmans, D.; Le, Q.; Chi, E.; Narang, S.; Chowdhery, A.; and Zhou, D. 2023. Self-Consistency Improves Chain of Thought Reasoning in Language Models. In International Conference on Learning Representations .Wei, J.; Wang, X.; Schuurmans, D.; Bosma, M.; Ichter, B.; Xia, F.; Chi, E.; Le, Q.; and Zhou, D. 2022. Chain-of-Thought Prompting Elicits Reasoning in Large Language Models. In Advances in Neural Information Processing Systems , volume 35, 24824–24837. Yang, J.; Guo, S.; Zhang, W.; Zheng, T.; Du, Y.; Li, H.-S.; Wu, J.; Song, Y.; Xing, Y.; Cai, Q.; Huang, Z.; Hao, C.; Tao, R.; Liu, X.; Zhao, W. X.; Tang, M.; Lv, W.; Zhou, M.; and Dai, B. 2026. LoopCoder-v2: Only Loop Once for Efficient Test-Time Computa-tion Scaling. arXiv:2606.18023.
