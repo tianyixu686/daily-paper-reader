@@ -1,0 +1,330 @@
+Title: LAST: The Last Query Token Guides Visual Token Pruning for Edge-Cloud Collaborative MLLM Inference
+
+URL Source: https://arxiv.org/pdf/2607.27952v1
+
+Published Time: Fri, 31 Jul 2026 00:58:48 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# LAST: The Last Query Token Guides Visual Token Pruning for Edge–Cloud Collaborative MLLM Inference 
+
+## Feng Yang 1∗, Xinrui Ju 1∗, Keyang Zhang 1, Xiandong Meng 2, Rongqun Lin 1,Howard Leung 1, Shiqi Wang 1, Haoliang Li 1, Chris Xing Tian 2†
+
+> 1
+
+City University of Hong Kong 
+
+> 2
+
+Peng Cheng Laboratory {fenyang6-c, xinruiju2-c}@my.cityu.edu.hk, {shiqwang, haoliali, howard}@cityu.edu.hk, mengxd@pcl.ac.cn, txsing@live.com 
+
+Abstract 
+
+Multimodal foundation models are reshaping edge– cloud visual intelligence from task-specific feature pipelines into token-based interfaces, where edge de-vices encode visual inputs into tokens for a general-purpose cloud MLLM. However, dense visual-token se-quences increase cloud-side inference costs. Existing pruning methods mainly target centralized inference: vision-driven methods can operate before cloud execu-tion but are typically query-agnostic, whereas query-guided methods often rely on internal states of the target MLLM and cannot determine token relevance before transmission. Compact guidance models offer an alter-native, but existing designs may require costly attention aggregation or auxiliary generation. We propose LAST, a training-free framework for query-dependent visual token pruning in edge–cloud collaborative MLLM in-ference. LAST uses a compact edge-side VLM as a guidance proxy and derives a lightweight importance signal from the last query token’s attention to visual to-kens. Under causal attention, the last query token can attend to the full visual sequence and the entire query context, enabling query-aware pruning without cloud-model access, autoregressive generation, or costly ag-gregation over multiple query positions. LAST then re-tains a diverse set of query-relevant visual tokens un-der a fixed token budget. We evaluate LAST on 11 multimodal benchmarks under multiple token budgets against pruning methods with different guidance strate-gies. Experiments show that LAST consistently achieves the strongest performance, preserving 95.4% of the full-token accuracy while retaining only 12.5% of the visual tokens, with low edge-side selection overhead and re-duced cloud-side computation. 
+
+## Introduction 
+
+Edge-cloud visual intelligence has long relied on a divi-sion of labor between edge perception and cloud analysis. In representative systems such as the digital retina, edge devices extract compact visual features and transmit them to cloud servers, where task-specific models perform higher-level analysis (Gao et al. 2021; Lou et al. 2019). Although this 
+
+> ∗
+
+These authors contributed equally. 
+
+> †
+
+Corresponding author. 
+
+Figure 1: Two paradigms of edge-cloud visual intelligence: task-oriented cloud inference based on edge features, and unified multimodal inference based on visual tokens. design avoids transmitting raw visual data, its intermediate representations and cloud models are typically specialized for predefined tasks. The emergence of multimodal foundation models (Achiam et al. 2023; Li et al. 2023a; Bai et al. 2023) motivates a more general architecture: edge devices encode visual obser-vations into tokens and transmit them to a general-purpose cloud MLLM, which processes these tokens through a shared reasoning backbone to support diverse downstream tasks. As illustrated in Figure 1, this evolution shifts the edge–cloud in-terface from task-specific features toward reusable visual to-kens, connecting distributed perception with general-purpose multimodal reasoning. This token-based interface, however, introduces a new ef-ficiency bottleneck. Vision encoders usually preserve dense patch-level representations, many of which are visually re-dundant or weakly related to the current query (Liu et al. 2023; Bai et al. 2023; Yang et al. 2025). Processing the com-plete visual sequence lengthens the multimodal context and substantially increases cloud-side computation. Visual token pruning is therefore essential for scalable edge-cloud MLLM inference. Importantly, this setting raises a different question from conventional token pruning: rather than deciding which tokens can be removed after the target model has processed the visual input, the edge must determine which visual ev-idence should be retained before the cloud model observes the full sequence. Existing visual token pruning methods are largely de-arXiv:2607.27952v1 [cs.CV] 30 Jul 2026 signed for centralized inference and do not fully meet edge–cloud requirements. Vision-driven methods use visual attention, saliency, or feature similarity (Yang et al. 2025; Zhang et al. 2025), but their query-agnostic selection may discard visually inconspicuous yet answer-critical regions. Query-guided methods exploit text–visual interactions in the target VLM (Chen et al. 2024a; Zhang et al. 2024), but ob-tain relevance signals only after processing the full visual sequence. Methods incorporating diversity or coverage (Du et al. 2026; Fang et al. 2026) also assume co-located selec-tion and inference. Thus, direct deployment in edge–cloud settings either delays guidance until cloud execution or re-quires placing the target MLLM on the edge. A compact edge-side model offers a possible way to ob-tain query-conditioned guidance without accessing the cloud MLLM. Prior small-to-large approaches have demonstrated that a smaller VLM can guide token pruning for a larger model (Zhao et al. 2025). However, existing designs may require aggregation over multiple textual or generated posi-tions, autoregressive generation, or repeated visual encoding. Such operations introduce additional edge-side computation and weaken the benefit of collaborative inference. This raises a key question: Can query-conditioned visual relevance be estimated at the edge using a lightweight signal that captures the complete image-query context? 
+
+We answer this question with LAST, a training-free frame-work for query-aware visual token pruning in edge-cloud collaborative MLLM inference. Using a compact edge-side VLM as a guidance proxy, LAST requires only a decoding-free prefill pass. Our key observation is that, under causal attention, the last query token attends to the complete visual prefix and the entire preceding query context, so its attention to the visual tokens serves as a concise query-conditioned rel-evance signal—without aggregating all query positions, gen-erating a preliminary answer, or accessing the cloud model’s internal states. Under a fixed budget, LAST uses this signal to retain a diverse set of query-relevant visual tokens, avoiding redundant allocation to neighboring or semantically similar regions. We instantiate LAST on scale-varied InternVL mod-els (Chen et al. 2024b), whose shared vision encoder pro-vides a compatible token interface: selected visual tokens are consumed directly by the cloud model through its na-tive connector, without additional alignment or retraining. LAST thus performs query-conditioned selection entirely at the edge while reducing the visual sequence length and cloud-side computation. We evaluate LAST on diverse multimodal benchmarks under multiple token budgets against query-agnostic, query-dependent, and compact-model pruning baselines. It consis-tently achieves favorable accuracy-efficiency trade-offs with low edge-side overhead and reduced cloud-side computa-tion. Additional experiments on the LLaVA family (Liu et al. 2024a) confirm that the proposed edge-cloud prun-ing paradigm generalizes beyond InternVL, and system-level measurements further verify its minimal selection overhead. Our main contributions are summarized as follows: 
+
+• We formulate visual token pruning for edge-cloud collab-orative MLLM inference as a pre-cloud selection prob-lem, in which the pruning mechanism must be query-aware, independent of cloud-model internal states, and sufficiently efficient for edge execution. 
+
+• We propose LAST, a training-free framework that uses attention from the last query token of a compact edge-side VLM as a concise query-conditioned signal. LAST requires neither autoregressive answer generation nor ag-gregation over the complete query sequence. 
+
+• We combine last-query-token relevance with feature-space diversity and conduct extensive evaluations across 11 multimodal benchmarks, multiple token budgets, dif-ferent pruning-guidance strategies, and two edge-cloud model families, demonstrating favorable accuracy-token and accuracy-computation trade-offs. 
+
+## Related Work 
+
+Edge-Cloud Collaborative Vision-Language Inference 
+
+Collaborative edge–cloud vision systems distribute percep-tion and higher-level analysis across resource-constrained devices and powerful cloud servers. Early systems mainly relied on feature-level communication: frameworks such as Digital Retina extract compact visual features at the edge and transmit them to task-specific cloud models, reducing raw-data transmission costs (Gao et al. 2021; Lou et al. 2019), but both the transmitted representations and cloud models are typically specialized for predefined tasks. Mul-timodal foundation models enable a more general interface in which edge-produced visual tokens are consumed by a general-purpose cloud MLLM through a shared multimodal reasoning backbone (Achiam et al. 2023; Li et al. 2023a; Bai et al. 2023), though this flexibility introduces substan-tial communication and cloud-side computation costs due to dense visual-token sequences. To address this, some studies investigate how edge–cloud computation should be divided or where requests should be executed: hybrid SLM-LLM systems and CE-CoLLM coordinate models of different ca-pacities, TMO studies adaptive offloading for multimodal, multitask, and multi-turn interactions, and INAR-VL routes requests according to input characteristics and deployment conditions (Hao et al. 2024; Jin and Wu 2024; Yuan et al. 2025; Šabanović, Maliakel, and Brandić 2026). These meth-ods operate at the model, request, or execution level, but do not determine which visual evidence within an input should be transmitted to the cloud. Another line of research directly reduces visual commu-nication. Collaborative Edge-to-Server Inference selectively requests detail-preserved regions when an initial cloud pre-diction is uncertain, while Progressive Semantic Commu-nication compresses visual tokens into progressively refin-able representations for transmission under varying network conditions (Song and Kim 2025; Hsu, Cheng, and Papa-gianni 2026). These methods optimize the amount or fi-delity of transmitted visual information, but do not formu-late the problem as query-conditioned selection of the na-tive visual-token sequence entirely before cloud inference. In contrast, LAST performs pre-transmission token selec-tion at the edge: a compact VLM estimates the relevance of Figure 2: Overview of LAST. A compact edge-side LLM performs a single decoding-free prefill pass and uses the last query token’s attention to estimate query-conditioned visual importance. Tokens are then selected by importance-weighted k-center selection. The selected features are then transmitted to the cloud model for final response generation. candidate visual tokens to the current query, and only a fixed-budget subset is transmitted for final inference by the cloud MLLM. Thus, LAST complements computation placement and representation-compression approaches by reducing the visual-token payload at the edge-cloud interface without ac-cessing cloud-model internal states or introducing a learned compression module. 
+
+Visual Token Pruning for Multimodal LLMs 
+
+Vision-driven pruning methods estimate visual-token im-portance from visual salience and redundancy. VisionZip retains dominant tokens and merges contextual informa-tion, while VisPruner combines visual-encoder attention with similarity-based redundancy removal (Yang et al. 2025; Zhang et al. 2025). Because these methods are largely query-agnostic, they may discard less salient but question-critical evidence. SCoRe, CoIn, and PruneSID improve subset rep-resentativeness through feature coverage or diversity (Xu, Shi, and Gao 2026; Du et al. 2026; Fang et al. 2026), but still do not ensure the preservation of query-relevant and complementary evidence before transmission. Language-guided methods derive visual-token importance from text–visual interactions in the target VLM. FastV uses early-layer attention to prune tokens in later layers, while SparseVLM progressively sparsifies the visual sequence us-ing relevant text tokens and self-attention matrices (Chen et al. 2024a; Zhang et al. 2024). QuietPrune enables earlier reduction through a learned query-to-vision adapter (Gao et al. 2026). However, FastV and SparseVLM require the full visual sequence to enter the cloud model, whereas Qui-etPrune relies on target-specific training. Thus, they do not support training-free visual-token selection before cloud-side MLLM execution. Compact-model guidance enables query-aware pruning before visual tokens reach the cloud MLLM. IF-Prune equips a small VLM with a learned information-bottleneck module to filter query-irrelevant tokens (Sun et al. 2026). SGP instead aggregates attention from query tokens and autoregressively generated tokens in a compact VLM to construct a patch-wise importance map aligned with the image grid; the target model must still encode the image with its own vision encoder and apply the transferred map for pruning (Zhao et al. 2025). LAST instead derives importance from only the last query token in a single decoding-free prefill pass and directly trans-mits the selected edge-encoded tokens, yielding a lightweight pre-transmission pipeline without all-query-token aggrega-tion, autoregressive generation, or repeated visual encoding. 
+
+## Method 
+
+Overview 
+
+LAST performs query-aware visual-token selection entirely at the edge before transmitting visual tokens to the cloud. As illustrated in Figure 2, the image is encoded once by a shared vision encoder, while a compact edge-side VLM performs a single prefill pass over the complete multimodal prompt without autoregressive generation. From this pass, LAST extracts a compact query-conditioned attention signal to es-timate visual-token importance and retain a non-redundant subset under a fixed token budget. Only the selected visual tokens are transmitted to the cloud, where the cloud model generates the final response. All model parameters remain frozen, making the complete procedure training-free. 
+
+Edge–Cloud Token Interface 
+
+We consider an edge–cloud inference system comprising a compact guidance model Me at the edge and a more capable target model Mc in the cloud. Given an image I, the shared vision encoder E produces N visual tokens 
+
+X = E(I) = [ x1, . . . , xN ] ∈ RN ×dv , (1) where E includes the shared vision backbone and spatial to-kenization operations preceding the model-specific connec-tors. The edge and cloud models use exactly the same encoder parameters and visual-token layout, but separate token-wise connectors, ϕe and ϕc, that preserve token count and order while projecting the shared encoder tokens into their respec-tive language-model embedding spaces. This one-to-one in-terface allows tokens selected at the edge to be consumed directly by the cloud connector without feature alignment or image re-encoding. For a retention ratio ρ ∈ (0 , 1] , LAST selects an index set 
+
+S ⊆ [N ], |S| = K = ⌈ρN ⌉, (2) before transmission. The edge model uses He = ϕe(X) only to estimate the relevance of the encoder visual tokens to the current query. The selected encoder tokens XS are trans-mitted and subsequently projected by the cloud connector 
+
+ϕc. Reducing the sequence from N to K tokens shortens the visual sequence processed by the cloud connector and language model by a factor of ρ.
+
+Last-Query-Token Attention Scoring 
+
+LAST extracts query-conditioned visual importance from the last query position of the assembled multimodal sequence, which is conditioned on the complete preceding multimodal context. Unlike approaches that aggregate multiple textual states or require autoregressive decoding, LAST uses atten-tion from a single query position across all layers and heads to obtain a compact relevance signal in one prefill pass. Given an image and query pair (I, Q ), the edge-side visual encoder first produces visual tokens: 
+
+X = [ x1, . . . , xN ], (3) which are projected into the multimodal embedding space: 
+
+He = ϕe(X). (4) After inserting the visual embeddings into the textual query following the standard multimodal input construction pro-cess, we obtain the edge-model input: 
+
+Ze = Pe(He, Q ) = [ z1, . . . , zP ], (5) where Pe denotes the multimodal input assembly operation. The visual tokens occupy positions {p1, . . . , p N }, and p⋆
+
+denotes the position of the last query token. At transformer layer ℓ ∈ { 1, . . . , L } and attention head 
+
+h ∈ { 1, . . . , H }, let 
+
+A(ℓ,h ) ∈ RP ×P (6) denote the softmax-normalized causal self-attention matrix. Due to causal masking, the last query token can attend to all preceding visual tokens and textual context, allowing its attention distribution over visual tokens to capture query-dependent relevance. We therefore aggregate the attention weights from this single query position across all layers and heads: 
+
+si =
+
+> L
+
+X
+
+> ℓ=1
+> H
+
+X
+
+> h=1
+
+A(ℓ,h )[p⋆, p i], i ∈ [N ]. (7) The aggregated scores are normalized over the visual se-quence: 
+
+ewi = si
+
+PNj=1 sj
+
+,
+
+> N
+
+X
+
+> i=1
+
+ewi = 1 . (8) The resulting relevance distribution ew ∈ RN 
+
+> ≥0
+
+serves as the query-conditioned importance signal for subsequent token selection. Compared with methods that aggregate multiple textual at-tention rows, LAST reduces the score-aggregation overhead. Given the required attention weights, aggregating scores from one query position requires O(LHN ) operations, com-pared with O(LHM N ) for M textual positions. This com-parison concerns only score aggregation; the costs of trans-former prefill and attention extraction are included in the measured edge-stage latency. In practice, LAST reads the required attention entries from the attention tensors returned during the same prefill pass, without invoking an additional autoregressive generation stage. 
+
+Pre-Transmission Token Selection 
+
+Directly retaining the K largest importance scores may al-locate much of the limited token budget to visually similar features. To balance query relevance and visual diversity, we adopt an importance-weighted greedy k-center selec-tion rule, where the query-conditioned importance scores 
+
+ew guide a greedy coverage-based selection. We first normalize each encoder feature as ¯xi = xi/∥xi∥2
+
+and initialize the selected set with the most query-relevant token: 
+
+j1 = arg max   
+
+> i∈[N]
+
+ewi, S1 = {j1}. (9) At iteration t ≥ 2, the current coverage distance of an unse-lected token is computed as 
+
+δ(t−1)  
+
+> i
+
+= min 
+
+> j∈S t−1
+
+(1 − ¯x⊤ 
+
+> i
+
+¯xj ). (10) We then select the token maximizing the product of query relevance and coverage gain: 
+
+jt = arg max 
+
+> i / ∈S t−1
+
+ewi δ(t−1)  
+
+> i
+
+, St = St−1 ∪ { jt}. (11) This multiplicative objective suppresses tokens that are either irrelevant to the query or redundant with already selected tokens, requiring both high relevance and large marginal coverage gain. For dynamically tiled inputs, visual tokens from all local tiles and the thumbnail are flattened into a unified candidate pool and compete under the same global budget, without per-tile quotas or mandatory token retention. Text tokens are never pruned. After K iterations, the selected indices are restored to their original order: 
+
+XS = [ xi]i∈sort( SK ). (12) Only XS is transmitted to the cloud. The cloud model di-rectly applies its native connector HS = ϕc(XS ) and gen-erates the final response, without modifying the cloud-side architecture. With incremental updates of δ(t) 
+
+> i
+
+, the selection process requires O(KN d v ) distance computations and avoids con-structing an N × N pairwise-distance matrix. Method ChartQA DocVQA VQA Text VQA V2 GQA VizWiz SQA IMG POPE MME MMB CN MM-Vet Avg. Rel.                                                                                                                                                                                                                                                                                                                    
+
+> Full Tokens 73.0 89.7 77.5 80.1 63.6 57.6 94.8 87.8 2222 84.9 32.3 74.6 100.0%
+> Retain 62.5% Tokens (↓37.5% )Random 61.6 66.7 68.5 79.5 63.1 57.1 93.3 87.2 2175 84.2 29.0 69.8 93.6%
+> Query-Agnostic
+> VisionZip (CVPR25) 65.9 75.3 72.5 79.3 62.8 55.5 93.0 88.0 2186 83.7 29.6 71.3 95.3% VisPruner (ICCV25) 64.1 75.0 69.9 79.4 63.1 55.6 93.5 88.3 2207 83.9 26.2 70.7 94.1%
+> Query-Dependent
+> FastV †(ECCV24) 69.8 84.4 77.2 79.8 63.5 57.6 94.4 88.1 2192 84.7 30.1 73.5 98.2% SparseVLM †(ICML25) 69.4 84.4 77.0 79.9 63.6 57.6 94.6 88.1 2179 84.7 29.6 73.3 98.0% SGP (CVPR25) 68.6 84.6 77.0 79.4 63.5 57.5 94.6 88.1 2190 84.8 30.2 73.4 98.0%
+> LAST (Ours) 70.9 89.6 77.4 79.8 63.5 57.0 94.5 88.0 2215 84.9 31.6 74.2 99.3%
+> Retain 37.5% Tokens (↓62.5% )Random 46.2 44.5 55.7 77.4 62.5 55.9 90.2 86.2 2115 83.1 23.1 63.7 85.0%
+> Query-Agnostic
+> VisionZip (CVPR25) 57.9 60.0 64.2 77.4 61.6 54.4 91.1 87.7 2140 83.0 24.3 67.1 89.3% VisPruner (ICCV25) 59.1 57.0 59.8 77.1 61.8 54.0 91.4 87.4 2157 83.5 22.3 66.4 88.1%
+> Query-Dependent
+> FastV †(ECCV24) 64.6 83.4 76.2 79.5 63.4 56.9 94.6 88.1 2203 84.6 29.3 72.7 97.0% SparseVLM †(ICML25) 64.7 82.9 76.3 79.5 63.4 56.3 94.5 88.1 2199 84.6 29.3 72.5 96.9% SGP (CVPR25) 66.6 84.1 76.5 79.5 63.3 56.7 94.5 88.2 2200 84.5 30.0 73.0 97.5%
+> LAST (Ours) 69.4 88.4 77.3 79.5 63.5 56.5 93.7 88.4 2212 84.1 32.4 73.8 99.0%
+> Retain 12.5% Tokens (↓87.5% )Random 26.0 21.6 33.7 71.0 58.5 53.3 85.4 82.5 1960 79.5 16.2 54.4 72.0%
+> Query-Agnostic
+> VisionZip (CVPR25) 41.0 33.0 45.2 70.9 56.9 50.0 88.8 84.7 1883 79.5 19.4 57.8 76.8% VisPruner (ICCV25) 37.3 27.1 39.1 68.5 54.9 47.8 87.2 82.2 1902 75.9 18.5 55.2 73.1%
+> Query-Dependent
+> FastV †(ECCV24) 45.4 74.3 71.9 78.2 61.7 53.4 90.4 88.0 2119 84.3 24.7 68.0 90.2% SparseVLM †(ICML25) 47.8 73.4 72.8 78.4 62.1 53.6 91.1 88.1 2160 83.8 23.3 68.3 90.4% SGP (CVPR25) 56.2 80.4 74.4 78.2 61.7 53.9 90.3 88.1 2099 84.3 26.9 69.9 93.0%
+> LAST (Ours) 64.8 83.2 76.2 78.4 62.7 54.6 89.7 88.2 2097 83.2 29.5 71.4 95.4%
+
+Table 1: Accuracy on 11 benchmarks under the InternVL2-1B/8B edge–cloud setting. Full Tokens is the unpruned baseline. Avg. is the macro-average (MME normalized to 2800), and Rel. is the relative performance w.r.t. Full Tokens. Best Avg./Rel. are bold . † denotes proxy-LLM adaptation for pre-transmission pruning. 
+
+## Experiment 
+
+Experimental Settings 
+
+Models. We instantiate the default edge-cloud system with an InternViT-300M-448px edge vision encoder, a Qwen2-0.5B-Instruct proxy LLM (Yang et al. 2024), and an InternLM2.5-7B-Chat cloud LLM, using components from the official InternVL2-1B and InternVL2-8B checkpoints (Chen et al. 2024b). Specifically, the edge vision encoder and proxy LLM, together with their associated connector, are taken from InternVL2-1B, while the cloud LLM and its connector are taken from InternVL2-8B. This decomposition reflects their distinct roles in our framework: the vision encoder pro-duces candidate visual tokens, the lightweight proxy LLM estimates their query-conditioned importance, and the cloud LLM performs final response generation. The full-token ref-erence uses the same edge-cloud configuration but bypasses the proxy LLM and transmits all visual tokens. All model components remain frozen, and we follow the official image preprocessing and chat templates. Since InternVL2 uses dy-namic resolution, retention ratios are applied to the number of visual tokens in each image. Experiments are conducted on a single NVIDIA A800 80GB GPU, and random selection is averaged over three independent runs. 
+
+Datasets. We conduct experiments on 11 vision-language benchmarks to comprehensively evaluate our method. These benchmarks span multiple domains: document and chart un-derstanding ChartQA (Masry et al. 2022) and DocVQA (Mathew, Karatzas, and Jawahar 2021), scene text recog-nition TextVQA (Singh et al. 2019), general visual question answering VQAv2 (Goyal et al. 2017), GQA (Hudson and Manning 2019) and VizWiz (Gurari et al. 2018), science question answering ScienceQA-IMG (Lu et al. 2022), hallu-cination evaluation POPE (Li et al. 2023b), and multi-modal comprehensive evaluation MME (Fu et al. 2026), MMBench-CN (Liu et al. 2024b) and MM-Vet (Yu et al. 2023). 
+
+Comparison Methods. We compare LAST with random se-lection, two query-agnostic methods, VisionZip (Yang et al. 2025) and VisPruner (Zhang et al. 2025), and three query-dependent methods, FastV (Chen et al. 2024a), Sparse-VLM (Zhang et al. 2024), and SGP (Zhao et al. 2025). FastV and SparseVLM were originally designed for single-model Method Agg. (ms) Edge (ms) FLOPs (T) Acc. 
+
+Full Tokens – 118.55 32.30 73.0   
+
+> Retain 62.5% Tokens (↓37.5% )
+
+FastV † 3.96 235.02 24.02 69.8 SparseVLM † 51.06 279.57 24.02 69.4 SGP 6.23 285.56 24.09 68.6 
+
+LAST (Ours) 2.51 237.92 24.04 70.9   
+
+> Retain 12.5% Tokens (↓87.5% )
+
+FastV † 3.97 239.95 10.98 45.4 SparseVLM † 50.87 278.17 10.98 47.8 SGP 6.18 280.04 11.10 56.2 
+
+LAST (Ours) 2.51 236.43 11.01 64.8 
+
+Table 2: Efficiency comparison of query-dependent prun-ing methods on ChartQA. Agg. denotes token-importance aggregation time, and Edge denotes edge-stage latency per inference. FLOPs cover the complete pipeline. Full Tokens denotes unpruned inference without proxy guidance. Best and second-best results within each budget are shown in 
+
+bold and underlined. inference, where visual tokens are pruned within the LLM decoder. To adapt them to pre-transmission pruning, we ap-ply their original attention-based importance estimation and retention rules to the edge-side proxy LLM and transmit the retained tokens to the cloud. SGP already follows a small-to-large scheme and therefore naturally fits our edge-cloud setting. All methods use the same edge vision encoder, cloud LLM, visual inputs, prompts, retention budgets, and decod-ing configuration, while all query-dependent methods share the same proxy LLM. 
+
+Main Results 
+
+Evaluation Accuracy. Table 1 reports the results across 11 benchmarks under three visual-token retention budgets. LAST consistently achieves the best Avg. and Rel. at all budgets. When retaining 62.5%, 37.5%, and 12.5% of the visual tokens, LAST preserves 99.3%, 99.0%, and 95.4% of the full-token performance, respectively. Compared with the strongest competing method at each budget, LAST improves Rel. by 1.1, 1.5, and 2.4 percentage points, showing that its advantage becomes more pronounced as the token budget decreases. The results also highlight the importance of query-dependent selection. At 12.5% retention, the best query-agnostic method achieves an Avg. of only 57.8, whereas SGP and LAST reach 69.9 and 71.4, respectively. LAST is particularly effective on benchmarks that require identifying localized information from visually dense inputs. Under the same aggressive budget, it outperforms SGP by 8.6 points on ChartQA, 2.8 points on DocVQA, and 2.6 points on MM-Vet. Although the best method varies across individual bench-marks, LAST provides the strongest overall accuracy-token trade-off and degrades more gracefully under aggressive to-ken reduction. 
+
+Efficiency Analysis. At a fixed retention ratio, all methods transmit the same number of visual tokens, so their efficiency 55 60 65 70      
+
+> Average accuracy across 11 benchmarks (%) ↑
+> 0.9
+> 1.0
+> 1.1
+> 1.2
+> 1.3
+> Average Efficiency Score  ↑
+> VisionZip
+> VisPruner
+> FastV
+> SparseVLM
+> SGP
+> LAST (Ours)
+> Better
+> Efficiency Score =Tstage (Full)
+> Tstage (method) ×Msystem (Full)
+> Msystem (method)
+> Retention ratio = 12.5%
+
+Figure 3: Accuracy–efficiency trade-off on Edge-Cloud Model. The average efficiency score jointly captures the prefill-stage speedup and GPU memory reduction relative to the full-token baseline across all datasets. differences mainly arise from edge-side guidance. As shown in Table 2, LAST requires only 2.51 ms to derive token-importance scores, 36.8% less than FastV and substantially less than SparseVLM. At 12.5% retention, LAST achieves both the highest accuracy and the lowest edge latency among the query-dependent methods, outperforming SGP by 8.6 points while being 43.61 ms faster. We further visualize the accuracy–efficiency trade-off in Figure 3. VisionZip and VisPruner obtain slightly higher efficiency scores as their query-agnostic pruning avoids any importance aggregation, but their average accuracy drops substantially, far below com-peting methods. In contrast, LAST achieves the highest accu-racy while retaining a competitive efficiency score. Overall, LAST provides a favorable accuracy-efficiency trade-off un-der aggressive token reduction. 
+
+Cross-Model Evaluation. To evaluate whether LAST gen-eralizes beyond the InternVL2 family, we further adopt LLaVA-1.5-7B, the smallest available LLaVA-1.5 variant, as the proxy model and LLaVA-1.5-13B as the cloud model (Liu et al. 2024a). As shown in Table 3, LAST consistently achieves the best Avg. and Rel. across all token budgets. It retains 99.2%, 97.0%, and 90.2% of the full-token per-formance using only 128, 64, and 32 of the original 576 visual tokens, respectively. These results demonstrate that LAST transfers effectively to a different MLLM family and visual-token interface. 
+
+Ablation and Analysis 
+
+Qualitative Analysis of Query-Aware Selection. Figure 4 visualizes the retained visual tokens on representative ChartQA and DocVQA examples at 12.5% retention. Un-der the same limited token budget, VisionZip and VisPruner allocate tokens to regions favored by their query-agnostic criteria but omit compact regions containing the evidence required by the questions. In contrast, LAST concentrates the retained tokens around the relevant chart values and train number, producing the correct answers 93 .45 and 47200 , re-Method VQA V2 GQA POPE MME MM-Vet Avg. ↑ Rel. ↑
+
+Full Tokens 78.3 63.4 85.9 1808 25.2 63.5 100.0% 
+
+Retain 128 / 576 Visual Tokens (↓ 77.8% )VisionZip 74.7 58.6 82.9 1769 24.2 60.7 95.7% VisPruner 74.9 58.0 84.2 1762 24.5 60.9 95.9% 
+
+LAST (Ours) 76.8 62.1 86.9 1783 25.2 62.9 99.2% 
+
+Retain 64 / 576 Visual Tokens (↓ 88.9% )VisionZip 71.6 56.8 75.8 1648 23.3 57.3 90.2% VisPruner 71.7 56.2 79.7 1719 22.2 58.2 91.7% 
+
+LAST (Ours) 75.1 60.0 87.9 1748 22.2 61.5 97.0% 
+
+Retain 32 / 576 Visual Tokens (↓ 94.4% )VisionZip 66.0 53.8 67.2 1514 20.1 52.2 82.3% VisPruner 67.8 52.6 71.5 1537 22.4 53.8 84.8% 
+
+LAST (Ours) 71.0 54.6 84.6 1593 19.3 57.3 90.2% 
+
+Table 3: Cross-model evaluation under the LLaVA-1.5-7B/13B configuration. Full Tokens denotes the unpruned reference. Avg. is the macro-average across five benchmarks. Rel. is the macro-average of per-benchmark performance rel-ative to Full Tokens. The best results within each token budget are shown in bold .: What's the value of largest bar?      
+
+> Original Image LAST 12.5% token
+> VisionZip 12.5% token VisPruner 12.5% token
+> Answer: 93.45
+> Answer:58.09 Answer: 58.09
+> GT: 93.45
+> :What's the trains number?
+> Original Image LAST 12.5% token
+> VisionZip 12.5% token VisPruner 12.5% token
+> Answer: 47200
+> Answer: 4 Answer: 4
+> GT: 47200
+
+Figure 4: Visualization of LAST compared to query-agnostic methods. 12.5% retained tokens are highlighted with . Thumbnails employed in InternVL are presented in the left corner. spectively. These examples suggest that query conditioning can help preserve ground-truth evidence when it occupies only a small portion of a visually dense input. 
+
+Choosing the Attention Source. We compare different at-tention sources for deriving visual-token importance in Ta-ble 4. LAST achieves the highest average performance at all three retention ratios. Averaging all query-token attention rows yields competitive results, while additionally incorpo-rating generated-answer attention provides further gains in some settings. The former requires aggregation over the full query, whereas the latter additionally requires an autoregres-sive generation pass. Overall, these results suggest that the last query token provides an effective and compact source of query-conditioned guidance. 
+
+Effectiveness of the Selection Strategy. To isolate the effect of the selection strategy, we compare LAST with random se-lection and direct Top-k selection using the same last-query-token importance scores. As shown in Table 5, the proposed importance-weighted k-center selection outperforms Top-k
+
+by 4.7 points in accuracy on ChartQA and by 39 in MME score at 12.5% retention. This suggests that jointly consid-
+
+Attention Source ChartQA ↑ VQAv2 ↑ MME ↑ MM-Vet ↑ Avg. ↑
+
+Retain 62.5% Tokens 
+
+First 66.7 79.3 2172 31.4 63.7 Middle 69.5 79.5 2186 31.5 64.6 All Mean 70.2 79.6 2218 31.1 65.0 All Mean + Answer 70.1 79.7 2215 31.6 65.1 
+
+Last (Ours) 70.9 79.8 2215 31.6 65.4 
+
+Retain 37.5% Tokens 
+
+First 56.1 78.6 2208 26.4 60.0 Middle 62.3 78.8 2193 29.8 62.3 All Mean 68.2 79.3 2207 27.7 63.5 All Mean + Answer 69.0 79.4 2238 31.6 65.0 
+
+Last (Ours) 69.4 79.5 2212 32.4 65.1 
+
+Retain 12.5% Tokens 
+
+First 35.5 74.8 2045 19.3 50.7 Middle 43.0 74.9 2041 22.6 53.3 All Mean 59.6 78.3 2092 26.6 59.8 All Mean + Answer 64.5 78.4 2078 29.1 61.6 
+
+Last (Ours) 64.8 78.4 2097 29.5 61.9 
+
+Table 4: Ablation on the attention source used to derive visual-token importance. For a query containing M tokens, First, Middle, and Last use the attention rows of q1, q⌈p⋆/2⌉,and qp⋆ , respectively. All Mean averages the attention rows of all query tokens, while All Mean + Answer additionally includes attention from answer tokens autoregressively gen-erated by the proxy model. 
+
+Method ChartQA (Relaxed Acc.) ↑ MME (Official Score) ↑
+
+Retain 12.5% Tokens 
+
+Random 26.0 1960 LAST (Top-k) 60.1 2058 
+
+LAST (Ours) 64.8 2097 
+
+Table 5: Selection-strategy ablation at 12.5% token re-tention. Both LAST (Top-k) and LAST (Ours) use the last-query-token attention as the token importance score. Top-k
+
+directly retains the highest-scoring tokens, while Ours ap-plies the proposed importance-weighted k-center selection to balance relevance and diversity. ering relevance and feature diversity uses the limited token budget more effectively than importance-only ranking. 
+
+## Conclusion 
+
+We propose LAST, a training-free visual-token pruning framework for collaborative edge–cloud MLLM inference. LAST uses attention from the last query token of a com-pact edge-side guidance model to estimate query-conditioned visual importance before transmission. By combining this signal with feature-space diversity, LAST preserves task-relevant and complementary visual evidence while removing redundant tokens under a fixed budget. Experiments across visual question answering and multimodal understanding benchmarks demonstrate favorable performance–efficiency trade-offs under multiple token budgets. The results show that lightweight, query-aware pre-transmission pruning can reduce visual-token transmission cloud-side computation while maintaining strong downstream performance, provid-ing an effective token interface for edge–cloud multimodal inference. References 
+
+Achiam, J.; Adler, S.; Agarwal, S.; Ahmad, L.; Akkaya, I.; Aleman, F. L.; Almeida, D.; Altenschmidt, J.; Altman, S.; Anadkat, S.; et al. 2023. GPT-4 Technical Report. arXiv preprint arXiv:2303.08774 .Bai, J.; Bai, S.; Yang, S.; Wang, S.; Tan, S.; Wang, P.; Lin, J.; Zhou, C.; and Zhou, J. 2023. Qwen-VL: A Fron-tier Large Vision-Language Model with Versatile Abilities. 
+
+arXiv preprint arXiv:2308.12966 .Chen, L.; Zhao, H.; Liu, T.; Bai, S.; Lin, J.; Zhou, C.; and Chang, B. 2024a. An image is worth 1/2 tokens af-ter layer 2: Plug-and-play inference acceleration for large vision-language models. In European Conference on Com-puter Vision , 19–35. Springer. Chen, Z.; Wang, W.; Tian, H.; Ye, S.; Gao, Z.; Cui, E.; Tong, W.; Hu, K.; Luo, J.; Ma, Z.; et al. 2024b. How far are we to gpt-4v? closing the gap to commercial multimodal models with open-source suites. Science China Information Sciences , 67(12): 220101. Du, C.; Deng, Y.; Liu, J.; Zhang, Y.; Chen, X.; and Ren, J. 2026. CoIn: Coverage and Informativeness-Guided Token Reduction for Efficient Large Multimodal Models. In Pro-ceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 10492–10501. Fang, Z.; Lyu, P.; Zhang, C.; Lu, G.; Yu, J.; and Pei, W. 2026. Prune Redundancy, Preserve Essence: Vision Token Compression in VLMs via Synergistic Importance-Diversity. 
+
+arXiv preprint arXiv:2603.09480 . Accepted at ICLR 2026. Fu, C.; Chen, P.; Shen, Y.; Qin, Y.; Zhang, M.; Lin, X.; Yang, J.; Zheng, X.; Li, K.; Sun, X.; et al. 2026. Mme: A comprehensive evaluation benchmark for multimodal large language models. Advances in Neural Information Process-ing Systems , 38. Gao, T.; Zhao, S.; Fang, S.; Zhu, S.; and Ma, C. 2026. QuietPrune: Query-Guided Early Token Pruning for Vision-Language Models. In Proceedings of the IEEE/CVF Con-ference on Computer Vision and Pattern Recognition , 3553– 3562. Gao, W.; Ma, S.; Duan, L.-Y.; Tian, Y.; Xing, P.; Wang, Y.; Wang, S.; Jia, H.; and Huang, T. 2021. Digital Retina: A Way to Make the City Brain More Efficient by Visual Coding. IEEE Transactions on Circuits and Systems for Video Technology , 31(11): 4147–4161. Goyal, Y.; Khot, T.; Summers-Stay, D.; Batra, D.; and Parikh, D. 2017. Making the v in vqa matter: Elevating the role of image understanding in visual question answering. In 
+
+Proceedings of the IEEE conference on computer vision and pattern recognition , 6904–6913. Gurari, D.; Li, Q.; Stangl, A. J.; Guo, A.; Lin, C.; Grauman, K.; Luo, J.; and Bigham, J. P. 2018. Vizwiz grand challenge: Answering visual questions from blind people. In Proceed-ings of the IEEE conference on computer vision and pattern recognition , 3608–3617. Hao, Z.; Jiang, H.; Jiang, S.; Ren, J.; and Cao, T. 2024. Hybrid SLM and LLM for Edge–Cloud Collaborative Infer-ence. In Proceedings of the Workshop on Edge and Mobile Foundation Models , 36–41. Association for Computing Ma-chinery. Hsu, C. S.-H.; Cheng, W. Y.-C.; and Papagianni, C. 2026. Progressive Semantic Communication for Effi-cient Edge-Cloud Vision-Language Models. arXiv preprint arXiv:2604.26508 .Hudson, D. A.; and Manning, C. D. 2019. Gqa: A new dataset for real-world visual reasoning and compositional question answering. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , 6700–6709. Jin, H.; and Wu, Y. 2024. CE-CoLLM: Efficient and Adap-tive Large Language Models Through Cloud–Edge Collabo-ration. arXiv preprint arXiv:2411.02829 .Li, C.; Gan, Z.; Yang, Z.; Yang, J.; Li, L.; Wang, L.; and Gao, J. 2023a. Multimodal Foundation Models: From Specialists to General-Purpose Assistants. arXiv:2309.10020. Li, Y.; Du, Y.; Zhou, K.; Wang, J.; Zhao, X.; and Wen, J.-R. 2023b. Evaluating object hallucination in large vision-language models. In Proceedings of the 2023 conference on empirical methods in natural language processing , 292–305. Liu, H.; Li, C.; Li, Y.; and Lee, Y. J. 2023. Improved Baselines with Visual Instruction Tuning. arXiv preprint arXiv:2310.03744 .Liu, H.; Li, C.; Li, Y.; and Lee, Y. J. 2024a. Improved baselines with visual instruction tuning. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , 26296–26306. Liu, Y.; Duan, H.; Zhang, Y.; Li, B.; Zhang, S.; Zhao, W.; Yuan, Y.; Wang, J.; He, C.; Liu, Z.; et al. 2024b. Mmbench: Is your multi-modal model an all-around player? In European conference on computer vision , 216–233. Springer. Lou, Y.; Duan, L.-Y.; Luo, Y.; Chen, Z.; Liu, T.; Wang, S.; and Gao, W. 2019. Towards Digital Retina in Smart Cities: A Model Generation, Utilization and Communica-tion Paradigm. In 2019 IEEE International Conference on Multimedia and Expo (ICME) , 19–24. Lu, P.; Mishra, S.; Xia, T.; Qiu, L.; Chang, K.-W.; Zhu, S.-C.; Tafjord, O.; Clark, P.; and Kalyan, A. 2022. Learn to explain: Multimodal reasoning via thought chains for science ques-tion answering. Advances in neural information processing systems , 35: 2507–2521. Masry, A.; Tan, J. Q.; Joty, S.; Hoque, E.; et al. 2022. Chartqa: A benchmark for question answering about charts with visual and logical reasoning. In Findings of the association for computational linguistics: ACL 2022 , 2263–2279. Mathew, M.; Karatzas, D.; and Jawahar, C. 2021. Docvqa: A dataset for vqa on document images. In Proceedings of the IEEE/CVF winter conference on applications of computer vision , 2200–2209. Šabanović, A.; Maliakel, P. J.; and Brandić, I. 2026. INAR-VL: Input-Aware Routing for Edge–Cloud Vision–Language Inference. arXiv preprint arXiv:2605.18853 .Singh, A.; Natarajan, V.; Shah, M.; Jiang, Y.; Chen, X.; Batra, D.; Parikh, D.; and Rohrbach, M. 2019. Towards vqa models that can read. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , 8317–8326. Song, S.; and Kim, Y. 2025. Collaborative Edge-to-Server Inference for Vision-Language Models. arXiv preprint arXiv:2512.16349 .Sun, G.; Wang, Y.; Ma, S.; Xie, Y.; Cheng, Y.; Tao, Z.; and Wang, J. 2026. IF-Prune: Information-Flow Guided Token Pruning for Efficient Vision-Language Models. In Proceed-ings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 3522–3531. Xu, T.; Shi, H.; and Gao, X. 2026. SCoRe: Salience-Coverage Reduction for Vision Token Pruning in Vision-Language Models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 24686–24695. Yang, A.; Yang, B.; Hui, B.; et al. 2024. Qwen2 Technical Report. arXiv preprint arXiv:2407.10671 .Yang, S.; Chen, Y.; Tian, Z.; Wang, C.; Li, J.; Yu, B.; and Jia, J. 2025. Visionzip: Longer is better but not necessary in vision language models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition ,19792–19802. Yu, W.; Yang, Z.; Li, L.; Wang, J.; Lin, K.; Liu, Z.; Wang, X.; and Wang, L. 2023. Mm-vet: Evaluating large mul-timodal models for integrated capabilities. arXiv preprint arXiv:2308.02490 .Yuan, L.; Han, D.-J.; Wang, S.; and Brinton, C. G. 2025. Device–Cloud Collaborative LLM Inference with Multi-Modal, Multi-Task, Multi-Turn Conversations. arXiv preprint arXiv:2502.11007 .Zhang, Q.; Cheng, A.; Lu, M.; Zhang, R.; Zhuo, Z.; Cao, J.; Guo, S.; She, Q.; and Zhang, S. 2025. Beyond text-visual attention: Exploiting visual cues for effective token pruning in vlms. In Proceedings of the IEEE/CVF International Conference on Computer Vision , 20857–20867. Zhang, Y.; Fan, C.-K.; Ma, J.; Zheng, W.; Huang, T.; Cheng, K.; Gudovskiy, D.; Okuno, T.; Nakata, Y.; Keutzer, K.; et al. 2024. Sparsevlm: Visual token sparsification for ef-ficient vision-language model inference. arXiv preprint arXiv:2410.04417 .Zhao, W.; Han, Y.; Tang, J.; Li, Z.; Song, Y.; Wang, K.; Wang, Z.; and You, Y. 2025. A stitch in time saves nine: Small vlm is a precise guidance for accelerating large vlms. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 19814–19824.

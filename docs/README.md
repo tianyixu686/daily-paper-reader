@@ -6,77 +6,74 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-01
-- 运行时间：2026-08-01 21:20:27 UTC
+- 最新运行日期：2026-08-02
+- 运行时间：2026-08-02 21:29:34 UTC
 - 运行状态：成功
-- 本次总论文数：19
+- 本次总论文数：18
 - 精读区：7
-- 速读区：12
+- 速读区：11
 
 ### 今日简报（AI）
-今日聚焦19篇多模态论文，精读7篇，重点在检索增强生成与高效视觉适配。最值得关注的是满分论文《DualG-MRAG》解耦宏观推理与微观匹配，以及9分的解耦视觉处理方案。建议读者优先精读这两篇，后续可跟进速读中的令牌剪枝与多模态思维令牌方法。
-- 详情：[/202608/01/README](/202608/01/README)
+今日精读18篇论文，重点聚焦多模态记忆与对齐优化，其中《MemSFT》与《RRM》获9.0高分。最值得关注的方向是外部参数化记忆缓解对齐税，以及经验驱动的反思式检索记忆用于长程多模态推理。建议普通读者优先精读这两篇高分论文，并留意速读中多模态模型空间一致性与持续学习的相关讨论。
+- 详情：[/202608/02/README](/202608/02/README)
 
 ### 精读区论文标签
-1. [DualG-MRAG: Decoupling Macro-Reasoning and Micro-Matching for Multimodal Retrieval-Augmented Generation](/202608/01/2607.28580v1-dualg-mrag-decoupling-macro-reasoning-and-micro-matching-for-multimodal-retrieval-augmented-generation)  
-   标签：评分：10.0/10、query:mr
-   evidence：面向多跳推理的多模态RAG，解耦宏观推理与微观匹配
-2. [Decoupled Visual Processing: Efficient Multimodal Adaptation via Modality-Specific Transformer Substitution](/202608/01/2607.26596v1-decoupled-visual-processing-efficient-multimodal-adaptation-via-modality-specific-transformer-substitution)  
+1. [MemSFT: Mitigating Alignment Tax with an External Parametric Memory](/202608/02/2607.25614v1-memsft-mitigating-alignment-tax-with-an-external-parametric-memory)  
    标签：评分：9.0/10、query:post-multi
-   evidence：面向视觉指令微调的高效训练框架，将上层解码器替换为视觉专用Transformer块
-3. [Progressive Multimodal Alignment for Continual Instruction Tuning](/202608/01/2607.26947v1-progressive-multimodal-alignment-for-continual-instruction-tuning)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：多模态持续指令微调与渐进式投影器对齐
-4. [FiRE: Enhancing MLLMs with Fine-Grained Context Learning for Complex Image Retrieval](/202608/01/2607.27959v1-fire-enhancing-mllms-with-fine-grained-context-learning-for-complex-image-retrieval)  
+   evidence：面向LLM后训练，用外部参数化记忆缓解对齐税
+2. [RRM: Experience-Driven Reflective Retrieval Memory for Long-Horizon Multimodal Reasoning](/202608/02/2607.28156v1-rrm-experience-driven-reflective-retrieval-memory-for-long-horizon-multimodal-reasoning)  
    标签：评分：9.0/10、query:mr
-   evidence：面向长文本到图像、视觉对话检索与组合图像检索的跨模态检索
-5. [VIG-RL: Learning to Search and Insert for Verified Image Grounding](/202608/01/2607.28055v1-vig-rl-learning-to-search-and-insert-for-verified-image-grounding)  
+   evidence：面向长程多模态推理的反思检索记忆与多模态记忆图
+3. [GLM-RAG: Graph Language Models for Graph-Based Retrieval-Augmented Generation](/202608/02/2607.28397v1-glm-rag-graph-language-models-for-graph-based-retrieval-augmented-generation)  
    标签：评分：9.0/10、query:mr
-   evidence：智能体强化学习框架，动态检索并插入经过验证的图像证据
-6. [OPLD: On-Policy Latent Distillation for Multimodal Reasoning](/202608/01/2607.28154v1-opld-on-policy-latent-distillation-for-multimodal-reasoning)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：通过在线策略潜在蒸馏训练多模态推理
-7. [Penelope: Localized Latent Recurrence for Efficient Structured Reasoning](/202608/01/2607.25915v1-penelope-localized-latent-recurrence-for-efficient-structured-reasoning)  
+   evidence：基于GLM的检索器用于知识图谱多跳RAG
+4. [CLBench-V: Evaluating Multimodal Context Learning from Grounding to Knowledge Acquisition](/202608/02/2607.25294v1-clbench-v-evaluating-multimodal-context-learning-from-grounding-to-knowledge-acquisition)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：多模态上下文学习的最新基准
+5. [MMLDSum-LLM: Multimodal Long-Document Summarization with Visual-Alignment and Keyword-Aware](/202608/02/2607.28006v1-mmldsum-llm-multimodal-long-document-summarization-with-visual-alignment-and-keyword-aware)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：面向多模态大模型摘要的两阶段监督微调框架，结合视觉对齐加权损失与关键词感知
+6. [LEDGERMIND: Provenance-Constrained Multimodal Agentic Reasoning with a Structured Evidence Ledger](/202608/02/2607.28374v1-ledgermind-provenance-constrained-multimodal-agentic-reasoning-with-a-structured-evidence-ledger)  
    标签：评分：8.0/10、query:mr
-   evidence：面向结构化多步推理的潜在递归推理框架
+   evidence：多模态智能体推理结合外部检索与证据约束，强调多步推理的可溯源
+7. [ReToken: One Token to Improve Vision-Language Models for Visual Retrieval](/202608/02/2607.28627v1-retoken-one-token-to-improve-vision-language-models-for-visual-retrieval)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：面向视觉语言模型训练的可学习检索标记
 
 ### 速读区论文标签
-1. [Omni-Prune: Query-Aware Unified Token Pruning for Efficient Omnimodal Large Language Models](/202608/01/2607.23445v1-omni-prune-query-aware-unified-token-pruning-for-efficient-omnimodal-large-language-models)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：面向全模态大语言模型的查询感知音视频Token剪枝
-2. [Mixture-of-Thought-Tokens: Unifying Perception and Reasoning for Free-form Multimodal Grounding](/202608/01/2607.24407v1-mixture-of-thought-tokens-unifying-perception-and-reasoning-for-free-form-multimodal-grounding)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：用于多模态接地的感知与推理统一框架
-3. [CHARM: A Multimodal Graph Foundation Model with Hierarchical Context Modeling for Zero-Shot Transfer](/202608/01/2607.26023v1-charm-a-multimodal-graph-foundation-model-with-hierarchical-context-modeling-for-zero-shot-transfer)  
-   标签：评分：8.0/10、query:mr
-   evidence：多模态图基础模型，面向文本/图像等多模态图与零样本迁移
-4. [One Patch Is Enough: Reinforcement-Optimized Visual Token Grounding for MLLM-Based Scene Text Spotting](/202608/01/2607.27902v1-one-patch-is-enough-reinforcement-optimized-visual-token-grounding-for-mllm-based-scene-text-spotting)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：面向MLLM场景文本识别的强化优化视觉令牌接地
-5. [AgentOmnia: Scaling Agentic Models for Full-Scenario Applications](/202608/01/2607.23124v1-agentomnia-scaling-agentic-models-for-full-scenario-applications)  
+1. [Do Unified Multimodal Models Think in One Space? A Lens Through Cross-Branch Steering](/202608/02/2607.26411v1-do-unified-multimodal-models-think-in-one-space-a-lens-through-cross-branch-steering)  
    标签：评分：7.0/10、query:post-multi
-   evidence：面向智能体模型的数据合成、后训练与评估协同框架
-6. [Token-Region Guided Cross-Attention Fusion for Multimodal Affect Interpretation](/202608/01/2607.23493v1-token-region-guided-cross-attention-fusion-for-multimodal-affect-interpretation)  
+   evidence：跨分支语义干预，分析统一多模态模型的语义空间
+2. [Regularizing modality contribution drift in multimodal continual learning](/202608/02/2607.27260v1-regularizing-modality-contribution-drift-in-multimodal-continual-learning)  
    标签：评分：7.0/10、query:post-multi
-   evidence：面向meme理解的多模态交叉注意力融合
-7. [Multimodal Semantic-Probabilistic Objectness for Open World Object Detection](/202608/01/2607.23981v1-multimodal-semantic-probabilistic-objectness-for-open-world-object-detection)  
+   evidence：多模态持续学习方法，正则化模态贡献漂移
+3. [FedOGL: Combating Catastrophic Forgetting in Federated Open-World Multimodal Graph Learning](/202608/02/2607.27665v1-fedogl-combating-catastrophic-forgetting-in-federated-open-world-multimodal-graph-learning)  
    标签：评分：7.0/10、query:post-multi
-   evidence：利用语言先验进行多模态语义校准的开放世界目标检测
-8. [Beyond Self-Knowledge: Propagating Uncertainty Across Reasoning and Retrieval in LLMs](/202608/01/2607.25600v1-beyond-self-knowledge-propagating-uncertainty-across-reasoning-and-retrieval-in-llms)  
-   标签：评分：7.0/10、query:mr
-   evidence：基于不确定性的检索路由以改进检索增强生成的问答系统
-9. [Latent-LoRA: Compact Latent-Space Adapters with Gradient-Free Routing for Continual Learning](/202608/01/2607.23837v1-latent-lora-compact-latent-space-adapters-with-gradient-free-routing-for-continual-learning)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：面向LLM持续后训练的LoRA适配器方法
-10. [OmniVAE: An Audio-Video VAE with Cross-Modal Alignment for Joint Generation](/202608/01/2607.23855v1-omnivae-an-audio-video-vae-with-cross-modal-alignment-for-joint-generation)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：音频-视频联合VAE与跨模态对齐，面向多模态生成
-11. [DDVT: Dynamic Dual-level Vision Transformer Fusion Network for Answer Grounding in Visual Question Answering](/202608/01/2607.23921v1-ddvt-dynamic-dual-level-vision-transformer-fusion-network-for-answer-grounding-in-visual-question-answering)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：用于VQA答案定位的动态双层级视觉Transformer融合
-12. [IMPRINT: Image-Conditioned Query Enrichment for Long-Tail Object Goal Navigation](/202608/01/2607.25106v1-imprint-image-conditioned-query-enrichment-for-long-tail-object-goal-navigation)  
+   evidence：联邦开放世界下的多模态图学习与遗忘缓解
+4. [Capturing Token Tendencies for Training-Free Token Pruning in Multimodal Large Language Models](/202608/02/2607.28341v1-capturing-token-tendencies-for-training-free-token-pruning-in-multimodal-large-language-models)  
+   标签：评分：7.0/10、query:post-multi
+   evidence：面向多模态大语言模型的免训练令牌剪枝
+5. [Do Current Retrievers Cover All the Evidence? A Controlled Study of Conjunctive Cross-Page Retrieval](/202608/02/2607.24165v1-do-current-retrievers-cover-all-the-evidence-a-controlled-study-of-conjunctive-cross-page-retrieval)  
    标签：评分：6.0/10、query:mr
-   evidence：检索网络图像并通过视觉语言模型与语义地图匹配
+   evidence：面向多条件联合查询的多跳证据检索受控研究
+6. [One Graph, Multiple Gains: Single High-Quality Item-Item Graph for Multimodal Recommendation](/202608/02/2607.24607v1-one-graph-multiple-gains-single-high-quality-item-item-graph-for-multimodal-recommendation)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：基于单张高质量物品图的多模态推荐
+7. [RecoReward: Recommender-Guided Multimodal Description Generation for Recommendation](/202608/02/2607.25901v1-recoreward-recommender-guided-multimodal-description-generation-for-recommendation)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：用行为奖励训练多模态大模型生成商品描述
+8. [Explainable and Resource-Efficient Spatial Reasoning in Multimodal LLMs for Decision-Critical Applications](/202608/02/2607.27145v1-explainable-and-resource-efficient-spatial-reasoning-in-multimodal-llms-for-decision-critical-applications)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：多模态LLM空间推理的可解释提示方法
+9. [When Does Explicit View Routing Work? A Controlled Study of Multi-View Graph-Text Alignment](/202608/02/2607.27530v1-when-does-explicit-view-routing-work-a-controlled-study-of-multi-view-graph-text-alignment)  
+   标签：评分：6.0/10、query:mr
+   evidence：图-文本检索与多视图对齐，属跨模态检索
+10. [IFHierBench: Hierarchical Instruction Following for Large Language Models](/202608/02/2607.27912v1-ifhierbench-hierarchical-instruction-following-for-large-language-models)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：面向大型语言模型的分层指令遵循基准
+11. [LAST: The Last Query Token Guides Visual Token Pruning for Edge-Cloud Collaborative MLLM Inference](/202608/02/2607.27952v1-last-the-last-query-token-guides-visual-token-pruning-for-edge-cloud-collaborative-mllm-inference)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：查询Token引导的视觉Token剪枝方法，用于多模态大模型推理
 
 
 <div class="dpr-home-promo-card">

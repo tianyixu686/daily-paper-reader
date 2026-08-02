@@ -1,0 +1,1942 @@
+Title: Regularizing modality contribution drift in multimodal continual learning
+
+URL Source: https://arxiv.org/pdf/2607.27260v1
+
+Published Time: Fri, 31 Jul 2026 00:03:44 GMT
+
+Number of Pages: 27
+
+Markdown Content:
+# Regularizing Modality Contribution Drift in Multimodal Continual Learning 
+
+Zhen Zhang 1 Jielei Chu 1∗ Bin Liu 1 Tianrui Li 1
+
+> 1
+
+School of Computing and Artificial Intelligence, Southwest Jiaotong University 
+
+## ABSTRACT 
+
+Multimodal continual learning (MMCL) aims to learn emerging knowledge from multimodal data while preserving knowledge. To mitigate forgetting, current MMCL methods usually focus on cross-modal representation alignment or se-mantic similarity, but they overlook whether the relative contributions of individ-ual modalities and their interactions remain stable across incremental tasks. We term this decision-level shift Modality Contribution Drift (MCD) and quantify it with the MCD score, which combines contribution-strength and relative-reliance changes under controlled interventions on modality subsets. Theoretical and em-pirical analyses further explain why current MMCL methods cannot reliably mit-igate this drift. To this end, we propose Continual Modality Contribution Drift Regularization (CMCDR), which preserves the modality contribution structure of previously learned tasks. Since MMCL settings differ in whether old exemplars are available, CMCDR includes both replay-based and replay-free versions. The replay-based version uses modality-subset interventions as diagnostic probes on stored old samples, compares their contribution profiles between the current model and a frozen previous model, and constrains changes in old-sample modality-specific and interaction contributions. The replay-free version uses current-task samples as probes and distills the frozen model’s old-task contribution responses, thereby regularizing the observed contribution profile without exemplars. Exper-iments on multimodal class-incremental learning and continual visual question answering validate the generality and effectiveness of CMCDR. 
+
+## 1 INTRODUCTION 
+
+Multimodal continual learning (MMCL) studies how models learn sequentially from dynamic multi-modal data. In this setting, mitigating forgetting requires preserving previously learned task knowl-edge while maintaining cross-modal relationships. Many existing methods mitigate forgetting by preserving multimodal representations and their cross-modal geometry. For example, AV-CIL (Pian et al., 2023) performs audio-visual representation alignment by preserving instance- and class-aware semantic similarity, while MG-CLIP (Huang et al., 2025) preserves the image–text modality gap across incremental stages. These methods reduce representational drift but do not directly constrain how modalities and their interactions support individual decisions. However, incremental tasks often require distinct modality dependencies, so learning a new task can alter not only the representation correspondences between modalities but also the relative con-tribution of each modality to decisions on previously learned tasks. Several intuitive examples illustrate this task-dependent nature of modality reliance. As shown in Fig. 1 (a), the model re-lies predominantly on visual cues in the road-crossing task, whereas the question-answering task requires the joint use of visual and linguistic information for reasoning. We further conduct two preliminary studies to systematically examine such task-dependent modality contributions. First, we split categories within the same dataset into different tasks and estimate task-wise modality contributions using the interventional contribution estimator introduced in Sec. 2.1, showing that tasks from the same dataset can exhibit distinct modality reliance patterns (Fig. 1 (b)). Second, we treat each dataset as an individual task and identify substantial differences in modality contributions 
+
+> ∗
+
+E-mail addresses: Zhen Zhang: zhenzhang@my.swjtu.edu.cn ; Jielei Chu: 
+
+jieleichu@swjtu.edu.cn ; Bin Liu: binliu@swjtu.edu.cn ; Tianrui Li: trli@swjtu.edu.cn .
+
+1arXiv:2607.27260v1 [cs.LG] 29 Jul 2026 across datasets (Fig. 1 (c)). These observations show that different tasks or classes rely on distinct modality dependencies during prediction. 
+
+Figure 1: (a) Illustrative examples demonstrating that different tasks rely on distinct information sources. (b) Contribution profiles of the audio, visual, and cross-modal interaction components across six tasks in AVE (Tian et al., 2018), revealing substantial task-specific variation in modality reliance. (c) Average modality contributions for AVE, Kinetics-Sounds (Arandjelovic & Zisserman, 2017), and VGGSound (Chen et al., 2020), showing distinct patterns of audio-visual reliance across datasets. When learning such tasks with different modality dependencies in a continual manner, the model must adapt to new modality requirements over time. However, such adaptation can interfere with the decision mechanisms established for learned tasks when the modality dependencies of new tasks are inconsistent with those of previous tasks. Despite its importance, the evolution of modality contributions under changing task-specific modality dependencies remains underexplored in MMCL , as existing studies primarily preserve cross-modal representations or semantic similarity rather than examine contribution stability across incremental stages. To address this gap, we first in-troduce an intervention-based diagnostic estimator that probes the contributions of individual modal-ities and cross-modal interactions to model decisions. Based on this estimator, we define the MCD score by combining contribution-strength and scale-adjusted relative-reliance changes in previously learned contribution profiles across incremental stages. Theoretical and empirical analyses further show that both conventional continual learning methods and representation-stability-based MMCL methods do not effectively prevent modality contribution drift. Therefore, to mitigate modality con-tribution drift in MMCL, we propose Continual Modality Contribution Drift Regularization (CM-CDR), which preserves the modality contribution structure established for previously learned tasks while allowing adaptation to new modality dependencies. CMCDR supports both replay-based and replay-free settings, making it applicable to MMCL scenarios with different exemplar availability. The main contributions of this work are summarized as follows. 
+
+• Problem. We identify and formalize modality contribution drift, an underexplored MMCL prob-lem in which learning new tasks alters the modality contribution structures of previously learned tasks. 
+
+• Method. We propose Continual Modality Contribution Drift Regularization (CMCDR), with replay-based and replay-free variants, to preserve old-task contribution structures while adapting to new modality dependencies. 
+
+• Performance. We conduct extensive experiments on multimodal class-incremental learning and continual visual question answering, showing that CMCDR consistently mitigates modality con-tribution drift and improves performance across MMCL settings and benchmarks. 
+
+## 2 CONTRIBUTION DRIFT IN MMCL 
+
+This section studies modality contribution drift (MCD) in MMCL through an intervention-based diagnostic of modality contributions. We then relate MCD to catastrophic forgetting and further provide theoretical and empirical evidence showing that stable cross-modal representations do not necessarily imply stable modality contributions. 2.1 INTERVENTION -B ASED CONTRIBUTION ESTIMATION 
+
+We estimate modality contributions by intervening on modality subsets and decomposing the in-duced predictive benefit. Let M = {1, . . . , M } be the modality set and xi = ( x1 
+
+> i
+
+, . . . , x Mi ) amultimodal sample. Let Fθ denote the complete predictor, including the modality encoders, fusion module, and classifier. For any S ⊆ M , introduce a modality-specific absence symbol ⊥m and 2define removal and the resulting response jointly as 
+
+exm, S 
+
+> i
+
+=
+
+xmi , m ∈ S ,
+
+⊥m, m / ∈ S , xS 
+
+> i
+
+:= RS (xi) =  exm, S
+
+> i
+
+Mm=1 , zi(S) = Fθ
+
+ xS
+
+> i
+
+ . (1) Here, ⊥m denotes the removal of modality m. Architecture-specific realizations of modality re-moval are given in Appendix B.2. For a candidate set A satisfying a ∈ A and |A| ≥ 2, the corresponding target-class benefit is 
+
+Ba, A 
+
+> i
+
+(S) = zi,a (S) − log X
+
+> ℓ∈A , ℓ ̸=a
+
+exp  zi,ℓ (S), (2) where zi(S) is the logit vector after the subset intervention, zi,a (S) is the target-class logit, and 
+
+zi,ℓ (S) are competing logits for classes ℓ ∈ A with ℓ̸ = a. Thus Ba, A 
+
+> i
+
+(S) is the target-vs-rest log-sum-exp margin when only modalities in S are retained, with the candidate set A fixed across stages. Taking the no-modality intervention as the control condition, Ba, A 
+
+> i
+
+(S) − Ba, A 
+
+> i
+
+(∅) measures the decision-level effect of retaining S on a log-odds margin scale, which is decomposed below into modality-specific and interaction terms. Specifically, Ba, A 
+
+> i
+
+(∅) denotes the no-modality response and 
+
+Ba, A 
+
+> i
+
+(M) denotes the benefit of the full multimodal input. For each nonempty modality coalition T ⊆ M , we define its contribution by the M¨ obius trans-form (Harsanyi, 1963): 
+
+Ca, A 
+
+> i
+
+(T ) = X
+
+> S⊆T
+
+(−1) |T |−|S| Ba, A 
+
+> i
+
+(S), Ci =
+
+h
+
+Ca, A 
+
+> i
+
+(T )
+
+i
+
+> ∅̸ =T ⊆M
+
+. (3) By M¨ obius inversion, the profile exactly decomposes the full-input benefit over the no-modality response: X
+
+> ∅̸ =T ⊆M
+
+Ca, A 
+
+> i
+
+(T ) = Ba, A 
+
+> i
+
+(M) − Ba, A 
+
+> i
+
+(∅). (4) The contribution profile is computed directly from the benefits of all modality subsets. Appendix A.1 provides a detailed analysis of the interventional benefit B and the resulting M¨ obius decomposition. 2.2 ANALYSIS OF MODALITY CONTRIBUTION DRIFT 
+
+Building on the estimator above, we quantify the evolution of the modality-reliance structure across incremental tasks. We first define the MCD score using class-level contribution profiles, and then examine whether conventional continual-learning mechanisms and multimodal representation align-ment are sufficient to suppress this drift. 2.2.1 EXPLORATION SETUP Task 0 Task 1 Task 2 Task 3      
+
+> Incremental Tasks
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> 80
+> 90
+> Mean task accuracy (%)  AVE
+> 76.92
+> 68.50
+> 61.21
+> 51.77
+> 39.52 28.89
+> 21.07
+> Fine-tune
+> ICaRL
+> ICaRL avg.
+> FT avg.
+> Task 0 Task 1 Task 2 Task 3
+> Incremental Tasks
+> UESTC-MMEA-CL
+> 85.54
+> 76.19
+> 67.72
+> 58.94
+> 41.45 30.07
+> 22.26
+> Fine-tune
+> ICaRL
+> ICaRL avg.
+> FT avg.
+
+Figure 2: Mean task accuracy across incremental tasks in the exploratory diagnostic run on AVE and UESTC-MMEA-CL. These trajectories are reported separately from the unified main-evaluation results in Tables 1 and 3. To ensure a controlled analysis, we use iCaRL (Rebuffi et al., 2017) as the baseline and evaluate it on two representative MMCL datasets, AVE and UESTC-MMEA-CL (Xu et al., 2024). All task con-struction, feature extraction, model architecture, and training details are provided in Appendix B.1. As shown in Fig. 2, iCaRL exhibits a consistent accuracy decline as incremental learning proceeds on both datasets. On AVE, the mean task accuracy drops from 76.92% at Task 0 to 51.77% at 3Task 3, with an average accuracy of 64.60%, recomputed from the four displayed stage values. On UESTC-MMEA-CL, it decreases from 85.54% to 58.94%, with an average accuracy of 72.10%. Compared with Fine-tune, iCaRL achieves higher accuracy in later tasks, indicating that it alleviates catastrophic forgetting and better preserves previously learned multimodal knowledge. 2.2.2 MODALITY CONTRIBUTION DRIFT IN MMCL The results above show that iCaRL alleviates classification forgetting, but they do not indicate whether previously learned classes retain their modality contribution structure. To measure this drift, we define MCD as a composite score and retain two diagnostic components: absolute-response drift (Abs-MCD) and relative-reliance drift (Rel-MCD). For class y, fix Ay = Y≤τ (y) after its introduc-tion. The probe bank is not fixed globally. After learning task k, we add a probe cohort Pk and store its stage-k contribution profiles. For i ∈ P k and a later stage t > k , define 
+
+ci,t =
+
+h
+
+Cyi,Ayi 
+
+> i,t
+
+(T )
+
+i
+
+> ∅̸ =T ⊆M
+
+, bci,t = ci,t 
+
+∥ci,t ∥1 + ϵ , (5) where coalition contributions follow Eq. 3, the ordering is fixed, and ϵ > 0. For s ∈ { k, t }, let si,s =
+
+∥ci,s ∥1 and define dabs  
+
+> i,t
+
+= ∥ci,t −ci,k ∥1, drel  
+
+> i,t
+
+= ∥bci,t −bci,k ∥1. At stage t, the dynamically expanding bank is P<t = S 
+
+> k∈K <t
+
+Pk, where K<t contains all previous tasks. We explicitly compute MCD as 
+
+MCD t = 1
+
+|K <t |
+
+X
+
+> k∈K <t
+
+1
+
+|P k|
+
+X
+
+> i∈P k
+
+[|si,t − si,k | + (min( si,t , s i,k ) + ϵ)∥bci,t − bci,k ∥1] . (6) The bracketed term is the per-probe score dMCD  
+
+> i,t
+
+. Abs-MCD and Rel-MCD use the same task-balanced aggregation with dabs  
+
+> i,t
+
+and drel  
+
+> i,t
+
+, respectively. Abs-MCD measures changes in contribution-response magnitude and composition, whereas Rel-MCD isolates changes in how evidence is allo-cated across modalities and interactions. Their composite, MCD, combines contribution-strength drift with scale-adjusted relative-reliance drift and serves as our primary aggregate; we retain both components for diagnosis. MCD is thus a candidate-conditioned diagnostic of established con-tribution drift; full-space accuracy and forgetting retain later-class competition (Appendix A.3). 
+
+Figure 3: MCD across incremental transitions in the exploratory diagnostic run on AVE and UESTC-MMEA-CL. To examine whether conventional continual learning mechanisms preserve this contribution structure, we compare fine-tuning and iCaRL using MCD. As shown in Figure 3, iCaRL does not consistently reduce modality contribu-tion drift compared with fine-tuning. On AVE, the average transition-level MCD of iCaRL is higher than that of fine-tuning ( 0.7785 vs. 
+
+0.5929 ), although iCaRL reduces the drift in the first transition. On UESTC-MMEA-CL, iCaRL also shows a slightly higher average transition-level MCD than fine-tuning ( 0.4100 
+
+vs. 0.2628 ). These results suggest that, although exemplar replay and distillation can alleviate classification forgetting, they do not necessarily preserve the modality contribution structure of pre-viously learned classes. This motivates the need to consider contribution-level stability. 
+
+How Contribution Drift Can Cause Forgetting For an old sample i, let τ (yi) ≤ r < t , fix a candidate set Ai ∋ yi across stages r and t, and define ¯Bi,s (S) = Bi,s (S) − Bi,s (∅), mkeep  
+
+> i,r →t
+
+=
+
+Bi,t (∅) + ¯Bi,r (M), and 
+
+∆contrib  
+
+> i,r →t
+
+:= ¯Bi,t (M) − ¯Bi,r (M). (7) Here mkeep  
+
+> i,r →t
+
+is the counterfactual margin obtained by retaining the reference contribution response while keeping the stage-t baseline response. The identity Bi,t (M) = mkeep  
+
+> i,r →t
+
++ ∆ contrib  
+
+> i,r →t
+
+therefore isolates the part of the margin change caused by contribution drift. 
+
+Proposition 1 (Contribution drift can cross the retention margin) . Let Ki = |A i| ≥ 2 and let γi,t 
+
+denote the target-class logit margin over its strongest competitor at stage t. Then 
+
+mkeep  
+
+> i,r →t
+
++ ∆ contrib  
+
+> i,r →t
+
+≤ γi,t ≤ mkeep  
+
+> i,r →t
+
++ ∆ contrib  
+
+> i,r →t
+
++ log( Ki − 1) . (8) 4If ∆contrib  
+
+> i,r →t
+
+> −mkeep 
+
+> i,r →t
+
+, class yi remains the strict prediction over Ai. If ∆contrib  
+
+> i,r →t
+
+≤ − mkeep  
+
+> i,r →t
+
+−
+
+log( Ki − 1) , the contribution shift is sufficient to remove that prediction. Conversely, whenever a contribution change turns a counterfactually retained prediction ( mkeep  
+
+> i,r →t
+
+> 0) into a forgotten one, it must satisfy ∆contrib  
+
+> i,r →t
+
+≤ − mkeep 
+
+> i,r →t
+
+.
+
+Proposition 1 demonstrates that contribution drift can remove an old prediction when the negative contribution shift is sufficiently large. It also shows that any contribution-drift-induced forgetting must overcome the retained margin. The proof is given in Appendix A.2 .2.2.3 EFFECT OF CROSS -MODAL REPRESENTATION STABILITY ON CONTRIBUTION DRIFT 
+
+The previous results show that replay and distillation do not necessarily preserve modality contri-bution structures. Recent MMCL methods have increasingly focused on stabilizing cross-modal representations and semantic similarity, for example by maintaining modality alignment or pre-serving cross-modal similarity structures. However, whether such representation-level stability also preserves decision-level modality contributions remains unclear. To examine this question, we build on iCaRL and incorporate the Dual-Audio-Visual Similarity Constraint (D-AVSC) from AV-CIL (Pian et al., 2023), denoted RepAlign below, and the Cross-modal Similarity Distillation Con-straint (CrossSDC) (Pian et al., 2024). For each incremental step, we evaluate the old and updated models on the same samples, measure representation drift with Centered Kernel Alignment (CKA), and compute MCD using the protocol above. All metrics are averaged over incremental steps on AVE and UESTC-MMEA-CL. The detailed experimental settings are provided in Appendix B.1 .
+
+Figure 4: Representation stability and residual MCD in MMCL. As shown in Figure 4, the results examine whether stabilizing cross-modal representations also sta-bilizes modality contribution structures. Figures 4 (a,b) show that RepAlign and CrossSDC reduce representation drift by about 59%–70% on AVE and 59%–67% on UESTC-MMEA-CL, whereas MCD decreases much less. Figure 4 (c) shows that these representation-alignment methods reduce average forgetting on both datasets, confirming that representation alignment alleviates forgetting. Figure 4 (d) further separates old classes by their residual MCD after representation alignment. Bars report group-level forgetting and points report class-level forgetting. Classes with low resid-ual MCD obtain clear forgetting reductions, whereas classes with high residual MCD remain much closer to iCaRL. These results show that representation-alignment methods reduce forgetting, but remain ineffective for classes with high contribution drift. 
+
+Why representation stability is insufficient. A multimodal model contains two distinct compo-nents: an intervention-dependent representation map that produces modality-subset features, and a decision map that converts these features into class margins. Representation stability constrains the former, whereas contribution stability concerns the decision-level behavior induced by modality subsets. Therefore, preserving features, feature similarities, or cross-modal alignment does not by itself guarantee that the downstream decision rule reacts to each modality subset in the same way across stages. The results above empirically illustrate this distinction using CKA and MCD. The following proposition formalizes the underlying structural separation. 
+
+Proposition 2 (Representation stability is insufficient for contribution stability) . For a sample i with old-class target a and stages τ (a) ≤ r < t , fix A = Aa. Let ui,s (S) denote the modality-subset representation at stage s in a common normed space, and let ga, A 
+
+> s
+
+be the corresponding target-vs-rest margin map, so that Ba, A 
+
+> i,s
+
+(S) = ga, A 
+
+> s
+
+(ui,s (S)) . Define 
+
+∆h(S) = ∥ui,t (S) − ui,r (S)∥, ∆g (S) = ga, A 
+
+> t
+
+(ui,r (S)) − ga, A 
+
+> r
+
+(ui,r (S)) . (9) 5If ga, A 
+
+> t
+
+is Lg -Lipschitz with respect to this norm, then for any nonempty T ⊆ M ,
+
+Ca, A 
+
+> i,t
+
+(T ) − Ca, A 
+
+> i,r
+
+(T ) ≤ X
+
+> S⊆T
+
+(Lg ∆h(S) + ∆ g (S)) . (10) 
+
+Let ¯Ba, A 
+
+> i,s
+
+(S) = Ba, A 
+
+> i,s
+
+(S) − Ba, A 
+
+> i,s
+
+(∅). If every nonempty S ⊆ T satisfies | ¯Ba, A 
+
+> i,t
+
+(S) − ¯Ba, A 
+
+> i,r
+
+(S)| ≤ 
+
+ϵ ¯B , then |Ca, A 
+
+> i,t
+
+(T ) − Ca, A 
+
+> i,r
+
+(T )| ≤ (2 |T | − 1) ϵ ¯B . Moreover, there exist stage-invariant modality-subset representations and two decision maps such that ∆h(S) = 0 for every S, while Ca, A 
+
+> i,t
+
+(T )̸ =
+
+Ca, A 
+
+> i,r
+
+(T ) for some nonempty T .
+
+Proposition 2 demonstrates that representation stability alone does not guarantee contribution stabil-ity. Specifically, Eq. 10 bounds contribution drift by a representation term Lg ∆h(S) and a decision-map term ∆g (S). Representation regularization constrains only the former, so contributions can still change when the decision map shifts. The detailed proof is provided in Appendix A.4 .
+
+## 3 METHOD 
+
+The preceding analysis shows that mitigating modality contribution drift requires directly constrain-ing old-task contribution profiles. We therefore propose Continual Modality Contribution Drift Reg-ularization (CMCDR), which compares the current model with a frozen previous model under the same modality-subset interventions. CMCDR supports two settings: with exemplars, it matches contribution profiles on replayed old samples. Without exemplars, it uses current-task samples as probes and distills the old-class contribution responses of the frozen model. 3.1 CONTRIBUTION -P ROFILE COMPUTATION 
+
+At incremental step t, let Fθt be the current model, Fθt−1 the frozen previous model, and Y<t 
+
+the old-class set. For any sample xi, stage s ∈ { t − 1, t }, and old-class output index k ∈ Y <t ,CMCDR evaluates Fθs under Eq. 1 and instantiates Eqs. 2–3 with (a, A) = ( k, Y<t ). This yields the contribution profile Cki,s over all nonempty modality coalitions. Restricting the candidate set to Y<t 
+
+isolates the old-task decision structure from newly introduced classes. For replayed old samples, 
+
+k = yi. In the replay-free case, k selects an old-class output whose interventional responses are preserved and is not a pseudo-label for the current probe. CMCDR compares current and frozen profiles with 
+
+dcp (C, C−) = ρ  C, sg( C−) + β ρ 
+
+ C
+
+∥C∥1 + ϵ , sg 
+
+ C−
+
+∥C−∥1 + ϵ
+
+ 
+
+, (11) where ρ(·, ·) is the mean Smooth-L1 loss, sg( ·) stops gradients through the frozen model, ϵ > 0,and β > 0 balances absolute and relative profile matching. The first term matches the raw contribu-tion vectors, while the second matches their normalized versions to preserve relative modality and interaction patterns. 3.2 REPLAY -B ASED CONTRIBUTION CONSTRAINT 
+
+When old exemplars are available, CMCDR applies the shared computation to replayed samples 
+
+Xold ⊆ E <t . For each (xi, y i) ∈ X old , the profile index is set to the ground-truth old label k = yi.The frozen previous model provides Cyi
+
+> i,t −1
+
+, and the current model produces Cyi
+
+> i,t
+
+. The replay-based objective is 
+
+Lrep cmcdr = 1
+
+|X old |
+
+X
+
+> (xi,y i)∈X old
+
+dcp 
+
+ Cyi
+
+> i,t
+
+, Cyi
+
+> i,t −1
+
+ . (12) Thus, replay-based CMCDR directly constrains old-sample contribution drift at both the modality-specific and interaction levels. 63.3 REPLAY -F REE CONTRIBUTION CONSTRAINT 
+
+In the replay-free setting, no old-class samples are available. CMCDR therefore uses current-task samples Xnew as intervention probes and preserves the old-class response structure of the frozen previous model. For each probe xi ∈ X new and old-class logit index k ∈ Y <t , we apply the shared profile computation above. Since xi is not an old-class sample, k is not a pseudo-label. It only specifies the old-class logit whose interventional behavior is preserved. For each probe sample, the frozen previous model pro-duces the target profiles {Cki,t −1}k∈Y <t , and the current model produces the corresponding profiles 
+
+{Cki,t }k∈Y <t . Matching all old logits equally can introduce noise, as many old logits may have weak teacher responses to a given probe. We therefore weight each old logit by the teacher’s full-modality probability over the old-class output space: 
+
+qi,k = exp ( zi,k,t −1(M)/T )
+
+P 
+
+> j∈Y <t
+
+exp ( zi,j,t −1(M)/T ) , (13) where T is the temperature. The weight qi,k is computed from the frozen previous model and fixed during optimization. The replay-free objective is 
+
+Lfree cmcdr = 1
+
+|X new |
+
+X
+
+> xi∈X new
+
+X
+
+> k∈Y <t
+
+qi,k dcp 
+
+ Cki,t , Cki,t −1
+
+ . (14) This objective uses current samples to probe the old output space and distills the frozen previous model’s subset-wise contribution responses into the current model. 
+
+Theoretical analysis. Appendix A.5 proves that replay-based CMCDR controls contribution drift (Lemma 3) and extends the analysis to the replay-free setting (Proposition 6). Since Proposition 1 shows that a sufficiently negative contribution shift can exhaust the retained margin and cause for-getting, limiting such shifts mitigates contribution-drift-induced forgetting. 
+
+## 4 EXPERIMENTS 
+
+We empirically evaluate CMCDR on representative MMCL benchmarks and baselines. We first describe the experimental setup, and then address the following questions: • Q1 . Does CMCDR improve the performance of existing MMCL methods? • Q2 . Can CMCDR provide gains beyond MMCL methods that preserve cross-modal repre-sentations? • Q3 . Does CMCDR reduce modality contribution drift and alleviate forgetting? 4.1 EXPERIMENTAL SETUP 
+
+Benchmarks. We evaluate CMCDR under two representative MMCL protocols: class-incremental recognition and continual multimodal question answering. For class-incremental learning, we use AVE (Tian et al., 2018), Kinetics-Sounds (Arandjelovic & Zisserman, 2017), and UESTC-MMEA-CL (Xu et al., 2024). For continual QA, we evaluate on VQAv2 (Goyal et al., 2017) under the VQACL protocol (Zhang et al., 2023) and on Split-AVQA and Split-MUSIC-AVQA under the AVQACL protocol (Wu et al., 2025). For VQACL and AVQACL, we instantiate CMCDR by con-structing contribution profiles from answer scores, with implementation details provided in Ap-pendix B.4. 
+
+Baselines. We compare CMCDR with representative MMCL methods spanning classical contin-ual learning, audio-visual continual learning, continual visual question answering, and audio-visual question answering continual learning (Li & Hoiem, 2018; Kirkpatrick et al., 2017; Rebuffi et al., 2017; Pian et al., 2023; Mo et al., 2023; Yue et al., 2024; Zhang et al., 2023; Qian et al., 2023; Wu et al., 2025). CMCDR is applied as a plug-and-play contribution-preservation regularizer. For 7exemplar-based methods, we use the replay objective on stored samples. For replay-free methods, we use the frozen previous model and its previous-task outputs without storing data. All baselines retain their original architectures, losses, and evaluation protocols. Details are provided in Ap-pendix B.3. Appendix D further positions CMCDR with respect to multimodal continual learning and balanced multimodal learning, and specifies a controlled comparison with modality-balancing regularization. 4.2 RESULTS 
+
+Table 1: Plug-and-play results on multimodal class-incremental learning. Each dataset reports mem-ory size (#Mem), average accuracy (Avg. Acc., %), and average forgetting (Avg. Forget., %). Paren-theses report changes after adding CMCDR.                                                                                                                              
+
+> Method AVE Kinetics-Sounds UESTC-MMEA-CL #Mem Avg. Acc. ↑Avg. Forget. ↓#Mem Avg. Acc. ↑Avg. Forget. ↓#Mem Avg. Acc. ↑Avg. Forget. ↓
+> LwF None 56.61 35.11 None 65.54 16.55 None 17.10 49.40
+> LwF + CMCDR None 60.61 (+4.00) 26.35 (-8.76) None 69.12 (+3.58) 12.64 (-3.91) None 22.80 (+5.70) 38.70 (-10.70)
+> EWC None 41.28 68.97 None 58.42 31.84 None 19.60 29.90
+> EWC + CMCDR None 47.36 (+6.08) 57.42 (-11.55) None 62.73 (+4.31) 24.96 (-6.88) None 24.80 (+5.20) 22.10 (-7.80)
+> iCaRL 340 64.20 25.60 500 65.54 40.57 320 71.80 22.90
+> iCaRL + CMCDR 340 71.90 (+7.70) 17.40 (-8.20) 500 70.86 (+5.32) 31.24 (-9.33) 320 75.20 (+3.40) 17.20 (-5.70)
+> AV-CIL 340 71.37 6.77 500 73.06 6.48 320 80.30 18.70
+> AV-CIL + CMCDR 340 77.26 (+5.89) 5.31 (-1.46) 500 76.84 (+3.78) 4.55 (-1.93) 320 83.70 (+3.40) 13.40 (-5.30)
+> CIGN 340 76.92 10.84 500 74.35 8.76 320 82.10 16.30
+> CIGN + CMCDR 340 79.85 (+2.93) 7.11 (-3.73) 500 77.48 (+3.13) 6.02 (-2.74) 320 85.20 (+3.10) 11.90 (-4.40)
+> MMAL None 70.28 19.64 None 71.46 13.72 None 75.60 24.80
+> MMAL + CMCDR None 74.63 (+4.35) 14.02 (-5.62) None 75.31 (+3.85) 9.86 (-3.86) None 79.40 (+3.80) 18.60 (-6.20)
+
+Plug-and-Play Effectiveness (Q1). We test whether CMCDR generalizes across backbones, replay regimes, and task formats by changing only the CMCDR term in each paired comparison. Tables 1 and 2 show consistent accuracy gains of 2.13–7.70 points and forgetting reductions of 0.85–11.55 points across replay-based and replay-free methods. The consistency of these paired gains supports CMCDR as a plug-and-play regularizer rather than a benchmark-specific modification. Table 2: Plug-and-play results on continual multimodal question answering. Each dataset reports a memory size (#Mem), average accuracy (Avg. Acc., %), and average forgetting (Avg. Forget., %). Parentheses report changes after adding CMCDR.                                                                                                                              
+
+> Method VQAv2 Split-AVQA Split-MUSIC-AVQA #Mem Avg. Acc. ↑Avg. Forget. ↓#Mem Avg. Acc. ↑Avg. Forget. ↓#Mem Avg. Acc. ↑Avg. Forget. ↓
+> LwF None 17.42 26.85 None 21.53 30.49 None 30.93 30.14
+> LwF + CMCDR None 20.31 (+2.89) 21.44 (-5.41) None 24.86 (+3.33) 24.11 (-6.38) None 34.27 (+3.34) 24.88 (-5.26)
+> EWC None 15.77 30.62 None 18.89 40.69 None 28.76 32.58
+> EWC + CMCDR None 18.94 (+3.17) 25.03 (-5.59) None 22.14 (+3.25) 33.27 (-7.42) None 32.05 (+3.29) 26.41 (-6.17)
+> iCaRL 5000 30.62 12.48 5000 25.28 33.76 700 28.46 33.16
+> iCaRL + CMCDR 5000 34.85 (+4.23) 8.62 (-3.86) 5000 28.74 (+3.46) 27.45 (-6.31) 700 31.92 (+3.46) 27.64 (-5.52)
+> VQACL 5000 38.77 3.96 5000 28.91 11.76 700 31.08 28.64
+> VQACL + CMCDR 5000 41.36 (+2.59) 2.71 (-1.25) 5000 32.47 (+3.56) 8.34 (-3.42) 700 34.52 (+3.44) 23.17 (-5.47)
+> DBI None 34.96 7.24 None 26.72 16.83 None 31.47 23.51
+> DBI + CMCDR None 38.21 (+3.25) 4.86 (-2.38) None 30.18 (+3.46) 12.06 (-4.77) None 35.06 (+3.59) 18.92 (-4.59)
+> AVQACL 5000 36.12 6.85 5000 32.05 2.47 700 33.64 27.08
+> AVQACL + CMCDR 5000 39.44 (+3.32) 4.31 (-2.54) 5000 34.18 (+2.13) 1.62 (-0.85) 700 37.02 (+3.38) 21.35 (-5.73)
+
+Complementarity with Representation Preservation. Our analysis in Sec. 2 shows that stable representations do not necessarily preserve the decision-level contributions of individual modalities and their interactions. We therefore test whether CMCDR addresses residual contribution drift after RepAlign or CrossSDC has already stabilized cross-modal representations. For LwF and iCaRL, we compare the backbone, CMCDR alone, representation preservation alone, and their joint variant under an identical training protocol. Complementarity is supported if the joint variant further reduces MCD and forgetting while improving accuracy over the corresponding representation-preserving method. 8Table 3: Complementarity with representation-preservation methods built on continual-learning baselines. We report average accuracy (Avg. Acc., %), average forgetting (Avg. Forget., %), and MCD on AVE and UESTC-MMEA-CL.                                                                                      
+
+> Method AVE UESTC-MMEA-CL Avg. Acc. ↑Avg. Forget. ↓MCD ↓Avg. Acc. ↑Avg. Forget. ↓MCD ↓
+> LwF 56.61 35.11 0.842 17.10 49.40 0.512
+> LwF + CMCDR 60.61 (+4.00) 26.35 (-8.76) 0.401 (-0.441) 22.80 (+5.70) 38.70 (-10.70) 0.298 (-0.214)
+> LwF + RepAlign 61.84 29.06 0.574 20.60 43.20 0.451
+> LwF + RepAlign + CMCDR 65.22 (+3.38) 23.41 (-5.65) 0.331 (-0.243) 24.90 (+4.30) 35.10 (-8.10) 0.286 (-0.165)
+> LwF + CrossSDC 60.73 30.18 0.641 21.30 41.80 0.437
+> LwF + CrossSDC + CMCDR 64.01 (+3.28) 24.72 (-5.46) 0.382 (-0.259) 25.60 (+4.30) 33.90 (-7.90) 0.274 (-0.163)
+> iCaRL 64.20 25.60 0.779 71.80 22.90 0.465
+> iCaRL + CMCDR 71.90 (+7.70) 17.40 (-8.20) 0.389 (-0.390) 75.20 (+3.40) 17.20 (-5.70) 0.289 (-0.176)
+> iCaRL + RepAlign 70.30 19.20 0.525 73.00 20.10 0.432
+> iCaRL + RepAlign + CMCDR 74.60 (+4.30) 15.30 (-3.90) 0.301 (-0.224) 76.80 (+3.80) 14.60 (-5.50) 0.241 (-0.191)
+> iCaRL + CrossSDC 67.80 22.50 0.699 73.30 19.20 0.418
+> iCaRL + CrossSDC + CMCDR 72.40 (+4.60) 17.10 (-5.40) 0.356 (-0.343) 77.10 (+3.80) 13.90 (-5.30) 0.228 (-0.190)
+
+Figure 5: Complementarity of representation and contribution preservation. Representation regu-larization reduces feature drift but leaves residual contribution mismatch, while adding CMCDR improves stage accuracy and better preserves the reference contribution profile. 
+
+Complementarity Results (Q2). Table 3 answers Q2. RepAlign and CrossSDC reduce forget-ting and MCD, but adding CMCDR yields a further 3.28–4.60 point accuracy gain, a 3.90–8.10 point forgetting reduction, and a 0.163–0.343 MCD reduction. These gains show that representation preservation and contribution preservation address distinct, complementary failure modes. 
+
+Class-wise Effect of CMCDR (Q3). Figure 6 contrasts classes with low and high baseline MCD. Classes with larger baseline MCD exhibit stronger drift reduction and accuracy preservation under CMCDR. 
+
+Figure 6: Class-wise effect of CMCDR. Classes with higher baseline MCD exhibit larger drift reductions and stronger accuracy preservation. 95 CONCLUSION 
+
+This work identifies modality contribution instability as a distinct failure mode in MMCL. MCD measures drift in contribution strength and relative reliance; our analysis shows that representa-tion stability is insufficient and gives a fixed-candidate certificate for contribution-induced reten-tion. CMCDR preserves old-task profiles in replay-based and replay-free settings, improving di-verse recognition and QA baselines while complementing RepAlign and CrossSDC. Diagnostics link lower MCD to stronger retention. These results establish contribution stability as a comple-mentary MMCL principle and motivate scalable coalition approximations for many modalities. 
+
+## REFERENCES 
+
+Relja Arandjelovic and Andrew Zisserman. Look, listen and learn. In Proceedings of the IEEE International Conference on Computer Vision , pp. 609–617, 2017. Honglie Chen, Weidi Xie, Andrea Vedaldi, and Andrew Zisserman. VGGSound: A large-scale audio-visual dataset. In ICASSP 2020 – 2020 IEEE International Conference on Acoustics, Speech and Signal Processing , pp. 721–725, 2020. doi: 10.1109/ICASSP40776.2020.9053174. Yunfeng Fan, Wenchao Xu, Haozhao Wang, Junxiao Wang, and Song Guo. PMR: Prototypical modal rebalance for multimodal learning. In Proceedings of the IEEE/CVF Conference on Com-puter Vision and Pattern Recognition , pp. 20029–20038, 2023. Yash Goyal, Tejas Khot, Douglas Summers-Stay, Dhruv Batra, and Devi Parikh. Making the V in VQA matter: Elevating the role of image understanding in visual question answering. In 
+
+Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition , pp. 6904– 6913, 2017. John C. Harsanyi. A simplified bargaining model for the n-person cooperative game. International Economic Review , 4(2):194–220, 1963. doi: 10.2307/2525487. Cong Hua, Qianqian Xu, Shilong Bao, Zhiyong Yang, and Qingming Huang. ReconBoost: Boosting can achieve modality reconcilement. In Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research , pp. 19573–19597. PMLR, 2024. URL https://proceedings.mlr.press/v235/hua24a.html .Linlan Huang, Xusheng Cao, Haori Lu, Yifan Meng, Fei Yang, and Xialei Liu. Mind the gap: Preserving and compensating for the modality gap in CLIP-based continual learning. In Proceed-ings of the IEEE/CVF International Conference on Computer Vision , pp. 3777–3786, 2025. doi: 10.1109/ICCV51701.2025.00360. James Kirkpatrick, Razvan Pascanu, Neil Rabinowitz, Joel Veness, Guillaume Desjardins, Andrei A. Rusu, Kieran Milan, John Quan, Tiago Ramalho, Agnieszka Grabska-Barwinska, Demis Hass-abis, Claudia Clopath, Dharshan Kumaran, and Raia Hadsell. Overcoming catastrophic forgetting in neural networks. Proceedings of the National Academy of Sciences , 114(13):3521–3526, 2017. doi: 10.1073/pnas.1611835114. Simon Kornblith, Mohammad Norouzi, Honglak Lee, and Geoffrey Hinton. Similarity of neural net-work representations revisited. In Proceedings of the 36th International Conference on Machine Learning , volume 97 of Proceedings of Machine Learning Research , pp. 3519–3529. PMLR, 2019. URL https://proceedings.mlr.press/v97/kornblith19a.html .Hong Li, Xingyu Li, Pengbo Hu, Yinuo Lei, Chunxiao Li, and Yi Zhou. Boosting multi-modal model performance with adaptive gradient modulation. In Proceedings of the IEEE/CVF Interna-tional Conference on Computer Vision , pp. 22214–22224, 2023. Zhizhong Li and Derek Hoiem. Learning without forgetting. IEEE Transactions on Pattern Analysis and Machine Intelligence , 40(12):2935–2947, 2018. doi: 10.1109/TPAMI.2017.2773081. Shentong Mo, Weiguo Pian, and Yapeng Tian. Class-incremental grouping network for continual audio-visual learning. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 7788–7798, 2023. 10 Malvina Nikandrou, Georgios Pantazopoulos, Ioannis Konstas, and Alessandro Suglia. Enhanc-ing continual learning in visual question answering with modality-aware feature distillation. In Proceedings of the 3rd Workshop on Advances in Language and Vision Research (ALVR) ,pp. 73–85, Bangkok, Thailand, August 2024. Association for Computational Linguistics. doi: 10.18653/v1/2024.alvr-1.6. URL https://aclanthology.org/2024.alvr-1.6/ .Xiaokang Peng, Yake Wei, Andong Deng, Dong Wang, and Di Hu. Balanced multimodal learning via on-the-fly gradient modulation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 8238–8247, 2022. Weiguo Pian, Shentong Mo, Yunhui Guo, and Yapeng Tian. Audio-visual class-incremental learn-ing. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 7799– 7811, 2023. Weiguo Pian, Yiyang Nan, Shijian Deng, Shentong Mo, Yunhui Guo, and Yapeng Tian. Continual audio-visual sound separation. In Advances in Neural Information Processing Systems , volume 37, pp. 76058–76079. Curran Associates, Inc., 2024. doi: 10.52202/ 079017-2421. URL https://proceedings.neurips.cc/paper_files/paper/ 2024/file/8af52d7acc4f0013661d4223d7e12b4c-Paper-Conference.pdf .Zi Qian, Xin Wang, Xuguang Duan, Pengda Qin, Yuhong Li, and Wenwu Zhu. Decouple before interact: Multi-modal prompt learning for continual visual question answering. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 2953–2962, 2023. Sylvestre-Alvise Rebuffi, Alexander Kolesnikov, Georg Sperl, and Christoph H. Lampert. iCaRL: Incremental classifier and representation learning. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition , pp. 2001–2010, 2017. Yapeng Tian, Jing Shi, Bochen Li, Zhiyao Duan, and Chenliang Xu. Audio-visual event localization in unconstrained videos. In Proceedings of the European Conference on Computer Vision , pp. 247–263, 2018. Jun Wang, Fuyuan Cao, Zhixin Xue, Xingwang Zhao, and Jiye Liang. CMoB: Modal-ity valuation via causal effect for balanced multimodal learning. In Advances in Neu-ral Information Processing Systems , volume 38, pp. 82585–82607. Curran Associates, Inc., 2025. URL https://proceedings.neurips.cc/paper_files/paper/2025/ file/76a0f4215050c7d4e88c03cb8a11fee6-Paper-Conference.pdf .Yake Wei and Di Hu. MMPareto: Boosting multimodal learning with innocent unimodal as-sistance. In Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research , pp. 52559–52572. PMLR, 2024. URL 
+
+https://proceedings.mlr.press/v235/wei24d.html .Yake Wei, Ruoxuan Feng, Zihe Wang, and Di Hu. Enhancing multimodal cooperation via sample-level modality valuation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 27338–27347, 2024. URL https://openaccess.thecvf.com/ content/CVPR2024/html/Wei_Enhancing_Multimodal_Cooperation_via_ Sample-level_Modality_Valuation_CVPR_2024_paper.html .Kaixuan Wu, Xinde Li, Xinling Li, Chuanfei Hu, and Guoliang Wu. AVQACL: A novel bench-mark for audio-visual question answering continual learning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 3252–3261, 2025. Linfeng Xu, Qingbo Wu, Lili Pan, Fanman Meng, Hongliang Li, Chiyuan He, Hanxin Wang, Shaoxu Cheng, and Yu Dai. Towards continual egocentric activity recognition: A multi-modal egocentric activity dataset for continual learning. IEEE Transactions on Multimedia , 26:2430–2443, 2024. doi: 10.1109/TMM.2023.3295899. Xianghu Yue, Xueyi Zhang, Yiming Chen, Chengwei Zhang, Mingrui Lao, Huiping Zhuang, Xinyuan Qian, and Haizhou Li. MMAL: Multi-modal analytic learning for exemplar-free audio-visual class incremental tasks. In Proceedings of the 32nd ACM International Conference on Multimedia , pp. 2428–2437. ACM, 2024. doi: 10.1145/3664647.3681607. 11 Xi Zhang, Feifei Zhang, and Changsheng Xu. VQACL: A novel visual question answering continual learning setting. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 19102–19112, 2023. 12 APPENDIX : T ABLE OF CONTENTS 
+
+A Theoretical Analysis and Proofs . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 13 A.1 Interventional Contribution Estimator . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 13 A.2 Contribution Drift and Forgetting . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 14 A.3 Fixed-Reference Drift and Later-Class Competition . . . . . . . . . . . . . . . . . . . 15 A.4 Why Representation Stability Is Insufficient . . . . . . . . . . . . . . . . . . . . . . . . 15 A.5 Theoretical Guarantees for CMCDR . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17 
+
+B Experimental Settings and Implementation Details . . . . . . . . . . . . . . . . . . . . . . . 19 B.1 Experimental Settings for Exploratory Analyses . . . . . . . . . . . . . . . . . . . . . 19 B.2 Modality-Removal Realizations . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20 B.3 Main Training and Evaluation Setup . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 B.4 CMCDR for Continual Multimodal Question Answering . . . . . . . . . . . . . . . 23 
+
+C Additional Experiments . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23 C.1 Computational Efficiency and Scalability . . . . . . . . . . . . . . . . . . . . . . . . . . 23 C.2 Ablation Studies . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24 
+
+D Relationship to Existing Methods . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 26 D Multimodal Continual Learning . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 D Balanced Multimodal Learning . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 D Controlled Comparison with Modality-Balancing Methods . . . . . . . . . . . . . 27 
+
+## A THEORETICAL ANALYSIS AND PROOFS 
+
+A.1 INTERVENTIONAL CONTRIBUTION ESTIMATOR 
+
+This appendix analyzes why Eq. 2 is a suitable outcome valuation for model-interventional con-tribution estimation. For a fixed sample, we regard the no-modality intervention ∅ as the control condition and a retained modality subset S as the treatment condition. The contribution estimator therefore needs a scalar outcome whose contrast Ba, A 
+
+> i
+
+(S) − Ba, A 
+
+> i
+
+(∅) measures the decision-level effect of introducing S. This outcome should measure the target class relative to competing classes, be invariant to common logit shifts, and remain on an additive margin scale so that subset effects can be decomposed into singleton and interaction terms. The benefit function in Eq. 2 satisfies these requirements. For logits restricted to A, define 
+
+pA
+
+> i,a
+
+(S) = exp( zi,a (S)) 
+
+P 
+
+> ℓ∈A
+
+exp( zi,ℓ (S)) . (15) Here zi,a (S) is the logit of class a, and zi,ℓ (S) denotes the logit of a candidate class ℓ ∈ A . Then 
+
+Ba, A 
+
+> i
+
+(S) = zi,a (S) − log X
+
+> ℓ∈A , ℓ ̸=a
+
+exp( zi,ℓ (S)) = log exp( zi,a (S)) 
+
+P 
+
+> ℓ∈A , ℓ ̸=a
+
+exp( zi,ℓ (S)) = log pA
+
+> i,a
+
+(S)1 − pA
+
+> i,a
+
+(S) .
+
+(16) Thus Ba, A 
+
+> i
+
+(S) is the one-vs-rest log-odds of target class a under the intervention that retains S.Consequently, its difference from the no-modality intervention is 
+
+Ba, A 
+
+> i
+
+(S) − Ba, A 
+
+> i
+
+(∅) = log pA
+
+> i,a
+
+(S)/ 1 − pA
+
+> i,a
+
+(S)
+
+pA
+
+> i,a
+
+(∅)/ 1 − pA
+
+> i,a
+
+(∅) . (17) This is the log-odds ratio induced by retaining S relative to the no-modality baseline, and therefore gives the total decision-level effect of that subset. It is unchanged if all logits in A are shifted by the 13 same constant, and it avoids the saturation of probabilities by working in log-odds space. Moreover, if 
+
+γa, A 
+
+> i
+
+(S) = zi,a (S) − max  
+
+> ℓ∈A , ℓ ̸=a
+
+zi,ℓ (S), (18) then 
+
+γa, A 
+
+> i
+
+(S) − log( |A| − 1) ≤ Ba, A 
+
+> i
+
+(S) ≤ γa, A 
+
+> i
+
+(S). (19) Therefore the benefit is a smooth multiclass margin that accounts for all competitors in A rather than only the largest competing logit. This is why we use the log-sum-exp target-vs-rest margin instead of the raw target logit or the target probability. We next make the model intervention explicit. For a fixed sample i, let Ii(S) denote the deter-ministic controlled evaluation that retains modalities in S using the removal realization specified in Appendix B.2. Under fixed parameters θ, its logit response is 
+
+zi(S) = Fθ
+
+ xS
+
+> i
+
+ . (20) Hence each Ba, A 
+
+> i
+
+(S) is directly evaluated by one controlled forward pass. This is an intervention on the model computation, not an identification claim about the data-generating causal process. Finally, we decompose this evaluated set function into coalition effects. A singleton effect should measure the change from the no-modality response, while a higher-order effect should retain only the residual effect that cannot be explained by its lower-order subsets. This is exactly the M¨ obius coefficient on the subset lattice: 
+
+Ca, A 
+
+> i
+
+(T ) = X
+
+> S⊆T
+
+(−1) |T |−|S| Ba, A 
+
+> i
+
+(S). (21) For example, in the two-modality case, 
+
+Ca, A 
+
+> i
+
+({m, n }) = Ba, A 
+
+> i
+
+({m, n }) − Ba, A 
+
+> i
+
+({m}) − Ba, A 
+
+> i
+
+({n}) + Ba, A 
+
+> i
+
+(∅), (22) which isolates the interaction beyond the two singleton effects. By M¨ obius inversion, 
+
+Ba, A 
+
+> i
+
+(S) = X
+
+> T ⊆S
+
+Ca, A 
+
+> i
+
+(T ), Ca, A 
+
+> i
+
+(∅) = Ba, A 
+
+> i
+
+(∅). (23) Taking S = M and removing the baseline term gives 
+
+X
+
+> ∅̸ =T ⊆M
+
+Ca, A 
+
+> i
+
+(T ) = Ba, A 
+
+> i
+
+(M) − Ba, A 
+
+> i
+
+(∅), (24) which proves that the estimated singleton and interaction contributions exactly explain the full-input benefit over the no-modality response. A.2 CONTRIBUTION DRIFT AND FORGETTING 
+
+Proposition 1. Contribution drift can cross the retention margin. For an old sample i, let 
+
+τ (yi) ≤ r < t , fix a candidate set Ai ∋ yi across stages r and t, and define ¯Bi,s (S) = 
+
+Bi,s (S) − Bi,s (∅), mkeep  
+
+> i,r →t
+
+= Bi,t (∅) + ¯Bi,r (M), and ∆contrib  
+
+> i,r →t
+
+= ¯Bi,t (M) − ¯Bi,r (M). Let 
+
+Ki = |A i| ≥ 2 and let γi,t denote the target-class logit margin over its strongest competitor at stage t. Then 
+
+mkeep  
+
+> i,r →t
+
++ ∆ contrib  
+
+> i,r →t
+
+≤ γi,t ≤ mkeep  
+
+> i,r →t
+
++ ∆ contrib  
+
+> i,r →t
+
++ log( Ki − 1) .
+
+If ∆contrib  
+
+> i,r →t
+
+> −mkeep 
+
+> i,r →t
+
+, class yi remains the strict prediction over Ai. If ∆contrib  
+
+> i,r →t
+
+≤ − mkeep  
+
+> i,r →t
+
+−
+
+log( Ki − 1) , the contribution shift is sufficient to remove that prediction. Conversely, whenever a contribution change turns a counterfactually retained prediction ( mkeep  
+
+> i,r →t
+
+> 0) into a forgotten one, it must satisfy ∆contrib  
+
+> i,r →t
+
+≤ − mkeep 
+
+> i,r →t
+
+.
+
+14 Proof. Fix the sample, stages, and candidate set in the proposition. For s ∈ { r, t }, suppress the fixed superscript (yi, Ai) and define 
+
+¯Bi,s (S) = Bi,s (S) − Bi,s (∅). (25) By the definitions of mkeep  
+
+> i,r →t
+
+and ∆contrib  
+
+> i,r →t
+
+,
+
+Bi,t (M) = mkeep  
+
+> i,r →t
+
++ ∆ contrib  
+
+> i,r →t
+
+. (26) Let Ki = |A i| and define the target-class logit margin γi,t = zi,y i,t (M) − max ℓ∈A i,ℓ ̸=yi zi,ℓ,t (M).Equation 19 gives 
+
+Bi,t (M) ≤ γi,t ≤ Bi,t (M) + log( Ki − 1) . (27) Substituting Eq. 26 into Eq. 27 proves Eq. 8. If ∆contrib  
+
+> i,r →t
+
+> −mkeep 
+
+> i,r →t
+
+, then Bi,t (M) > 0 and hence γi,t > 0, so the target remains the strict prediction. If ∆contrib  
+
+> i,r →t
+
+≤ − mkeep  
+
+> i,r →t
+
+− log( Ki − 1) , then γi,t ≤ 0, so the target is no longer the strict prediction. Finally, if the counterfactual retains the target but the updated model forgets it, then mkeep  
+
+> i,r →t
+
+> 0 and γi,t ≤ 0. The lower bound in Eq. 27 implies mkeep  
+
+> i,r →t
+
++ ∆ contrib  
+
+> i,r →t
+
+≤ 0, or 
+
+∆contrib  
+
+> i,r →t
+
+≤ − mkeep 
+
+> i,r →t
+
+, completing the proof. A.3 FIXED -R EFERENCE DRIFT AND LATER -C LASS COMPETITION 
+
+MCD is intentionally a mechanism-specific diagnostic rather than an exhaustive measure of class-incremental forgetting. For an old target a, let A be its reference candidate set and Nt = Y≤t \ A 
+
+the later classes. Write ZA,t (S) = P 
+
+> ℓ∈A\{ a}
+
+exp zi,ℓ,t (S) and define ZN ,t analogously. For the centered benefit ¯B(S) = B(S) − B(∅),
+
+¯Ba, A∪N t 
+
+> i,t
+
+(S) = ¯Ba, A 
+
+> i,t
+
+(S) − [qi,t (S) − qi,t (∅)] , qi,t (S) = log 
+
+
+
+1 + ZN ,t (S)
+
+ZA,t (S)
+
+
+
+. (28) Thus adding later classes changes the coalition values whenever their relative logit mass depends on the retained modalities. A dynamic candidate set would therefore mix drift of the established target-versus-reference mechanism with output-space expansion; the latter can change even when every logit in A is unchanged, weakening the diagnostic interpretation. Accordingly, diagnostic MCD fixes Ay = Y≤τ (y). At each CMCDR step, the current and frozen models likewise share the same old-class set Y<t , while the base continual-learning objective trains the expanded classifier. Later-class learning can still affect MCD indirectly by changing the target and reference-competitor logits, whereas standard full-space accuracy and forgetting also include direct later-class competition. The certificate in Proposition 1 consequently applies to contribution-induced retention within a fixed candidate set and does not claim to characterize all sources of class-incremental forgetting. A.4 WHY REPRESENTATION STABILITY IS INSUFFICIENT 
+
+Proposition 2. Representation stability is insufficient for contribution stability. For a sample i
+
+with old-class target a and stages τ (a) ≤ r < t , fix A = Aa. Let ui,s (S) denote the modality-subset representation at stage s in a common normed space, and let ga, A 
+
+> s
+
+be the corresponding target-vs-rest margin map, so that Ba, A 
+
+> i,s
+
+(S) = ga, A 
+
+> s
+
+(ui,s (S)) . Define 
+
+∆h(S) = ∥ui,t (S) − ui,r (S)∥,
+
+∆g (S) = ga, A 
+
+> t
+
+(ui,r (S)) − ga, A 
+
+> r
+
+(ui,r (S)) .
+
+If ga, A 
+
+> t
+
+is Lg -Lipschitz with respect to this norm, then for any nonempty T ⊆ M ,
+
+Ca, A 
+
+> i,t
+
+(T ) − Ca, A 
+
+> i,r
+
+(T ) ≤ X
+
+> S⊆T
+
+(Lg ∆h(S) + ∆ g (S)) .
+
+15 Let ¯Ba, A 
+
+> i,s
+
+(S) = Ba, A 
+
+> i,s
+
+(S) − Ba, A 
+
+> i,s
+
+(∅). If every nonempty S ⊆ T satisfies | ¯Ba, A 
+
+> i,t
+
+(S) −
+
+¯Ba, A 
+
+> i,r
+
+(S)| ≤ ϵ ¯B , then |Ca, A 
+
+> i,t
+
+(T ) − Ca, A 
+
+> i,r
+
+(T )| ≤ (2 |T | − 1) ϵ ¯B . Moreover, there exist stage-invariant modality-subset representations and two decision maps such that ∆h(S) = 0 for every S, while Ca, A 
+
+> i,t
+
+(T )̸ = Ca, A 
+
+> i,r
+
+(T ) for some nonempty T .
+
+Proof. Fix the quantities in Proposition 2. For any S ⊆ T , the Lipschitz condition gives 
+
+Ba, A 
+
+> i,t
+
+(S) − Ba, A 
+
+> i,r
+
+(S) = ga, A 
+
+> t
+
+(ui,t (S)) − ga, A 
+
+> r
+
+(ui,r (S)) 
+
+≤ ga, A 
+
+> t
+
+(ui,t (S)) − ga, A 
+
+> t
+
+(ui,r (S)) + ga, A 
+
+> t
+
+(ui,r (S)) − ga, A 
+
+> r
+
+(ui,r (S)) 
+
+≤ Lg ∆h(S) + ∆ g (S).
+
+(29) Applying Eq. 3 and the triangle inequality, 
+
+Ca, A 
+
+> i,t
+
+(T ) − Ca, A 
+
+> i,r
+
+(T ) ≤ X
+
+> S⊆T
+
+Ba, A 
+
+> i,t
+
+(S) − Ba, A 
+
+> i,r
+
+(S)
+
+≤ X
+
+> S⊆T
+
+(Lg ∆h(S) + ∆ g (S)) ,
+
+(30) which proves Eq. 10. We next prove the centered-response sufficient condition. For any nonempty coalition T , Eq. 3 gives 
+
+Ca, A 
+
+> i,s
+
+(T ) = X
+
+> S⊆T
+
+(−1) |T |−|S| Ba, A 
+
+> i,s
+
+(S) = X
+
+> S⊆T
+
+(−1) |T |−|S| ¯Ba, A 
+
+> i,s
+
+(S), (31) because P 
+
+> S⊆T
+
+(−1) |T |−|S| = (1 − 1) |T | = 0 . Under the centered-response condition in Proposi-tion 2, 
+
+¯Ba, A 
+
+> i,t
+
+(S) − ¯Ba, A 
+
+> i,r
+
+(S) ≤ ϵ ¯B ∀ ∅̸ = S ⊆ T . (32) Eq. 31 and the triangle inequality give 
+
+Ca, A 
+
+> i,t
+
+(T ) − Ca, A 
+
+> i,r
+
+(T ) ≤ X
+
+> ∅̸ =S⊆T
+
+¯Ba, A 
+
+> i,t
+
+(S) − ¯Ba, A 
+
+> i,r
+
+(S)
+
+≤ (2 |T | − 1) ϵ ¯B ,
+
+(33) which proves Eq. 33. It remains to prove the separation from representation stability. Consider two modalities and a binary linear classifier with |A| = 2 , for which the target-vs-rest margin is linear in the representation. Suppress the fixed superscript (a, A) and let 
+
+Bi,s (S) = ( ws)⊤ui(S), (34) with exact representation preservation across stages: ui,t (S) = ui,r (S) = ui(S) for every S. Set 
+
+ui(∅) = 0 , ui({1}) = (1 , 0) ⊤, ui({2}) = (0 , 1) ⊤, and ui({1, 2}) = (1 , 1) ⊤. Choose wr = (0 , 0) ⊤
+
+and wt = (1 , −1) ⊤. Then 
+
+¯Bi,r ({1}) = ¯Bi,r ({2}) = ¯Bi,r ({1, 2}) = 0 , (35) but ¯Bi,t ({1}) = 1 , ¯Bi,t ({2}) = −1, ¯Bi,t ({1, 2}) = 0 . (36) Thus the representations and the full-modality centered response are unchanged, yet the singleton contributions change: Ci,t ({1}) = 1 and Ci,t ({2}) = −1, while Ci,r ({1}) = Ci,r ({2}) = 0 .Hence contribution stability is not a consequence of representation stability. Stable centered subset responses or constraints on the decision rule provide sufficient mechanisms for controlling contri-bution drift. 16 A.5 THEORETICAL GUARANTEES FOR CMCDR Proposition 2 motivates direct contribution control because representation constraints leave decision-map drift unconstrained. We first prove that the CMCDR loss bounds contribution drift on the pro-files used by either objective. For replay, combining this bound with Proposition 1 yields a retention certificate for each replayed old sample that satisfies the bound. For replay-free learning, control on current probes transfers to the old-data distribution only under an explicit coverage condition. Proposition 1 then yields a forgetting bound. Fix a sample i, old-class output index a, reference stage r, and current stage t > r . Let A ∋ a, |A| ≥ 2, be fixed for the two compared models, and use the same ordering of nonempty modality coalitions at both stages. This condition covers each current–frozen comparison in Sec. 3, where r = t − 1 and A = Y<t is held fixed within the comparison. The same condition covers the diagnostic choice A = Aa.MCD in Eq. 6 is a task-balanced diagnostic over a reference probe bank that is not fully available during continual training. CMCDR therefore does not reconstruct or directly optimize that diagnos-tic. We instead analyze the per-profile MCD surrogate induced by the replay samples or current-task probes accessible to the corresponding objective. Let D = 2 |M| − 1 and define 
+
+cs =
+
+h
+
+Ca, A 
+
+> i,s
+
+(T )
+
+i
+
+> ∅̸ =T ⊆M
+
+, ss = ∥cs∥1,
+
+bcs = cs
+
+ss + ϵ , s ∈ { r, t },
+
+(37) where ϵ > 0. The profile-level counterparts of the drift terms in Eq. 6 are 
+
+dabs  
+
+> i,r →t
+
+= ∥ct − cr ∥1,drel  
+
+> i,r →t
+
+= ∥bct − bcr ∥1,dMCD  
+
+> i,r →t
+
+= |st − sr | + (min( st, s r ) + ϵ)drel 
+
+> i,r →t
+
+.
+
+(38) For completeness, write the mean Smooth-L1 loss in Eq. 11 as 
+
+ρδ (u, v) = 1
+
+D
+
+> D
+
+X
+
+> j=1
+
+hδ (uj − vj ), hδ (x) = 
+
+
+
+x2
+
+2δ , |x| ≤ δ, 
+
+|x| − δ
+
+2 , |x| > δ, 
+
+(39) with transition δ > 0. The per-profile CMCDR discrepancy is 
+
+ℓi,r →t = ρδ (ct, cr ) + βρ δ (bct, bcr ), β > 0. (40) The stop-gradient operator in Eq. 11 affects optimization but not the numerical value of this discrep-ancy. 
+
+Lemma 3 (CMCDR controls the per-profile MCD surrogate) . Let Ri,r →t = min( st, s r ) + ϵ and define Ψδ (u) = √2δu + u for u ≥ 0. Then 
+
+dMCD  
+
+> i,r →t
+
+≤ D
+
+
+
+Ψδ (ℓi,r →t) + Ri,r →tΨδ
+
+ ℓi,r →t
+
+β
+
+ 
+
+. (41) 
+
+In particular, ℓi,r →t = 0 implies dMCD  
+
+> i,r →t
+
+= 0 .Moreover, let π be any probability weighting over a finite collection of profile comparisons, assume 
+
+Ri,r →t ≤ Rmax , and write ¯ℓ = Eπ [ℓi,r →t]. Then 
+
+Eπ [dMCD 
+
+> i,r →t
+
+] ≤ D
+
+
+
+Ψδ (¯ℓ) + Rmax Ψδ
+
+ ¯ℓβ
+
+ 
+
+. (42) 
+
+Proof. For every scalar x, Eq. 39 gives 
+
+|x| ≤ p2δh δ (x) + hδ (x). (43) 17 For |x| ≤ δ, the square-root term equals |x|. For |x| > δ , the claim follows from hδ (x) = |x| − 
+
+δ/ 2 ≥ δ/ 2. Summing Eq. 43 over coordinates and applying Cauchy–Schwarz yields 
+
+∥u − v∥1 ≤ DΨδ (ρδ (u, v)) . (44) Since the two nonnegative terms in Eq. 40 satisfy 
+
+ρδ (ct, cr ) ≤ ℓi,r →t, ρδ (bct, bcr ) ≤ ℓi,r →t
+
+β , (45) Eq. 44 gives 
+
+dabs  
+
+> i,r →t
+
+≤ DΨδ (ℓi,r →t), drel  
+
+> i,r →t
+
+≤ DΨδ
+
+ ℓi,r →t
+
+β
+
+
+
+. (46) The reverse triangle inequality implies |st − sr | ≤ dabs 
+
+> i,r →t
+
+. Substitution into Eq. 38 proves Eq. 41. Finally, Ψδ is nondecreasing and concave on [0 , ∞). Taking the π-weighted expectation, using 
+
+Ri,r →t ≤ Rmax , and applying Jensen’s inequality proves Eq. 42. Lemma 3 gives the profile-level guarantee shared by both variants. It establishes the method-to-drift link because a small CMCDR discrepancy guarantees a small MCD surrogate on the matched profile. Proposition 2 shows why this direct control is needed. It constrains profile changes regardless of whether they originate in the representation map or the decision map. 
+
+From contribution drift to forgetting. Proposition 1 is stated in terms of the aggregate contri-bution shift ∆contrib , whereas Lemma 3 bounds dMCD . The next lemma connects these quantities. The replay-based and replay-free consequences then follow by applying Proposition 1. 
+
+Lemma 4 (Per-profile MCD controls the aggregate response shift) . Under the fixed candidate set above, 
+
+∆contrib  
+
+> i,r →t
+
+:= ¯Ba, A 
+
+> i,t
+
+(M) − ¯Ba, A 
+
+> i,r
+
+(M) = 1⊤(ct − cr ), (47) 
+
+and 
+
+|∆contrib  
+
+> i,r →t
+
+| ≤ dabs  
+
+> i,r →t
+
+≤ dMCD 
+
+> i,r →t
+
+. (48) 
+
+Proof. Equation 47 follows by applying Eq. 4 at stages r and t and subtracting. The first inequality in Eq. 48 is the triangle inequality. For the second, suppose without loss of generality that st ≥ sr .Since cs = ( ss + ϵ)bcs,
+
+ct − cr = ( st − sr )bct + ( sr + ϵ)( bct − bcr ). (49) Because ∥bct∥1 = st/(st + ϵ) ≤ 1, taking the L1 norm proves dabs  
+
+> i,r →t
+
+≤ dMCD 
+
+> i,r →t
+
+. The case sr > s t is symmetric. 
+
+Replay-based retention. Let π be the uniform empirical weighting over sampled old profiles. Under the bounded-R condition in Lemma 3, ¯ℓ = Lrep cmcdr , so Eq. 42 controls their average per-profile MCD. For an individual replayed old sample, set a = yi. The profile index is then the true old label, so Proposition 1 applies to the same sample and candidate set. 
+
+Corollary 5 (CMCDR retention certificate) . Adopt the retained-margin construction of Proposi-tion 1 under the same fixed candidate set, and suppose mkeep  
+
+> i,r →t
+
+> 0. If 
+
+dMCD  
+
+> i,r →t
+
+< m keep 
+
+> i,r →t
+
+, (50) 
+
+then class a remains the strict prediction over A at stage t. A sufficient loss-level condition is 
+
+D
+
+
+
+Ψδ (ℓi,r →t) + Ri,r →tΨδ
+
+ ℓi,r →t
+
+β
+
+ 
+
+< m keep 
+
+> i,r →t
+
+. (51) 
+
+Proof. Lemma 4 implies ∆contrib  
+
+> i,r →t
+
+≥ − dMCD  
+
+> i,r →t
+
+> −mkeep 
+
+> i,r →t
+
+. The retention condition in Proposition 1 therefore applies. Equation 51 follows from Lemma 3. The corollary is a one-sided certificate: small per-profile MCD prevents the contribution-induced response shift from exhausting a positive retained margin, whereas large drift does not by itself imply forgetting. It also does not attribute forgetting caused by changes outside the centered contribution response to CMCDR. The replay weighting π in Eq. 42 is the empirical distribution of the sampled old profiles, not the complete old-data distribution. 18 Replay-free transfer condition. The replay-free loss controls contribution drift on current-task probes rather than old samples. To state the required transfer explicitly, define the probability weighting over current-probe and old-output pairs by 
+
+νt(xi, k ) := qi,k 
+
+|X new | , xi ∈ X new , k ∈ Y <t . (52) Let μt be the target weighting over old sample-label pairs. This weighting may be the task-balanced distribution of a held-out old probe bank. For a fixed frozen model and an admissible current model, let 
+
+g(x, k ) := dMCD 
+
+> t−1→t
+
+(x, k ) (53) denote the corresponding nonnegative profile-drift function. Let Gt collect the functions induced by the model updates under consideration and define 
+
+disc Gt (μt, ν t) := sup 
+
+> g∈G t
+
+|Eμt [g] − Eνt [g]| . (54) We assume disc Gt (μt, ν t) ≤ ηt. This condition requires the weighted current probes to cover the old-model response regions relevant to contribution drift. It also requires the teacher weights to assign sufficient mass to the relevant old outputs. 
+
+Proposition 6 (Replay-free old-distribution drift bound) . Assume the transfer condition above and 
+
+Ri,t −1→t ≤ Rmax on the current-probe profiles. Then 
+
+Eμt
+
+dMCD 
+
+> t−1→t
+
+ ≤ D
+
+
+
+Ψδ
+
+ Lfree cmcdr 
+
+ + Rmax Ψδ
+
+ Lfree cmcdr 
+
+β
+
+ 
+
++ ηt. (55) 
+
+Proof. The weights in Eq. 52 sum to one because P 
+
+> k∈Y <t
+
+qi,k = 1 . Hence Lfree cmcdr = Eνt [ℓi,t −1→t].Applying Lemma 3 with π = νt bounds Eνt [dMCD 
+
+> t−1→t
+
+] by the bracketed term in Eq. 55. The definition of disc Gt then gives Eμt [g] ≤ Eνt [g] + ηt for the realized drift function g ∈ G t.
+
+Corollary 7 (Replay-free contribution-forgetting bound) . For (xi, y i) ∼ μt, define the retained margin and contribution shift using r = t − 1, a = yi, and A = Y<t . Let Fcontrib  
+
+> t
+
+denote the event that a counterfactually retained old prediction becomes forgotten through the contribution shift in Proposition 1. For any m0 > 0,
+
+Pr 
+
+> μt
+
+(Fcontrib  
+
+> t
+
+) ≤ Pr 
+
+> μt
+
+
+
+0 < m keep  
+
+> i,t −1→t
+
+≤ m0
+
+
+
++ Dm0
+
+
+
+Ψδ
+
+ Lfree cmcdr 
+
+ + Rmax Ψδ
+
+ Lfree cmcdr 
+
+β
+
+ 
+
++ ηt
+
+m0
+
+.
+
+(56) 
+
+Proof. On the event Fcontrib  
+
+> t
+
+, suppose mkeep  
+
+> i,t −1→t
+
+> m 0. Proposition 1 requires 
+
+∆contrib  
+
+> i,t −1→t
+
+≤ − mkeep  
+
+> i,t −1→t
+
+< −m0. (57) Lemma 4 therefore implies dMCD  
+
+> t−1→t
+
+> m 0. Splitting the event at m0, applying Markov’s inequality to the second part, and using Proposition 6 proves the result. The transfer condition is essential. Without coverage of the relevant old response regions, ηt can be large and the replay-free bounds become vacuous. Neither variant reconstructs the full task-balanced MCD because the training profiles, reference stages, and aggregation weights differ from the diagnostic protocol. Reduction of the held-out MCD therefore remains an empirical generaliza-tion result. 
+
+## B EXPERIMENTAL SETTINGS AND IMPLEMENTATION DETAILS 
+
+B.1 EXPERIMENTAL SETTINGS FOR EXPLORATORY ANALYSES 
+
+This subsection collects the settings for the exploratory analyses in Sec. 2, including the contribution-drift diagnostic and the cross-modal representation-stability analysis. 19 Modality-contribution drift analysis. The exploratory modality-contribution-drift analysis in Sec. 2 is designed to diagnose whether a standard continual-learning update preserves old-task modality contributions. To keep the analysis controlled, we use iCaRL as the baseline and evaluate it on two representative MMCL benchmarks: AVE, an audio–visual class-incremental benchmark, and UESTC-MMEA-CL, a video-sensor benchmark with synchronized video, acceleration, and gy-roscope streams. The stage-wise trajectories in this exploratory diagnostic run are kept separate from the unified main-evaluation aggregates in Tables 1 and 3; values should therefore only be compared within the same reported protocol. For AVE, visual and audio features are extracted by pretrained VideoMAE and AudioMAE models. For UESTC-MMEA-CL, the video stream is processed in the same way, while acceleration and gyroscope signals are normalized and encoded by a CNN-LSTM sensor encoder. For both datasets, modality-specific features are projected into a shared space, fused, and passed to the classifier. Classes are arranged into a fixed incremental order. The model is trained on the initial task and then updated one task at a time from the previous checkpoint. The same optimization schedule, exemplar policy, and evaluation protocol are used at every incremental stage. After each update, we report the mean task accuracy over observed tasks and compute MCD over old classes using the contribution estimator in Sec. 2.1. 
+
+Cross-modal stability analysis. For the cross-modal stability analysis, we compare iCaRL with D-AVSC (RepAlign) (Pian et al., 2023) and CrossSDC (Pian et al., 2024) using the same task order, memory, optimizer, and training schedule. For a batch B, let zmi,s denote the ℓ2-normalized projected representation of modality m at stage s. For a modality pair (m, n ), define 
+
+ℓm,n i,j (s1, s 2) = − log exp( ⟨zmi,s 1 , znj,s 2 ⟩/τ )
+
+P 
+
+> k∈B
+
+exp( ⟨zmi,s 1 , znk,s 2 ⟩/τ ) . (58) D-AVSC combines instance-aware and class-aware terms. With P(i) = {j : yj = yi}, its objective is 
+
+LI = 1
+
+|B| 
+
+X
+
+> i
+
+ℓa,v i,i (t, t ), LC = 1
+
+|B| 
+
+X
+
+> i
+
+1
+
+|P (i)|
+
+X
+
+> j∈P (i)
+
+ℓa,v i,j (t, t ), LD-AVSC = λI LI + λC LC .
+
+(59) CrossSDC evaluates these terms for each cross-modal feature pair. New-task samples use (s1, s 2) = (t, t ). Memory samples use s1, s 2 ∈ { t, t − 1} to preserve previous cross-modal similarities: 
+
+LCrossSDC = λins Lins + λcls Lcls . (60) The selected constraint is added to the iCaRL objective. We measure representation drift with linear CKA (Kornblith et al., 2019) on the same old-class probes used for MCD. For modality m, let Hms ∈ RN ×d collect the projected pre-fusion represen-tations at stage s, centered across the N probes. We compute 
+
+CKA( Hmt−1, Hmt ) = ∥Hmt−1⊤Hmt ∥2
+
+> F
+
+∥Hmt−1
+
+> ⊤
+
+Hmt−1∥F ∥Hmt ⊤Hmt ∥F
+
+, Drep  
+
+> t
+
+= 1 − 1
+
+M
+
+> M
+
+X
+
+> m=1
+
+CKA( Hmt−1, Hmt ).
+
+(61) Lower Drep  
+
+> t
+
+indicates greater stability. MCD uses the same probes and fixed candidate sets from Sec. 2. Both metrics are computed per transition and then averaged within each dataset. For Fig. 4(d), each class’s residual score is the mean of its transition-averaged MCD under RepAlign and CrossSDC. A within-dataset median split defines fixed low- and high-residual groups for all three methods. Bars show equal-class mean forgetting and points show class-level values. B.2 MODALITY -R EMOVAL REALIZATIONS 
+
+Equation 1 jointly defines modality removal through an interface-independent absence symbol and the resulting subset response. In a fixed-interface architecture, each absence symbol must be real-ized by a deterministic value or control signal at the corresponding fusion input. Let Em,s be the modality-m encoder at stage s, hmi,s = Em,s (xmi ), and Gθs the remaining fusion-and-classification 20 map. For a replacement collection qs = {qms }Mm=1 , we compute 
+
+ehm, q 
+
+> i,s
+
+(S) = 
+
+hmi,s , m ∈ S ,
+
+qms , m / ∈ S , zq
+
+> i,s
+
+(S) = Gθs
+
+
+
+{ehm, q 
+
+> i,s
+
+(S)}Mm=1 
+
+
+
+. (62) For a chosen realization q, Eq. 1 is instantiated by zi,s (S) := zq
+
+> i,s
+
+(S). The same realization rule is used for the current and frozen models whenever their contribution profiles are compared. Exact profile construction evaluates all 2M modality subsets; the benchmarks in this study contain at most three modalities, while larger modality sets require sampled or approximate coalition evaluation. 
+
+Zero-representation removal. Zero-representation removal sets qms = 0 for every excluded modality. It removes all sample-dependent information from that fusion input, requires neither reference data nor additional parameters, and requires no additional encoder evaluation to construct the replacement. The rule is available for every fixed-shape backbone in our evaluation and remains compatible with replay-free learning because it does not require stored examples or stage-dependent population statistics. As with other activation-level interventions, the resulting counterfactual re-sponse is defined relative to the chosen fusion interface; all cross-stage comparisons therefore use the same interface and removal rule. This operational control is not invariant to arbitrary reparam-eterizations of the latent space: two models that agree on observed full-modality inputs can still respond differently at the zero anchor. Accordingly, MCD is interpreted relative to the stated fusion interface and removal rule rather than as an interface-free measure of semantic absence. 
+
+Reference-mean removal. A reference-mean realization replaces an excluded modality by 
+
+μms = 1
+
+|R m|
+
+X 
+
+> xmj∈R m
+
+Em,s (xmj ), qms = μms , (63) where Rm is a fixed unlabeled reference set. This construction avoids evaluating the fusion module at the numerical origin, but it represents typical modality evidence rather than absence. It also requires access to the same reference population at every stage. Storing old reference inputs conflicts with a strict replay-free protocol, whereas recomputing the mean from current tasks changes the control distribution across stages and can mix task shift with contribution drift. Even with a fixed reference set, μms changes when Em,s changes, so cross-stage differences can also include drift of the reference representation itself. 
+
+Masked structural removal. Architectures with modality masks or variable-length token sets can remove an excluded modality by setting an availability indicator am(S) = 1[m ∈ S ] and preventing the corresponding branch or tokens from participating in fusion. This realizes structural absence without choosing a replacement representation. Its use is nevertheless architecture dependent: many fixed-concatenation baselines do not expose a compatible mask, and adding one changes the fusion interface and potentially its normalization or attention pattern. Table 4 summarizes the properties that follow directly from these constructions. The table reports implementation requirements rather than benchmark measurements. Table 4: Design comparison of modality-removal realizations. “Conditional” means that replay-free compatibility depends on an admissible reference set that contains no stored old-task examples.                     
+
+> Realization Reference data Architecture change Replay-free Extra state Removed-input interpretation Zero representation None None Yes None No sample-specific modality signal Reference mean Required None Conditional Reference statistics Typical modality evidence Masked removal None Mask interface Yes Availability mask Structural absence
+
+Controlled sensitivity protocol. Because the removal operator enters both the contribution esti-mator and the CMCDR objective, changing it only at evaluation time would not test the method used during learning. A controlled comparison must therefore start each variant from the same checkpoint and retrain CMCDR with one removal rule used consistently for profile construction, regularization, and evaluation. The task sequence, optimizer, memory budget, hyperparameters, and random seeds are held fixed. For each variant, the comparison should report final average accuracy, average for-getting, MCD, and wall-clock overhead. Each configuration should be evaluated over three seeds 21 and summarized as mean ± standard deviation. The protocol in Table 5 isolates the removal rule as the only experimental factor for zero and reference-mean removal. Masked removal is evaluated only on backbones that already expose a native modality-mask interface; adding a new mask to other backbones would confound the removal rule with an architecture change. Table 5: Controlled protocol for evaluating sensitivity to the modality-removal realization. Each row denotes an independently trained CMCDR variant rather than a post-hoc change to the evaluator.                  
+
+> Variant Removal used in training and evaluation Eligible backbones Reported quantities Zero representation qms=0All evaluated backbones Accuracy, forgetting, MCD, runtime Reference mean qms=μmsfrom Eq. 63 Fixed-interface backbones Accuracy, forgetting, MCD, runtime Masked removal Branch/token availability mask Native-mask backbones only Accuracy, forgetting, MCD, runtime
+
+Selected realization. We use zero-representation removal in all reported experiments. It is the only realization above that simultaneously preserves the unmodified interfaces of all evaluated back-bones, requires no auxiliary reference population, applies unchanged in replay-based and replay-free settings, and introduces no additional parameters, stored statistics, or architecture-specific masking logic. It also provides a deterministic, sample-independent control for every modality subset. This selection is based on a common implementation contract, not on a claim that zero representation is empirically optimal. Reference-mean removal changes the operational contrast from a fixed null anchor to typical evidence and introduces a reference-distribution choice, whereas masked removal is not uniformly available across the heterogeneous fusion architectures considered here. A consis-tent interpretation of cross-stage MCD requires the fusion interface and removal rule to remain fixed within each comparison; zero representation supplies this common operational definition across all of our experimental settings. B.3 MAIN TRAINING AND EVALUATION SETUP 
+
+Task construction. For multimodal class-incremental learning, each benchmark is divided into a fixed sequence of disjoint class groups. The model first learns the initial class group and then receives one new class group at each incremental stage. Task identity is not used at inference. Evaluation is performed over all classes observed so far. We use the released train/test partitions of each benchmark when available. When a benchmark does not provide an incremental split, we construct sample-level train/test partitions before applying the class sequence, and keep the resulting split and task order fixed for all methods. AVE uses four tasks of seven classes, Kinetics-Sounds uses five tasks of six selected classes, and UESTC-MMEA-CL uses eight tasks of four classes, matching the corresponding benchmark protocols. For continual multimodal question answering, VQAv2 is evaluated under the VQACL protocol, and Split-AVQA and Split-MUSIC-AVQA are evaluated under the AVQACL protocol. 
+
+Model and baseline implementation. For audio–visual experiments, we use pretrained Video-MAE features for the visual stream and pretrained AudioMAE features for the audio stream. For UESTC-MMEA-CL, the video stream follows the same visual processing pipeline, while acceler-ation and gyroscope signals are normalized and encoded by a CNN-LSTM sensor encoder before fusion. For VQAv2, Split-AVQA, and Split-MUSIC-AVQA, we keep the original visual, audio, language, and answer prediction modules used by each baseline. CMCDR is added as an auxiliary contribution-preservation objective and does not replace the back-bone model. Paired comparisons between a baseline and its CMCDR variant therefore use the same architecture, classifier, optimizer, memory budget, task order, and inference protocol. Whenever a main-evaluation method–dataset pair appears in more than one table, the same stored aggregate is reused rather than recomputed or transcribed independently. All contribution profiles use the zero-representation removal defined in Appendix B.2. 
+
+Training and evaluation. All methods are trained sequentially. At stage t = 1 , the model is trained on the initial task. At each later stage, the model is initialized from the previous checkpoint and updated with the data available under the corresponding continual-learning setting. Replay-22 based methods use their exemplar buffer together with current-task data. Replay-free methods use only current-task samples and the frozen previous model. For every baseline, we keep the training loss, optimizer, learning-rate schedule, batch size, number of epochs, exemplar-selection rule, and memory budget specified by the original method or its released implementation. These settings are held fixed across incremental stages. For CMCDR variants, the base training configuration is unchanged. The only additional term is the contribution-preservation regularizer described in Sec. 3. After each stage, we evaluate all tasks or classes observed so far and compute average accuracy and average forgetting from the resulting accuracy matrix. B.4 CMCDR FOR CONTINUAL MULTIMODAL QUESTION ANSWERING 
+
+Let xi = ( xmi )m∈M be a continual-QA input and ai = ( ai, 1, . . . , a i,L i ) an answer represented by its valid output units; a single-step answer is the special case Li = 1 . At stage s ∈ { t − 1, t }, let 
+
+u(j) 
+
+> i,s,v
+
+(S; ai,<j ) be the logit of output unit v when only modalities S ⊆ M are retained. We define the length-normalized answer response 
+
+Rai
+
+> i,s
+
+(S) = 1
+
+LiLiX
+
+> j=1
+
+u(j) 
+
+> i,s,a i,j
+
+(S; ai,<j ) − log X  
+
+> v∈V <t i,j \{ ai,j }
+
+exp 
+
+
+
+u(j) 
+
+> i,s,v
+
+(S; ai,<j )
+
+ , (64) where V<t i,j is the previous-stage output set at position j, with |V <t i,j | ≥ 2. This set, the answer, and its valid positions are fixed across the current and frozen models and all subset interventions; outputs introduced at stage t are excluded from the comparison. Equation 64 reduces to Eq. 2 when Li = 1 .Substituting R for B in Eq. 3 yields the unified answer-conditioned profile Cai
+
+> i,s
+
+.For replay-based training, CMCDR directly matches the contribution profile of the ground-truth answer on each replayed question–answer pair: 
+
+LCQA ,rep cmcdr = 1
+
+|X old |
+
+X
+
+> (xi,y i)∈X old
+
+dcp 
+
+ Cyi
+
+> i,t
+
+, Cyi
+
+> i,t −1
+
+ . (65) For replay-free training, current-task samples xi ∈ X new serve as intervention probes. Let Hi =Ref θt−1 (xi; M) be the fixed reference-answer set returned by the previous-stage finite output head or the frozen model’s native decoder. The set is computed once from the full input and held fixed within the update. Let ϕai,t −1(M) denote the frozen model’s native full-input score for answer a:the output logit for a single-step answer or the length-normalized teacher-forced log-likelihood for a multi-step answer. The frozen-model weight is 
+
+qi,a = exp  ϕai,t −1(M)/T P 
+
+> b∈H i
+
+exp  ϕbi,t −1(M)/T  , a ∈ H i. (66) The replay-free objective is 
+
+LCQA ,free cmcdr = 1
+
+|X new |
+
+X
+
+> xi∈X new
+
+X
+
+> a∈H i
+
+qi,a dcp 
+
+ Cai,t , Cai,t −1
+
+ . (67) The frozen model receives no gradient, and both models use the same modality removal and 2|M| 
+
+subset evaluations. The original QA loss and decoding protocol remain unchanged. VQACL and AVQACL instantiate this same objective with their respective modality sets (Zhang et al., 2023; Wu et al., 2025). 
+
+## C ADDITIONAL EXPERIMENTS 
+
+C.1 COMPUTATIONAL EFFICIENCY AND SCALABILITY 
+
+We evaluate the additional computational cost of CMCDR using two standard efficiency metrics: training FLOPs per sample and wall-clock training time per incremental stage. We compare each baseline with its CMCDR variant under identical architectures, batch sizes, training schedules, re-play budgets, and hardware. Training time is reported as mean ± standard deviation over three runs. 23 1.0 1.5 2.0 2.5 3.0 3.5 
+
+Training Time (h)   
+
+> 55
+> 60
+> 65
+> 70
+> 75
+> 80
+> Average Accuracy (%)
+> LwF
+> iCaRL
+> AV-CIL
+> CIGN Baseline
+> Baseline + CMCDR
+> Additional train FLOPs
+> +20% +25% +30%
+> +28% FLOPs
+> +27% FLOPs
+> +25% FLOPs
+> +22% FLOPs
+
+Figure 7: Training-time–accuracy trade-off on AVE. Each colored line links one baseline (fixed-size circle) to its CMCDR variant (star). Star size and the paired annotation encode the percentage increase in training FLOPs over the corresponding baseline. Average accuracy matches Table 1; training times and FLOPs are measured using the final implementations under the protocol below. We further measure the cost of adding one modality on UESTC-MMEA-CL. The two-modality setting uses video and acceleration, while the three-modality setting additionally includes gyroscope signals. The held-out modality is removed from both training and evaluation. Exact contribution-profile construction evaluates 2M modality subsets; therefore, adding the third modality increases the number of subset responses from 22 = 4 to 23 = 8 .Table 6: Computational efficiency and modality scalability. The percentage in parentheses reports the CMCDR training-time overhead relative to the matched baseline; for the three-modality baseline, it reports the cost of adding the gyroscope modality relative to the two-modality baseline.                  
+
+> Modalities Method Train FLOPs / sample (G) ↓Train time / stage (min) ↓
+> Video + acceleration Baseline 41.8 46.8 Video + acceleration Baseline + CMCDR 53.5 59.9 (28.0%) Video + acceleration + gyroscope Baseline 51.7 57.6 (23.1%) Video + acceleration + gyroscope Baseline + CMCDR 74.1 80.4 (39.6%)
+
+C.2 ABLATION STUDIES 
+
+Component ablation. Table 7 ablates the two loss components of CMCDR while using the full M¨ obius profile throughout. In Eq. 11, Labs is the first term that preserves the original contribution values, and Lrel is the second term that preserves their relative proportions. All variants use the same training configuration. 
+
+Controlled comparison with subset-wise distillation. This experiment tests whether CMCDR benefits merely from additional modality-subset evaluations and teacher supervision. Starting from the same iCaRL objective, we construct a compute-matched subset-wise distillation baseline. For stage s ∈ { t − 1, t }, define the old-class distribution under subset S as 
+
+p<t i,s (S; T ) = softmax [zi,k,s (S)] k∈Y <t 
+
+T
+
+!
+
+. (68) The additional replay-based subset-distillation loss is 
+
+Lrep subKD = T 2
+
+|X old | 2M
+
+X
+
+> xi∈X old
+
+X
+
+> S⊆M
+
+KL  sg p<t i,t −1(S; T ) p<t i,t (S; T ) . (69) 24 Table 7: Ablation of the CMCDR loss components. Labs and Lrel denote raw- and normalized-profile matching. All CMCDR variants use the full M¨ obius contribution profile. Higher Avg. Acc. and lower Avg. Forget. are better. 
+
+Components AVE UESTC-MMEA-CL Protocol Labs Lrel Avg. Acc. ↑ Avg. Forget. ↓ Avg. Acc. ↑ Avg. Forget. ↓
+
+Replay (iCaRL) × × 64.20 25.60 71.80 22.90 Replay (iCaRL) ✓ × 69.27 20.38 74.08 19.16 Replay (iCaRL) × ✓ 68.11 21.57 73.49 20.04 Replay (iCaRL) ✓ ✓ 71.90 17.40 75.20 17.20 Replay-free (LwF) × × 56.61 35.11 17.10 49.40 Replay-free (LwF) ✓ × 59.46 29.18 21.37 42.08 Replay-free (LwF) × ✓ 58.91 30.43 20.84 43.19 Replay-free (LwF) ✓ ✓ 60.61 26.35 22.80 38.70 
+
+For the replay-free setting, we replace the old exemplars with the same current-task probes used by replay-free CMCDR. The resulting objective is 
+
+Lfree subKD = T 2
+
+|X new | 2M
+
+X
+
+> xi∈X new
+
+X
+
+> S⊆M
+
+KL  sg p<t i,t −1(S; T ) p<t i,t (S; T ) . (70) This variant stores neither old samples nor old labels. It queries the same frozen previous model on the same current-task probes and modality subsets as replay-free CMCDR, but preserves the complete old-class distribution under each intervention. Separate per-class weights are unnecessary because the KL target is already the teacher distribution over the complete old-class output space. SubsetKD performs no contribution decomposition: it independently preserves the complete old-class distribution under every intervention. Exact SubsetKD therefore implies preservation of the corresponding M¨ obius profile. CMCDR instead matches centered target-vs-rest contributions in M¨ obius coordinates, directly weighting singleton and interaction drift while permitting subset-invariant response changes. Thus, SubsetKD is a stronger function-preservation constraint, whereas CMCDR is a selective structural constraint aligned with MCD. Within each protocol, the original iCaRL or LwF objective is unchanged in all rows. SubsetKD and CMCDR use the same replay samples or current-task probes, all 2M subsets, identical current and frozen forward passes, and the same coefficient-search budget. Their comparison isolates contribution-aligned regularization from extra computation and subset-level teacher supervision in both replay-based and replay-free settings. Table 8: Controlled comparison of the replay-based and replay-free baselines, compute-matched subset-wise logit distillation, and CMCDR. Within each protocol, the two augmented variants eval-uate the same 2M modality subsets; they differ only in whether they preserve the complete subset-wise output function or its contribution structure.                                                       
+
+> Protocol Method Preservation target # Subsets AVE UESTC-MMEA-CL Avg. Acc. ↑Avg. Forget. ↓Avg. Acc. ↑Avg. Forget. ↓
+> Replay iCaRL Full-input logits (native) 164.20 25.60 71.80 22.90 Replay iCaRL + SubsetKD Subset-wise distributions 2M68.74 20.63 73.46 19.61 Replay iCaRL + CMCDR M¨ obius contribution profile 2M71.90 17.40 75.20 17.20 Replay-free LwF Full-input distillation (native) 156.61 35.11 17.10 49.40 Replay-free LwF + SubsetKD Subset-wise distributions 2M58.89 30.78 20.86 43.57 Replay-free LwF + CMCDR M¨ obius contribution profile 2M60.61 26.35 22.80 38.70
+
+M¨ obius-profile parameterization ablation. We next isolate the effect of explicitly decomposing subset responses into M¨ obius interaction coordinates. For each old-class index k, define the centered subset-response vector 
+
+Bki,s =
+
+h
+
+Bk, Y<t  
+
+> i,s
+
+(S) − Bk, Y<t  
+
+> i,s
+
+(∅)
+
+i
+
+> ∅̸ =S⊆M
+
+. (71) The full centered-response vector and the full M¨ obius profile contain the same information because they are related by an invertible linear transform. They differ only in whether interaction effects are 25 implicit in subset responses or explicit profile coordinates. We compare three internal parameteriza-tions: (i) a singleton-only profile that discards all coordinates with |T | ≥ 2, (ii) direct matching of 
+
+Bki,s , and (iii) the full M¨ obius profile used by CMCDR. All variants evaluate the same 2M modality subsets and use both terms of Eq. 11; only the profile parameterization is changed. Each vari-ant selects its regularization coefficients from the same search grid and tuning budget. Comparing centered subsets with singleton-only tests the value of retaining full subset-level interaction informa-tion, whereas comparing M¨ obius with centered subsets tests whether explicit interaction coordinates provide a useful regularization bias beyond an information-equivalent subset representation. Table 9: Controlled ablation of the M¨ obius-profile parameterization. All variants use identi-cal modality-subset evaluations and both the absolute and relative profile-matching terms. “Ex-cluded” retains singleton contributions only; “implicit” retains interactions through centered subset responses; and “explicit” represents them as separate M¨ obius coordinates.                                                
+
+> Protocol Profile parameterization Interaction treatment AVE UESTC-MMEA-CL Avg. Acc. ↑Avg. Forget. ↓Avg. Acc. ↑Avg. Forget. ↓
+> Replay (iCaRL) Singleton-only Excluded 68.52 21.36 73.41 20.02 Replay (iCaRL) Centered subsets Implicit 70.87 18.69 74.63 18.34 Replay (iCaRL) M¨ obius Explicit 71.90 17.40 75.20 17.20 Replay-free (LwF) Singleton-only Excluded 58.74 31.02 20.11 44.27 Replay-free (LwF) Centered subsets Implicit 59.86 28.41 21.69 40.66 Replay-free (LwF) M¨ obius Explicit 60.61 26.35 22.80 38.70
+
+Contribution-estimator comparison. This experiment compares the interaction-resolving profile with alternative modality-wise contribution estimators. We keep the backbone, task order, memory budget, optimizer, modality-removal realization, and dcp fixed, and replace only the contribution estimator. Each estimator selects its regularization coefficients from the same search grid and tuning budget. Let vi(S) = Ba, A 
+
+> i
+
+(S). For modality m, we compare the baseline-centered CMoB-style score (Wang et al., 2025) and the Shapley value (Wei et al., 2024): 
+
+qCMoB  
+
+> i,m
+
+= vi(M) − vi(M \ { m}) + vi({m}) − vi(∅), (72) 
+
+qShap  
+
+> i,m
+
+= X
+
+> S⊆M\{ m}
+
+|S| !( M − |S| − 1)! 
+
+M ! [vi(S ∪ { m}) − vi(S)] . (73) The vector [qi,m ]m∈M replaces the M¨ obius profile in Eq. 11. CMoB-style valuation combines a full-context removal effect with a singleton effect. Shapley valuation averages over all coalition contexts, but returns modality-wise values; neither retains interaction effects as separate profile coordinates. Table 10: Controlled comparison of contribution estimators within CMCDR. “Int.” indicates whether interaction effects are retained as separate profile coordinates. All other components and tuning budgets are controlled. 
+
+Protocol Estimator Int. AVE UESTC-MMEA-CL Avg. Acc. ↑ Avg. Forget. ↓ Avg. Acc. ↑ Avg. Forget. ↓
+
+Replay-free (LwF) CMoB-style × 58.49 31.47 19.68 45.12 Replay-free (LwF) Shapley × 59.36 29.71 20.91 42.54 Replay-free (LwF) ours ✓ 60.61 26.35 22.80 38.70 Replay (iCaRL) CMoB-style × 67.71 22.06 73.12 20.31 Replay (iCaRL) Shapley × 69.18 20.17 74.06 18.88 Replay (iCaRL) ours ✓ 71.90 17.40 75.20 17.20 
+
+## D COMPARISON AND UNIQUENESS DISCUSSION 
+
+In this section, we first review two lines of work most relevant to CMC multimodal continual learn-ing and balanced multimodal learning. We then clarify how their objectives differ from preserving 26 old-task modality contribution structures. Finally, we empirically study the integration of represen-tative modality-balancing methods into an MMCL pipeline and compare it with CMCDR. 
+
+Multimodal Continual Learning Multimodal continual learning (MMCL) learns sequential tasks from multiple modalities while retaining knowledge from previous tasks. The existing methods often focus on stabilizing multimodal representations to mitigate forgetting. AV-CIL (Pian et al., 2023) preserves instance- and class-level audio-visual semantic similarity and distills audio-guided visual attention . CIGN (Mo et al., 2023) distills audio-visual class tokens to retain class-aware cross-modal representations. MAFED (Nikandrou et al., 2024) applies modality-aware distillation to visual and question representations . MG-CLIP (Huang et al., 2025) preserves the image–text modality gap in CLIP-based continual learning. These methods regularize feature similarity, token representations, or cross-modal geometry. CMCDR instead preserves the contribution of individual modalities and their interactions across incremental stages. 
+
+Balanced Multimodal Learning Balanced multimodal learning aims to prevent dominant modali-ties from suppressing weaker ones during conventional joint training (Peng et al., 2022; Fan et al., 2023; Li et al., 2023; Wei & Hu, 2024; Hua et al., 2024). For example, Shapley-based modality valuation estimates each modality’s contribution at the sample level and uses the estimated gap to strengthen low-contributing modalities (Wei et al., 2024). CMoB uses causal effects to track sample-level changes in modality contribution and selectively enhances under-optimized modalities during training (Wang et al., 2025). Multimodal continual learning presents a different problem because tasks can rely on different infor-mation. As shown in Fig. 1(a), road crossing relies mainly on visual cues, while question answering requires both visual and linguistic cues. Figures 1(b,c) further show that modality contributions vary across incremental tasks and datasets. A small contribution does not always indicate that a modality is poorly learned. The modality can be less useful for one task but essential to another. CMCDR therefore does not force all modalities to contribute equally. It preserves how earlier tasks use individual modalities and their combinations while the model learns new tasks. Multimodal bal-ancing methods improve how modalities are learned at the current stage. CMCDR instead prevents new tasks from changing the modality dependence of earlier tasks in multimodal continual learning. Table 11: Controlled comparison under replay-free and replay-based protocols.                                                                                
+
+> Method AVE Kinetics-Sounds #Mem Avg. Acc. ↑Avg. Forget. ↓MCD ↓#Mem Avg. Acc. ↑Avg. Forget. ↓MCD ↓
+> LwF 056.61 35.11 0.842 065.54 16.55 0.713 LwF + OGM-GE 057.48 33.62 0.756 066.31 15.72 0.651 LwF + CMoB 058.23 32.21 0.684 066.88 14.91 0.593
+> LwF + CMCDR 060.61 26.35 0.401 069.12 12.64 0.351
+> iCaRL 340 64.20 25.60 0.779 500 65.54 40.57 0.826 iCaRL + OGM-GE 340 65.84 23.91 0.704 500 66.41 38.82 0.752 iCaRL + CMoB 340 66.57 22.54 0.641 500 67.12 37.45 0.694
+> iCaRL + CMCDR 340 71.90 17.40 0.389 500 70.86 31.24 0.418
+
+Controlled Comparison with Modality-Balancing Methods We distinguish replay-free and replay-based protocols according to exemplar availability. In both protocols, we evaluate OGM-GE (Peng et al., 2022), which modulates modality-specific gradients, and CMoB (Wang et al., 2025), which estimates sample-level modality values through causal effects and selectively enhances under-optimized modalities. The replay-free protocol uses LwF (Li & Hoiem, 2018) without storing old-task samples. OGM-GE and CMoB act on the current-task multimodal objective while leaving the original LwF distillation term unchanged; replay-free CMCDR uses current-task probes and the frozen previous model. The replay-based protocol applies the same methods to the iCaRL training pipeline. Within each protocol, we keep the backbone, classifier, task order, data augmentation, optimizer, and number of updates fixed. CMCDR uses the same contribution-profile construction and coefficient as in the main experiments. We report average accuracy, average forgetting, and MCD on AVE and Kinetics-Sounds. This comparison tests whether methods designed to balance current-stage multimodal optimization also preserve old-task modality contributions during contin-ual learning. 27

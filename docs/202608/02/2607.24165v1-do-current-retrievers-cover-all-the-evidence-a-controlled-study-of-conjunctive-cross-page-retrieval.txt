@@ -1,0 +1,602 @@
+Title: Do Current Retrievers Cover All the Evidence? A Controlled Study of Conjunctive Cross-Page Retrieval
+
+URL Source: https://arxiv.org/pdf/2607.24165v1
+
+Published Time: Tue, 28 Jul 2026 01:43:12 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# Do Current Retrievers Cover All the Evidence? A Controlled Study of Conjunctive Cross-Page Retrieval 
+
+## Sungguk Cha, DongWook Kim, Mintae Kim, Youngsub Han, Byoung-Ki Jeon, Sangyeob Lee 
+
+LG Uplus, Seoul, South Korea {sungguk,dongwook92,iammt,yshan042,bkjeon,sangyeob}@lguplus.co.kr 
+
+Abstract 
+
+Finding a long document relevant to a multi-part request is not the same as establishing that it contains every requested piece of evidence. We study this gap for conjunctive document retrieval, where two or three explicit conditions must be sup-ported on different pages of one document. We use n-Clue as a controlled measurement instrument: 1,000 queries over 2,021 documents pair all-condition golds with naturally occurring documents that satisfy only a subset, and a complete-first suc-cess requires a top-10 gold to precede every released subset qrel. Across 70 configurations, condition-wise decomposition improves two dense backbones by 6.8–7.3 points and lexical– visual fusion adds 8.7, while four generic rerankers all re-duce Gold-NDCG; these directions replicate on a four-source stress set. Scaling one dense family from 0.6B to 8B changes complete-first success by 0.0 points. The strongest displayed hybrid illustrates the resulting gap: it finds a gold for 81.1% of queries but succeeds complete-first on only 35.8%, and the gap persists across condition count, target length, candidate density, query rendering, and the four-source stress set. Fi-nally, page-aware visual systems surface stored support for every condition on only 5.1–5.3% of queries. These results identify condition coverage, rather than gold discovery alone, as the central bottleneck. 
+
+## 1 Introduction 
+
+Many consequential document searches are not requests for a topic but for a conjunction of evidence. An analyst may need the report that contains an executive summary, and agrievance mechanism, and a resettlement policy. The three supporting passages may occur on pages 3, 24, and 51 of a hundred-page report. Documents satisfying only one or two conditions are still topically close—and may be more fluent or lexically similar matches—but they cannot answer the request. A useful retriever must therefore do more than 
+
+discover a relevant document: it must recognize condition coverage and rank a document supported on every requested point ahead of natural partial matches. This distinction is operationally important for retrieval-augmented generation, because no reader or generator can cite evidence that retrieval never supplies (Lewis et al. 2020). This requirement falls between established evaluation tra-ditions. Broad IR benchmarks reward topical relevance, and long-context benchmarks test whether a model can retrieve or reason over distant content. Logical and multi-condition QUERY A: section B: entity C: policy AND              
+
+> GOLD p3: A p18: B p41: C ALL 3
+> SUBSET p7: A p24: B --: C 2 OF 3
+> RANK 1 SUBSET before RANK 2 GOLD SCORE = 0
+
+Figure 1: Discovery and completion are different retrieval events. The gold contains all three conditions on distinct pages; the subset contains only two. Finding the gold at rank 2 is not complete-first success when the subset is ranked first. benchmarks test compositional intent. Yet these traditions seldom jointly control three facts that determine whether a long-document search is complete: which conditions each corpus document satisfies, whether the gold evidence is dis-tributed across pages, and whether the most confusable al-ternatives are real documents satisfying strict subsets of the request. Without those controls, a high hit rate can mean that the system found a document on topic, not that it distin-guished full support from plausible incompleteness. The distinction also exposes a modeling assumption. Joint dense retrieval, page-level max pooling, and generic rerank-ing ultimately compress a conjunction and a long document into a scalar relevance score. Strong evidence for one con-dition can then compensate for absent evidence for another. Increasing candidate recall may even retrieve more complete documents without moving them above highly relevant sub-sets. We call the resulting separation between retrieving an all-condition document and ordering it before known partial matches the discovery–completion gap . Measuring this gap asks a more diagnostic question than “was a gold retrieved?”: once completion is available in the top ranks, does the system recognize it? We study that question using n-Clue as a controlled mea-surement instrument, not as the endpoint of a benchmark-construction paper. CrossPage provides 1,000 queries over 2,021 real long documents. For each query, a document-wide inventory records support for two or three explicit conditions and their page locations; an all-condition gold must admit a arXiv:2607.24165v1 [cs.CV] 27 Jul 2026 distinct-page assignment, while other corpus documents pro-vide naturally occurring subset matches. The primary event is intentionally strict and interpretable: a top-10 gold must precede every released subset qrel (Figure 1). We pair this event with gold discovery and page-evidence diagnostics so that a low score can be localized to candidate generation, complete-versus-subset ordering, or support delivery. Across 70 configurations, the gap is large and structurally informative. Explicitly retrieving and combining condition-specific lists improves two dense backbones by 6.8–7.3 points, and lexical–visual fusion adds 8.7 points, while four tested generic rerankers all reduce Gold-NDCG; dense de-composition, fusion, and reranker directions recur in a four-source document-level stress test, and the main signs persist across query renderings. Scaling Qwen3-Embedding from 0.6B to 8B, by contrast, changes complete-first success by 0.0 points—a bounded observation about one family, not a claim that scale can never help. The strongest displayed hy-brid illustrates the resulting gap: it retrieves a gold for 81.1% of queries but places a gold before the released subsets for only 35.8%, and page-aware visual systems surface stored support for every condition on only 5.1–5.3% of queries. The evidence therefore points away from model size alone and toward explicit coverage state, complementary candidate generation, and verification of the weakest condition. Our contribution is empirical and diagnostic: 1. We formalize and measure the discovery–completion gap , separating gold recall from the decision to rank com-plete evidence above natural subset matches. 2. We use controlled operation-level contrasts —including same-family scale, same-backbone decomposition, fixed-pool reranking, and cross-modal fusion—to identify which system operations change that gap rather than declaring a winner from a 70-run leaderboard. 3. We provide an auditable page-grounded instrument 
+
+with complete rankings, quote-backed label repair, task-factor and wording analyses, and source-shift stress tests, enabling the claim and its boundaries to be checked. The intended conclusion is deliberately narrower than a claim about all multi-evidence search: on explicit, conjunctive, cross-page requests, current representative retrievers often find relevant long documents without establishing that they cover the whole request. 
+
+## 2 Related Work 
+
+Retrieval diagnostics. MS MARCO, BEIR, and MTEB established broad evaluation across retrieval domains and representation families (Nguyen et al. 2016; Thakur et al. 2021; Muennighoff et al. 2023). Their relevance labels are appropriate for general search but do not normally expose which parts of a conjunctive request each document sup-ports. More recent diagnostics move beyond topical match: BRIGHT emphasizes reasoning-intensive retrieval, NevIR tests negation, and FollowIR and IFIR test instruction follow-ing (Su et al. 2025; Weller, Lawrie, and Van Durme 2024; Weller et al. 2025; Song et al. 2025). We share their goal of isolating a capability hidden by aggregate relevance, but tar-get a different failure event: an all-condition long document loses to a natural document that is relevant to only a known subset. 
+
+Logical retrieval. MultiConIR directly evaluates multi-condition requests by comparing targets against progres-sively weaker edited variants, while ComLQ covers conjunc-tion, disjunction, and negation and MCRank studies ranking under multiple, potentially conflicting constraints (Lu et al. 2025; Xu et al. 2026; Pezeshkpour and Hruschka 2025). These studies make clear that ordinary relevance models do not reliably preserve logical intent. Our study complements them along the document axis: the retrieval unit is a real long document, the required evidence occupies distinct pages, and the partial competitors are independent documents already present in the corpus rather than weakened edits of the tar-get. This design permits separate measurement of document discovery, complete-before-subset ordering, and delivery of the pages supporting each condition. 
+
+Long-document evidence. LongEmbed evaluates embed-dings over long textual contexts, whereas MMDocIR cen-ters multimodal page and layout retrieval (Zhu et al. 2024; Dong et al. 2025). Counting-Stars tests access to multiple ev-idence units within supplied long contexts, and FinMRAG-Bench and Doc-V ∗ evaluate multi-page integration in finan-cial RAG and interactive document VQA (Song, Zheng, and Luo 2025; Yang et al. 2026; Zheng et al. 2026). Multi-hop QA similarly evaluates whether several facts can support an answer (Yang et al. 2018; Trivedi et al. 2022; Ho et al. 2020), while SciFact and SciFact-Open attach evidence rationales to claim retrieval (Wadden et al. 2020, 2022). Those tasks primarily evaluate page selection, context use, verification, or answer production once evidence is available. Our esti-mand precedes those stages: among corpus documents, does the ranker prefer the one containing the entire distributed evidence set to documents missing a required part? 
+
+Ranking operations. The experimental matrix spans lex-ical and learned sparse retrieval (Robertson and Zaragoza 2009; Formal, Piwowarski, and Clinchant 2021), dense en-coders (Karpukhin et al. 2020; Izacard et al. 2022; Wang et al. 2022; Li et al. 2023; Lee et al. 2025; Günther et al. 2025; Zhang et al. 2025), late interaction (Khattab and Za-haria 2020; Santhanam et al. 2022; Chen et al. 2024), and screenshot retrieval (Faysse et al. 2025; Ma et al. 2024). Standard hard-negative mining finds confusable candidates for representation learning (Xiong et al. 2021); here, con-dition inventories instead identify why a candidate is con-fusable and whether it is incomplete. We use condition-wise aggregation (Fagin, Lotem, and Naor 2003), reciprocal-rank fusion (Cormack, Clarke, and Buettcher 2009), and generic reranking (Nogueira et al. 2020; Sun et al. 2023) as inter-ventions. The purpose is not to establish a universal ordering among architectures, but to determine whether each opera-tion improves discovery, coverage-sensitive ordering, both, or neither. 3 Study Design 
+
+3.1 Task and estimands 
+
+A query q = {c1, . . . , c n} contains n ∈ { 2, 3} explicit condi-tions. Document d has clue count g(d, q ) equal to the number of conditions supported in the final document-wide evidence inventory. A gold has g = n and admits a distinct supporting-page assignment; a subset has 1 ≤ g < n . Let rG and rS be the best ranks of any gold and any released positive subset qrel, with missing ranks equal to ∞. Our primary complete-first estimand is n-Clue Score@ k = 100 
+
+|Q|
+
+X
+
+> q∈Q
+
+⊮[rG ≤ k ∧ rG < r S ]. (1) The score is a percentage, not a weighted composite. Gold Hit@ k measures discovery, and binary Gold-NDCG@ k
+
+measures gold placement; both use only g = n as relevant and the same all-query denominator. Their difference from n-Clue Score distinguishes failure to find a gold from failure to place it before a known subset. For page-scored systems, Gold+Support@ k succeeds when the three highest-scoring distinct surfaced pages of any top-k gold collectively intersect stored support for every condition. This is conservative: alternate correct pages are not credited, but all queries remain in the denominator. Sys-tems receive query text, document text or page images, and corpus metadata, never construction facts, qrels, or evidence-page annotations. 
+
+Why not graded relevance alone? Giving partial docu-ments positive gain changes the estimand: it rewards a sys-tem for ranking many subsets, although the task requires a complete document first (Järvelin and Kekäläinen 2002). On the raw matrix, BM25-OR exceeds BM25-AND on graded NDCG@10 (.407 versus .265) but is worse at ordering gold over subsets (pairwise AUC .586 versus .635). We therefore report partial documents as diagnosed competitors rather than discounted successes. Gold Hit and n-Clue Score are al-ways paired: the former asks whether completion was avail-able in the candidate set, and the latter asks whether the system recognized it before a known incomplete alternative. 
+
+3.2 Controlled evidence testbed 
+
+CrossPage contains 1,753 World Bank PDFs and 268 PMC OA articles. A corpus-wide inventory of section and entity-phrase facts records their page IDs. For every query, con-struction enumerates the union of documents containing at least one condition and assigns its exact nonzero clue count. A gold must have a nonempty page set for every condition, an empty all-condition page intersection, and a distinct-page matching. Candidate conjunctions are rare even though their conditions are individually common, yielding natural partial matches without mining against a particular retriever. An independent verifier re-derives every construction page set and both page gates. Initial labels use the inventory plus an LLM read of fact-matched pages. A blinded 300-pair au-dit then collects two exact-quote-backed judgments for 710 conditions. Exact grades agree on 254/300 pairs (84.7%, weighted κ = .801 (Cohen 1960)); disagreements receive            
+
+> CrossPage statistic Value Queries (2 / 3 conditions) 1,000 (814 / 186) Documents / rendered pages 2,021 / 41,441 Pages per document (mean / median / max) 20.5 / 11 / 446 Shortest gold per query (mean / median pages) 78.1 / 67 Gold / subset qrels 2,176 / 48,819 Subset grade 1 / 2 46,795 / 2,024 Distinct gold documents 287 Gold qrels (World Bank / PMC) 2,175 / 1 Single-page-solvable golds 0 / 2,176 Distinct-page-valid golds 2,176 / 2,176
+
+Table 1: The controlled CrossPage instrument. Target oppor-tunities are long even though the full corpus includes short documents: for each query, the shortest available gold has median length 67 pages. expanded-page adjudication. The final repair changes 20 CrossPage pairs (19 promotions, one demotion), after which all 2,176 gold qrels still pass both page gates. Reversing those observed corrections changes every clean-scorecard n-Clue Score by at most 0.2 points and gives pre/post system-rank correlation ρ = .9986 . The supplement provides the con-struction genealogy, audit interfaces, transition matrices, and sensitivity bounds. Because CrossPage is World-Bank-centered, a separate 
+
+SourceShift set tests operation directions on arXiv, ERIC, Federal Register, and PMC OA. Its final reviewed copy has 225 queries, 500 documents, and 8,841 nonzero qrels. SourceShift is document-level and is not used to claim page-grounded generalization. 
+
+3.3 Systems and controlled interventions 
+
+The study contains 70 CrossPage configurations: 16 stan-dalone representations, 19 decomposition variants, 15 fusion variants, four rerankers, five LLM paraphrase probes, and 11 baselines or validity controls. Fifty-four rows are fair retrieval methods; 16 are controls or diagnostics. The supplement re-ports every row, including unsuccessful variants. Standalone systems span BM25, BGE-M3 sparse/multi-vector, E5, GTE, Jina-v4, Qwen3-Embedding 0.6B/4B/8B, ColBERTv2, ColQwen2.5, Qwen3-VL 2B/8B, and DSE-Qwen2. Condition-wise decomposition retrieves every re-leased condition separately and aggregates its lists. Its distinct-page form is 
+
+SSDR (d, q ) = max   
+
+> πinjective
+
+min  
+
+> i
+
+s(ci, p π(i)), (2) where π assigns different pages to conditions. It uses no labels or stored evidence pages. Visual page aggregation averages the three best page scores. Fusion is equal-weight RRF ( k =60 , depth 100). Rerankers operate on fixed candidate pools. Models are frozen inference-only, and labels tune neither weights nor fusion parameters. The primary scorecard evaluates 13 representative systems on the released clean semicolon query. Controlled interven-tion effects come from the original raw-form matrix because those endpoints were fixed there. For blocks with several Matrix block Runs Controlled question Capability readout Representation / scale 16 change encoder, size, interaction, or modality compare complete-first level to Gold Hit; isolate the 0.6B →8B scale contrast Condition composition 19 joint query → per-condition lists same-backbone min/product/harmonic aggregation and distinct-page BM25 Complementarity 15 one list → equal-weight RRF test whether lexical, dense, and visual errors supply complementary golds Fixed-pool reranking 4 candidate ranking → generic reranker ask whether stronger general relevance also rewards full condition coverage LLM wording probes 5 raw query → frozen paraphrase test whether low dense performance is only a list-rendering artifact Validity controls 11 mask conditions, expose facts, or restrict pages check condition necessity, leakage ceiling, and cross-page floor Submitted matrix 70 54 fair methods + 16 controls/diagnostics every row and uncertainty interval appears in Supple-mentary Table S1 
+
+Table 2: Capability-study matrix. The additional robustness program reruns 13 systems under three deterministic forms (39 rankings), recomputes task-factor slices from final qrels, and applies the same operations to SourceShift. variants, the displayed endpoint is the highest raw-form n-Clue Score; all alternatives remain reported. An additional 39-run matrix reruns 13 systems under raw, clean, and de-terministic natural renderings. Five dense systems also have cache-backed LLM paraphrases. These probes vary wording, not the qrels. 
+
+3.4 Inference and dependence 
+
+CrossPage intervals resample 453 exact-gold-set query fam-ilies with 1,000 bootstrap draws. Paired randomization flips complete families. For each of eight controlled blocks, max-|T | first accounts for all tried endpoints, followed by Holm correction across blocks. The gold-membership graph links 995/1,000 queries, so the supplement addi-tionally reports crossed query/document weighting, leave-one-document analyses, common-support ordering, fixed-denominator failure decompositions, and judged-subset-promotion bounds (Efron 1979). SourceShift comparisons are stress analyses on its final target-reviewed qrels. 
+
+## 4 Results 
+
+4.1 RQ1: Discovery is not complete-first ranking 
+
+Table 3 shows a large discovery–completion gap for every approach. The selected lexical–visual hybrid has the highest displayed values: 81.1 Gold Hit but only 35.8 n-Clue Score, a 45.3-point gap. ColQwen top-3 finds a gold on 71.2% of queries but completes the event on 25.2%. Thus its page aggregation mainly expands discovery; it does not establish that every condition is covered before partial matches. Even systems with lower absolute recall exhibit 30-point gaps. A gold-only metric or hit rate therefore overstates readiness for multi-evidence retrieval. The outcome decomposition makes the bottleneck sharper (Table 4). The hybrid reduces outright discovery misses to 18.9%, yet subset-first ordering remains its largest outcome at 45.3%. ColQwen top-3 behaves similarly: aggregation re-duces misses to 28.8%, while 46.0% of queries contain a re-trieved gold that still follows a subset. Condition-wise Qwen retrieval lowers misses relative to the joint 8B system, but 35.5% of queries become subset-first failures. Better cover-age can therefore move mass from “miss” to “retrieved but incomplete-first” without solving the ranking decision. One released example illustrates the event. Query 
+
+nclue_0000 requests an Executive Summary, COVID-19, and Sanctions. Its gold stores support on pages 2, 19, and 60. Clean BM25 ranks a grade-1 subset first and the gold fourth; visual top-3 ranks subsets first and ninth but misses the gold; their RRF hybrid moves the gold to rank 2, still behind a grade-1 subset at rank 1. The hybrid has found the right 69-page document, but the ranking still provides no complete-first guarantee. The supplement shows the released pages for this gold and a grade-2 subset. 
+
+4.2 RQ2–RQ3: Scale is insufficient; explicit coverage helps 
+
+Figure 2 shows the full fair-method landscape. Table 5 then changes one operation at a time. Effect columns are per-centage points; the paired score difference is the decision quantity. 
+
+Model size is not the missing operation. Within the tested Qwen3-Embedding family, increasing size from 0.6B to 8B adds 1.2 Gold-Hit points but 0.0 n-Clue Score points. This is a bounded conclusion about one family, not a claim that scale can never help. Across the standalone encoders tested here, however, no representation reaches the composition or fusion endpoints. 
+
+Decomposition helps two dense backbones. Separating conditions improves n-Clue Score by 6.8 points for Jina and 7.3 for Qwen, with selection-aware corrected p = .005 and 
+
+.002 . The operation, not a larger checkpoint, supplies the gain. Yet composition is not sufficient: distinct-page BM25 raises Gold Hit by 27.9 points but Score by only 1.5, retriev-ing many more golds without reliably moving them above subsets. Family System Multi-condition operation n-Clue Score@10 Gold Hit@10 Gold-NDCG@10 Lexical BM25-AND joint AND query 26.8 57.2 32.2 BM25 distinct-page condition lists + distinct pages 27.9 64.7 33.3 Dense Jina-v4 joint one query vector 17.2 51.0 21.5 Jina-v4 condition-wise condition lists + harmonic mean 24.1 62.4 29.3 Qwen3-Emb. 8B joint one query vector 19.6 50.7 22.5 Qwen3-Emb. 0.6B condition-wise condition lists + product 25.6 61.1 29.7 Visual ColQwen2.5 page MaxSim 22.3 62.4 29.4 ColQwen2.5 top-3 average three page scores 25.2 71.2 34.5 Hybrid BM25 + visual top-3 † equal-weight RRF 35.8 81.1 45.6 
+
+Rerank BGE-M3 base fixed text candidates 12.4 39.5 14.7 BGE reranker rerank BGE candidates 9.6 21.8 8.7 Qwen3 text reranker rerank BGE candidates 15.0 33.0 13.7 Qwen3-VL 8B reranker rerank visual candidates 17.3 54.3 22.9 
+
+Table 3: Official clean-query CrossPage scorecard. n-Clue Score@10 requires a top-10 all-condition gold to precede every released subset. Gold Hit@10 measures discovery, and Gold-NDCG@10 measures gold placement. All rows use only released inputs. † marks the hybrid endpoint selected post hoc on the separate raw-form matrix. 20 30 40 50 60 70 80      
+
+> Gold Hit@10
+> 10
+> 15
+> 20
+> 25
+> 30
+> n-Clue Score@10
+> BM25-AND
+> (a) All 54 fair CrossPage methods
+> visual + BM25
+> BM25 distinct-page
+> visual top-3
+> Standalone (16)
+> Decompose (19)
+> Fusion (15)
+> Rerank (4)
+> BM25-AND anchor
+> −10 010 20 30
+> Δ Gold Hit (points)
+> −5
+> 0
+> 5
+> 10
+> Δ n-Clue Score (points)
+> scale page agg.
+> Jina dec.
+> Qwen dec.
+> BM25 dec.
+> hybrid
+> BGE rerank
+> visual rerank
+> (b) Paired intervention e ff ects
+> improves both
+
+Figure 2: Raw-form diagnostic matrix. (a) All 54 fair methods under Gold Hit@10 and n-Clue Score@10. (b) Controlled variant-minus-base effects. The upper-right quadrant improves both discovery and completion; other quadrants expose why recall gains alone are insufficient. 
+
+System Complete first Subset first No top-10 gold BM25-AND 26.8 30.4 42.8 Qwen3-Emb. 8B 19.6 31.1 49.3 Qwen3-Emb. 0.6B dec. 25.6 35.5 38.9 ColQwen2.5 top-3 25.2 46.0 28.8 Visual + BM25 RRF 35.8 45.3 18.9 
+
+Table 4: Mutually exclusive clean-query outcomes (% of queries). “Subset first” means a gold is in the top 10 but a released subset precedes it; the three columns sum to 100. 
+
+Complementarity helps; generic relevance reranking does not. The selected lexical–visual RRF endpoint im-proves both discovery and completion (+8.7 Score, corrected 
+
+p = .005 ), consistent with complementary lexical and visual evidence. All four tested rerankers lower Gold-NDCG rela-tive to their fixed-pool bases. The displayed visual reranker lowers Score by 6.1 points and survives correction; the dis-played text decrease does not. A generic relevance objective therefore cannot be assumed to reward the weakest uncovered condition. 
+
+4.3 RQ4: The gap persists across task and distribution shifts 
+
+The discovery–completion gap is not confined to one easy slice (Table 6). For the hybrid, moving from two to three conditions raises Gold Hit from 80.5 to 83.9 but lowers Score from 37.0 to 30.6, expanding the gap from 43.5 to 53.2 points. In dense positive pools, it still finds a gold on 81.8% of queries but scores 31.0. On queries whose shortest gold exceeds 100 pages, the hybrid remains 46.2 points below its Hit, and the visual top-3 system is 46.1 points below. These descriptive slices show that discovery alone remains insufficient as the conjunction and distractor set grow. The wording probes reach the same qualitative conclusion. Across five dense retrievers, moving from raw construction text to an LLM paraphrase changes n-Clue Score by only 
+
+−1.0 to +0 .6 points; all five remain between 12.8 and 18.5. Question Controlled comparison (base →                                                                    
+
+> variant) Score ∆Score [paired 95% CI] ∆Hit ∆NDCG Sel.+Holm p
+> Scale Qwen3-Emb. 0.6B →8B 17.7 →17.7 0.0 [ −2.7,2.8] +1.2 +0.4 1.000 Page aggrega-tion ColQwen2.5 →top-3 pages 21.2 →22.4 +1.2 [ −1.6,4.0] +9.0 +3.3 1.000 Lexical compo-sition BM25-AND →distinct-page dec. 23.8 →25.3 +1.5 [ −3.1,5.9] +27.9 +9.8 1.000 Dense composi-tion Jina joint →harmonic dec. 18.2 →25.0 +6.8 [3.7,9.9] +9.5 +7.9 .005 Dense composi-tion Qwen 0.6B joint →product dec. 17.7 →25.0 +7.3 [3.9,10.6] +11.8 +8.0 .002 Fusion visual top-3 →visual+BM25 RRF 22.4 →31.1 +8.7 [5.6,11.9] +6.5 +8.9 .005 Text reranking BGE-M3 →BGE reranker 13.3 →9.4 −3.9[−7.1,−0.7]−16 .2−5.9.168 Visual reranking ColQwen2.5 →Qwen-VL 8B 21.2 →15.1 −6.1[−9.6,−2.8]−6.8−6.7.008
+
+Table 5: Controlled CrossPage contrasts. Intervals resample exact-gold-set families. Each p-value accounts for every tried endpoint in its block and then Holm correction across the eight blocks.                                                 
+
+> System All n=2 n=3 Lmin ≤30 Lmin >100 |D+|≤ 25 |D+|>50
+> (1000) (814) (186) (185) (299) (146) (384) BM25-AND 26.8/57.2 27.6/57.9 23.1/54.3 38.4/62.2 24.1/51.8 36.3/61.6 20.6/53.9 Qwen3-Emb. 8B 19.6/50.7 20.9/51.4 14.0/47.8 18.9/42.7 22.7/51.2 28.8/63.7 13.8/46.1 Qwen3-Emb. 0.6B dec. 25.6/61.1 28.3/61.1 14.0/61.3 28.6/60.0 28.4/63.9 34.9/71.9 19.5/59.4 ColQwen2.5 top-3 25.2/71.2 25.1/69.9 25.8/76.9 29.7/73.5 21.1/67.2 26.7/75.3 22.7/72.1 Visual + BM25 RRF 35.8/81.1 37.0/80.5 30.6/83.9 41.6/84.9 33.1/79.3 43.2/83.6 31.0/81.8
+
+Table 6: Descriptive clean-query slices. Cells are n-Clue Score / Gold Hit . Lmin is the shortest gold-document length because any gold can satisfy a query; |D+| is the nonzero-qrel pool. Slices overlap and are not causal contrasts.                        
+
+> Operation (variant −base) CrossPage SourceShift Direction Page aggregation +1.2 −0.9flip Lexical composition +1.5 −20 .0flip Jina composition +6.8 +6.7 same Visual + lexical RRF +8.7 +15.1 same Text reranking −3.9−8.0same Visual reranking −6.1−3.1same
+
+Table 7: Raw-form operation-direction stress test on the fi-nal reviewed qrels. Values are variant-minus-base n-Clue Score@10 points. These paraphrases are not guaranteed lexical-free, so they are a semantic wording probe rather than a paraphrase bench-mark. In the separate 13-system ×3-form matrix, dense com-position improves under raw, clean, and deterministic natural renderings; the BGE and visual rerankers decrease under all three. Absolute BM25 levels do change, so we do not pool forms into one leaderboard. Condition-dropping adds a ne-cessity check: removing either of the first two conditions lowers Gold-NDCG for all five dense systems; removing the third on n = 3 lowers it for three of five. Under source shift, dense composition, cross-modal com-plementarity, and the two displayed reranker directions repli-cate (Table 7). Lexical distinct-page composition reverses sharply, and page aggregation also flips. The study therefore supports dense decomposition and complementarity as the more stable directions, not a source-general claim for every          
+
+> Page-scored run Cond. coverage Full coverage Gold+Support Qwen3-VL 2B 49.5 17.2 5.3 Qwen3-VL 8B 47.4 13.6 5.1
+
+Table 8: Stored-page evidence coverage (%). Condition and full coverage are conditional on a top-10 gold in the page-scored evidence run; Gold+Support uses all 1,000 queries. task-aware operation. 
+
+4.4 RQ5: Retrieved golds rarely arrive with all stored support 
+
+For the two visual systems that retain page scores, Gold+Support@10 is 5.3 for Qwen3-VL 2B and 5.1 for 8B. Conditional on first retrieving a gold, a stored reference page is surfaced for an individual condition about half the time, but all-condition page coverage is only 14–17% (Table 8). For 2B, full coverage falls from 21.2% on two-condition hits to 5.1% on three-condition hits; the corresponding 8B val-ues are 14.1% and 11.3%. The metric credits only stored pages and is therefore conservative. Even so, the order-of-magnitude drop from Gold Hit to evidence delivery identifies the next modeling target: condition-to-page matching or iter-ative retrieve-and-verify behavior that explicitly rewards the weakest condition. 5 Construct Validity 
+
+We bracket the intended construct with controls rather than infer it from the headline gap alone. A privileged construction-fact counter reaches 100 n-Clue Score, whereas requiring all conditions on one page scores zero; indepen-dently, 0/2,176 golds are single-page-solvable and all 2,176 admit a distinct-page assignment. The task is therefore exe-cutable with the defining evidence facts but cannot be solved from a single page. Conditions are also not decorative: drop-ping c1 or c2 lowers Gold-NDCG by 1.9–6.5 points for each of five dense retrievers, and c3 lowers three of five signifi-cantly. Wording and shortcut controls delimit alternative expla-nations. Five frozen LLM paraphrases change dense scores by only −1.0 to +0 .6 points, and the main operation signs mostly persist across 39 deterministic-form runs. A length-matched gold–subset analysis changes distinct-page BM25 AUC from .606 to .598, while a query-independent condition-frequency prior reaches only 14.1 Score. Finally, reversing the 20 observed CrossPage audit repairs moves the clean scorecard by at most 0.2 points. Supplementary Table S5 gives the full masking rows, intervals, and adversarial promotion bounds. These controls do not turn the instrument into a popula-tion sample. The paraphrases retain lexical overlap, the audit is stratified rather than exhaustive, and length matching ad-dresses only one observed confound. Our conclusions there-fore concern the fixed, versioned instrument and controlled operation contrasts; they do not estimate the prevalence of multi-evidence needs in real traffic. 
+
+## 6 Implications for Retrieval Design 
+
+The controlled results separate three system responsibilities that are often collapsed into one relevance score. Discovery 
+
+places at least one gold in the candidate set. Page aggregation, decomposition, and fusion can all improve this stage. Cov-erage tracking records which query conditions have support in each candidate and where that support occurs. The same-backbone decomposition gains show that retaining condition-specific scores is useful, but BM25’s +27 .9 Hit / +1 .5 Score contrast shows that simply unioning more condition lists is not enough. Finally, verification and ordering must reject a topically strong candidate when its weakest condition is un-supported. The reranking and Gold+Support results locate the largest remaining gap at this stage. A direct design follows from this separation. Instead of compressing a conjunction and a long document into one scalar immediately, a retriever can maintain a condition–page matrix Mi,p = s(ci, p ). Candidate generation may remain lexical, dense, visual, or fused. A coverage layer then finds a distinct-page assignment and exposes both the assigned evidence and the weakest condition score. A verifier reads the small assigned page set, updates condition states, and either ranks the document as complete or retrieves again for the missing condition. This design combines the observed benefit of decomposition with an explicit safeguard against the subset flooding seen in Table 4. The study also suggests a training signal. Natural grade-
+
+(n − 1) documents are targeted counterexamples: highly rel-evant to most of the query yet required to lose to a complete document. A condition-aware reranker should therefore op-timize a complete-over-subset contrast and return evidence assignments rather than generic pointwise relevance alone. This is a hypothesis for model development, not a method result; the released rankings and page labels make it directly testable. 
+
+## 7 Scope, Limitations, and Release 
+
+The study supports a narrow claim about explicit conjunc-tive, cross-page document retrieval . Conditions are named sections or phrases, not arbitrary implicit information needs. CrossPage is World-Bank-centered, and its gold judgments overrepresent long documents; the target-length slices de-scribe this structure but do not make it representative of all corpora. SourceShift broadens document sources but lacks page evidence. The released scorer treats inventory-zero pairs as grade 0, so complete-first success is relative to a versioned evidence inventory rather than exhaustive new judgments of all two million query–document pairs. Sampled quote-backed repair and promotion sensitivity reduce, but cannot eliminate, false-negative risk. The strongest hybrid was selected post hoc on the raw matrix and is descriptive. The roster is broad but does not in-clude every proprietary retriever, an end-to-end long-context reader, or a trained retrieve-and-verify agent. Consequently, we diagnose a retrieval bottleneck rather than claiming an upper bound on complete RAG systems. Future work should test semantic paraphrases with strict lexical controls, add page evidence to multiple sources, and compare task-aware readers or agents against the fixed retrieval outputs. 
+
+Reproducibility. The Code and Data Supplement, dis-tributed with this preprint as an arXiv ancillary file, con-tains final queries, qrels, all 70 rankings, the 39 form rank-ings, scoring and analysis code, audit records, model revi-sions, hashes, and prompts. One command regenerates the principal score, contrast, and sensitivity outputs and veri-fies frozen claims; a paper-local script regenerates the failure and task-factor tables. Source URLs and recorded terms sup-port reconstruction without redistributing third-party PDFs, images, or OCR (Gebru et al. 2021). 
+
+## 8 Conclusion 
+
+Representative retrievers often find a relevant long docu-ment without establishing that it covers the full request. On the controlled CrossPage instrument, the interventions that change this are explicit condition-wise decomposition and lexical–visual fusion, which improve two dense backbones and the hybrid; generic reranking is frequently harmful, and scaling one dense family does not help. The strongest dis-played hybrid illustrates the gap these operations only partly close: 81.1 Gold Hit but only 35.8 complete-first success, and page-aware systems deliver all stored support on about 5% of queries. Retrieval must therefore track each condition and verify its evidence before declaring a document complete. References 
+
+Chen, J.; Xiao, S.; Zhang, P.; Luo, K.; Lian, D.; and Liu, Z. 2024. M3-Embedding: Multi-Linguality, Multi-Functionality, Multi-Granularity Text Embeddings Through Self-Knowledge Distillation. In Findings of ACL .Cohen, J. 1960. A Coefficient of Agreement for Nominal Scales. Educational and Psychological Measurement , 20(1): 37–46. Cormack, G. V.; Clarke, C. L.; and Buettcher, S. 2009. Re-ciprocal Rank Fusion Outperforms Condorcet and Individual Rank Learning Methods. In SIGIR .Dong, K.; Chang, Y.; Goh Xin Deik, D.; Li, D.; Tang, R.; and Liu, Y. 2025. MMDocIR: Benchmarking Multimodal Retrieval for Long Documents. In EMNLP , 30971–31005. Association for Computational Linguistics. Efron, B. 1979. Bootstrap Methods: Another Look at the Jackknife. The Annals of Statistics , 7(1): 1–26. Fagin, R.; Lotem, A.; and Naor, M. 2003. Optimal Aggrega-tion Algorithms for Middleware. Journal of Computer and System Sciences , 66(4): 614–656. Faysse, M.; Sibille, H.; Wu, T.; Omrani, B.; Viaud, G.; Hude-lot, C.; and Colombo, P. 2025. ColPali: Efficient Document Retrieval with Vision Language Models. In ICLR .Formal, T.; Piwowarski, B.; and Clinchant, S. 2021. SPLADE: Sparse Lexical and Expansion Model for First Stage Ranking. In SIGIR .Gebru, T.; Morgenstern, J.; Vecchione, B.; Vaughan, J. W.; Wallach, H.; Daumé III, H.; and Crawford, K. 2021. Datasheets for Datasets. Communications of the ACM ,64(12): 86–92. Günther, M.; Sturua, S.; Akram, M. K.; Mohr, I.; Ungureanu, A.; Wang, B.; Eslami, S.; Martens, S.; Werk, M.; Wang, N.; and Xiao, H. 2025. jina-embeddings-v4: Universal Embed-dings for Multimodal Multilingual Retrieval. arXiv preprint arXiv:2506.18902 .Ho, X.; Nguyen, A.-K. D.; Sugawara, S.; and Aizawa, A. 2020. Constructing A Multi-hop QA Dataset for Compre-hensive Evaluation of Reasoning Steps. In COLING .Izacard, G.; Caron, M.; Hosseini, L.; Riedel, S.; Bojanowski, P.; Joulin, A.; and Grave, E. 2022. Unsupervised Dense In-formation Retrieval with Contrastive Learning. Transactions on Machine Learning Research .Järvelin, K.; and Kekäläinen, J. 2002. Cumulated Gain-Based Evaluation of IR Techniques. ACM Transactions on Information Systems , 20(4): 422–446. Karpukhin, V.; Oguz, B.; Min, S.; Lewis, P.; Wu, L.; Edunov, S.; Chen, D.; and Yih, W.-t. 2020. Dense Passage Retrieval for Open-Domain Question Answering. In EMNLP .Khattab, O.; and Zaharia, M. 2020. ColBERT: Efficient and Effective Passage Search via Contextualized Late Interaction over BERT. In SIGIR .Lee, C.; Roy, R.; Xu, M.; Raiman, J.; Shoeybi, M.; Catanzaro, B.; and Ping, W. 2025. NV-Embed: Improved Techniques for Training LLMs as Generalist Embedding Models. In ICLR .Lewis, P.; Perez, E.; Piktus, A.; Petroni, F.; Karpukhin, V.; Goyal, N.; et al. 2020. Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks. In NeurIPS .Li, Z.; Zhang, X.; Zhang, Y.; Long, D.; Xie, P.; and Zhang, M. 2023. Towards General Text Embeddings with Multi-stage Contrastive Learning. arXiv preprint arXiv:2308.03281 .Lu, X.; Liu, S.; Yin, B.; Li, Y.; Chen, X.; Su, H.; Jin, Y.; Zeng, W.; and Shen, X. 2025. MultiConIR: Towards Multi-Condition Information Retrieval. In Findings of the Associ-ation for Computational Linguistics: EMNLP 2025 , 13471– 13494. Association for Computational Linguistics. Ma, X.; Lin, S.-C.; Li, M.; Chen, W.; and Lin, J. 2024. Unifying Multimodal Retrieval via Document Screenshot Embedding. In EMNLP .Muennighoff, N.; Tazi, N.; Magne, L.; and Reimers, N. 2023. MTEB: Massive Text Embedding Benchmark. In EACL .Nguyen, T.; Rosenberg, M.; Song, X.; Gao, J.; Tiwary, S.; Majumder, R.; and Deng, L. 2016. MS MARCO: A Hu-man Generated MAchine Reading COmprehension Dataset. 
+
+arXiv preprint arXiv:1611.09268 .Nogueira, R.; Jiang, Z.; Pradeep, R.; and Lin, J. 2020. Document Ranking with a Pretrained Sequence-to-Sequence Model. In Findings of EMNLP .Pezeshkpour, P.; and Hruschka, E. 2025. Multi-Conditional Ranking with Large Language Models. In Proceedings of NAACL-HLT (Volume 1: Long Papers) , 2863–2883. Associ-ation for Computational Linguistics. Robertson, S.; and Zaragoza, H. 2009. The Probabilistic Relevance Framework: BM25 and Beyond. Foundations and Trends in Information Retrieval , 3(4): 333–389. Santhanam, K.; Khattab, O.; Saad-Falcon, J.; Potts, C.; and Zaharia, M. 2022. ColBERTv2: Effective and Efficient Re-trieval via Lightweight Late Interaction. In NAACL .Song, M.; Zheng, M.; and Luo, X. 2025. Counting-Stars: A Multi-evidence, Position-aware, and Scalable Benchmark for Evaluating Long-Context Large Language Models. In 
+
+Proceedings of the 31st International Conference on Com-putational Linguistics , 3753–3763. Association for Compu-tational Linguistics. Song, T.; Gan, G.; Shang, M.; and Zhao, Y. 2025. IFIR: A Comprehensive Benchmark for Evaluating Instruction-Following in Expert-Domain Information Retrieval. In 
+
+NAACL , 10186–10204. Su, H.; Yen, H.; Xia, M.; Shi, W.; Muennighoff, N.; Wang, H.-y.; Liu, H.; Shi, Q.; Siegel, Z. S.; Tang, M.; Sun, R.; Yoon, J.; Arik, S. O.; Chen, D.; and Yu, T. 2025. BRIGHT: A Re-alistic and Challenging Benchmark for Reasoning-Intensive Retrieval. In ICLR .Sun, W.; Yan, L.; Ma, X.; Wang, S.; Ren, P.; Chen, Z.; Yin, D.; and Ren, Z. 2023. Is ChatGPT Good at Search? Investigating Large Language Models as Re-Ranking Agents. In EMNLP .Thakur, N.; Reimers, N.; Rücklé, A.; Srivastava, A.; and Gurevych, I. 2021. BEIR: A Heterogeneous Benchmark for Zero-shot Evaluation of Information Retrieval Models. In 
+
+NeurIPS Datasets and Benchmarks Track .Trivedi, H.; Balasubramanian, N.; Khot, T.; and Sabharwal, A. 2022. MuSiQue: Multihop Questions via Single-hop Question Composition. Transactions of the Association for Computational Linguistics , 10: 539–554. Wadden, D.; Lin, S.; Lo, K.; Wang, L. L.; van Zuylen, M.; Cohan, A.; and Hajishirzi, H. 2020. Fact or Fiction: Verifying Scientific Claims. In EMNLP , 7534–7550. Wadden, D.; Lo, K.; Kuehl, B.; Cohan, A.; Beltagy, I.; Wang, L. L.; and Hajishirzi, H. 2022. SciFact-Open: Towards Open-Domain Scientific Claim Verification. In Findings of EMNLP , 4719–4734. Wang, L.; Yang, N.; Huang, X.; Jiao, B.; Yang, L.; Jiang, D.; Majumder, R.; and Wei, F. 2022. Text Embeddings by Weakly-Supervised Contrastive Pre-training. arXiv preprint arXiv:2212.03533 .Weller, O.; Chang, B.; MacAvaney, S.; Lo, K.; Cohan, A.; Van Durme, B.; Lawrie, D.; and Soldaini, L. 2025. FollowIR: Evaluating and Teaching Information Retrieval Models to Follow Instructions. In NAACL , 11926–11942. Weller, O.; Lawrie, D.; and Van Durme, B. 2024. NevIR: Negation in Neural Information Retrieval. In EACL , 2274– 2287. Xiong, L.; Xiong, C.; Li, Y.; Tang, K.-F.; Liu, J.; Bennett, P.; Ahmed, J.; and Overwijk, A. 2021. Approximate Near-est Neighbor Negative Contrastive Learning for Dense Text Retrieval. In ICLR .Xu, G.; Yin, Z.; Zhang, L.; Liang, J.; Lu, W.; Zhang, X.; Yang, Z.; Jiang, S.; and Yang, D. 2026. ComLQ: Bench-marking Complex Logical Queries in Information Retrieval. In Proceedings of the AAAI Conference on Artificial Intelli-gence , volume 40, 34115–34123. Yang, S.; Zhang, Q.; Yang, Y.; Xu, R.; Hou, Y.; Jia, Z.; Gao, L.; Wang, H.; Chen, J.; Wang, J.; Guo, S.; Zheng, B.; and Chen, G. 2026. FinMRAGBench: A Realistic and Complex Benchmark for Multi-Modal RAG in Financial Document Analysis. In Findings of the Association for Computational Linguistics: ACL 2026 , 3822–3867. Association for Compu-tational Linguistics. Yang, Z.; Qi, P.; Zhang, S.; Bengio, Y.; Cohen, W. W.; Salakhutdinov, R.; and Manning, C. D. 2018. HotpotQA: A Dataset for Diverse, Explainable Multi-hop Question An-swering. In EMNLP .Zhang, Y.; Li, M.; Long, D.; Zhang, X.; Lin, H.; Yang, B.; Xie, P.; Yang, A.; Liu, D.; Lin, J.; Huang, F.; and Zhou, J. 2025. Qwen3 Embedding: Advancing Text Embedding and Reranking Through Foundation Models. arXiv preprint arXiv:2506.05176 .Zheng, Y.; Fu, P.; Li, H.; Wang, Z.; Zhang, Y.; Ruan, W.; Zhang, X.; Wei, Z.; Luo, Z.; Luan, J.; Chen, W.; and Bai, X. 2026. Doc-V ∗: Coarse-to-Fine Interactive Visual Rea-soning for Multi-Page Document VQA. In Proceedings of the 64th Annual Meeting of the Association for Computa-tional Linguistics (Volume 1: Long Papers) , 45901–45923. Association for Computational Linguistics. Zhu, D.; Wang, L.; Yang, N.; Song, Y.; Wu, W.; Wei, F.; and Li, S. 2024. LongEmbed: Extending Embedding Models for Long Context Retrieval. In EMNLP , 802–816. Supplementary Material for “Do Current Retrievers Cover All the Evidence?” 
+
+## Sungguk Cha, DongWook Kim, Mintae Kim, Youngsub Han, Byoung-Ki Jeon, Sangyeob Lee LG Uplus, Seoul, South Korea {sungguk,dongwook92,iammt,yshan042,bkjeon,sangyeob}@lguplus.co.kr 
+
+# Supplementary Contents 
+
+1 Study Questions and Measurement Instrument 2
+
+1.1 Construction and validation genealogy . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 2
+
+2 Capability Matrix and Main-Paper Derivation 33 Headline-Contrast Sensitivity 84 Clustered Uncertainty and Paired Tests 95 Task-Factor Slices (Table S1j) 10 6 Query-Form Robustness Protocol 10 
+
+6.1 LLM paraphrase probe (Table S2a) . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 11 
+
+7 Query-Form Robustness Results (Table S2b) 11 8 SourceShift Robustness Study (Tables S3–S4) 12 9 Construct Diagnostics and Label Examples (Tables S5a–S6) 12 10 Evidence Audit and Adjudication 14 
+
+10.1 Scope and Sampling . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 14 10.2 Initial Blind Audit . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 10.3 Expanded-Page Adjudication Poll . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16 10.4 Evidence-Aware Final Decisions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 10.5 Targeted Residual-Qrel Challenge . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 10.6 Effect on Evaluation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19 
+
+11 Construction-Model Provenance 19 12 Reconstruction and Copyright 20 13 Release Files 20 
+
+11 Study Questions and Measurement Instrument 
+
+The paper is a capability study, with n-Clue serving as the controlled measurement instrument. The distinction matters for reading the supplement: construction and audit sections establish that the instrument measures the intended complete-before-subset event, while the experiment sections establish what current retrieval operations do on that event. The study questions and their supporting artifacts are: 
+
+Question Capability being tested Principal evidence RQ1 Can a retriever place an all-condition document before natural condition-subset matches? clean scorecard; complete matrix RQ2 Does representation choice or within-family scale close the discovery–completion gap? 16 standalone rows; Qwen 0.6B/4B/8B contrast RQ3 Which operations improve condition coverage? 19 decomposition, 15 fusion, and four fixed-pool reranking rows RQ4 Do conclusions survive task-factor, wording, and source shifts? Table S1j; Tables S2–S4; SourceShift RQ5 Do page-aware systems deliver stored support for every con-dition? Gold+Support and conditional page cov-erage 
+
+## 1.1 Construction and validation genealogy 
+
+CrossPage pays the page-analysis cost once and reuses a versioned, document-wide condition inventory. For a condition 
+
+ci, P0(d, c i) is the set of pages in document d whose stored facts establish that condition. Construction enumerates every document in S
+
+> i
+
+{d : P0(d, c i)̸ = ∅} and emits its exact nonzero clue count. A gold requires every page set to be nonempty, their all-condition intersection to be empty, and a distinct-page assignment to exist. A subset has at least one but fewer than all conditions. The table below records which immutable or repaired copy supports each reported result.                                      
+
+> Stage / copy Input →output Purpose Reported use Mine P02,021 PDFs / 41,441 pages →
+> condition–page sets analyze pages once and retain page provenance immutable construction facts Compose P04,000 →2,299 verified →
+> 1,000 selected queries rare conjunction, semantic gate, distinct-page matching, fixed quality/diversity selection 50,995 nonzero CrossPage pairs Blind audit 300 pairs / 710 conditions →
+> two votes test the inventory under hidden IDs with exact quotes 84.7% exact-grade agreement Repair P75 expanded pairs / 94 condi-tions →final page sets pool six–nine pages and rerun clue count plus both page gates 2,176 gold + 48,819 subsets; all Cross-Page results Gate S0eight sources →four passing sources apply the frozen 98% extraction gate and document-level conjunction labels 225 queries / 500 documents after sam-pled repair Stress S125 targets + 25 controls →
+> blind tie-breaks challenge every reviewed label able to reduce the frozen fusion–BM25 contrast final 8,841-qrel SourceShift copy
+> Measurement genealogy. P0→Pis the page-grounded CrossPage path; S0→Sis the separate document-level SourceShift stress path. Query rendering changes text, never qrels.
+
+The final CrossPage inventory has 2,176 gold and 48,819 subset qrels. An independent re-derivation finds zero single-page-solvable golds and a valid distinct-page assignment for every gold. The initial sampled audit, expanded adjudication, actual interfaces, and exact transition matrices are reported in the integrated Evidence Audit and Adjudication section below. 21 EXTRACT        
+
+> 2,021 PDFs; 41,441 pages
+> section / phrase facts
+> 2COMPOSE
+> common clues; rare
+> 2- or 3-clue sets
+> 3VERIFY
+> 4,000 to 2,299 candidates
+> page matching + LLM gate
+> 4SELECT
+> quality + diversity
+> 2,299 to 1,000 queries
+> 5BLIND AUDIT
+> 300 pairs x 2 annotators
+> 3 pages + exact quotes
+> 6EXPAND
+> 75 ambiguous pairs
+> 6-9 pages shown at once
+> 7REPAIR
+> 65 / 300 grades revised
+> distinct pages rechecked
+> 8SOURCESHIFT TEST
+> 125 targets + 25 controls
+> 101 target grades revised
+> BUILD THE PAGE-GROUNDED CROSSPAGE BENCHMARK
+> CHECK LABELS: RANDOM SAMPLE, THEN SOURCESHIFT STRESS TEST
+
+Figure S1: The measurement-instrument pipeline. The top row turns a corpus-wide page-fact inventory into 1,000 controlled CrossPage queries. The bottom row tests structural validity, repairs quote-backed sampled labels, and separately stress-tests high-impact SourceShift labels. 
+
+# 2 Capability Matrix and Main-Paper Derivation 
+
+The capability study is a contrast matrix rather than a single-model leaderboard. Its 70 rows vary representation, composition, page aggregation, fusion partner, reranking, and query rendering while preserving the same 1,000 query IDs and qrels. The categories and row counts below are read directly from the submitted reference-run manifest; no unsuccessful run is silently removed. 
+
+Matrix block Runs Experimental role Standalone retrievers 16 lexical/sparse/dense/late-interaction/visual Decomposition 19 five backbones × min/product/harmonic; BM25 SDR Fusion 15 lexical, dense, and visual complementarity Reranking 4 text and visual pools; 2B/8B controls Query-form controls 5 cached rendering robustness Baselines/diagnostics 11 lexical/frequency controls, leakage oracle, floor Total 70 all have 1,000 public-ID ranking rows 
+
+Execution settings. The table below collects the shared settings behind the matrix; exact model IDs and cached revisions are included in provenance/model_revisions.json .
+
+Component Frozen setting Corpus representation MinerU page OCR; dense text chunks use 3,072 tokens with 256-token overlap Retrieval depth top 100 documents per retriever and fusion; all reported metrics at rank 10 Composition separate condition lists with min, product, harmonic mean, or injective distinct-page aggregation Visual aggregation page MaxSim; displayed page-pooling variant averages the three highest page scores Fusion / reranking equal-weight RRF ( k = 60 , depth 100); text reranking uses a fixed top-100 pool and visual reranking a fixed top-20 pool Randomness / ties selection seed 11; 1,000 bootstrap replicates; 10,000 randomization draws; stable input order resolves score ties Model identity frozen inference-only checkpoints; exact repository IDs and revisions in the archive prove-nance file 
+
+Main-paper Table 1 summarizes the controlled instrument, Table 2 maps the 70-run capability study, Table 3 is the clean-query scorecard, and Table 4 decomposes clean-query outcomes: n-Clue Score is simply 100 times the fraction of all queries with a top-10 gold before every judged subset. Gold Hit and Gold-NDCG are supporting subscores. Figure 2 exposes all 54 fair methods, and Table 5 reports eight controlled raw-form base–variant pairs: Qwen scale; ColQwen page aggregation; BM25/Jina/Qwen explicit composition; cross-modal fusion; and text/visual reranking. Each pair changes one named operation and reports the base and variant together. The table is therefore a contrast summary, not a mini-leaderboard. For blocks with multiple aggregation variants, however, the displayed variant is the highest raw-form n-Clue Score endpoint and is explicitly post hoc; the complete table below prevents hiding the remaining variants. Blockwise max-|T | tests include every tried endpoint, then use Holm correction across the 3eight displayed blocks, so inference reflects selection across the complete block. Main-paper Table 6 and the Table 4 failure decomposition are regenerated from the final clean rankings and qrels by make_capability_strata.py ;Table 7 compares operation directions under source shift. Main-paper Tables 8–9 report page-evidence delivery and construct validity, respectively. Figure 2(a) retains all 54 fair method rows, and Figure 2(b) places paired effects in the Gold-Hit–n-Clue-Score delta plane. Table S1 below is the complete result: Tables S1a–S1c rank the 66 rows that do not read construction facts in three readable blocks, while Table S1d isolates the four privileged fact diagnostics without a system rank. The leading fair block is dominated by fusion and decomposition, whereas all four generic rerankers fall below their own candidate-pool bases. 4Rank  System  Cat.  n-Clue Score  Exact-family 95% CI  Gold Hit  Gold-NDCG 1 bm25and_colqwen2.5ptop3  FUS  31.1  [27.4, 35.0]  74.7  40.5 2 bm25decompose_sdr_colqwen2.5ptop3  FUS  30.0  [26.5, 33.7]  77.4  40.2 3 bm25and_qwen3vl2b  FUS  29.4  [25.8, 34.1]  61.6  33.3 4 bm25and_qwen3emb  FUS  29.2  [25.2, 33.7]  62.1  33.4 5 bm25and_jinav4  FUS  28.9  [24.9, 33.3]  67.6  35.6 6 bm25and_bge_m3  FUS  27.8  [23.7, 32.2]  60.5  31.1 7 bm25and_e5_large  FUS  27.2  [23.4, 31.7]  61.6  32.5 8 bm25and_gte_large  FUS  26.7  [22.9, 30.9]  61.8  31.2 9 bm25decompose_sdr_jinav4  FUS  26.5  [23.2, 29.9]  72.0  34.9 10  bm25dec_jinav4_colqwenptop3  FUS  26.3  [23.0, 29.8]  77.1  38.1 11  bm25_decompose_sdr  DEC  25.3  [21.8, 28.7]  66.4  33.1 12  qwen3emb0.6b_dec_product  DEC  25.0  [22.0, 28.1]  60.2  28.6 13  jinav4_dec_hmean  DEC  25.0  [21.7, 28.0]  64.0  30.7 14  bm25_and_tuned  BL  25.0  [20.9, 30.0]  40.0  24.5 15  jinav4_dec_product  DEC  24.9  [21.5, 28.0]  63.4  30.2 16  e5_large_dec_hmean  DEC  24.9  [21.9, 28.1]  61.3  29.2 17  qwen3emb0.6b_dec_hmean  DEC  24.7  [21.8, 27.9]  58.8  28.0 18  e5_large_dec_product  DEC  24.2  [21.1, 27.3]  61.2  29.0 19  bm25_and  BL  23.8  [20.1, 28.5]  38.5  23.4 20  bm25_decompose_hmean  DEC  23.3  [19.8, 27.4]  52.7  24.9 21  bm25or_jinav4  FUS  23.3  [19.9, 27.0]  65.4  30.4 22  e5_large_dec_min  DEC  22.8  [19.5, 26.3]  51.4  23.3 
+
+> Table S1a.  CrossPage matrix ranked by n-Clue Score, ranks 1–22. Gold Hit and Gold-NDCG are supporting subscores.
+
+5Rank  System  Cat.  n-Clue Score  Exact-family 95% CI  Gold Hit  Gold-NDCG 23  bm25_decompose_product  DEC  22.5  [19.0, 26.4]  55.0  25.9 24  jinav4_dec_min  DEC  22.4  [19.1, 25.9]  49.0  23.8 25  colqwen2.5_ptop3  RET  22.4  [19.4, 25.5]  68.2  31.6 26  jinav4_colqwen2.5  FUS  21.9  [18.9, 25.1]  66.9  30.6 27  colqwen2.5_ptop2  RET  21.8  [18.4, 25.2]  65.9  30.3 28  jinav4_colqwen2.5ptop3  FUS  21.5  [18.4, 24.7]  69.6  31.3 29  gte_large_dec_product  DEC  21.2  [18.4, 24.0]  54.9  23.7 30  gte_large_dec_hmean  DEC  21.2  [18.4, 24.2]  54.9  23.8 31  colqwen2.5  RET  21.2  [18.5, 23.9]  59.2  28.3 32  bm25_or  BL  20.6  [17.5, 24.2]  53.1  24.1 33  bm25_condition_text  BL  20.6  [17.5, 24.2]  53.1  24.1 34  qwen3emb0.6b_dec_min  DEC  20.2  [17.3, 23.5]  44.0  20.9 35  bge_m3_dec_hmean  DEC  19.9  [16.8, 23.3]  46.6  19.8 36  rerank_qwen3vl2b  RER  19.7  [16.6, 22.9]  58.7  25.4 37  bm25_decompose_min  DEC  19.4  [16.2, 22.9]  45.3  19.9 38  jinav4_qwen3vl8b  FUS  19.3  [16.0, 22.2]  59.5  25.3 39  bge_m3_dec_product  DEC  19.2  [16.2, 22.6]  46.1  19.4 40  qwen3vl8b  RET  19.0  [15.7, 22.4]  52.1  21.7 41  gte_large_dec_min  DEC  18.9  [16.3, 21.7]  41.6  18.2 42  jinav4_paraphrased  QF  18.5  [15.5, 21.6]  49.7  21.0 43  text_jinav4  RET  18.2  [15.2, 21.4]  54.5  22.8 44  jinav4_qwen3vl2b  FUS  18.1  [15.4, 20.7]  54.8  24.1 
+
+> Table S1b.  CrossPage matrix ranked by n-Clue Score, ranks 23–44. Gold Hit and Gold-NDCG are supporting subscores.
+
+6Rank  System  Cat.  n-Clue Score  Exact-family 95% CI  Gold Hit  Gold-NDCG 45  e5_large_paraphrased  QF  17.8  [15.1, 20.8]  46.4  19.9 46  text_qwen3emb0.6b  RET  17.7  [15.0, 20.7]  48.4  20.6 47  text_qwen3emb8b  RET  17.7  [14.8, 20.8]  49.6  21.0 48  text_e5_large  RET  17.2  [14.3, 20.3]  44.9  19.4 49  text_qwen3emb4b  RET  17.1  [14.1, 20.2]  47.9  20.6 50  qwen3vl2b  RET  17.1  [14.2, 19.9]  44.3  19.2 51  colbertv2.0  RET  17.0  [14.3, 19.8]  53.8  22.5 52  qwen3emb_paraphrased  QF  16.7  [13.9, 19.5]  46.8  19.6 53  dse_qwen2_2b  RET  16.4  [13.8, 19.2]  39.0  14.9 54  bge_m3_dec_min  DEC  16.1  [13.6, 18.7]  38.8  16.0 55  bge_m3_sparse  RET  15.8  [12.9, 19.2]  49.5  20.8 56  bge_m3_mv  RET  15.3  [13.0, 18.0]  46.4  18.4 57  rerank_qwen3vl8b  RER  15.1  [11.8, 18.7]  52.4  21.6 58  bm25_page_aggregated  BL  14.5  [11.8, 17.2]  41.8  16.9 59  frequency_prior  BL  14.1  [11.5, 17.2]  40.6  14.6 60  text_gte_large  RET  13.5  [10.9, 16.3]  43.7  16.4 61  text_bge_m3  RET  13.3  [10.8, 16.0]  40.8  15.3 62  gte_large_paraphrased  QF  13.3  [10.8, 15.9]  44.7  16.8 63  rerank_qwen3r8b  RER  13.2  [10.5, 16.0]  29.8  11.8 64  bge_m3_paraphrased  QF  12.8  [10.5, 15.4]  40.3  14.8 65  rerank_bge_m3  RER  9.4  [7.4, 11.5]  24.6  9.4 66  random  BL  0.4  [0.1, 0.8]  0.5  0.1 
+
+> Table S1c.  CrossPage matrix ranked by n-Clue Score, ranks 45–66. Gold Hit and Gold-NDCG are supporting subscores.
+
+7Control Privileged input n-Clue Score Gold Hit Gold-NDCG 
+
+surface_form_and all-alias construction facts 100.0 100.0 99.5 
+
+surface_form_count gold-defining fact-count oracle 100.0 100.0 99.7 
+
+exact_name_and canonical construction facts 16.7 16.7 9.6 
+
+single_page_surface_and privileged single-page floor 0.0 0.0 0.0 
+
+Table S1d. Unranked construction-fact controls. Every row reads the immutable construction facts and aliases rather than only released query text and OCR, so none is a fair retriever. The 100-point controls remain consistent after repair because every query retains a construction gold at the first eligible rank; repaired subsets can only cease to block that gold. 
+
+# 3 Headline-Contrast Sensitivity 
+
+The next three tables apply the same checks to all eight main-paper pairs. They separate ordering on a common success support from unconditional failure modes, cross query/document dependence with every tried endpoint represented, and adversarial promotion of currently judged high-ranked subsets. The last check is an exact bound over judged-subset promotions; it does not cover inventory-zero pairs, which follow the released grade-0 scoring rule. 
+
+Contrast ∆Score Exact-family 95% CI ∆Hit ∆NDCG Sel.+Holm p
+
+Scale +0.0 [-2.72, +2.75] +1.2 +0.4 1.000 Page aggregation +1.2 [-1.63, +4.00] +9.0 +3.3 1.000 Lexical composition +1.5 [-3.08, +5.91] +27.9 +9.8 1.000 Jina composition +6.8 [+3.70, +9.89] +9.5 +7.9 0.005 Qwen composition +7.3 [+3.86, +10.58] +11.8 +8.0 0.002 Complementarity +8.7 [+5.63, +11.94] +6.5 +8.9 0.005 Text reranking -3.9 [-7.14, -0.71] -16.2 -5.9 0.168 Visual reranking -6.1 [-9.56, -2.79] -6.8 -6.7 0.008 
+
+Table S1e. Primary-metric inference for all eight displayed CrossPage contrasts. Effects and intervals are percentage points. Endpoint selection and multiplicity are tested on n-Clue Score, the declared primary metric; NDCG is a subscore. Contrast Common n ∆D Base M/P/G Variant M/P/G Scale 378 -0.011 0.516/0.307/0.177 0.504/0.319/0.177 Page aggregation 545 +0.011 0.408/0.380/0.212 0.318/0.458/0.224 Lexical composition 307 -0.212 0.615/0.147/0.238 0.336/0.411/0.253 Jina composition 470 +0.081 0.455/0.363/0.182 0.360/0.390/0.250 Qwen composition 414 +0.075 0.516/0.307/0.177 0.398/0.352/0.250 Complementarity 660 +0.103 0.318/0.458/0.224 0.253/0.436/0.311 Text reranking 143 -0.007 0.592/0.275/0.133 0.754/0.152/0.094 Visual reranking 444 -0.077 0.408/0.380/0.212 0.476/0.373/0.151 
+
+Table S1f. Common-support ordering and unconditional outcomes. ∆D is variant minus base in 1 − P (subset > gold) where both retrieve a gold. M/P/G are unconditional miss, subset-first, and gold-first proportions. 
+
+8Contrast Document macro Crossed all-judged 95% CI Leave-one-doc range One-query/doc 95% CI Scale +2.1 [-2.58, +2.56] [-1.77, +1.55] [+0.35, +3.69] Page aggregation -3.3 [-1.40, +3.80] [-0.76, +4.03] [-5.35, -1.32] Lexical composition +0.6 [-2.00, +4.98] [-3.67, +5.90] [-1.74, +2.99] Jina composition +5.7 [+3.88, +9.73] [+5.11, +10.70] [+3.62, +7.72] Qwen composition +7.6 [+4.37, +10.35] [+5.43, +9.43] [+5.63, +9.60] Complementarity +7.0 [+6.07, +11.43] [+6.64, +11.03] [+5.15, +8.90] Text reranking -3.8 [-6.66, -1.18] [-6.39, -2.19] [-5.49, -2.02] Visual reranking -3.7 [-9.09, -3.19] [-8.31, -4.63] [-5.84, -1.46] 
+
+Table S1g. Shared-document sensitivity for n-Clue Score. All values are percentage points. The four weighting/deletion schemes expose document reuse; none asserts independent query sampling. Contrast Observed ≤ 1 ≤ 2 ≤ 3
+
+Scale +0.0 -48.6 -48.6 -48.6 Page aggregation +1.2 -44.4 -44.4 -44.4 Lexical composition +1.5 -23.1 -23.1 -23.1 Jina composition +6.8 -51.4 -51.4 -51.4 Qwen composition +7.3 -49.6 -49.6 -49.6 Complementarity +8.7 -24.6 -24.6 -24.6 Text reranking -3.9 -78.1 -78.1 -78.1 Visual reranking -6.1 -69.0 -69.0 -69.0 
+
+Table S1h. Claim-specific adversarial qrel bounds in n-Clue Score points. Each column minimizes variant-minus-base score after promoting up to k currently judged top-10 subsets per query. This is an exact bound, not an error model; qrel-absent documents remain outside its scope. 
+
+# 4 Clustered Uncertainty and Paired Tests 
+
+The code/data supplement includes the public-release-native outputs: 
+
+• ../data_release/reference_runs/clustered_ci.md 
+
+• ../data_release/reference_runs/clustered_ci.json 
+
+• ../data_release/reference_runs/paired_tests.md 
+
+• ../data_release/reference_runs/paired_tests.json 
+
+• ../data_release/reference_runs/headline_sensitivity.json 
+
+• paper/v2_revalidation_summary.json 
+
+These files are computed from queries.jsonl , qrels.jsonl , corpus.jsonl , and reference_runs/ *.jsonl . The family bootstrap groups queries with the same complete set of gold document IDs (453 families in CrossPage); it addresses exact duplicate construction families. The paired-test file covers decomposition, fusion, and reranker contrasts. For the eight main-paper rows it also reports paired exact-family bootstrap intervals. The headline-sensitivity file adds blockwise max-|T | family sign flips over every tried endpoint and Holm correction across eight blocks. CrossPage tests remain exploratory. The frozen SourceShift fusion–BM25 contrast is confirmatory with respect to system choice, but its qrel sensitivity is itself an evaluated result. Table S1i extends the family analysis to nonidentical queries sharing a document by crossing independent query and document weights, first over gold memberships and then over every judged gold/partial membership. These are stress models, not uniquely correct sampling distributions. 9Shared-document sensitivity CrossPage SourceShift Queries / distinct gold docs 1,000 / 287 225 / 218 Connected components (largest) 5 (995) 23 (195) Observed fusion −BM25 gap +.1718 +.0161 Crossed query/doc 95% interval [.1352, .2063] [-.0364, .0743] Leave-one-gold-doc gap range [.1620, .1856] [.0097, .0278] Remove 20 highest-degree docs +.0420 (53 q.) +.0437 (121 q.) All-judged components (largest) 1 (1,000) 1 (225) All-judged crossed 95% interval [.1537, .1899] [-.0210, .0550] All-judged leave-one-doc range [.1420, .1920] [-.0024, .0681] Remove 20 highest-degree judged docs +.0997 (153 q.) +.0920 (89 q.) 
+
+Table S1i. Shared-document dependence for the separately frozen fusion–BM25 comparison. The gold graphs are near-connected in CrossPage; including subsets makes both graphs fully connected. CrossPage remains positive, whereas both SourceShift crossed intervals include zero after targeted revalidation. Deletion sharply reduces the available query set. The complete JSON and generator are in the archive. 
+
+# 5 Task-Factor Slices (Table S1j) 
+
+Main-paper Table 6 is reproduced below. It is computed directly from final CrossPage qrels and the five clean-query rankings, rather than inherited from the pre-repair metrics cache.                                                 
+
+> System All n=2 n=3 Lmin ≤30 Lmin >100 |D+|≤ 25 |D+|>50
+> (1000) (814) (186) (185) (299) (146) (384) BM25-AND 26.8/57.2 27.6/57.9 23.1/54.3 38.4/62.2 24.1/51.8 36.3/61.6 20.6/53.9 Qwen3-Emb. 8B 19.6/50.7 20.9/51.4 14.0/47.8 18.9/42.7 22.7/51.2 28.8/63.7 13.8/46.1 Qwen3-Emb. 0.6B dec. 25.6/61.1 28.3/61.1 14.0/61.3 28.6/60.0 28.4/63.9 34.9/71.9 19.5/59.4 ColQwen2.5 top-3 25.2/71.2 25.1/69.9 25.8/76.9 29.7/73.5 21.1/67.2 26.7/75.3 22.7/72.1 Visual + BM25 RRF 35.8/81.1 37.0/80.5 30.6/83.9 41.6/84.9 33.1/79.3 43.2/83.6 31.0/81.8
+
+Table S1j. Descriptive task-factor slices. Every cell is n-Clue Score@10 / Gold Hit@10 in percentage points. Lmin is the minimum page count among a query’s gold documents because the scored event can succeed with any gold. |D+|
+
+is the number of nonzero inventory qrels. The slices overlap and are not causal contrasts. The table makes three boundaries explicit. First, an extra condition is not merely an extra retrieval anchor: for the hybrid, Gold Hit rises from 80.5 to 83.9 between n = 2 and n = 3 , while complete-first success falls from 37.0 to 30.6. The 0.6B decomposed Qwen row is more extreme (61.1/28.3 to 61.3/14.0). Second, target length affects paradigms differently. BM25 drops from 38.4 to 24.1 Score between the short and > 100 -page slices, whereas Qwen-8B does not; the discovery–completion gap nevertheless remains at least 27.8 points for every displayed system on the long slice. Third, positive-inventory density is consistently adverse to complete-first ranking: every displayed system has lower Score for |D+| > 50 than for |D+| ≤ 25 , even when its Gold Hit changes little. These are descriptive observations because condition frequency, source, length, and pool size are correlated by construction. 
+
+capability_strata.json stores all unrounded cells, counts, definitions, and the expected aggregate-score assertions. make_capability_strata.py regenerates both the JSON and LaTeX table and fails if any aggregate clean-scorecard value drifts. 
+
+# 6 Query-Form Robustness Protocol 
+
+The public release separates the measurement definition from the query rendering. The query IDs, qrels, corpus IDs, gold documents, and partial documents are frozen. Only the display/query text varies across forms: 
+
+• raw : exact query_text_eval_full used in the original 70-system matrix. 
+
+• clean_v2 : each cleaned concept is quoted and separated by a semicolon, e.g., "Grievance Mechanism"; "Comparison"; "Resettlement" .
+
+• natural : deterministic template Find the document that discusses "X", "Y", and "Z". 
+
+10 The semicolon delimiter is deliberately chosen because 388/1,000 older public queries contained concept-internal and ,making clue boundaries visually ambiguous. The file ../data_release/release/queries_forms.jsonl 
+
+contains all required rows for the server-side form-ablation matrix. The QA report ../data_release/release/ query_forms_report.md checks verbatim concept containment and reports 1,000/1,000 coverage for raw ,
+
+clean_v2 , and natural . LLM paraphrases are cache-backed only; they are not invented when no paraphrase cache is present. All three public forms are deterministic renderings of the same structured conditions. They isolate sensitivity to delimiters and list-like wording while holding the information need fixed. 
+
+## 6.1 LLM paraphrase probe (Table S2a) 
+
+The original 70-run matrix also contains five cache-backed glm-5.2 paraphrase runs for dense retrievers. Unlike the deterministic natural template, these may substitute concepts (for example, “executive overview” for “executive summary”). They were generated once and frozen before evaluation. 
+
+Dense retriever Raw Score Paraphrase Score ∆
+
+BGE-M3 13.3 12.8 −0.5
+
+Jina-v4 18.2 18.5 +0.3 Qwen3-Embedding 0.6B 17.7 16.7 −1.0
+
+E5-large 17.2 17.8 +0.6 GTE-large 13.5 13.3 −0.2
+
+Table S2a. Raw-to-LLM-paraphrase n-Clue Score@10. The narrow [−1.0, +0 .6] range shows that the low dense-retriever level is not explained by the raw list syntax alone. This is a probe, not a lexical-free paraphrase benchmark: several generated queries retain condition words, and only five dense systems were run. 
+
+# 7 Query-Form Robustness Results (Table S2b) 
+
+The server-side S1 run produced 39 ranking files: 13 systems/intermediates × 3 forms. The reported matrix has 13 rows ( bge_m3_joint is the shared intermediate base for text rerankers) over raw , clean_v2 , and natural .Three planned freshness anchors—Jina v5 text, Jina v5 omni, and ColQwen3—are explicitly documented as blocked in 
+
+../data_release/reference_runs/forms/BLOCKED_SYSTEMS.md ; they are not silent omissions. One freshness anchor, rerank_qwen3r8b , was runnable because its weights were already cached.                                           
+
+> System Raw Cleaned Natural
+> bm25_and 23.8 26.8 26.8
+> bm25_decompose_sdr 25.3 27.9 27.9
+> text_jinav4 18.2 17.2 18.6
+> text_qwen3emb8b 17.7 19.6 19.5
+> jinav4_dec_hmean 25.0 24.1 24.1
+> qwen3emb0.6b_dec_product 25.0 25.6 25.6
+> colqwen2.5 21.2 22.3 24.0
+> colqwen2.5_ptop3 22.4 25.2 24.4
+> bm25and_colqwen2.5ptop3 31.1 35.8 35.6
+> bge_m3_joint 13.3 12.4 12.7
+> rerank_bge_m3 9.4 9.6 10.9
+> rerank_qwen3vl8b 15.1 17.3 16.7
+> rerank_qwen3r8b 13.2 15.0 12.1
+
+Values are n-Clue Score@10 recomputed from the public-ID form rankings and adjudicated qrels. The form matrix is used for controlled operation comparisons rather than as a second leaderboard: fusion and dense composition improve the score across all three renderings; the BGE and visual rerankers lower it across all three, while the Qwen3 text reranker is mixed. The Qwen3 decomposition row compares a 0.6B decomposed run against the stronger 8B joint anchor because the server matrix reran only the 8B joint Qwen3 retriever; the full 70-system paired test also includes the same-backbone 0.6B joint/decomposed comparison. 
+
+Table S2b. Complete 13-system deterministic query-form matrix. These 39 runs, unlike Table S2a, use only verbatim concept-preserving renderings. 11 8 SourceShift Robustness Study (Tables S3–S4) 
+
+SourceShift construction began with 1,000 PDFs balanced across eight sources (125 each). Although global MinerU extraction passed at 62,039/62,838 pages (98.73%), four sources failed the pre-specified per-source 98% gate: FDA/DailyMed (95.47%), NASA NTRS (95.37%), USGS (96.01%), and World Bank (96.08%). The final quality-gated evaluation removes those sources’ queries, documents, qrels, and ranking entries, initially retaining 226 queries. The stratified audit then demoted the only gold for one ERIC query; that zero-gold query and its nine qrels are removed, producing the 225-query, 8,849-qrel post-audit copy S0. The 125-target challenge described below removes eight additional zero-grade rows and promotes reviewed targets. The resulting qrel copy S has 500 documents, 225 queries, 8,841 nonzero qrels, 502 gold judgments, and 218 distinct gold documents. Query counts remain arXiv 42, ERIC 44, Federal Register 125, and PMC OA 14; 198 have n=2 and 27 have n=3 . The 125-target challenge was selected on the frozen raw fusion–BM25 gold-only NDCG@10 contrast. Tables S3–S4 instead apply n-Clue Score uniformly to the final qrels, so their operation comparisons are a separate estimand.                                           
+
+> System Raw Cleaned Natural
+> bm25_and 44.4 32.4 32.4
+> bm25_decompose_sdr 24.4 17.8 17.8
+> text_jinav4 16.0 15.6 17.3
+> text_qwen3emb8b 16.9 14.7 16.9
+> jinav4_dec_hmean 22.7 20.9 20.9
+> qwen3emb0.6b_dec_product 23.1 21.3 21.3
+> colqwen2.5 15.6 16.0 20.0
+> colqwen2.5_ptop3 14.7 16.0 19.1
+> bm25and_colqwen2.5ptop3 29.8 27.1 28.4
+> bge_m3_joint 15.6 10.7 10.2
+> rerank_bge_m3 7.6 7.1 8.0
+> rerank_qwen3vl8b 12.4 12.9 15.6
+> rerank_qwen3r8b 12.0 9.8 12.4
+
+Table S3. n-Clue Score@10 for all 13 SourceShift systems and query forms after the targeted qrel challenge.                                                                         
+
+> Raw Cleaned Natural Contrast ∆p∆p∆p
+> Fusion −BM25 −14 .7.0001 −5.3.1579 −4.0.2984 Fusion −visual top-3 +15.1 .0001 +11.1 .0005 +9.3 .0018 Lexical decomp. −BM25 −20 .0.0001 −14 .7.0001 −14 .7.0001 Jina decomp. −joint +6.7 .0364 +5.3 .0745 +3.6 .2623 Qwen decomp. −joint +6.2 .0604 +6.7 .0340 +4.4 .2145 BGE reranker −joint −8.0.0038 −3.6.2120 −2.2.4158 Qwen-VL reranker −base −3.1.3760 −3.1.3245 −4.4.1693 Qwen3 reranker −base −3.6.2682 −0.9.8543 +2.2 .4638
+
+Table S4. Query-paired n-Clue Score differences in points with two-sided 10,000-sample permutation tests ( n = 225 ). Rows are exploratory. On this target-reviewed four-source copy, adding lexical evidence to the visual list keeps its positive direction, as do dense composition and the BGE/visual reranker signs; lexical decomposition changes direction and the Qwen3 text reranker is mixed. For the 13 raw runs, graded-NDCG and gold-only-NDCG rankings have Spearman ρ = .5714 after revalidation. The largest movement is eight ranks: bm25_and moves from twelfth under graded NDCG to fourth under gold-only NDCG. Raw fusion-minus-BM25 is heterogeneous by source: +0.1283 arXiv, +0.0587 ERIC, -0.0428 Federal Register, and +0.0718 PMC OA. SourceShift is intentionally a document-level conjunctive robustness study; CrossPage remains the page-grounded benchmark. Its 477 condition records have no stored evidence pages, so Tables S3–S4 compare document-ranking operation directions on the final target-reviewed four-source qrel copy. The released audit records and final qrels make that scope executable. 
+
+# 9 Construct Diagnostics and Label Examples (Tables S5a–S6) 
+
+The main scorecard is intentionally small enough to read as a capability result. Tables S5a–S5b retain the secondary experiments that test whether its interpretation survives condition removal, metric choice, query construction, page grounding, and sampled label repair. They are diagnostic experiments, not additional competing systems. 12 Dense retriever Drop c1 Drop c2 Drop c3 (n = 3 )Jina-v4 −4.6∗ −6.5∗ −5.1∗
+
+Qwen3-Embedding 0.6B −3.9∗ −5.0∗ −6.0∗
+
+BGE-M3 −1.9∗ −4.6∗ −3.1∗
+
+E5-large −4.7∗ −5.2∗ −2.5
+
+GTE-large −1.9∗ −3.2∗ −2.9
+
+Table S5a. Gold-NDCG@10 change in points after dropping one condition. c1/c 2 use all 1,000 queries; c3 uses the 186 three-condition queries. ∗ denotes a paired bootstrap interval excluding zero ( p ≤ .05 ). Dropping c1 or 
+
+c2 also lowers Gold Hit by 6.8–14.0 points for every model. Thus every query position carries retrieval signal; the complete-first failure is not generated by one decorative condition.                                              
+
+> Diagnostic Scope Main observation Supported interpretation Metric ranking 13 SourceShift raw runs graded vs. gold-only ρ=.571 ; maximum shift 8 ranks partial-credit metrics do not measure released complete-first success Query rendering 13 systems ×3 forms BM25 level changes; dense composition and reranking directions persist use the clean scorecard for levels and paired tests for operations Condition masking 5 dense systems; each posi-tion masking positions 1/2 lowers NDCG by .020– .065; position 3 is mixed positions 1–2 are consistently load-bearing across the five systems Construction controls fact oracle +single-page floor oracle ≈1.0; single-page AND = 0 fact access is leakage; stored gold evidence is cross-page Difficulty covariates rarity, n, length, pool size βn= + .03 (p=.27 ); rarity −.41 , pool size +.34
+> more conditions are not automatically harder after controlling density Page grounding two visual runs with page scores conditional reference hit ≈50% ;Gold+Support .051–.053 stored-support delivery is a separate modeling target Observed audit repairs 20 CrossPage corrections 19 subset →gold; 1 gold →subset; 12 appear in clean top-10 union on submitted clean rankings: Score change
+> ≤.2 points; rank ρ=.9986
+> Promotion stress all 8 pairs; 0–3 judged pro-motions/query every positive gap can cross zero at k=1 prioritize pooled judgments in benchmark maintenance
+
+Table S5b. Construct-validity and secondary diagnostic experiments. For each top-10 gold, Gold+Support takes its three highest-scoring distinct surfaced pages; it succeeds if any retrieved gold’s page set intersects stored support for every condition. Thus several golds use the best-covered one, and the surfaced pages need not form an injective assignment. It uses all 1,000 queries as the denominator, and stable ranking order resolves score ties. Per-condition and 14–17% all-condition page-coverage rates are conditional on first retrieving a gold. The complete per-system pre/post values and construction-union assertions are in crosspage_audit_impact.json and are regenerated by analyze_crosspage_audit_impact.py .The difficulty regression jointly includes condition rarity, condition count, gold-document length, and judged-pool size. On a density-matched subset, three-condition items are easier for every tested system because an additional condition can also provide an extra retrieval anchor. Matching document length changes AUC only slightly (e.g., distinct-page BM25 .606 →.598). These checks rule out simple condition-count and document-length accounts after controlling the reported covariates. 
+
+Released query example. nclue_0000 asks for "Executive Summary"; "COVID-19"; "Sanctions" .Table S6 follows that same query across one gold and two naturally occurring subset documents. Page IDs are the released rendered-page IDs; a dash means that the released document-wide evidence inventory contains no page for that condition.                             
+
+> Label Target (release ID) Executive Summary COVID-19 Sanctions Gold g= 3 world_bank_34454344 ✓p.2 ✓p.19 ✓p.60 Subset g= 2 world_bank_34422285 —✓p.28 ✓p.47 Subset g= 1 world_bank_34353633 ——✓p.4
+
+Table S6. Concrete gold and subset labels for one released three-condition query. The gold has evidence for all three conditions on distinct pages. The grade-2 and grade-1 targets retain two and one condition, respectively, so the scorer requires a system to place the gold first. 13 Gold target: all three conditions on distinct pages         
+
+> ✓Executive Summary, p.2 ✓COVID-19, p.19 ✓Sanctions, p.60 Subset target: one condition absent, so grade 2 of 3 No released page
+> for Executive Summary
+> — Executive Summary
+> ✓COVID-19, p.28 ✓Sanctions, p.47
+
+Figure S2: Actual target-page excerpts for the gold and grade-2 subset in Table S6. The shared query is identical; the label changes because the gold covers all three conditions on separate pages whereas the subset has no stored Executive Summary page. 
+
+# 10 Evidence Audit and Adjudication 
+
+This section documents the label-validation process for the n-Clue measurement instrument after construction. It presents the evaluator-facing HTML, expanded-page adjudication, the pre-specified evidence-asymmetric policy, and a second 125-target retrieval-conditioned qrel challenge with 25 blinded controls. Agreement, response integrity, exact qrel transitions, and evaluation effects are reported for both stages. Evaluators never needed to read a whole document: the initial pass showed three condition-specific page contexts and adjudication/challenge polls showed six to nine pages from the start. Exact quotes, page selections, and distinct-page feasibility were checked mechanically. 
+
+## 10.1 Scope and Sampling 
+
+The audit unit is a query–document pair, but judgments are made independently for every query condition. The initial stratified packet contains 300 pairs and 710 condition decisions: 100 pairs from CrossPage and 200 from the four sources retained by SourceShift. Stable query/document identifiers, benchmark grades, gold/partial labels, construction pages, and retrieval routes were kept in a separate administrator key. The later robustness packet is separate: all 125 SourceShift subsets capable of reducing the frozen fusion–BM25 top-10 contrast are targets, and 25 neutral controls are interleaved. It contains 150 pairs and 320 condition decisions; target/control status and the contrast itself are hidden.                                
+
+> Release Source Pairs Pre-gold Pre-subset CrossPage World Bank 98 50 48 CrossPage PMC OA 202SourceShift arXiv 50 25 25 SourceShift ERIC 50 25 25 SourceShift Federal Register 50 25 25 SourceShift PMC OA 50 22 28 All 300 147 153
+
+Table S7: Stratified audit sample. Counts describe the sampled packet, not the population distribution of qrels. 14 Figure S3: The evaluator-facing SourceShift evidence-audit interface. The complete information need, strict necessary-evidence rule, condition-specific rubric, and all three candidate pages are visible together. Positive decisions require page selection and a verbatim quote; “related” and “uncertain” are not response options. The distributed interface is entirely English. The audit asks whether displayed text is necessary evidence , not whether it is merely related. Every condition supplies (i) a complete English requirement, (ii) explicit “counts” criteria, (iii) explicit “does not count” criteria, and where needed (iv) a plain-language note. External professional knowledge is prohibited. A positive answer requires one or more page selections and an exact supporting quote; a negative answer means only that no displayed passage establishes the requirement. The task targeted English-proficient generalists: rubrics defined needed domain terms and disallowed outside inference. Recruitment, professional-background, and compensation metadata were not collected, so we make no expertise-stratified or timing-based claims. No demographic or sensitive personal data were requested. 
+
+## 10.2 Initial Blind Audit 
+
+10.2.1 Interface and validation gates 
+
+The self-contained HTML stores all text locally and requires no network access or PDF reader. It supports autosave, import/resume, keyboard navigation, always-live Previous/Next controls, and final JSON export. Before accepting an item, the browser checks that every condition has a binary answer; every positive answer has at least one in-pool page and a nontrivial quote; every quote is a normalized substring of its selected page; and every negative answer has no page or quote. The released packet contains 300 pairs, 710 rubrics, and 2,130 nonempty page contexts, with no private-field leaks or broad fallback rubrics. Two independent evaluators completed every pair and condition. Evaluator A selected direct evidence for 560 conditions and evaluator E for 555. Their exports have no structural, page-pool, or quote-matching errors. 15 Initial-audit statistic Result Completed pairs / conditions 300 / 710 Exact derived-grade agreement 254/300 (84.7%) Linearly weighted grade κ .801 Condition support agreement 661/710 (93.1%) Exact condition page-set agreement 78.7% Queries judged clear by both 300/300 Selected quotes passing exact check 2,304/2,304 
+
+Table S8: Agreement and integrity in the initial 300-pair blind audit. Exact grade agreement has a Wilson 95% interval of [80.2, 88.3]%; condition agreement has interval [91.0, 94.7]% and binary Cohen’s κ = .795 . Exact grade agreement is 85.3% for n = 2 and 83.6% for n = 3 , and 81.0% on CrossPage versus 86.5% on SourceShift. The pooled linearly weighted grade κ is therefore a compact summary across two grade scales, not a substitute for these strata.                     
+
+> Evaluator E grade Evaluator A grade 0123026001272 14 02011 128 130111 52
+
+Table S9: Initial derived-grade confusion matrix. Rows sum to A’s decisions and columns to E’s; grade 3 occurs only for three-condition pairs. 
+
+10.2.2 Evidence-asymmetric repair policy 
+
+Presence and absence do not have equal evidential status. Two independent valid quotes can establish that a supposed partial satisfies an additional condition; failure to find a quote in three pages cannot establish document-wide absence. We fixed the following policy before receiving the expanded-page responses: 1. Accept A+E consensus increases supported by valid direct quotes and a distinct-page assignment. This resolves 50 positive increases immediately. 2. Send every A/E grade split (46 pairs) to expanded-page adjudication. 3. Send every A+E consensus decrease (29 pairs) to expanded-page adjudication rather than privileging the old qrel or treating three-page absence as final. The resulting queue has 75 unique pairs and 94 unresolved conditions: 47 A/E splits and 47 conditions both evaluators marked negative. Another 86 conditions within those pairs were already directly supported and remain locked. 
+
+## 10.3 Expanded-Page Adjudication Poll 
+
+10.3.1 High-recall candidate pool 
+
+Each unresolved condition receives a deduplicated union of original candidate pages, pages already selected by evaluators, exact/alias lexical hits, BM25 page retrieval, OCR-tolerant fuzzy retrieval, and construction evidence when available. Route and rank are hidden in the evaluator form. Candidate membership counts in Table S10 are nonexclusive because one page can be recovered by several routes. 16 Figure S4: Expanded-page adjudication poll. All six to nine pages are visible from the start; there is no hidden rescue stage. The evaluator sees neither the prior qrel nor A/E votes, candidate ranks, or retrieval routes. The same binary necessary-evidence rule and exact-quote validation apply.           
+
+> Candidate-pool statistic Count Pairs / unresolved conditions 75 / 94 Displayed page contexts 830 Pages per condition (min / mean / max) 6 / 8.83 / 9 Prior evaluator-selected memberships 92 Original three-page memberships 282 Exact/alias lexical memberships 321 BM25 memberships 344 OCR-fuzzy memberships 349 Construction-fact memberships 98
+
+Table S10: Expanded-page pool composition. Membership rows are not mutually exclusive. As a held-out check, the pool is evaluated on the 86 locked positive conditions in the same queued documents. It recovers evidence for 86/86 by rank six and 86/86 by rank nine; all previously submitted positive pages are present by rank nine. This check establishes recall for known positives under the audit distribution, not exhaustive document-level recall for unknown negatives. 
+
+10.3.2 Adjudication agreement and integrity 
+
+Three adjudication responses complete all 75 pairs and 94 unresolved conditions. They agree unanimously on 80/94 binary decisions (85.1%); Fleiss κ = .636 . All 613 selected-page quotes are found exactly in the displayed text, and all selected pages belong to the relevant pool. Pairwise condition agreement is 86.2%, 92.6%, and 91.5%; the lower chance-corrected agreement reflects the high positive prevalence in this deliberately difficult queue. Responses A and E come from the two initial evaluators; F is the additional response. Thus this agreement measures repeated adjudication 17 evidence, not three fresh independent annotators, and timing metadata are not used as provenance.                     
+
+> Response Positive Negative Pages Quotes exact A76 18 201 201/201 E77 17 214 214/214 F83 11 198 198/198 All 236 46 613 613/613
+
+Table S11: Adjudication response integrity. Timing fields are intentionally not used in any validity or agreement calculation. 
+
+## 10.4 Evidence-Aware Final Decisions 
+
+A raw two-of-three vote cannot enforce distinct evidence pages or correct a clear miss visible in displayed text. An administrative check of all 14 non-unanimous conditions applied the same rubric and evidence; it is neither a fourth vote nor included in κ. Three decisions depart from raw majority: 
+
+• J011: a displayed page has a substantive “Conclusions” heading and body; the majority-negative condition is corrected to positive. 
+
+• J060: displayed regulatory pages explicitly require analysis of both costs and benefits; the majority-negative condition is corrected to positive. 
+
+• J061: both semantic conditions are supported, but only on the same page. The Hall matching gate fails, so the document remains partial rather than being promoted to gold. No other majority-gold case fails the distinct-page check. The final manifest changes 65/300 grades: 62 partial-to-gold, two gold-to-partial, and one internal partial increase. Table S12 gives the exact transitions; one 1 → 2 case remains partial because it has n = 3 .                
+
+> Grade transition Count Interpretation
+> 1→237 36 to gold; 1 remains partial
+> 2→326 26 to gold
+> 2→122 gold to partial All changes 65 net +60 sampled gold
+
+Table S12: Final grade transitions after initial consensus repair and expanded-page adjudication.                     
+
+> Release Source Sampled Corrected CrossPage All (98 WB, 2 PMC) 100 20 SourceShift arXiv 50 13 SourceShift ERIC 50 8SourceShift Federal Register 50 13 SourceShift PMC OA 50 11 All 300 65
+
+Table S13: Corrections by audit stratum. These rates must not be reweighted into a population error estimate. 
+
+## 10.5 Targeted Residual-Qrel Challenge 
+
+The stratified audit was not designed to find every false negative in a system’s top ranks. We therefore formed a separate robustness set containing every already-judged SourceShift subset in the frozen fusion/BM25 top-10 union whose promotion could reduce that contrast: 125 targets. Twenty-five neutral controls were interleaved. System, rank, 18 source, original grade, and target/control status were hidden, and all 150 pairs used the same binary necessary-evidence rule and six-to-nine-page display as the expanded-page poll. Integrity review found two nominal first-pass files identical at all 320 condition decisions, selected pages, and quotes; they are collapsed to one response stream rather than counted twice. The remaining unique stream agrees on 245/320 conditions. A fresh evaluator completed a 75-condition tie-break over 61 pairs; all 136 selected quotes exactly match displayed text. The tie-breaker selects the duplicate-collapsed stream on 22 conditions and the other stream on 53. One would-be gold fails the distinct-page gate. Final target transitions are 1 → 0 (8), 1 → 1 (23), 1 → 2 (82), 1 → 3
+
+(6), 2 → 2 (1), and 2 → 3 (5): 101/125 grades change, 90 targets become gold, and 23/25 control grades are retained. 
+
+## 10.6 Effect on Evaluation 
+
+Table S14 separates the two validation stages. The stratified audit updates 20 CrossPage and 45 SourceShift qrels; one demotion removes a zero-gold SourceShift query. Across all 70 CrossPage systems, pre/post rank correlation is 
+
+.9998 , representative gold-only NDCG@10 moves by at most .0012 , and the largest movement is one position. The later challenge changes no CrossPage labels. On SourceShift it removes eight zero-grade target rows and changes the frozen raw contrast: both system scores increase, but BM25-AND increases more, shrinking the gap to +.016 with query-paired p = .381 and shared-gold-family p = .402 .                                      
+
+> Quantity Construction Strat. audit Target challenge Reviewed grades changed –65/300 101/125 SourceShift queries 226 225 225 SourceShift nonzero qrels 8,858 8,849 8,841 CrossPage fusion .406 .405 .405 CrossPage decompose-SDR .332 .331 .331 CrossPage BM25-AND .234 .234 .234 SourceShift raw fusion .293 .284 .322 SourceShift raw BM25-AND .183 .177 .305 SourceShift fusion −BM25 gap +.110 +.107 +.016 SourceShift paired test p=.0001 p=.0001 p=.381
+
+Table S14: Evaluation impact of both validation stages. Values are gold-only NDCG@10 unless otherwise indicated. The target challenge is deliberately contrast-conditioned and therefore tests robustness rather than estimating an unbiased leaderboard. The final raw crossed query/gold-document interval is [−.036 , . 074] and the crossed query/all-judged-document interval is [−.021 , . 055] . Source deltas are heterogeneous: +.128 arXiv, +.059 ERIC, −.043 Federal Register, and 
+
++.072 PMC OA. These numbers are valid for the reviewed qrel copy, but target selection precludes treating its correction rate or system ordering as population-unbiased. 
+
+# 11 Construction-Model Provenance 
+
+CrossPage semantic clustering and item verification use glm-5.2 through the same Anthropic-compatible endpoint. The exact prompts and response parsers are included in judge_clusters.py and verify_items.py . Both disable extended thinking, specify a maximum output length, and do not set a temperature, top-p, or provider seed; therefore the provider default sampling policy applies. Cluster calls return KEEP/SPLIT/REJECT JSON, with a second validated partition call only for SPLIT. Item calls return one Boolean and evidence string per condition after reading the pages where mined surface forms occur. Any mismatch between this semantic read and the mined condition set removes the complete item; there is no pre-audit majority vote or human–LLM conflict-resolution stage. Prompts, accepted outputs, source revision, and final qrels are frozen, enabling artifact reproduction even though fresh API calls are not bit-reproducible. For each query, construction enumerates the union of the per-condition document sets and emits every member with its exact nonzero clue count. Across CrossPage, the sum of those union sizes is 50,995, exactly the number of qrel rows. The other 1,970,005 query–document pairs have clue count zero under the same inventory; their zero rows are omitted from the compact JSONL and restored by the scorer. Equal-score ties retain stable input order. 19 12 Reconstruction and Copyright 
+
+The released benchmark data contain annotations, query text, qrels, document metadata, reference rankings, and scripts. They deliberately exclude source PDFs, rendered page images, OCR text, and page crops. This is a copyright and license decision, not a storage-capacity decision: the local OCR dump is small enough for Hugging Face, but it is extracted third-party full text from a mixed-license corpus. Each CrossPage corpus row records its source, landing/direct-PDF URL, SHA-256, and the terms known at collection time. PMC OA rows retain article-level licenses; World Bank rows are explicitly marked for per-document terms verification. All rights remain with source owners, and the release asserts no new ownership over source documents or short evidence quotations. The included RELEASE_AND_REMOVAL_POLICY.md provides an ID-based correction/removal procedure through the documented contact channel and commits the public release to a direct contact and change manifest. CrossPage content reconstruction is script-based. All 2,021 compact CrossPage corpus rows retain their original-source pdf_url and SHA-256. A fresh network-enabled check on July 22, 2026 downloaded a deterministic sample of ten World Bank PDFs: all 10 were valid PDFs and all 10 matched the stored SHA-256. The sanitized per-document and summary reports are included under provenance/reconstruction_validation/ . SourceShift retains source landing URLs for its document-level audit trail. The primary CrossPage OCR path matches the experiment setup: 
+
+python3 data_release/fetch_source_pdfs.py \ --corpus data_release/release/corpus.jsonl \ --out-dir /data/nclue/pdfs \--resolve-pmc-oa python3 ../scripts/render_pdf_to_images.py \ --pdf-dir /data/nclue/pdfs \--out-root /data/nclue/pages mineru -p /data/nclue/pdfs -o /data/nclue/mineru_raw -b pipeline python3 ../scripts/ocr_pages_mineru.py \ --mineru-root /data/nclue/mineru_raw \ --ocr-root /data/nclue/ocr_mineru \ --corpus data_release/release/corpus.jsonl \ --write-md 
+
+The MinerU adapter reads content_list.json or middle.json and writes one JSON per document page beneath OCR_ROOT , the same layout used by the construction pipeline and text retrievers. A Tesseract adapter is also included as a fallback for reviewers who cannot install MinerU, but it is not the OCR engine used to produce the reported matrix. The successful ten-document check directly validates the URL, PDF, and checksum stage. The commands above continue deterministically through page rendering and the same MinerU adapter used by construction and retrieval. 
+
+# 13 Release Files 
+
+The Code and Data Supplement is distributed with this preprint as an arXiv ancillary file and is validated below the 50 MB archive limit. It is self-contained and does not depend on an external code/data repository. Its principal files are: 
+
+• reproduce.py : standard-library-only one-command regeneration and claim verification; 
+
+• data/v1/ (CrossPage): 1,000 queries, 50,995 qrels, compact 2,021-document metadata, 70 top-10 rankings, and the 39 query-form rankings; 
+
+• data/v2/ (SourceShift): 225-query/500-document robustness set, the initial 8,849-qrel copy, the targeted-revalidation 8,841-qrel copy, and all 39 top-10 rankings; 
+
+• reference_metrics/ : adjudicated paired/clustered outputs for cross-checking; 
+
+• code/ : scoring, query rendering, retrieval, decomposition, fusion, reranking, reconstruction, and sensitivity source; 20 • audit/ : the 300-pair audit, expanded-page adjudication, 150-pair target/control challenge, 75-condition tie-break, administrator records, scorers, and integrity reports; 
+
+• provenance/ : compact OCR-gate, configuration, and blocked-system records; and 
+
+• MANIFEST.json and SHA256SUMS : inventory and integrity checks. From a freshly extracted copy, run: 
+
+python reproduce.py --verify 
+
+This recomputes the CrossPage and SourceShift tables, exploratory paired contrasts, exact-family primary tests, clustered intervals, source-specific deltas, system-rank correlation, and the targeted revalidation analysis, then checks every file hash. The submitted rankings are clipped to rank 10, which is lossless for the reported @10 rank metrics. The earlier score-margin diagnostic is not reported because public rank-only files do not retain raw model scores. The one-command path reproduces the principal score, contrast, and sensitivity claims from frozen rankings without a GPU. The paper-local make_capability_strata.py separately regenerates the failure decomposition and task-factor table. The included ranking-generation source requires the documented OCR/model dependencies and weights for end-to-end neural regeneration. 21
