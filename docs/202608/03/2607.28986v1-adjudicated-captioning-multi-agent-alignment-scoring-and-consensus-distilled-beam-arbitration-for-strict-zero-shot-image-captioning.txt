@@ -1,0 +1,1028 @@
+Title: Adjudicated Captioning: Multi-Agent Alignment Scoring and Consensus-Distilled Beam Arbitration for Strict Zero-Shot Image Captioning
+
+URL Source: https://arxiv.org/pdf/2607.28986v1
+
+Published Time: Mon, 03 Aug 2026 00:28:06 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# Adjudicated Captioning: Multi-Agent Alignment Scoring and Consensus-Distilled Beam Arbitration for Strict Zero-Shot Image Captioning 
+
+Duy Tran Thanh *, Thien-Phuc Doan, Long Nguyen-Vu, Ngo Tan Vu Khanh 
+
+Abstract —Zero-shot image captioning aims to describe images in natural language without paired image–caption supervision during Captioner training, relying instead on text-only corpora and frozen pretrained image–text scorers. Existing retrieval-augmented methods score image–text alignment exactly once, at the initial retrieval step, and then commit the Captioner’s autoregressive beam under language-model probability alone, leaving the decoder without further visual grounding feedback. Progress in this regime has consequently stalled, with no method improving on the strict-regime best since 2024 . We propose Adjudicated Captioning, an inference-time multi-agent framework that restores grounding feedback at multiple checkpoints over an unchanged IFCap Captioner and crosses the plateau without paired image–caption supervision. Our contributions are threefold. First, we install a stronger frozen Retrieval Encoder at the input. Second, between retrieval and decoding we insert a frozen Cross-Attention Verifier that re-ranks the top-9 retrievals to top-5, producing a Verifier-adjudicated retrieval pool. Third, at the output beam we attach a learned Reranker pairing TriFuse, a multilayer perceptron, with MemAttend, a memory-attended transformer, the pipeline’s only learned components; both are trained self-supervised by Borda-consensus distillation across the three frozen scorers, consuming no paired image– caption labels and no reference captions. To our knowledge these are the first learned Beam Rerankers proposed under the captioner-text-only regime. Under the inductive headline protocol, with Rerankers fit on the disjoint COCO Karpathy validation beam and applied frozen to test, the framework reaches CIDEr (Consensus-based Image Description Evaluation) 117 .6
+
+and SPICE (Semantic Propositional Image Caption Evaluation) 
+
+21 .9 on COCO Karpathy, up from 108 .0 and 20 .3 for IFCap, a 
+
++9 .6 CIDEr gain, and +7 .7 above Negative Entity Suppression (NES), the strongest synthetic-image-augmented method at 109 .9,without retraining the Captioner. A training-free fixed-fusion baseline reaches 115 .8 CIDEr, so +7 .8 of the +9 .6 gain is attributable to the non-learned architectural intervention at the retrieval and verification checkpoints, and the remaining +1 .8
+
+to the learned Rerankers. The same recipe transfers off-COCO without Captioner retraining: +8 .1 CIDEr on Flickr30k Karpathy and +5 .7 on NoCaps overall. A Verifier-substrate swap to a non-COCO-fine-tuned matcher still yields 114 .0 CIDEr, +6 .0 over IFCap, showing the gain is not solely conditional on COCO-specific Verifier tuning. 
+
+> *
+
+Corresponding author. Duy Tran Thanh is a Senior AI Engineer with AI Platform OneNexus, OneMount (e-mail: duy.tran10@onemount.com). Thien-Phuc Doan is with the School of Electronic Engineering, Soongsil University, Seoul 06978, South Korea (e-mail: phucdt@ssu.ac.kr). Long Nguyen-Vu is with the AI Laboratory, MoAdata, Seoul, South Korea (e-mail: longnv@moadata.ai). Ngo Tan Vu Khanh is with the University of Economics Ho Chi Minh City (UEH), Ho Chi Minh City, Vietnam (e-mail: khanhntv@ueh.edu.vn). 
+
+Index Terms —Beam re-ranking, BLIP, CLIP, cross-modal align-ment, retrieval-augmented generation, self-supervised learning, vision–language models, zero-shot image captioning. 
+
+I. I NTRODUCTION 
+
+Retrieval-augmented image captioning has converged on a single design rule: image–text alignment is scored exactly once, at retrieval, and is not consulted again. ClipCap [1] fixed the recipe. A small mapping network turns a CLIP image embedding into a soft prefix for a frozen GPT-2 [2]; under the strict text-only zero-shot image captioning (ZIC) regime the mapping network sees no image during training and bridges the modality gap at inference using CLIP cosines. Subsequent work, ranging from CapDec [3] and DeCap [4] to ViECap [5], MeaCap [6], and IFCap [7], has refined this recipe in different places, but every method commits the Captioner’s beam under language-model probability after retrieval, without any further image–text alignment check. Progress under this rule has been uneven, and it has stalled outright since 2024 . On COCO Karpathy [8], [9], CIDEr 1
+
+improved from 92 .9 with ViECap to 95 .4 with MeaCap, a 
+
++2 .5 step, and then to 108 .0 with IFCap, a larger +12 .6 step delivered by two simultaneous changes, image-like retrieval and frequency-based entity filtering, rather than by any single new component. Since IFCap, no method operating inside the strict regime has, to our knowledge, improved on 108 .0. The one entry above it, Negative Entity Suppression (NES) [10] at 109 .9, gains +1 .9 and does so only by departing from the regime and training on Stable-Diffusion-generated images alongside the text corpus. Successive strict-ZIC methods have each introduced a new filter between retrieval and decoding, including entity-aware masking in ViECap, frequency-based entity filtering in IFCap, and attention-level suppression in NES; every one of these is a further constraint on a single retrieval step rather than a new alignment-scoring event. We attribute the plateau to a structural property of the pipeline that has remained unchallenged since retrieval-augmented captioning was introduced, rather than to a limit 
+
+> 1
+
+Metric acronyms used throughout: CIDEr, Consensus-based Image Descrip-tion Evaluation; SPICE, Semantic Propositional Image Caption Evaluation; BLEU, Bilingual Evaluation Understudy; METEOR, Metric for Evaluation of Translation with Explicit ORdering; ROUGE-L, Recall-Oriented Understudy for Gisting Evaluation, longest-common-subsequence variant. 
+
+1arXiv:2607.28986v1 [cs.CV] 31 Jul 2026 Retrieval        
+
+> ViT-B/32
+> ✓
+> Captioner “A snowboarder and a snow-boarder are posing. . . ” CIDEr 108 .0Prior
+> Retrieval
+> ViT-bigG/14
+> ✓
+> NEW
+> Verifier
+> BLIP-ITM cross-attn
+> ✓
+> NEW
+> Captioner Learned Reranker
+> TriFuse +MemAttend
+> ✓
+> NEW
+> “Two men are snowboarding down a snowy hill.”
+> CIDEr 117 .6
+> +9 .6
+> Ours
+
+Fig. 1: From single-checkpoint to multi-checkpoint alignment scoring. Prior strict-ZIC pipelines (top) score image–text alignment at exactly one place: the retrieval-time cosine ( ✓). Our pipeline (bottom) adds three novel alignment-scoring components ( NEW ✓): a stronger Retrieval encoder, a Cross-Attention Verifier, and a learned Beam Reranker. The Captioner is left untouched. The three new heads are trained self-supervised over the three frozen scorers, with no paired image–caption labels. Result: +9 .6 CIDEr on COCO Karpathy ( 117 .6 vs. 108 .0). of language modelling. Image–text alignment is consulted exactly once, at the initial CLIP-cosine retrieval, after which the decoder operates on its own. The Captioner’s beam is selected by language-model probability and is therefore biased toward fluent outputs that need not be fully grounded; the retrieval pool itself remains noisy because a dual-encoder contrastive model orders out-of-distribution images only approximately. No prior strict-ZIC system inserts a stronger image–text scorer at any later point in the pipeline. Building on this observation, we propose a strict-ZIC frame-work that scores image–text alignment at multiple alignment checkpoints rather than only at retrieval, as illustrated in Figure 2. Concretely, we make three architectural changes on top of an unchanged Captioner. First, we replace IFCap’s OpenAI CLIP ViT-B/32 [11] dual encoder with a scaling-law-stronger OpenCLIP ViT-bigG/14 [12] for top-9 retrieval against the 566 K-caption COCO Karpathy training corpus, which is the largest single-component lift in our ablation. We refer to the two by their architecture names, ViT-B/32 and ViT-bigG/14, throughout. Second, we insert a frozen Cross-Attention Verifier between retrieval and decoding to re-rank the top-9 down to top-5; instantiated with the BLIP image–text matching head [13], the Verifier’s rank correlation with the Retrieval Encoder cosine is only ρ ≈ 0.4 on IFCap retrievals, providing partly orthogonal information that the dual encoder cannot supply. Third, at the Captioner’s output we attach two complementary self-supervised learned Beam Rerankers. 
+
+TriFuse is a 113 -parameter multilayer perceptron (MLP) that fuses three frozen-scorer signals per beam candidate: the GPT-2 log-probability, the Retrieval Encoder cosine, and the Verifier’s matching score. MemAttend is a 17 .4K-parameter memory-augmented transformer encoder that lets candidates cross-attend to the Verifier-adjudicated retrieval pool. Both Rerankers are trained by listwise Borda-consensus distillation across the three frozen scorers; no ground-truth captions and no paired image– caption supervision are used at any point, so the strict text-only training regime is preserved end-to-end. The Captioner itself, namely IFCap’s released mapping network and GPT-2 decoder, is never retrained or fine-tuned. We adopt the operational definition used by every prior strict-ZIC method: the regime constrains Captioner training , not the externally pretrained frozen scorers consumed at inference (Sec. II-D ). To avoid ambiguity we use the more precise label 
+
+captioner-text-only ZIC under frozen paired-pretrained scorers where it matters. Within this regime, our inductive headline , with TriFuse and MemAttend trained on the disjoint COCO Karpathy validation beam-20 dump and applied frozen to the test split, reaches CIDEr 117 .6 / SPICE 21 .9 / BLEU-4
+
+32 .8 / METEOR 27 .9 / ROUGE-L 55 .5, +9 .6 CIDEr over the previous strict-ZIC state of the art, IFCap, and +7 .7 over the synthetic-image-augmented NES. A transductive variant, trained on the test images’ frozen-scorer signals (no reference captions used), differs by at most 0.1 on any primary metric, and not at all on CIDEr, and is reported as a strict upper bound, not the headline. A training-free fixed-fusion baseline reaches 115 .8 CIDEr without any learned head, isolating the architectural intervention from the learned step. The same inference-only recipe transfers off-COCO without Captioner retraining: +8 .1 CIDEr on Flickr30k Karpathy [14], [15] and 
+
++5 .7 on NoCaps [16] overall, with consistent in-/near-/out-domain gains (Table VI, benchmark-transductive). A reference-free CLIPScore (no ground-truth captions consumed) and a reference-proxy Caption Hallucination Assessment with Image Relevance (CHAIR) check corroborate the gain, the latter reducing sentence-level reference-proxy hallucination from 
+
+13 .28% to 7.84% , roughly 41% relative. In summary, our contributions are as follows:  
+
+> •
+
+We articulate and empirically validate an architectural 
+
+hypothesis for the strict-ZIC plateau, namely that image– text alignment is scored at a single alignment checkpoint, and propose a remedy: place strong, frozen image–text scorers at multiple alignment checkpoints, including a Cross-Attention Verifier between retrieval and decoding and a learned Reranker at the Captioner’s output.  
+
+> •
+
+We introduce two complementary, fully self-supervised Beam Rerankers: TriFuse , a 113 -parameter MLP, and 
+
+MemAttend , a 17 .4K-parameter memory-augmented trans-former encoder. Both are trained by Borda-consensus distillation across three frozen scorers, with no paired image–caption supervision. To our knowledge these are the first learned Beam Rerankers proposed for the captioner-text-only ZIC regime; supervised captioning has used learned beam rerankers (e.g. MBR-style decoding [17], ListNet rank objectives [18]), but those use paired image– 2caption labels that this regime forbids.  
+
+> •
+
+Under the captioner-text-only ZIC regime with frozen paired-pretrained scorers, our pipeline reaches CIDEr 
+
+117 .6 and SPICE 21 .9 on COCO Karpathy (inductive headline), surpassing IFCap by +9 .6 and NES by +7 .7
+
+CIDEr without retraining or fine-tuning the Captioner. The same inference-only recipe transfers off-COCO: +8 .1
+
+CIDEr on Flickr30k Karpathy and +5 .7 CIDEr on NoCaps overall. II. R ELATED WORK 
+
+A. Strict zero-shot image captioning 
+
+Strict-ZIC methods can be sorted by where they apply image conditioning. ZeroCap [19] and MAGIC [20] apply it during decoding, rescoring partial sequences against a CLIP score at each generation step. CapDec [3] pushes the burden upstream by perturbing text features with isotropic Gaussian noise at training time, so the mapping network sees an image-like distribution at inference. DeCap [4] avoids the prefix altogether and decodes directly in CLIP space. ViECap [5] prepends an entity-aware hard prompt, MeaCap [6] prepends a memory bank of retrieved captions, and IFCap [7] combines image-like noise injection with a frequency-based entity filter on the retrieval pool. The lineage shares one structural commitment: a CLIP-style scorer at retrieval is the only image-conditioning event, after which the Captioner generates without further alignment checks. IFCap reaches CIDEr 108 .0 on COCO Karpathy, the previous strict-text-only best on this benchmark. Paired-supervised foundation models such as BLIP-2 [21], InstructBLIP [22], and LLaVA [23] train on hundreds of millions of paired images and captions and reach far higher CIDEr, with BLIP-2 at 145 .8; they lie outside the strict-text-only regime, and we report them in a separate block of Table II. We build atop IFCap’s released checkpoint without modifying its weights, and our entire intervention is inference-time. 
+
+B. Synthetic-image-augmented zero-shot captioning 
+
+A second line replaces text-only training with synthetic image–caption pairs generated from training captions. Syn-TIC [24] renders an image per training caption with Stable Diffusion [25] and trains on those synthetic pairs, reaching 
+
+101 .1 CIDEr. PCM-Net [26] repairs the rendering quality with a patch-wise cross-modal mixup and reaches 103 .8. NES [10], the strongest entry at 109 .9, layers attention-level negative-entity suppression on the same synthetic-image retrieval pipeline. These methods pay the price of image generation at training time and modify the Captioner; our work does neither. The pipeline we describe is an inference-time intervention on the released IFCap checkpoint, and outperforms NES by +7 .7
+
+CIDEr on COCO Karpathy while remaining captioner-text-only with frozen paired-pretrained scorers. 
+
+C. Image–text alignment scoring and reranking 
+
+Hessel et al. [27] introduced CLIPScore as a reference-free image–text alignment metric, since used to rerank caption beams in supervised captioning. We use it in its ViT-bigG/14 incarnation [12] at the output checkpoint of a strict-ZIC pipeline. An output-checkpoint substrate sweep we ran (CLIP variant held against the rest of the pipeline) confirms monotone scaling: CIDEr rises from 111 .7 with OpenAI CLIP ViT-B/32 to 114 .4
+
+with ViT-bigG/14. The full pipeline, with the stronger Retrieval Encoder, the Verifier, the accompanying entity-filter threshold rescale from K=5 over L=9 retrievals to K=3 over L=5 that keeps the admission fraction fixed once the Verifier shrinks the pool (Sec. III-B ), and the learned TriFuse+MemAttend Reranker, reaches 117 .6. Cross-encoder reranking over a dual-encoder candidate set is standard in document retrieval [28]; listwise learning-to-rank objectives [18] and minimum-Bayes-risk decoding [17] provide the closest parallels for our beam-arbitration step, and ensemble distillation [29] motivates our Borda-consensus training target. The cross-encoder rerank has been applied at training time in image captioning: NES [10] uses synthetic-image retrieval as a second-opinion at training time, and PCM-Net [26] uses a patch-wise mixup to repair the second-opinion. To our knowledge, no prior strict-ZIC method inserts a frozen cross-attention image–text matcher, specifically the BLIP-ITM head [13], at inference time as a second-stage rerank, and no prior method places a separate 
+
+learned rerank stage at the Captioner’s output beam. We empirically demonstrate that placing scorers at both alignment checkpoints crosses the strict-ZIC plateau by +9 .6 CIDEr without retraining the Captioner. 
+
+D. Operational definition of the strict-text-only regime 
+
+The term “strict zero-shot image captioning” is sometimes interpreted as “no paired image–text data anywhere in the system,” an interpretation that no existing method, ours or prior, satisfies. We follow the operational definition used by the strict-ZIC family of DeCap [4], ViECap [5], MeaCap [6], IFCap [7], and NES [10]: the constraint applies to the Captioner training ,not to externally pretrained frozen scorers. The Captioner sees a text corpus alone; the frozen image–text scorers used at inference, namely CLIP variants and the BLIP-ITM head, were pretrained on paired image–text data and are used as-is at evaluation time. Under this definition, prior strict-ZIC work already uses OpenAI CLIP ViT-B/32, trained on 400 M web image–text pairs, at retrieval, and ClipCap-style mapping is itself defined relative to a frozen pretrained CLIP. Our pipeline uses two such scorers. The first is OpenCLIP ViT-bigG/14 [12] pretrained on LAION-2B image–text pairs. The second is the BLIP image–text matching head [13] fine-tuned on COCO image–text pairs. The ViT-bigG/14 pretraining set does not enumerate which images were paired with which text, but the LAION-2B distribution overlaps the COCO domain; the BLIP-ITM head was explicitly fine-tuned on COCO captions. Two clarifications are in order. First , no COCO Karpathy training/validation/test caption is used as a label during our pipeline; retrieval reads the COCO training caption corpus as a text-only index, exactly as IFCap does. Second , BLIP-ITM’s explicit COCO fine-tuning is not the same as CLIP’s broad web-scale pretraining, and we do not claim equivalence; we retain BLIP-ITM as a frozen scorer because it provides a stronger cross-attention image–text matcher than any dual encoder, and 3we separately report the Flickr30k-fine-tuned BLIP variant (Table V) so a reader can judge how much of the COCO gain is conditional on that fine-tuning. It is a stronger image–text matcher than CLIP, and our gain decomposes as “stronger scorer at retrieval” plus “stronger scorer at output” rather than “access to COCO supervision elsewhere”. Our COCO Karpathy result should be read as a ZIC result conditional on access to a COCO-tuned frozen Verifier ; we report Flickr30k Karpathy and NoCaps val with the same frozen Verifier in Sec. V-F to show that the gain persists when the Captioner has never been trained on Flickr30k or NoCaps captions. We report a Verifier-substrate ablation in our Verifier-substrate analysis: swapping the COCO-fine-tuned BLIP-ITM head for the Flickr30k-fine-tuned variant of the same architecture [13] still yields a +6 .0 CIDEr lift over IFCap, confirming that the architectural intervention is not an artefact of the Verifier’s COCO exposure. III. M ETHOD 
+
+Existing captioner-text-only ZIC pipelines face two archi-tectural weaknesses. First , image–text alignment is scored at exactly one place, the initial CLIP-cosine retrieval, so the retrieval pool is dual-encoder-noisy. Second , the Captioner’s beam is selected by language-model probability alone and is therefore biased toward fluent-but-not-fully-grounded outputs. We address both by scoring image–text alignment at multiple 
+
+alignment checkpoints. Our framework integrates three compo-nents on top of an unchanged IFCap Captioner. At Stage 1 we install a stronger frozen Retrieval Encoder . At Stage 2 we insert a frozen Cross-Attention Verifier between retrieval and decoding. At Stage 4 we attach a learned Beam Reranker that fuses three frozen-scorer signals into a single ranking score. The section proceeds in four subsections. Sec. III-A fixes notation and reviews the IFCap baseline. Sec. III-B introduces the triadic alignment pipeline as four equations. Sec. III-C introduces TriFuse, the MLP Reranker. Sec. III-D introduces MemAttend, the memory-augmented transformer Reranker. TriFuse and MemAttend are the only learned modules in the framework. They are trained under the protocols defined in Sec. IV-D : the headline inductive protocol fits the heads on the disjoint COCO Karpathy validation beam dump and applies them frozen to test; the transductive variant fits on test-image beam features using only frozen-scorer pseudo-labels and is reported as an upper bound. The overall flow is shown in Figure 2. 
+
+A. Notation and the IFCap baseline 
+
+Let Ctrain = {c1, . . . , c N } be a text-only training corpus of N ≈ 566 ,747 captions, drawn from the COCO Karpathy training split, which contains about 113 K images with 5 reference captions each. Let CLIP img (·) and CLIP txt (·) denote OpenAI’s CLIP ViT-B/32 image and text encoders, and let 
+
+tc = CLIP txt (c)/∥ · ∥ denote the L2-normalised CLIP-text feature of caption c. For a test image I, let ˆı = CLIP img (I)/∥·∥ .IFCap [7] trains a small mapping network Mθ on the text corpus alone, using CLIP-text features as a proxy for the image features it will see at inference. Concretely, IFCap perturbs each tc with isotropic Gaussian noise of variance σ2 = 0 .016 
+
+to mimic the distribution of ˆı, and trains Mθ (˜ tc, {tr1 , . . . , trk })
+
+to predict the caption c given k=5 nearest-text retrievals. At inference, the noise-injected proxy ˜tc is replaced by the actual image feature ˆı. A retrieval pool RL(I) of size L=9 is built by ranking Ctrain by cosine to ˆı, and the Captioner consumes 
+
+R5(I) ⊂ R 9(I) in two ways: as a soft prefix [30] through Mθ ,and as a hard prompt through a frequency-based entity filter that admits a noun if it appears in ≥ K=5 of the 9 retrieved captions. On COCO Karpathy test, this pipeline reaches CIDEr 
+
+108 .0.
+
+B. Triadic alignment pipeline 
+
+We replace the single-checkpoint alignment scoring of IFCap with a four-stage pipeline: Stage 1 is a stronger dual-encoder retrieval, Stage 2 is a Cross-Attention Verifier, Stage 3 is the unchanged IFCap Captioner, and Stage 4 is a learned Beam Reranker. We describe each stage in turn, immediately following the equation that defines it. 
+
+Stage 1: Retrieval. For test image I, we retrieve the nine closest training captions in the cosine space of a strong frozen dual encoder: 
+
+R9(I) = top-9 
+
+> c∈C train
+
+ϕimg (I) · ϕtxt (c). (1) IFCap retrieves with OpenAI CLIP ViT-B/32 [11], a 151 M-parameter dual encoder trained on 400 M web image–text pairs. In this work we instantiate the Retrieval Encoder with ViT-bigG/14 [12], an approximately 2.5B-parameter encoder trained on LAION-2B [31]; the image encoder, the text encoder, and the corpus index all come from this model. The dual-encoder retrieval index has not been revisited as foundation-CLIP scaling laws improved, and our ablation in Section V-G shows this single substitution is the largest single-component lift in the table, contributing +3 .6 CIDEr. For the remainder of the paper we refer to the Stage-1 model as the Retrieval Encoder 
+
+when context is clear. 
+
+Stage 2: Cross-Attention Verification. We re-score the 9
+
+candidates with a frozen cross-attention image–text matcher, instantiated here with the BLIP-ITM head [13], and keep the top 5:
+
+R⋆
+
+> 5
+
+(I) = top-5 
+
+> c∈R 9(I)
+
+sV (I, c ), (2) where sV (I, c ) ∈ (0 , 1) is the Verifier’s frozen softmax matching score. Even with a stronger dual encoder at Stage 1, ranks remain imperfect: dual encoders score independent embeddings without any cross-attention. We measure the rank correlation between the Retrieval Encoder cosine and the Verifier score on the top-9 across all 5,000 COCO Karpathy test images and obtain Spearman ρ ≈ 0.4. The two scorers disagree on which retrieval best matches the image roughly 
+
+60% of the time, and the Verifier ranking is the one downstream captioning cares about, since the cross-attention matcher was trained discriminatively for image–text alignment. We refer to the Stage-2 model as the Verifier for the remainder of the paper. 
+
+Threshold rescaling. IFCap’s entity filter admits a noun if it appears in ≥ K of the retrieved captions, with default K=5 
+
+over L=9 captions, an admission fraction of 5/9 ≈ 56% . After the Verifier rerank shrinks the pool from 9 to 5, the same K=5 
+
+4image                                                        
+
+> I
+> Retrieval Encoder
+> frozen dual encoder
+> Verifier
+> frozen cross-attention matcher
+> Captioner
+> + prompt R⋆
+> 5
+> TriFuse +MemAttend
+> + memory R⋆
+> 5
+> Stage 1 Stage 2 Stage 3 Stage 4
+> by(I):“A man riding a motorcycle on a dirt road on a hill side.”
+> Memory bank
+> Ctrain = 566 Kcaption corpus
+> “A man on a motorcycle . . . ”
+> “Dog catching a frisbee . . . ”
+> “A bowl of fruit . . . ”
+> . . . 566 K captions
+> index lookup
+> top-9 R9:
+> •“A man riding a motorbike . . . ”
+> •“A motorcycle on a hillside . . . ”
+> •(7 more)
+> top-5 R⋆
+> 5(Verifier softmax):
+> •0.94 “A man on amotorcycle . . . ”
+> •0.91 “Motorcycle, dirt road . . . ”
+> •(3 more)
+> beam-20 Y20 (LM-ranked):
+> y1: “A man on a motorcycle on aroad”
+> y2: “A man riding a motorbike . . . ” ...
+> y20 :(17 more)
+> ranking score ˆry :
+> β z (TriFuse)+(1 −β)z(MemAttend)
+> β= 0 .75 ,take arg max y
+> frozen pretrained model
+> trained in this paper (self-supervised)
+
+Fig. 2: Full inference pipeline. The four stages run left-to-right; each agent box carries its role and any side-channel input it consumes, and the concrete output of each stage is shown in the dashed card below. The yellow Memory bank cylinder above Stage 1 represents the external corpus of Ctrain = 566 K training captions, with sample caption cards shown alongside, from which the Retrieval Encoder draws. Stage 1, Retrieval : a frozen Retrieval Encoder encodes I; image–text cosine over the precomputed corpus index returns the top-9 candidates R9. Stage 2, Verification : a frozen Cross-Attention Verifier re-ranks the 9 candidates by image–text matching softmax and keeps the top-5, the Verifier-adjudicated retrieval pool R⋆
+
+5. Stage 3, Captioning : the unmodified Captioner consumes the image feature and R⋆
+
+5 as soft prefix and hard prompt at K=3 , emitting a 20 -wide beam Y20 . Stage 4, Reranking , the only trained stage: TriFuse (MLP) and MemAttend (transformer with R⋆
+
+5 as memory tokens) jointly score the beam; their z-normalised convex combination at β=0 .75 selects the final caption by. TriFuse and MemAttend are trained self-supervised by Borda-consensus distillation across the three frozen scorers, namely the LM log-probability, the Retrieval cosine, and the Verifier matching score, with no paired image–caption labels . Only the upstream pretrained scorers, loaded frozen as indicated by the snowflake, ever saw image–text pairs. would require unanimous agreement and collapse the prompt to near-empty; we rescale to K=3 over L=5 , an admission fraction of 3/5 = 60% . Of the available integer thresholds at L=5 , K=3 is the closest to the original fraction, since 
+
+K=2 would admit 40% . The combination of Verifier rerank 
+
+and threshold rescale is mutually enabling: neither works in isolation, as shown in rows 3–5 of Table VII. 
+
+Stage 3: IFCap Captioning (unchanged). Run the unmodified IFCap Captioner on the verified pool to emit a wide beam: 
+
+Y20 (I) = IFCap-beam 20 
+
+ ˆı, R⋆
+
+5(I). (3) Here ˆı is the ViT-B/32 image feature that IFCap’s released mapping network expects, and IFCap-beam 20 runs IFCap with the rescaled entity-filter K=3 and beam width 20 . The Captioner is unchanged; only its inputs are. 
+
+Stage 4: Learned Beam Rerank. Pick the final caption by maximising the learned Beam Reranker TriFuse ϕ, or its convex combination with MemAttend described in Sec. III-D , over the 
+
+20 candidates: 
+
+by(I) = arg max 
+
+y∈Y 20 (I)
+
+TriFuse ϕ
+
+ fy (I). (4) Each candidate is summarised by a 3-d feature vector that fuses the three frozen scorers, the language model’s log-probability, the Retrieval Encoder’s cosine, and the Verifier’s matching score, into a per-candidate fingerprint: 
+
+fy (I) = 
+
+h
+
+z(ℓy )
+
+| {z } 
+
+LM logprob 
+
+, z(s yR)
+
+| {z } 
+
+Retrieval cosine 
+
+, z (sV (I, y )) 
+
+| {z }
+
+Verifier 
+
+i
+
+∈ R3, (5) with ℓy = log pGPT-2 (y | R ⋆
+
+5(I)) , s yR = cos( ϕimg (I), ϕ txt (y)) ,and z(·) per-image z-normalisation across the 20 -wide beam, so the three signals share a common scale. The IFCap Captioner’s beam is otherwise selected by language-model probability alone, which ranks fluency rather than visual matching; we empirically observe that a frozen image–text scorer applied at the output picks a different caption roughly 35% of the time, and CIDEr improves whenever it does. TriFuse ϕ is the only learned module in the pipeline; we describe it next. 
+
+C. TriFuse: minimal MLP head a) Architecture.: TriFuse is a minimal MLP with 3 input features per beam candidate, two hidden layers of width h=8 ,GELU activation [32], and a scalar output: 
+
+TriFuse ϕ(f ) = W3 GELU  W2 GELU( W1f + b1) + b2
+
+ + b3,
+
+(6) 
+
+W1 ∈ R8×3, W2 ∈ R8×8, W3 ∈ R1×8. (7) Trainable parameters: |ϕ| = 113 , namely 32 in the input layer, 
+
+72 in the hidden layer, and 9 in the output layer. Inference is 
+
+O(K|ϕ|) per image with K=20 , which is sub-millisecond on a single GPU. 
+
+b) Self-supervised training.: TriFuse is trained under the protocols of Sec. IV-D , using only frozen-scorer pseudo-labels (no reference captions). The headline inductive protocol fits on the disjoint COCO Karpathy validation beam-20 dump; the transductive protocol fits on the test beam-20 dump and is reported as an upper bound. For each image I and each candidate y ∈ Y 20 (I), we compute the rank rs(y | I) ∈{0, . . . , K −1} of y within the beam under each frozen scorer 5image I                    
+
+> prompt: top-5Verifier-adjudicated retrievals
+> R⋆
+> 5 (I)
+> •“A man on a motorcycle . . . ”
+> •“Motorcycle on a hill . . . ” (3 more)
+> ViT-B/32
+> mapping net Mθ
+> entity filter ( K=3 )
+> GPT-2 decoder
+> Captioner
+> beam-20 candidates Y20 (I) = {y1, y 2, . . . , y 20 }
+> GPT-2 output
+> GPT-2 LM Retrieval Encoder Verifier
+> y
+> ℓysyRsB
+> y
+> z-normalise per image (across 20 -wide beam)
+> feature vector fy(I)∈R3
+> concatenated z-scores of the three scorers
+> Inference pathway (frozen)
+
+TriFuse Reranker                      
+
+> Linear
+> lift 3→8
+> GELU
+> non-linearity
+> Linear
+> hidden 8→8
+> GELU
+> non-linearity
+> Linear
+> project 8→1
+> ˆry
+> arg max over the 20 -wide beam
+> selects final caption by(I)
+> fy(I)
+> Self-supervised training (no paired labels)
+> Per-image ranks
+> rank of yunder each frozen scorer ( 0–19 )
+> Borda consensus
+> average inverted ranks →softmax pseudo-label
+> Listwise cross-entropy loss
+> trains ϕto match the consensus pseudo-label
+> ∇L updates ϕ
+
+Fig. 3: TriFuse architecture and training (two-panel layout). Left panel, inference pathway ( all frozen): the unmodified Captioner is shown as a vertical stack of its four sub-components: ViT-B/32, mapping network Mθ , entity filter at K=3 , and GPT-2 decoder. The image I feeds into ViT-B/32; the prompt R⋆
+
+5(I) feeds into Mθ and the entity filter; GPT-2 emits the 
+
+20 -wide beam Y20 (I). For each candidate y, three frozen scorers, namely the GPT-2 LM, the ViT-bigG/14 Retrieval Encoder, and the Verifier, emit a scalar ( ℓy , s yR, sB
+
+y ), which are z-normalised across the beam and concatenated into fy (I) ∈ R3. Right panel, TriFuse Reranker ( blue, the only trainable module): Linear →GELU →Linear →GELU →Linear, 113 parameters; the argmax over the beam selects the final caption by. Bottom (dashed blue): self-supervised training. The pseudo-label per candidate is the Borda-consensus score across the three scorers’ per-image ranks, softmaxed to a target distribution, and TriFuse is trained by listwise cross-entropy. The dashed orange arrow shows where ∇L updates ϕ. No paired image-caption labels are used. 
+
+s ∈ S = {LM , R, V }. The pseudo-label is the per-image softmax of the Borda-consensus score [33]: 
+
+qy (I) = 1
+
+|S| 
+
+X
+
+s∈S 
+
+(K−1 − rs(y | I)) , (8) 
+
+˜qy (I) = exp qy (I)
+
+P
+
+y′ exp qy′ (I) . (9) The training loss is the listwise softmax cross-entropy [18]: 
+
+L(ϕ) = − 1
+
+N
+
+X
+
+I, y 
+
+˜qy (I) log σy
+
+ TriFuse ϕ(fy (I)) , (10) where σy (·) is the per-image softmax over the K-wide beam. We train for 100 epochs with Adam [34] at learning rate 
+
+10 −2. No paired image–caption supervision is used: the pseudo-labels are derived entirely from the frozen scorers’ outputs on the Captioner’s own beam, so TriFuse training does not consume any data outside the strict-ZIC text-only regime. Training takes under one minute on a single GPU. 
+
+c) Why TriFuse beats a fixed-α linear z-mix.: A linear mix α z (ℓ) + (1 −α) z(sR) uses two signals weighted by a single global hyperparameter and is constrained to lie in their span. TriFuse uses three signals, adding the Cross-Attention Verifier’s matching score on (I, y ) that the linear mix discards, and learns a non-linear combination conditioned on per-image normalised feature interactions. Empirically, TriFuse beats the best fixed-α linear mix on every primary metric. The Borda-consensus pseudo-label provides a stable training target even though no candidate has a ground-truth label: the y that all three frozen scorers agree on tends to be a high-CIDEr caption, and learning to predict consensus generalises to the per-image argmax. 
+
+D. MemAttend: memory-augmented transformer head 
+
+TriFuse’s per-candidate MLP cannot directly model interac-tions between beam candidates or between beam candidates 6Memory tokens Beam tokens (top-20 candidates) 
+
+MEM 1 MEM 2 . . . MEM 5 BEAM 1 BEAM 2 . . . BEAM 20             
+
+> fMj∈R5(Verifier, len, rank) fBy∈R5(LM, Retrieval, Verifier, rank, len)
+> M= 5 K= 20
+
+Linear projection Win + role embedding 
+
+embedded tokens h(0)  
+
+> t
+
+∈ R32 , t ∈ { 1, . . . , 25 }
+
+Encoder Layer 1 (4-head self-attn + FFN) 
+
+Encoder Layer 2 (same) 
+
+hidden states h(L) 
+
+> t
+
+∈ R32 (BEAM tokens go to head) 
+
+Output head: linear → score per BEAM token 
+
+MemAttend ψ (I, y ) ∈ R for y ∈ Y 20 
+
+Per-image z-normalise; β z (TriFuse)+(1 −β) z(MemAttend) , β = 0 .75 TriFuse ϕ(f By )
+
+> MLP, see Fig. 3
+
+by(I) = arg max y∈Y 20 
+
+β z (TriFuse ϕ) + (1 −β) z(MemAttend ψ )
+
+Attention readout: BEAM (query) → MEM (key)            
+
+> 12345
+> MEM j
+> y1
+> yt
+> yK
+> BEAM  yt (query)
+> dark =high attn weight orange row =one ytexample
+> inside encoder
+
+trainable (|ψ| = 17 .4K params): 
+
+Win , r•, Encoder 1 /2, Wout , bout 
+
+frozen : all upstream scorers + Captioner 
+
+Fig. 4: MemAttend architecture (Memory-Attended Reranker). Top: 5 memory tokens MEM j (orange, scalars from the Stage-2 Verifier-adjudicated retrievals) and 20 beam tokens BEAM y (gray, scalars from the three frozen scorers). Stack ( blue, the only trainable parameters): a linear projection Win ∈ R32 ×5 with two role embeddings (MEM vs. BEAM) lifts each token to 
+
+dmodel =32 ; two transformer encoder layers ( 4-head self-attention, FFN 32 → 64 → 32 , GELU); an output head emits a scalar per BEAM token. |ψ| = 17 .4K total. Ensemble (red): MemAttend scores are per-image z-normalised and convex-combined with the parallel TriFuse head (Fig. 3) at β=0 .75 to pick the final caption by. Bottom-left: cross-attention pattern over the K×M token grid; each BEAM token attends to all MEM tokens (and to other BEAM tokens), implementing an explicit working-memory readout. Bottom-right: trainability legend. Trained self-supervised by Borda-consensus distillation across the three frozen scorers; no paired image-caption labels. and the Stage-2 retrieval pool. We propose a complementary head with that capacity: MemAttend , a memory-augmented cross-scorer transformer [35] that frames the beam-rerank step as conditioning on an explicit working memory of the Verifier-adjudicated retrievals. 7a) Token layout.: Each test image gives rise to a sequence of M +K = 5+20 = 25 tokens: 
+
+[ MEM 1, . . . , MEM 5 ]
+
+| {z }
+
+> retrieval memory
+
+∥ [ BEAM 1, . . . , BEAM 20 ]
+
+| {z }
+
+> Captioner beam
+
+. (11) Each beam token BEAM y carries the same 5-d feature vector TriFuse would see, namely the LM log-probability, the Retrieval Encoder’s cosine, the Verifier’s matching score on (I, y ), the beam rank, and the length. Each memory token MEM j carries an analogous 5-d feature vector for the j-th Verifier-verified retrieval, namely its Verifier matching score, retrieval rank, and length, with zero-padding to dimension 5. All features are z-normalised per image. A learned role embedding r ∈ R2×d
+
+distinguishes memory tokens from beam tokens; it is added after the input projection so the model can tell the two token classes apart. 
+
+b) Architecture.: MemAttend is a 2-layer transformer en-coder with 4 heads, hidden dimension dmodel =32 , feed-forward network (FFN) expansion factor 2, GELU activation [32], no dropout, and a per-token scalar score head: 
+
+h(0) = Win ft + rrole (t), h(ℓ+1) = TFLayer (ℓ)(h(ℓ)), (12) 
+
+MemAttend ψ (I, y ) = Wout h(L) 
+
+> y
+
++ bout , (13) where only beam tokens are scored at the output. Trainable parameters: |ψ| = 17 ,377 , namely 192 in the input projection, 
+
+64 in the two role embeddings, 17 ,088 across the two encoder layers, and 33 in the output head. Added to TriFuse’s |ϕ| = 113 ,the two learned heads hold 113 + 17 ,377 = 17 ,490 trainable parameters in total. Every other component of the pipeline is frozen, so this is the complete trainable-parameter budget of the method. Training uses the same Borda-consensus pseudo-label as TriFuse, with listwise softmax cross-entropy, Adam [34] at learning rate 3×10 −3, and 200 epochs. No paired image– caption supervision. 
+
+c) Why MemAttend is not a strict superset of TriFuse.: 
+
+The transformer’s cross-attention lets a beam candidate’s score depend on the entire memory and beam context, not just its own three frozen-scorer signals. In practice, MemAttend’s higher capacity drives its training loss substantially below TriFuse’s, 
+
+1.27 versus 1.44 over the same Borda target, but its CIDEr lands 0.2 below TriFuse’s: the transformer fits the imperfect pseudo-label more tightly and overfits, while TriFuse’s tighter inductive bias generalises slightly better on its own. Because the two heads’ top-1 picks agree on only 75 –82% of test images, they are partly orthogonal. We therefore use a fixed convex combination of their z-normalised scores, 
+
+by = arg max 
+
+> y
+
+ β z (TriFuse ϕ(fy )) + (1 − β) z(MemAttend ψ (fy , M)) , (14) which lifts every primary metric over either head alone. MemAt-tend contributes most where the consensus signal is ambiguous, that is on low-margin beam candidates; TriFuse contributes most where the consensus is sharp. We discuss the per-benchmark behaviour of β in our cross-domain experiments. IV. E XPERIMENTAL SETUP 
+
+A. Benchmarks and metrics 
+
+We evaluate on three benchmarks. COCO Karpathy test [8], [9] contains 5,000 unique images and 25 ,010 reference captions under the IFCap convention; it serves as the primary in-domain benchmark, and the Captioner was trained on the COCO Karpathy training caption corpus alone, with no paired image–caption supervision. Flickr30k Karpathy test [14], [15] contains 1,000 images and 5,000 references, and serves as a cross-domain benchmark for the COCO-trained pipeline. 
+
+NoCaps val [16] contains 4,500 images and tests novel-object transfer, split into in-, near-, and out-domain partitions. Metrics are BLEU-4 [36], METEOR [37], ROUGE-L [38], CIDEr [39], and SPICE [40] from the standard COCO Captions evaluation suite [41]; we report all metrics on a ×100 scale throughout. SPICE requires Java 11; the runtime is documented in our release. 
+
+B. Hardware and software 
+
+Headline experiments run on a single NVIDIA L4 GPU with 24 GB of memory on a GCP instance running CUDA 12 and PyTorch 2.4.1, matching IFCap’s pinned configuration. Cross-platform reproduction uses a single AMD Instinct MI355X with the gfx950 architecture, ROCm 7.2, and PyTorch 
+
+2.8.0+rocm 6.4. The two platforms reproduce CIDEr and SPICE to the one-decimal precision reported throughout this paper; byte-exact JSON identity holds on the L4 but not on the MI355X, because ROCm/CUDA non-determinism is amplified by the gfx942-on-gfx950 kernel override. All frozen scorer checkpoints are exact pinned versions: the OpenCLIP [12] ViT-bigG/14 backbone pretrained on LAION-2B; the BLIP-ITM image–text matching head [13] fine-tuned on COCO captions, used as the Stage-2 Verifier; OpenAI CLIP ViT-B/32 [11] for the Captioner’s image encoder, so the released IFCap [7] mapping network is consumed unchanged; and GPT-2 small [2] with 124M parameters for the Captioner’s language model. The IFCap Captioner checkpoint is the released in-domain COCO model from the official IFCap repository, used unmodified. Random seed is 42 throughout. 
+
+C. Baseline reproduction 
+
+Before measuring our pipeline we re-ran IFCap’s released checkpoint, as shown in Table I. Every COCO and NoCaps metric reproduces the published value exactly, and the COCO in-domain generated-caption file is byte-identical to the authors’ released JSON. Flickr30k CIDEr reproduces at 64 .5 against the published 64 .4, a 0.1 gap on the ×100 scale that sits at the level of the determinism drift reported in Sec. V-H . Except where noted, comparisons in this paper are versus this reproduction rather than paper-quoted numbers. 
+
+D. Evaluation protocols for the learned Reranker 
+
+The TriFuse and MemAttend Rerankers introduce a learned component over the Captioner’s beam. Because the choice of which images supply the training features for these heads 8Benchmark Split Metric Paper Ours COCO Karp. in-domain CIDEr 108 .0 108 .0                
+
+> COCO Karp. in-domain SPICE 20 .320 .3
+> Flickr30k Karp. in-domain CIDEr 64 .464 .5
+> NoCaps val overall CIDEr 74 .074 .0
+> NoCaps val in/near/out CIDEr 70 .1/72 .5/72 .170 .1/72 .5/72 .1
+
+TABLE I: Reproduction of IFCap from the released check-point. All entries are ×100 , at the one-decimal precision at which IFCap publishes them. Every row matches the published value except Flickr30k CIDEr, which lands 0.1 higher, at the run-to-run determinism level quantified in Sec. V-H. affects how the result should be interpreted, we report three protocols on the same pipeline: 1) Training-free fixed fusion, the inductive baseline with no learned step. The Stage-4 ranker is a fixed-α linear z-mix of LM log-prob and ViT-bigG/14 CLIPScore with 
+
+α=0 .48 , selected by Borda-consensus pseudo-label loss on a held-out beam dump and never on reference captions. No parameters are fit on test-set features; this is our strictest non-transductive baseline. 2) Inductive learned Reranker, headline protocol. TriFuse and MemAttend are trained on beam-20 features extracted from the COCO Karpathy validation split, which contains 
+
+5,000 images disjoint from the test split, using the same Borda-consensus pseudo-label, then applied unchanged to the Karpathy test beam-20 features. No test-set features enter training. The choice of α, β, hidden width, and epoch count is fixed once on validation by pseudo-label loss rather than by reference CIDEr. 3) Transductive learned Reranker, upper-bound protocol. 
+
+TriFuse and MemAttend are trained on beam-20 features extracted from the Karpathy test split, with the same Borda-consensus pseudo-label, then applied to the same images. No reference captions are used as labels; the training signal is the frozen scorers’ rankings on the Captioner’s own beam, computed at inference time. This is a form of unsupervised test-time adaptation: parameters are fit to test inputs but no test labels are seen. We report this only as an upper bound; the inductive protocol (item 2) is our headline. 
+
+E. Hyperparameter selection criterion 
+
+The learned-component hyperparameters, namely the en-semble weight β=0 .75 , the fixed-fusion weight α=0 .48 , the TriFuse hidden width h=8 , the MemAttend hidden dimension 
+
+dmodel =32 with 2 encoder layers, and the BLIP top-k=5 , were selected by minimising Borda-consensus pseudo-label loss on a held-out beam dump, not by reference-metric CIDEr. The entity-filter threshold K=3 was fixed algebraically rather than swept: the BLIP rerank shrinks the entity pool from L=9 
+
+to L=5 , and K=3 admits 3/5 = 60% , the closest available integer threshold to IFCap’s original 5/9 ≈ 56% . We do not perform random restart sweeps; the seed is fixed at 42 .
+
+F. Computational budget 
+
+A one-time preprocessing step encodes all N = 566 ,747 
+
+COCO Karpathy training captions with OpenCLIP ViT-bigG/14 and caches the L 2-normalised 1280 -d embeddings on disk at about 3 GB. The encode cost is approximately 5 GPU-hours on a single NVIDIA L4 with 24 GB of memory, batch 128 , FP 32 ;wall-clock time on faster GPUs such as the A 100 , H 100 , or MI 300 is several times lower. The cache is reusable across all subsequent runs of the pipeline. Per test image, the additional cost over vanilla IFCap inference breaks down as follows. Stage 1, the ViT-bigG/14 image encode and top-9 cosine over the corpus, costs approximately 0.05 s. Stage 2, the BLIP-ITM rerank pass over 9 retrievals, costs around 1.0 s. Stage 4 input features, namely one ViT-bigG/14 image encode, 20 
+
+text encodes, and 20 BLIP-ITM forwards, cost roughly 1.4 s. TriFuse’s own forward is sub-millisecond. The total is about 
+
+2.5 s per image on top of vanilla IFCap inference, on a single GPU, with no Captioner retraining. TriFuse training is a one-time fit of under one minute on the 5K-image beam-20 feature dump; MemAttend training takes approximately 5 minutes over 
+
+200 epochs. V. E XPERIMENTS 
+
+A. Implementation details 
+
+We use the released IFCap Captioner without retraining. The only inference-time changes are the following. (i) One-time, we encode all 566 ,747 COCO Karpathy training captions with the frozen Stage-1 Retrieval Encoder and cache the L 2-normalised 
+
+1280 -d embeddings. (ii) For each test image we encode it with the Retrieval Encoder and retrieve the top-9 training captions by cosine. (iii) The frozen Verifier re-ranks the 9 candidates and keeps the top-5. (iv) The unmodified IFCap Captioner runs with entity-filter K=3 and beam width 20 to dump a 20 -wide beam. 
+
+(v) For each beam candidate y we compute three per-candidate features, the LM log-probability ℓy , the Retrieval Encoder’s cosine s yR, and the Verifier’s matching score sV (I, y ), and z-normalise per image. (vi) TriFuse is an MLP of 113 parameters with two hidden layers of width h=8 and GELU [32], trained for 100 epochs with Adam [34] at learning rate 10 −2 using listwise softmax cross-entropy against the Borda-consensus pseudo-label; MemAttend is a 2-layer transformer encoder of 
+
+17 .4K parameters, trained for 200 epochs with Adam [34] at learning rate 3×10 −3 against the same target. (vii) We take the convex combination β z (TriFuse) + (1 −β) z(MemAttend) at 
+
+β=0 .75 and use its argmax per image as the final caption. No Captioner retraining and no weight modification of any frozen model. 
+
+a) Inference cost.: The one-time corpus encode is ap-proximately 5 GPU-hours on a single NVIDIA L4 (matching the budget reported in Sec. IV). Per test image, the additional cost over vanilla IFCap is about 0.05 s for Retrieval Encoder lookup, approximately 1.0 s for Verifier rerank, around 1.4 s for beam-feature extraction, and sub-millisecond for the TriFuse and MemAttend forwards, for a total of roughly 2.5 s per image. TriFuse training is a one-time fit of under one minute; MemAttend training takes about 5 minutes. Both heads are fit on the 5,000 -image beam-20 feature dump. 
+
+b) Hardware.: See Sec. IV for the canonical hardware specification: headline experiments use a single NVIDIA L4 (24 GB, CUDA 12, PyTorch 2.4.1, IFCap’s pinned configura-tion); cross-platform reproduction uses a single AMD Instinct 9MI355X (gfx950, ROCm 7.2, PyTorch 2.8.0+rocm 6.4). All reported numbers reproduce to the one-decimal CIDEr/SPICE precision used throughout on either platform. 
+
+B. Datasets and metrics 
+
+Datasets, metrics, reproduction, and protocols follow Sec. IV. Reference-free grounding is additionally measured by ViT-bigG/14 CLIPScore, and hallucination by CHAIR [42] com-puted against the 5 reference captions per test image. 
+
+C. Baselines 
+
+We compare against three families: (i) strict text-only ZIC ,including ZeroCap [19], MAGIC [20], CapDec [3], DeCap [4], ViECap [5], MeaCap [6], and IFCap [7]; (ii) strict ZIC with training-time augmentation by synthetic images , namely SynTIC [24], PCM-Net [26], and NES [10]; and (iii) paired-supervised models reported for context, namely ClipCap [1], BLIP [13], and BLIP-2 [21]. We also include a foundation multimodal large language model (MLLM), Qwen2.5-VL-3B [43], fed our retrievals as in-context exemplars. Following template practice, we keep these regimes in separate table blocks. 
+
+D. Main results: COCO Karpathy 
+
+Table II reports the full metric set, with all comparators grouped by training regime. Our framework reaches CIDEr 
+
+117 .6 / SPICE 21 .9, the best strict-text-only result on this benchmark to our knowledge, surpassing the previous strict-ZIC state of the art, IFCap (CIDEr 108 .0), by +9.6 and the strongest synthetic-image-augmented method NES (CIDEr 109 .9) by 
+
++7 .7 without any Captioner retraining. SPICE 21 .9 further surpasses ClipCap’s 21 .1, a paired-supervised baseline trained on full COCO image–caption pairs. Every reference-based metric improves simultaneously over IFCap; no metric is traded for another. The TriFuse+MemAttend ensemble contributes 
+
++1 .8 CIDEr over a fixed-α z-mix that has access to the same input scorers; these are the only learned components in the pipeline. 
+
+a) Hallucination (CHAIR proxy).: The +0 .083 CLIP-Score lift could in principle come either from genuinely more accurate captions or from style preferences of the Retrieval Encoder substrate at the output checkpoint. We disambiguate with a closed-vocabulary hallucination metric (Table III), the reference-proxy variant of CHAIR [42]: for each prediction, count MS-COCO-class objects mentioned in the predicted caption that do not appear in any of the 5 reference captions for that image (since instance segmentation annotations are not used by our pipeline at inference). Both CHAIR s, which fires when a sentence has at least one hallucinated object, and CHAIR i, the instance-level hallucinated-to-mentioned ratio, drop by around 41% relative against the IFCap baseline. The largest per-class drops are on classes whose presence is hardest to infer from ViT-B/32 retrieval alone: person (48 → 17 ), sink 
+
+(45 → 14 ), and TV (28 →≤ 10 ). The reference-proxy reduction is consistent with our pipeline writing fewer COCO-class nouns that no reference annotator mentioned; whether the gain holds against instance-mask CHAIR remains to be verified. ZeroCap           
+
+> MAGIC
+> CapDec
+> DeCap
+> ViECap
+> MeaCap
+> IFCap
+> SynTIC
+> PCM-Net
+> NES
+> ClipCap
+> Ours
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> 120
+> CIDEr (COCO Karpathy test)
+> 34.5
+> 49.3
+> 91.8 91.2 92.9 95.4
+> 108.0
+> 101.1 103.8 109.9 113.1 117.6
+> Strict text-only + Synthetic-image aug. Paired-supervised (context) Ours
+
+Fig. 5: CIDEr on COCO Karpathy test, grouped by training regime. Progress in the captioner-text-only ZIC regime has plateaued near IFCap’s 108 .0; the only entry to surpass it, NES at 109 .9, does so by stepping outside the regime via Stable-Diffusion-generated synthetic images. Our framework reaches 117 .6 without retraining the Captioner and without any paired image–caption supervision, exceeding even the paired-supervised baseline ClipCap ( 113 .1). Numbers from Table II. 
+
+E. Evaluation-protocol comparison and Verifier substrate 
+
+Following Sec. IV-D we report all three protocols. The inductive variant, in which TriFuse +MemAttend are trained on the disjoint COCO Karpathy validation beam dump and applied frozen to the test split, matches the transductive default to within determinism noise on every primary metric (Table IV). We therefore take the inductive variant as the headline ,since it does not rely on parametric adaptation to test inputs; the transductive number is reported as a strict upper bound. The training-free fixed-α z-mix isolates the contribution of the architectural intervention (stronger Retrieval Encoder +
+
+Verifier rerank + threshold rescale) from the learned step. 
+
+a) Verifier substrate.: Table V swaps the Verifier check-point while leaving the rest of the pipeline (Retrieval Encoder, Captioner, Reranker) unchanged. Replacing the COCO-fine-tuned BLIP-ITM Verifier with the Flickr30k-fine-tuned variant of the same architecture lifts CIDEr to 114 .0, +6 .0 over IFCap; the residual +3 .6 CIDEr between 114 .0 and the 117 .6 headline is conditional on COCO Verifier tuning, while the larger share of the lift is attributable to the architectural intervention. The Flickr30k-Verifier row is therefore the architecturally cleaner comparison for COCO, since its training distribution does not overlap COCO. All rows use the inductive headline protocol; exact checkpoints are listed in the caption. 
+
+F. Cross-domain transfer: Flickr30k and NoCaps 
+
+The same inference-only recipe transfers off-COCO without Captioner retraining. Per-benchmark transductive Rerankers (TriFuse and MemAttend re-fit on the target benchmark’s beam-20 dump, same Borda-consensus pseudo-label) give the following gains over IFCap. 
+
+G. Factorial ablation 
+
+Table VII decomposes the +9 .6 CIDEr lift across the three architectural changes: stronger Retrieval Encoder at Stage 1,Verifier rerank at Stage 2, and learned Beam Reranker at Stage 4.10 Method Venue Encoder Train data B-4 MET R-L CIDEr SPICE                                                                                                                         
+
+> Captioner-text-only ZIC; frozen paired-pretrained scorers allowed; no retraining-time image augmentation:
+> ZeroCap [19] CVPR’22 ViT-B/32 GPT-2 prior —15.4 —34.5 9.2 MAGIC [20] arXiv’22 ViT-B/32 text only 12.9 17.4 —49.3 11.3 CapDec [3] EMNLP’22 ViT-B/32 text only 26.4 25.1 —91.8 11.9 DeCap [4] ICLR’23 ViT-B/32 text only 24.7 25.0 —91.2 18.7 ViECap [5] ICCV’23 ViT-B/32 text only 27.2 24.8 —92.9 18.2 MeaCap [6] CVPR’24 ViT-B/32 text only 27.2 25.3 —95.4 19.0 IFCap [7] EMNLP’24 ViT-B/32 text only 30.7 26.6 53.8 108.0 20.3
+> Captioner-text-only ZIC with synthetic-image training augmentation:
+> SynTIC [24] AAAI’24 ViT-B/32 text + SD synth img 29.9 25.8 53.2 101.1 19.3 PCM-Net [26] ECCV’24 ViT-B/32 text + SD synth img 31.5 25.9 53.9 103.8 19.7 NES [10] AAAI’26 ViT-B/32 text + SD synth img 30.8 26.8 —109.9 20.6
+> Supervised image captioning (paired image–text training; reported for context, not regime-comparable):
+> ClipCap [1] arXiv’21 ViT-B/32 paired 33.5 27.5 —113.1 21.1 BLIP [13] ICML’22 ViT-B/16 14M paired 39.7 ——133.3 —BLIP-2 [21] ICML’23 ViT-G 129M paired 43.7 ——145.8 —Qwen2.5-VL-3B [43] + our retrievals arXiv’25 Qwen-ViT-L MLLM paired pretrain 21.8 28.1 50.6 77.1 23.3
+> Ours: captioner-text-only ZIC under frozen paired-pretrained scorers; inference-time intervention on IFCap’s released checkpoint:
+> Ours (ViT-bigG/14 in + BLIP Verifier + TriFuse +MemAttend out, inductive) —ViT-bigG/14 captioner text only; frozen paired scorers 32 .827 .955 .5117 .621 .9
+
+TABLE II: COCO Karpathy test. CIDEr and SPICE reported ×100 following prior convention. Our 117 .6 CIDEr is the best captioner-text-only ZIC result on this benchmark under frozen paired-pretrained scorers, surpassing the previous strict-ZIC state of the art, IFCap, by +9 .6 and the strongest synthetic-image-augmented method NES by +7 .7 without any Captioner retraining. The “Ours” row reports the inductive protocol (Rerankers fit on the disjoint COCO Karpathy validation beam dump and applied frozen to test); the transductive variant differs by at most 0.1 on any metric, and not at all on CIDEr, and is reported in Table IV; the only learned components are TriFuse ( 113 parameters, <1 min fit) and MemAttend ( 17 .4K parameters, ≈5
+
+min fit), both fit self-supervised by Borda-consensus distillation across three frozen scorers. SPICE 21 .9 surpasses ClipCap (21 .1), a paired-supervised baseline. The IFCap row reports our reproduction of the released checkpoint (Table I), which is what every comparison in this paper is made against (Sec. IV), so it also carries a ROUGE-L value that the original paper does not report. In the train-data column, SD denotes Stable Diffusion. “Encoder” refers to the dominant frozen image–text scorer used at retrieval and output; the Captioner itself is IFCap’s released ViT-B/32 checkpoint, unmodified, in every row of this paper. Supervised methods are listed for context to bound how far the strict-ZIC regime is from the paired-data ceiling—not as direct comparators. 
+
+IFCap baseline Ours (TriFuse) rel. ∆
+
+CHAIR s (↓, sent-level) 13 .28% 7.84 % −41% 
+
+CHAIR i (↓, inst-level) 9.61% 5.61 % −42% 
+
+# objects mentioned ( 5K imgs) 7474 7257 −3% 
+
+# hallucinated objects 718 407 −43 %
+
+TABLE III: Reference-proxy CHAIR hallucination metrics. We use the 5 COCO references for each test image as the ground-truth-object proxy in lieu of instance-segmentation annotations: a standard variant when instance masks are unavailable, conservative since an object truly in the image but absent from all references is marked hallucinated. The conservatism is symmetric across both rows. Our pipeline drops both sentence- and instance-level reference-proxy CHAIR rates by approximately 41% . Reference-proxy CHAIR is not equivalent to instance-mask CHAIR; an object truly in the image but absent from all five references is counted as hallucinated, and the gap should be read as “fewer COCO-class nouns that no reference annotator wrote down” rather than “fewer objects truly absent from the image”. We do not therefore claim objects actually present ; an instance-mask CHAIR run is queued (Sec. VI-0d). 
+
+H. Robustness checks a) Determinism.: Across reruns of the same configuration on identical hardware we observe around 0.1 CIDEr of drift on the ×100 scale, attributable to GPU non-determinism in the GPT-2 forward. The +9 .6 CIDEr lift over baseline is roughly 
+
+96 × this floor. 
+
+Protocol B-4 MET R-L CIDEr SPICE Training-free fixed-α 32 .3 27 .7 55 .2 115 .8 21 .6
+
+Inductive (headline) 32 .8 27 .9 55 .5 117 .6 21 .9
+
+Transductive (upper bound) 32 .9 27 .9 55 .6 117 .6 22 .0
+
+TABLE IV: Protocol comparison on COCO Karpathy , all metrics ×100 . Training-free uses no learned head. Inductive trains TriFuse +MemAttend on the disjoint Karpathy validation beam-20 dump (no test features) and applies the heads frozen to test. Transductive trains the heads on the test beam-20 dump using only frozen-scorer pseudo-labels (no reference captions). The inductive and transductive variants are identical on CIDEr and differ by at most 0.1 on any other metric, at or below the determinism floor of Sec. V-H; we headline the inductive result. 
+
+b) Verification through IFCap’s official script.: We verify rows 5 and 6 of Table VII ( 110 .2 and 113 .1) by running IFCap’s own evaluation script on our reranked retrieval pools at K=3 .Both numbers reproduce exactly. Row 7 is the row-6 Captioner output with a downstream ViT-bigG/14 rerank applied to the dumped 20 -wide beam at α=0 .48 . Row 8 (Ours, TriFuse) operates on the same beam dump; only the final scoring head changes, and the Captioner outputs are byte-identical to row 7. 
+
+c) No paired data, no reference captions in Tri-Fuse/MemAttend training.: Under both protocols the train-ing signal is the frozen scorers’ rankings on the Cap-tioner’s own beam, never the COCO reference captions. The Borda-consensus pseudo-label is a deterministic function of 11 GT: 
+
+> Two men riding snowboards
+> in a snow storm down a
+> slope.
+> IFCap:
+> A snowboarder and a
+> snowboarder are posing for
+> a picture.
+> Ours:
+> Two men are snowboarding
+> down a snowy hill.
+> GT:
+> A man flying through the
+> air while riding a
+> snowboard.
+> IFCap:
+> A snowboarder performing a
+> trick at night in a
+> competition.
+> Ours:
+> A person flying through
+> the air while riding a
+> snowboard.
+> GT:
+> A group of people standing
+> around a table with ripe
+> bananas.
+> IFCap:
+> A woman is smiling while
+> holding a bunch of
+> bananas.
+> Ours:
+> A group of people standing
+> around a table with
+> bananas.
+> GT:
+> A man captured in every
+> aspect of delivering a
+> baseball from a mound.
+> IFCap:
+> A group of baseball
+> players running across a
+> field.
+> Ours:
+> A baseball player is
+> throwing a baseball from a
+> pitcher's mound.
+> GT:
+> A person that is looking
+> at a cake.
+> IFCap:
+> A woman is smiling while
+> holding a chocolate
+> dessert.
+> Ours:
+> A close up of a cake with
+> sprinkles on it.
+> GT:
+> A shirtless man on a
+> tennis court holding a
+> tennis racket.
+> IFCap:
+> A male tennis player about
+> to hit a tennis ball.
+> Ours:
+> A man playing tennis on a
+> tennis court.
+> GT:
+> A woman walking across a
+> street at a cross walk.
+> IFCap:
+> A man riding a skateboard
+> down the street.
+> Ours:
+> A store on the corner of a
+> street.
+> GT:
+> a giraffe and a zebra are
+> standing in a field
+> IFCap:
+> A giraffe and other
+> animals are in a zoo
+> enclosure.
+> Ours:
+> A giraffe and a zebra are
+> walking in a field.
+
+Fig. 6: Qualitative comparison on COCO Karpathy test. Eight test images on which Ours ( blue ) corrects a salient mistake in the IFCap baseline ( red ). IFCap’s failures are typical of single-encoder, single-checkpoint retrieval: under-counting (top-left, “ a”snowboarder vs. two ), wrong subject (banana vendors → “smiling woman”), missing relations (pitcher’s mound mis-localised as “running across a field”), and category confusion (giraffe + zebra → “giraffe and other animals in a zoo”). Ours produces captions that match the ground-truth semantics more closely, consistent with the −41% CHAIR s reduction in Table III. 
+
+{(ℓy , s yR, s V (I, y )) } over each image’s beam, and the Cap-tioner’s beam itself is generated from the test (or validation) image alone. Under the inductive headline protocol the training loop iterates over the disjoint COCO Karpathy validation 
+
+5,000 -image beam dump; under the transductive upper-bound protocol it iterates over the test 5,000 -image beam dump. References enter only at the final evaluation step in either case. 
+
+d) Retrieving from training-side captions is not leakage.: 
+
+Our pipeline retrieves at inference from Ctrain (566 ,747 captions) drawn from the COCO Karpathy training split. We address the natural concern with five points. (i) The Captioner is trained on 
+
+Ctrain as text only ; it never sees any image during training. (ii) Test images and the captions in Ctrain come from disjoint image splits; the 566 K captions correspond to the 113 K Karpathy training images , which do not overlap with the 5,000 test images. (iii) The approximately 25 K reference captions for the test images (used only by the evaluation toolkit) are held out and never enter the retrieval index. (iv) Our pipeline does not output retrieved captions verbatim; the Captioner generates new text conditioned on the retrievals as soft prefix and hard prompt, and the final answer is a beam decode from GPT-2, 12 Verifier checkpoint B-4 MET R-L CIDEr SPICE                
+
+> IFCap baseline, no Verifier 30 .726 .653 .8108 .020 .3
+> BLIP-ITM Flickr30k-fine-tuned [13] 31 .727 .254 .7114 .021 .1
+> BLIP-ITM COCO-fine-tuned (headline) 32 .827 .955 .5117 .621 .9
+
+TABLE V: Verifier-substrate ablation , all metrics ×100 .Stage-2 Cross-Attention Verifier swapped between two BLIP-ITM checkpoints; Stages 1, 3, 4 and all hyperparameters are held fixed at the inductive headline protocol. The COCO and Flickr30k-fine-tuned variants of the BLIP-ITM Large head are both drawn from the official Salesforce LAVIS release [44]; the Flickr30k variant’s training distribution does not overlap COCO. The +6 .0 CIDEr lift achieved without any COCO Verifier exposure indicates that the architectural intervention is the larger contributor; a residual +3 .6 CIDEr is conditional on COCO fine-tuning of the Verifier. Flickr30k       
+
+> (Karpathy)
+> NoCaps
+> in-domain
+> NoCaps
+> near-domain
+> NoCaps
+> out-domain
+> NoCaps
+> overall
+> 50
+> 55
+> 60
+> 65
+> 70
+> 75
+> 80
+> 85
+> 90
+> 95
+> CIDEr
+> 64.4
+> 70.1
+> 72.5 72.1 74.0
+> 72.5
+> 75.5
+> 78.4 78.0 79.7
+> +8.1
+> +5.4
+> +5.9 +5.9 +5.7
+> IFCap (baseline)
+> Ours
+
+Fig. 7: Cross-domain CIDEr lifts from the same inference-only recipe, no Captioner retraining: +8 .1 on Flickr30k Karpathy and +5 .7 on NoCaps overall, with consistent gains across in-, near-, and out-domain NoCaps splits. Out-domain, where COCO-trained Captioners typically degrade fastest, gains +5 .9,matching the near-domain lift and exceeding the +5 .4 on in-domain. Numbers from Table VI. not a retrieval look-up. (v) Retrieve-at-inference is the defining structure of strict-ZIC: ViECap, MeaCap, IFCap, and NES all retrieve from training-side captions at inference. The remaining concern, that the corpus and the test references share writers’ style, is directly answered by our reference-free CLIPScore lift ( +0 .083 ) and CHAIR-proxy reduction ( −41% relative): by metrics that do not consume references, our captions are still measurably better-grounded. 
+
+e) CLIP–BLIP rank correlation.: We measure the rank correlation between CLIP cosine and BLIP-ITM softmax over the top-9 retrievals across all 5,000 test images. Mean Spearman 
+
+ρ = 0 .41 ± 0.18 (std across images). The two scorers are positively but loosely correlated, supporting the architectural claim in Sec. III-B : BLIP-ITM provides non-redundant signal over CLIP cosine, so cascading them is informative rather than tautological. 
+
+f) Negative result: contrastive decoding does not lift further.: A natural follow-up is to use BLIP’s bottom-4
+
+captions as negative evidence in contrastive decoding [45]: 
+
+ℓcd = (1 + λ)ℓpos − λ ℓ neg . We sweep λ ∈ { 0, 0.1, 0.3} and observe monotone CIDEr decay across 110 .2, 109 .6, and 108 .4.The negative branch is uniformly harmful at this scale. We attribute this to the negative pool being already-low-quality CLIP retrievals: they carry weak distributional support for the 
+
+Benchmark IFCap Ours ∆
+
+COCO Karpathy test 
+
+CIDEr / SPICE 108 .0 / 20 .3 117 .6 / 21 .9 +9 .6
+
+Flickr30k Karpathy test 
+
+CIDEr / SPICE 64 .4 / 17 .0 72 .5 / 18 .0 +8 .1
+
+NoCaps val (COCO-trained) 
+
+in-domain CIDEr / SPICE 70 .1 / 11 .2 75 .5 / 11 .6 +5 .4
+
+near-domain CIDEr / SPICE 72 .5 / 10 .9 78 .4 / 11 .4 +5 .9
+
+out-domain CIDEr / SPICE 72 .1 / 9.6 78 .0 / 9.9 +5 .9
+
+overall CIDEr / SPICE 74 .0 / 10 .5 79 .7 / 10 .9 +5.7
+
+TABLE VI: Cross-domain transfer of the same recipe (benchmark-transductive). The Stage 1 + Stage 2 + Stage 4
+
+stack lifts CIDEr by +5 to +10 on every benchmark. The Flickr30k IFCap baseline is the published 64 .4 rather than our 
+
+64 .5 reproduction (Table I); measured against the reproduction the lift is +8 .0, a 0.1 difference at the determinism floor of Sec. V-H . No retraining or fine-tuning of the Captioner. Rerankers are re-fit per benchmark on that benchmark’s beam-
+
+20 dump using only frozen-scorer Borda-consensus pseudo-labels (no paired image–caption supervision is consumed); this is benchmark-transductive adaptation, not fully frozen cross-domain transfer. NoCaps overall CIDEr exceeds the maximum of the three subset CIDErs because CIDEr is a per-corpus term-frequency-inverse-document-frequency (TF-IDF) weighted metric, not a weighted average of subsets; the same pattern 74 .0 > max(70 .1, 72 .5, 72 .1) is present in the IFCap baseline and reflects how the NoCaps evaluator aggregates references.                                                                  
+
+> Configuration B-4 MET R-L CIDEr SPICE 1IFCap baseline (ViT-B/32, K=5 )30 .726 .653 .8108 .020 .3
+> 2ViT-bigG/14 input (drop-in, K=5 )31 .526 .954 .5111 .620 .8
+> 3ViT-B/32, K=3 only (neg. ctrl.) 28 .126 .853 .0103 .721 .2
+> 4ViT-B/32, BLIP only (neg. ctrl.) 30 .626 .353 .5105 .719 .8
+> 5ViT-B/32, BLIP +K=3 31 .127 .054 .3110 .220 .8
+> 6ViT-bigG/14 , BLIP +K=3 32 .127 .154 .8113 .121 .1
+> 7+ViT-bigG/14 out (linear z-mix, α=0 .48 )32 .327 .755 .2115 .821 .6
+> 8+TriFuse +MemAttend ensemble (Ours, inductive) 32 .827 .955 .5117 .621 .9
+
+TABLE VII: Factorial ablation on top of IFCap’s released Captioner, no retraining; all metrics ×100 . Row 2 isolates that swapping ViT-B/32 → ViT-bigG/14 at retrieval input alone is the largest single-component lift ( +3 .6 CIDEr). Rows 3, 4 isolate that BLIP rerank and entity-threshold rescale are 
+
+mutually enabling : each alone falls below the baseline, and only their combination in row 5 exceeds it. Rows 5 vs. 6 show the input-endpoint substrate effect: +2 .9 CIDEr from ViT-B/32 → ViT-bigG/14 at retrieval. Row 7 adds ViT-bigG/14 output rerank with a fixed-α linear mix ( +2 .7). Row 8 (Ours) replaces the linear mix with the learned TriFuse +MemAttend ensemble, lifting every metric simultaneously ( +1 .8 CIDEr, 
+
++0 .3 SPICE). wrong caption, so subtracting their logits does not sharpen the next-token distribution toward the truth, and instead noises the LM with semantically related distractors. We report this so future work knows to pick negatives from a stronger source if it wants to chain contrastive decoding onto this pipeline. 13 Flickr30k 
+
+> GT:
+> Three people are in a
+> field picking something,
+> and one of them has a big
+> hat with a red bow.
+> IFCap:
+> A group of women working
+> in a field.
+> Ours:
+> Three people harvesting in
+> a field.
+
+Flickr30k 
+
+> GT:
+> A group of boys in swim
+> gear is playing in a field
+> surrounded by trees.
+> IFCap:
+> A boy in a blue shirt is
+> playing in a park with
+> three children.
+> Ours:
+> Three young boys play in
+> the water.
+
+Flickr30k 
+
+> GT:
+> Some children are playing
+> tug-of-war with a rope
+> while an adult assists.
+> IFCap:
+> A group of children are
+> standing around a stick
+> and holding sticks.
+> Ours:
+> A group of children are
+> playing tug-of-war with a
+> rope.
+
+Flickr30k 
+
+> GT:
+> A person wearing a red
+> coat is holding a beige
+> and plaid umbrella while
+> crossing the street.
+> IFCap:
+> A woman is walking with an
+> umbrella.
+> Ours:
+> An elderly lady is
+> crossing the street.
+
+NoCaps 
+
+> GT:
+> The aisle is long and
+> lined with bookshelves
+> full of books.
+> IFCap:
+> Several books are stacked
+> on top of each other on a
+> bookshelf.
+> Ours:
+> A library filled with
+> bookshelves filled with
+> books.
+
+NoCaps 
+
+> GT:
+> Several wounded men in a
+> wartime scenario in the
+> forest.
+> IFCap:
+> A man is shown lying on a
+> hospital bed with his eyes
+> closed.
+> Ours:
+> A group of men sitting
+> next to each other.
+
+NoCaps 
+
+> GT:
+> A baby kangaroo is hiding
+> under its mama in the
+> green grass.
+> IFCap:
+> A close up of two
+> kangaroos in a grassy
+> area.
+> Ours:
+> A mother and baby kangaroo
+> grazing in the grass.
+
+NoCaps 
+
+> GT:
+> TWO SETS OF CHEST OF
+> DRAWERS IN GREY COLOR.
+> IFCap:
+> Several wooden cabinets
+> are shown in a store.
+> Ours:
+> Two blue cabinets are next
+> to each other.
+
+Fig. 8: Qualitative comparison on cross-domain benchmarks: Flickr30k (top row) and NoCaps (bottom row). Same colour scheme as Fig. 6. The same inference-only recipe lifts caption quality off-COCO: corrected counts (Flickr30k row, “ three 
+
+young boys”, not “a boy and three children”), corrected actions (“ playing tug-of-war ” rather than “standing around a stick”), and corrected NoCaps out-of-domain entities (“ library filled with bookshelves” rather than “books stacked on each other”; “mother and baby kangaroo grazing ” rather than “two kangaroos in a grassy area”). The Captioner is unchanged across all rows. VI. D ISCUSSION 
+
+a) Why alignment-checkpoint scoring works.: The pipeline architecture introduced here can be read as a simple principle: when a retrieval-augmented generator scores image– text alignment at a single point and lets the decoder fill in the rest by language-model probability, the alignment signal that survives to the output is bottlenecked by whichever scorer was used at that single point. Adding a second, partly orthogonal frozen scorer at the output beam recovers signal that was lost between retrieval and decoding. The same observation explains why which scorers are placed at the two checkpoints matters monotonically as established in the alignment-substrate sweep: scaling-law-stronger CLIP variants help at both ends in additive magnitudes, and replacing CLIP with a cross-attention matcher (BLIP-ITM) provides information that no dual-encoder of any scale can supply. The architectural claim is therefore independent of any particular scorer choice; it predicts that future stronger frozen scorers will move the pipeline further. 
+
+b) What the learned Reranker adds, and what it does not.: The training-free fixed-fusion baseline reaches CIDEr 14 115 .8 (+7 .8 over IFCap), so most of the +9 .6 CIDEr lift over IFCap is explained by “where alignment is scored” rather than by “what the learned head learns”. The TriFuse+MemAttend ensemble adds a further +1 .8 CIDEr ( 115 .8 → 117 .6). Our headline reports the inductive variant, in which the Rerankers are trained on the disjoint COCO Karpathy validation beam dump and applied frozen to test; the transductive variant differs by at most 0.1 on any primary metric, and not at all on CIDEr, and is reported only as an upper bound. The learned Reranker therefore contributes its +1 .8 CIDEr without parametric adaptation to the test inputs . The training-free 115 .8
+
+remains a lower bound on what the architectural intervention alone buys without any learned head whatsoever. 
+
+c) Connection to retrieval-augmented generation more broadly.: Alignment-checkpoint scoring is not specific to captioning. Any retrieval-augmented generator (open-domain question answering (QA) with a retriever and a generator, dialogue systems with a knowledge corpus, code completion with a retrieval index) scores relevance at retrieval and then trusts the generator’s autoregressive beam. The pattern proposed here (a second, cross-attention-capable scorer between retrieval and generation, plus a self-supervised learned Reranker at the generation output trained by frozen-scorer consensus) transfers directly. We leave a study of the technique on open-domain QA to future work. 
+
+d) Limitations.:  
+
+> •
+
+Retrieval-corpus exposure. The retrieval index reads the COCO training caption corpus, whose writers’ style and object distribution overlap with the COCO test references. Reference-free CLIPScore at the output checkpoint and the CHAIR-proxy hallucination check both improve, indicating the gain is not just COCO-style mimicry; a retrieval-corpus swap to a non-COCO source such as CC 3M [46] or LAION-COCO [31] would be the most direct test, but it remains to be performed.  
+
+> •
+
+Verifier provenance. The headline uses the COCO-fine-tuned variant of the Verifier [13]. The Verifier-substrate ablation in our Verifier-substrate analysis shows the ar-chitectural intervention still lifts CIDEr by +6 .0 over IFCap when we swap in the Flickr30k-fine-tuned variant of the Verifier, but the residual +3 .6 CIDEr from COCO-tuning persists. A broader Verifier sweep over BLIP-2 [21], SigLIP [47], and OpenCLIP cross-encoder variants would map the dependence more completely.  
+
+> •
+
+NoCaps cross-benchmark inductive transfer. Table VI reports cross-benchmark inductive transfer on Flickr30k but only benchmark-transductive on NoCaps; the NoCaps beam-feature dump used for our earlier cross-domain run was not re-produced on the hardware used for this round of experiments. The Flickr30k cross-benchmark-inductive result (matching the per-benchmark refit within 0.1 CIDEr) strongly suggests NoCaps would behave the same way; a NoCaps cross-benchmark inductive row is the most natural follow-up.  
+
+> •
+
+Captioner family. All experiments are on top of IFCap’s released checkpoint. The architectural prediction is that any strict-ZIC Captioner that emits a beam can be capped with an alignment-scoring stack; we have not yet tested this on a Captioner from outside the ClipCap-prefix family.  
+
+> •
+
+Hyperparameter selection. α, β, K, h , layer counts were se-lected by Borda-consensus pseudo-label loss (no reference-metric tuning), as stated in Sec. IV-E . We cannot rule out that a reference-tuned selection would yield a slightly higher CIDEr.  
+
+> •
+
+Single-seed evaluation. We report a single seed ( 42 ). Determinism noise on identical hardware is about 0.1
+
+CIDEr on the ×100 scale, measured across reruns. The inductive and transductive protocols sit at or below that floor, being identical on CIDEr and differing by at most 
+
+0.1 on any other metric in Table IV, which is why we treat them as indistinguishable rather than ranked. The differences that carry the paper’s claims are far above the floor, namely +7 .8 CIDEr for the architectural intervention and +1 .8 for the learned Rerankers. A multi-seed Cohen’s 
+
+d over TriFuse/MemAttend training initialisations would nonetheless tighten the statistical claim.  
+
+> •
+
+Evaluation-metric coverage. The headline numbers use the n-gram-based COCO suite (BLEU-4, METEOR, ROUGE-L, CIDEr, SPICE). These metrics are known to under-weight semantic accuracy and over-weight surface phrasing, so a high CIDEr does not by itself certify that a system describes a scene faithfully. A complete 2026 diagnostic should additionally report a human-aligned learned metric such as Polos [48], an open-vocabulary hallucination metric such as ALOHa [49], and an exhaustive-description score such as CAPability [50]. We use frozen-third-party CLIPScore and a CHAIR-proxy hallucination probe as lightweight grounding checks; the broader sweep, including reward-corrected fine-tuning baselines [51], remains future work. VII. C ONCLUSION 
+
+We argued that the captioner-text-only zero-shot image captioning plateau (ViECap 92 .9 → MeaCap 95 .4 → IFCap 
+
+108 .0 → NES 109 .9 on COCO Karpathy CIDEr) is not a funda-mental ceiling but an architectural artefact: every prior method scores image–text alignment with a single dual-encoder, namely ViT-B/32, at the retrieval input and leaves the Captioner’s beam structurally bottlenecked by that scorer. We addressed this with two changes. First, we strengthen scoring at both alignment checkpoints, swapping ViT-B/32 for an OpenCLIP ViT-bigG/14 at retrieval and inserting a frozen BLIP-ITM Cross-Attention Verifier in between. Second, we introduced two complementary self-supervised Beam Rerankers: TriFuse , a 113 -parameter MLP, and MemAttend , a 17 .4K-parameter memory-augmented transformer encoder. Both are trained by Borda-consensus distillation across three frozen scorers, with no paired image– caption supervision and no reference captions in the loop. Our headline reports the inductive variant, in which the Rerankers are trained on the disjoint COCO Karpathy validation beam dump and applied frozen to test; a transductive variant fit on test-image beam features (no test labels) matches the inductive numbers to within determinism noise and is reported only as an upper bound. The training-free fixed-fusion baseline 15 reaches 115 .8 CIDEr without any learned step, isolating the architectural contribution. The full pipeline reaches CIDEr 117 .6 / SPICE 21 .9
+
+on COCO Karpathy under the inductive headline protocol: 
+
++9 .6 CIDEr over IFCap and +7 .7 over the synthetic-image-augmented NES. It also exceeds the paired-supervised ClipCap baseline on CIDEr ( 117 .6 against 113 .1), METEOR ( 27 .9
+
+against 27 .5), and SPICE ( 21 .9 against 21 .1), while trailing ClipCap by 0.7 on BLEU-4 (32 .8 against 33 .5). The same recipe transfers off-COCO without Captioner retraining: +8 .1
+
+CIDEr on Flickr30k Karpathy and +5 .7 on NoCaps overall, with consistent in/near/out-domain gains. The architectural insight, namely alignment scoring at mul-tiple checkpoints rather than only at retrieval, and the training paradigm, namely consensus distillation across heterogeneous frozen scorers without paired labels, are portable beyond the captioner-text-only ZIC regime: any retrieval-augmented generation pipeline that scores grounding once and decodes elsewhere can be opened up at both ends and capped with a self-supervised learned Reranker. ACKNOWLEDGMENT 
+
+This work was supported by the University of Economics HCMC, Vietnam. REFERENCES [1] R. Mokady, A. Hertz, and A. H. Bermano, “Clipcap: Clip prefix for image captioning,” arXiv preprint arXiv:2111.09734 , 2021. [2] A. Radford, J. Wu, R. Child, D. Luan, D. Amodei, I. Sutskever et al. ,“Language models are unsupervised multitask learners,” OpenAI blog ,vol. 1, no. 8, p. 9, 2019. [3] D. Nukrai, R. Mokady, and A. Globerson, “Text-only training for image captioning using noise-injected clip,” in Findings of the Association for Computational Linguistics: EMNLP 2022 , 2022, pp. 4055–4063. [4] W. Li, L. Zhu, L. Wen, and Y. Yang, “Decap: Decoding CLIP latents for zero-shot captioning via text-only training,” in The Eleventh International Conference on Learning Representations , 2023. [5] J. Fei, T. Wang, J. Zhang, Z. He, C. Wang, and F. Zheng, “Transferable decoding with visual entities for zero-shot image captioning,” in 
+
+Proceedings of the IEEE/CVF international conference on computer vision , 2023, pp. 3136–3146. [6] Z. Zeng, Y. Xie, H. Zhang, C. Chen, B. Chen, and Z. Wang, “Meacap: Memory-augmented zero-shot image captioning,” in Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , 2024, pp. 14 100–14 110. [7] S. Lee, S.-W. Kim, T. Kim, and D.-J. Kim, “Ifcap: Image-like retrieval and frequency-based entity filtering for zero-shot captioning,” in Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , 2024, pp. 20 715–20 727. [8] T.-Y. Lin, M. Maire, S. Belongie, J. Hays, P. Perona, D. Ramanan, P. Doll ´ar, and C. L. Zitnick, “Microsoft coco: Common objects in context,” in European conference on computer vision . Springer, 2014, pp. 740– 755. [9] A. Karpathy and L. Fei-Fei, “Deep visual-semantic alignments for generating image descriptions,” in Proceedings of the IEEE conference on computer vision and pattern recognition , 2015, pp. 3128–3137. [10] Z. Lu, H. Xu, B. Liu, and K. Wang, “Negative entity suppression for zero-shot captioning with synthetic images,” in Proceedings of the AAAI Conference on Artificial Intelligence , vol. 40, no. 9, 2026, pp. 7636–7643. [11] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell, P. Mishkin, J. Clark et al. , “Learning transferable visual models from natural language supervision,” in International conference on machine learning . PmLR, 2021, pp. 8748–8763. [12] M. Cherti, R. Beaumont, R. Wightman, M. Wortsman, G. Ilharco, C. Gordon, C. Schuhmann, L. Schmidt, and J. Jitsev, “Reproducible scaling laws for contrastive language-image learning,” in Proceedings of the IEEE/CVF conference on computer vision and pattern recognition ,2023, pp. 2818–2829. [13] J. Li, D. Li, C. Xiong, and S. Hoi, “Blip: Bootstrapping language-image pre-training for unified vision-language understanding and generation,” in International conference on machine learning . PMLR, 2022, pp. 12 888–12 900. [14] P. Young, A. Lai, M. Hodosh, and J. Hockenmaier, “From image descriptions to visual denotations: New similarity metrics for semantic inference over event descriptions,” Transactions of the association for computational linguistics , vol. 2, pp. 67–78, 2014. [15] B. A. Plummer, L. Wang, C. M. Cervantes, J. C. Caicedo, J. Hockenmaier, and S. Lazebnik, “Flickr30k entities: Collecting region-to-phrase corre-spondences for richer image-to-sentence models,” in Proceedings of the IEEE international conference on computer vision , 2015, pp. 2641–2649. [16] H. Agrawal, K. Desai, Y. Wang, X. Chen, R. Jain, M. Johnson, D. Batra, D. Parikh, S. Lee, and P. Anderson, “Nocaps: Novel object captioning at scale,” in Proceedings of the IEEE/CVF international conference on computer vision , 2019, pp. 8948–8957. [17] B. Eikema and W. Aziz, “Sampling-based approximations to minimum bayes risk decoding for neural machine translation,” in Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing ,2022, pp. 10 978–10 993. [18] Z. Cao, T. Qin, T.-Y. Liu, M.-F. Tsai, and H. Li, “Learning to rank: from pairwise approach to listwise approach,” in Proceedings of the 24th international conference on Machine learning , 2007, pp. 129–136. [19] Y. Tewel, Y. Shalev, I. Schwartz, and L. Wolf, “Zerocap: Zero-shot image-to-text generation for visual-semantic arithmetic,” in Proceedings of the IEEE/CVF conference on computer vision and pattern recognition ,2022, pp. 17 918–17 928. [20] Y. Su, T. Lan, Y. Liu, F. Liu, D. Yogatama, Y. Wang, L. Kong, and N. Collier, “Language models can see: Plugging visual controls in text generation,” arXiv preprint arXiv:2205.02655 , 2022. [21] J. Li, D. Li, S. Savarese, and S. Hoi, “Blip-2: Bootstrapping language-image pre-training with frozen image encoders and large language models,” in International conference on machine learning . PMLR, 2023, pp. 19 730–19 742. [22] W. Dai, J. Li, D. Li, A. Tiong, J. Zhao, W. Wang, B. Li, P. N. Fung, and S. Hoi, “Instructblip: Towards general-purpose vision-language models with instruction tuning,” Advances in neural information processing systems , vol. 36, pp. 49 250–49 267, 2023. [23] H. Liu, C. Li, Q. Wu, and Y. J. Lee, “Visual instruction tuning,” Advances in neural information processing systems , vol. 36, pp. 34 892–34 916, 2023. [24] Z. Liu, J. Liu, and F. Ma, “Improving cross-modal alignment with synthetic pairs for text-only image captioning,” in Proceedings of the AAAI Conference on Artificial Intelligence , vol. 38, no. 4, 2024, pp. 3864–3872. [25] R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer, “High-resolution image synthesis with latent diffusion models,” in Proceedings of the IEEE/CVF conference on computer vision and pattern recognition ,2022, pp. 10 684–10 695. [26] J. Luo, J. Chen, Y. Li, Y. Pan, J. Feng, H. Chao, and T. Yao, “Unleashing text-to-image diffusion prior for zero-shot image captioning,” in European Conference on Computer Vision . Springer, 2024, pp. 237–254. [27] J. Hessel, A. Holtzman, M. Forbes, R. Le Bras, and Y. Choi, “Clipscore: A reference-free evaluation metric for image captioning,” in Proceedings of the 2021 conference on empirical methods in natural language processing ,2021, pp. 7514–7528. [28] R. Nogueira and K. Cho, “Passage re-ranking with bert,” arXiv preprint arXiv:1901.04085 , 2019. [29] G. Hinton, O. Vinyals, and J. Dean, “Distilling the knowledge in a neural network,” 2015. [Online]. Available: https://arxiv.org/abs/1503.02531 [30] X. L. Li and P. Liang, “Prefix-tuning: Optimizing continuous prompts for generation,” in Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing (Volume 1: Long Papers) , 2021, pp. 4582–4597. [31] C. Schuhmann, R. Beaumont, R. Vencu, C. Gordon, R. Wightman, M. Cherti, T. Coombes, A. Katta, C. Mullis, M. Wortsman et al. , “Laion-5b: An open large-scale dataset for training next generation image-text models,” Advances in neural information processing systems , vol. 35, pp. 25 278–25 294, 2022. [32] D. Hendrycks and K. Gimpel, “Gaussian error linear units (gelus),” arXiv preprint arXiv:1606.08415 , 2016. [33] C. Dwork, R. Kumar, M. Naor, and D. Sivakumar, “Rank aggregation methods for the web,” in Proceedings of the 10th international conference on World Wide Web , 2001, pp. 613–622. [34] D. P. Kingma and J. Ba, “Adam: A method for stochastic optimization,” 
+
+arXiv preprint arXiv:1412.6980 , 2014. 
+
+16 [35] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł . Kaiser, and I. Polosukhin, “Attention is all you need,” Advances in neural information processing systems , vol. 30, 2017. [36] K. Papineni, S. Roukos, T. Ward, and W.-J. Zhu, “Bleu: a method for automatic evaluation of machine translation,” in Proceedings of the 40th annual meeting of the Association for Computational Linguistics , 2002, pp. 311–318. [37] S. Banerjee and A. Lavie, “Meteor: An automatic metric for mt evaluation with improved correlation with human judgments,” in Proceedings of the acl workshop on intrinsic and extrinsic evaluation measures for machine translation and/or summarization , 2005, pp. 65–72. [38] C.-Y. Lin, “ROUGE: A package for automatic evaluation of summaries,” in Text Summarization Branches Out . Barcelona, Spain: Association for Computational Linguistics, Jul. 2004, pp. 74–81. [Online]. Available: https://aclanthology.org/W04-1013/ [39] R. Vedantam, C. Lawrence Zitnick, and D. Parikh, “Cider: Consensus-based image description evaluation,” in Proceedings of the IEEE conference on computer vision and pattern recognition , 2015, pp. 4566– 4575. [40] P. Anderson, B. Fernando, M. Johnson, and S. Gould, “Spice: Semantic propositional image caption evaluation,” in European conference on computer vision . Springer, 2016, pp. 382–398. [41] X. Chen, H. Fang, T.-Y. Lin, R. Vedantam, S. Gupta, P. Doll ´ar, and C. L. Zitnick, “Microsoft coco captions: Data collection and evaluation server,” 
+
+arXiv preprint arXiv:1504.00325 , 2015. [42] A. Rohrbach, L. A. Hendricks, K. Burns, T. Darrell, and K. Saenko, “Object hallucination in image captioning,” in Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing , 2018, pp. 4035–4045. [43] S. Bai, K. Chen, X. Liu, J. Wang, W. Ge, S. Song, K. Dang, P. Wang, S. Wang, J. Tang, H. Zhong, Y. Zhu, M. Yang, Z. Li, J. Wan, P. Wang, W. Ding, Z. Fu, Y. Xu, J. Ye, X. Zhang, T. Xie, Z. Cheng, H. Zhang, Z. Yang, H. Xu, and J. Lin, “Qwen2.5-vl technical report,” 2025. [44] D. Li, J. Li, H. Le, G. Wang, S. Savarese, and S. C. Hoi, “Lavis: A one-stop library for language-vision intelligence,” in Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 3: System Demonstrations) , 2023, pp. 31–41. [45] X. L. Li, A. Holtzman, D. Fried, P. Liang, J. Eisner, T. B. Hashimoto, L. Zettlemoyer, and M. Lewis, “Contrastive decoding: Open-ended text generation as optimization,” in Proceedings of the 61st annual meeting of the association for computational linguistics (volume 1: Long papers) ,2023, pp. 12 286–12 312. [46] P. Sharma, N. Ding, S. Goodman, and R. Soricut, “Conceptual captions: A cleaned, hypernymed, image alt-text dataset for automatic image captioning,” in Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 2018, pp. 2556– 2565. [47] X. Zhai, B. Mustafa, A. Kolesnikov, and L. Beyer, “Sigmoid loss for language image pre-training,” in Proceedings of the IEEE/CVF international conference on computer vision , 2023, pp. 11 975–11 986. [48] Y. Wada, K. Kaneda, D. Saito, and K. Sugiura, “Polos: Multimodal metric learning from human feedback for image captioning,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition ,2024, pp. 13 559–13 568. [49] S. Petryk, D. Chan, A. Kachinthaya, H. Zou, J. Canny, J. Gonzalez, and T. Darrell, “Aloha: A new measure for hallucination in captioning models,” in Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 2: Short Papers) , 2024, pp. 342–357. [50] Z. Liu, C.-W. Xie, B. Wen, F. Yu, P. Li, B. Zhang, N. Yang, Z. Gao, Y. Zheng, and H. Xie, “Capability: A comprehensive visual caption benchmark for evaluating both correctness and thoroughness,” Advances in Neural Information Processing Systems , vol. 38, 2026. [51] S. Zhao, X. Wang, L. Zhu, and Y. Yang, “Test-time adaptation with clip reward for zero-shot generalization in vision-language models,” in 
+
+International Conference on Learning Representations , vol. 2024, 2024, pp. 3597–3613. 
+
+17
