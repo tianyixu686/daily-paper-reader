@@ -1,0 +1,332 @@
+Title: CARGO-VL: Counterfactual Arbitration with Risk-Constrained Group Optimization for Vision-Language Models
+
+URL Source: https://arxiv.org/pdf/2608.04509v1
+
+Published Time: Thu, 06 Aug 2026 00:34:25 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# CARGO-VL: Counterfactual Arbitration with Risk-Constrained Group Optimization for Vision–Language Models 
+
+# De Jiang 1, Zhengyang Zhang 2, Kehong Yuan 3, Shaohua Ma 4
+
+> 1
+
+jiangd24@mails.tsinghua.edu.cn 2zhengyangwudi@gmail.com 
+
+> 3
+
+yuankh@sz.tsinghua.edu.cn 4ma.shaohua@sz.tsinghua.edu.cn 
+
+Abstract 
+
+Vision–language systems combine images with retrieved text, but these sources can disagree or jointly fail to support an answer. Reliable models must identify the trustworthy source and abstain when neither is adequate. Existing post-training objectives score instances independently and there-fore do not enforce coherent behavior under counterfactual ev-idence changes. We introduce CARGO-VL, a group-relative framework that optimizes matched variants covering aligned, image-correct, text-correct, and both-wrong (A/V/T/N) evi-dence states as one bundle. Its objective couples condition-wise correctness with transition rewards for answer invari-ance, source equivariance, and answer-to-abstention switch-ing, while a primal–dual controller balances unsafe an-swers against excessive deferral. We also contribute XMC 
+
+(e Xtended Modal Conflict), a four-condition conflict training resource, and evaluate transfer on CMC-Bench and Modality-Bias. Across multiple seeds, CARGO-VL improves conflict handling, unsupported-answer avoidance, and modality bal-ance over pointwise baselines. Ablations identify complemen-tary benefits from relational transition signals and adaptive risk control, supporting counterfactual consistency as a prac-tical objective for reliable multimodal evidence arbitration. 
+
+# Introduction 
+
+Multimodal systems increasingly encounter conflicting im-age and textual evidence. In a product photo, chart, doc-ument, or retrieved context, one modality may be correct while the other is stale, adversarial, or irrelevant. The same tension appears in multimodal retrieval-augmented genera-tion, where an image and a retrieved passage can both look plausible yet disagree on a date, entity, or numeric claim (Lewis et al. 2020; Asai et al. 2024; Catapang 2026). A trust-worthy model should not merely maximize answer accuracy: it should use the correct modality when one source wins and abstain when neither supports an answer. Empirically, strong vision–language models still exhibit modality preference— favoring text over image, or the reverse—even when both channels are available (Pezeshkpour, Aminnaseri, and Hr-uschka 2025), which makes conflict handling a first-class reliability problem rather than a rare corner case. CMC-Bench makes this evaluation setting concrete through matched cross-modal evidence conflicts (Catapang 2026). 
+
+Figure 1: Image–text conflict. A real CMC example supports 2019 while retrieved text claims 2020. It constructs aligned, image-correct, text-correct, and both-wrong (A/V/T/N) conditions and scores responses relative to the image and textual sources. Figure 1 shows a temporal conflict of this form. Most multimodal benchmarks, however, still reward answering correctly under a single, fixed context. That leaves open whether the model changes its evidence attribution and final action when a controlled intervention makes a modality unreliable. The difficulty is relational: a model scored on isolated examples can obtain high aver-age accuracy while answering the same content under all A/V/T/N conditions, citing the wrong modality when image and text disagree, or retaining an answer when both sup-ports are invalid. Instance-wise supervised fine-tuning and standard RL post-training optimize each rollout on its own prompt (Ouyang et al. 2022; Schulman et al. 2017; Rafailov et al. 2023); they do not require coherent transitions across matched interventions of the same question. Likewise, ab-stention is not monotonic—blanket refusal can look safe yet fail the task, while accuracy-only training can encourage un-supported answers—so safety and utility must be treated as competing operational costs rather than a single scalar (Geif-man and El-Yaniv 2017). These observations motivate a stricter training target. Flip-arXiv:2608.04509v1 [cs.AI] 5 Aug 2026 ping which modality is trustworthy should flip the followed source; removing both supports should flip answering to ab-stention; and easy aligned gains must not hide visual-wins or both-wrong failures. That requires a joint A/V/T/N opti-mization unit, rewards for local and relational correctness, and explicit budgets on unsafe answers and over-deferral. We propose Counterfactual Arbitration with Risk-constrained Group Optimization for vision–language mod-els ( CARGO-VL ). CARGO-VL takes the matched A/V/T/N bundle as the optimization unit and scores complete bun-dles jointly with (i) a strict pointwise evidence reward; (ii) a transition reward encoding answer invariance, source equiv-ariance, and an answer-to-abstention switch; (iii) a soft min-imum that protects the weakest condition; and (iv) primal– dual constraints that penalize unsafe answers, excessive de-ferral, and degraded answer accuracy before group-relative advantage normalization. We build on GRPO (Shao et al. 2024), changing the group from independent completions to counterfactual evidence bundles. To avoid training on test templates, we construct XMC 
+
+(e Xtended Modal Conflict) by applying the A/V/T/N recipe to fresh TextVQA (Singh et al. 2019) and image-bearing ScienceQA (Lu et al. 2022) items with new identifiers, conflict-type strata, and leakage-checked CMC-Bench hold-out / Modality-Bias (Pezeshkpour, Aminnaseri, and Hr-uschka 2025) evaluations. Policies emit free text; a frozen semantic judge maps ambiguous outputs to evidence labels. We evaluate with native CMC-Bench Table 3 metrics (Cat-apang 2026) and Mixed Signals B = (%Img − %Txt) 
+
+(Pezeshkpour, Aminnaseri, and Hruschka 2025), reporting means over seeds {42 , 43 , 44 }. CARGO-VL leads Table 3, including B closest to zero; ablations reuse the same columns in Table 4 and Figure 4. Our contributions are: 
+
+• a bundle-level objective for evidence arbitration that scores both per-condition correctness and counterfactual transitions; 
+
+• a risk-constrained GRPO procedure that preserves ab-stention safety without collapsing answerable cases into deferral; 
+
+• XMC, a four-condition conflict training set over fresh TextVQA and ScienceQA examples, with conflict-type strata and leakage-checked CMC-Bench holdout / Modality-Bias evaluations; 
+
+• a shared free-text evaluation protocol with a separated frozen semantic judge and multi-seed transfer evaluation on CMC-Bench holdout and Modality-Bias using their native metrics. 
+
+# Related Work 
+
+Cross-modal conflict and retrieval-conditioned genera-tion. Vision–language pretraining and instruction tuning yield strong single-context answerers (Radford et al. 2021; Liu et al. 2023), while retrieval-augmented generation injects external evidence into the prompt (Lewis et al. 2020; Asai et al. 2024). When retrieved image and text disagree, accu-racy alone is insufficient: models may lock onto a modality prior or invent unsupported answers. CMC-Bench constructs matched A/V/T/N conflicts for multimodal RAG evaluation (Catapang 2026), and Mixed Signals measures exclusive image- versus text-favoring under vision–language conflict (Pezeshkpour, Aminnaseri, and Hruschka 2025). CARGO-VL targets the complementary learning problem: optimizing a policy so that decisions change coherently across those controlled interventions, then transferring to the same native evaluation metrics. 
+
+Post-training and counterfactual supervision. RLHF and preference optimization improve instruction following with instance-wise rewards or pairwise preferences (Ouyang et al. 2022; Rafailov et al. 2023; Schulman et al. 2017). GRPO replaces a learned critic with within-group relative advan-tages (Shao et al. 2024). Counterfactually augmented data teaches models which features should change under interven-tions (Kaushik, Hovy, and Lipton 2020). CARGO-VL keeps a GRPO-style update but redefines the group as a matched evidence bundle, scoring answer invariance, source equivari-ance, and answer-to-abstention switching rather than treating A/V/T/N variants as independent prompts. The procedure is compatible with parameter-efficient fine-tuning, including LoRA-style adapters (Hu et al. 2022). 
+
+Abstention and calibrated refusal. Selective prediction for-malizes when a model should defer rather than risk an error (Geifman and El-Yaniv 2017). In multimodal conflict, ab-stention must rise on both-wrong items without collapsing answerable cases into refusal. CARGO-VL therefore couples an N-switch transition with primal–dual penalties on un-safe answers, over-deferral, and supported exact-match loss, rather than a single accuracy–refusal scalar. 
+
+# CARGO-VL Training Strategy 
+
+Problem Setup 
+
+For a base question q and image x, let B = {sA, s V , s T , s N }
+
+be a matched bundle. Conditions A, V, T, and N respec-tively denote aligned evidence, image-correct evidence, text-correct evidence, and both-wrong evidence. Each sample provides a gold answer y for answerable conditions and a tar-get action: answer for A/V/T and abstain for N. A policy πθ
+
+emits free text oc for each condition c ∈ B. A frozen seman-tic mapper maps oc to a decision dc ∈ { answer , deflect }
+
+and source zc ∈ { image , text , both , none }.The desired bundle behavior is simple but demanding: A, V, and T should answer y; their sources should be both, image, and text; and N should abstain with source none. The matched construction removes a confound present in a random grouping of unrelated questions: every transition is defined with respect to the same underlying question and answer. Table 1 makes the behavioral contract explicit. An answer in V is insufficient if the model attributes the answer to text, and a correct-looking string in N is insufficient if the model declines to abstain. During training, each condition uses the same free-text interface; source and decision fields come from the semantic mapping layer rather than brittle structured policy outputs. Figure 2: CARGO-VL overview. A real CMC-Bench ChartQA input illustrates how the same question is instantiated as an aligned (A), image-correct (V), text-correct (T), or both-wrong (N) evidence bundle. CARGO-VL jointly scores all four conditions with pointwise and transition rewards, weakest-condition protection, and risk constraints, then optimizes the policy with an SFT warm start followed by constrained GRPO. The protocol panel records the training configuration; it reports no performance values. The XMC training set extends the four-condition recipe to fresh TextVQA and ScienceQA examples used only for training. 
+
+Cond. Evidence state Required ac-tion Required source A image and text agree answer y both V image correct, text conflicts answer y image T text correct, image conflicts answer y text N neither source sup-ports y
+
+abstain none 
+
+Table 1: Target behavior of a complete counterfactual evi-dence bundle. 
+
+Condition-Level Reward 
+
+For condition c, free text oc is mapped to ℓc ∈{image , text , both , neither , abstain } by a frozen mapper (exact/numeric/refusal rules, else a frozen LLM judge) that never sees gold y. From ℓc we set decision dc and source 
+
+zc (abstain →deflect/none; neither →answer/none). With targets ℓ⋆c for A/V/T/N and weights (wact , w src , w ans ) = (1 .0, 0.8, 1.0) ,
+
+ract = I[ dc=d⋆c ], r src = I[ ℓc=ℓ⋆c ],rans = I[ans .(c) ∧ match( oc, y )] , (1) with ans .(c) denoting c∈{ A, V, T} and dc=answer , where 
+
+d⋆ is answer on A/V/T and deflect on N. So ract /rsrc use mapper outputs only; rans uses gold only via post-mapping string match. Then 
+
+rabs =
+
+wact ract , N,wact ract + wsrc rsrc + wans rans , A/V/T. (2) On N only abstain scores; on A/V/T, wrong source loses 
+
+rsrc and wrong string loses rans .
+
+Bundle Transition Reward 
+
+Pointwise correctness leaves the relationship among vari-ants unconstrained. Let pA, p V , p T , p N be mapped free-text answers from one joint rollout, d = ( dA, d V , d T , d N ) its decision vector, and (s⋆A, s ⋆V , s ⋆T ) = ( both , image , text )
+
+the supported-condition source targets. Let d⋆ =(answer , answer , answer , deflect ). We define three tran-sition components: 
+
+rAI = I 
+
+hV 
+
+> c∈{ A,V,T }
+
+ dc=answer ∧ match( pc, y )i
+
+,rSE = 13
+
+P  
+
+> c∈{ A,V,T }
+
+I[ zc = s⋆c ],rDS = I d = d⋆ ∧ zN = none , (3) and rtrans = 0 .4rAI + 0 .3rSE + 0 .3rDS . Thus, correctness under a modality perturbation is not enough: the model must identify the winning modality, and it must switch from an-swering to deferring once both supports are invalid. For one bundle rollout, the total unpenalized reward is 
+
+RB = 14
+
+P 
+
+> c∈B
+
+rabs (c)+ ηr trans + β softmin τ
+
+ {rabs (c)}c∈B
+
+, (4) with (η, β, τ ) = (0 .5, 0.3, 0.2) and softmin τ (u) =
+
+−τ log   1
+
+> |u|
+
+P 
+
+> i
+
+exp( −ui/τ ). The soft minimum reduces the incentive to trade a weak counterfactual condition for a strong average. 
+
+Combining Local and Relational Signals 
+
+The pointwise terms make every response locally accountable—action, source, and answer string—but do not require a coherent shift from source both to image or text 
+
+when the supported modality flips. The transition term sup-plies that relational signal; the soft-min protects the weakest condition in the bundle. Removing a component therefore predicts a specific regression (local mismatch, inconsistent counterfactual behavior, or uneven robustness) rather than an undifferentiated score change. 
+
+Adaptive Risk-Constrained Optimization 
+
+Safety rewards can be neutralized by group normalization if they are batch constants. CARGO-VL therefore applies rollout-level costs before computing relative advantages. For dual variables λ = ( λu, λ o, λ e), each condition contributes an indicator-style cost centered at its budget: unsafe answers on deflectable items ( c=N ), deferrals on answerable items, and supported exact-match misses. Averaging over the four conditions yields CB (λ); the constrained score is eRB =
+
+RB − CB (λ). For K jointly sampled rollouts of a bundle, we normalize eRB within the group and perform a GRPO-style update (Shao et al. 2024). After every fourth policy update, projected dual ascent uses an independent stratified risk batch: 
+
+λu ← Π[0 ,λ max ]
+
+h
+
+λu + ρ( bCu − εu)
+
+i
+
+,λo ← Π[0 ,λ max ]
+
+h
+
+λo + ρ( bCo − εo)
+
+i
+
+,λe ← Π[0 ,λ max ]
+
+h
+
+λe + ρ(εe − dEM) 
+
+i
+
+,
+
+(5) with (εu, ε o) = (0 .35 , 0.10) , εe = EM base − 0.05 from the SFT baseline, ρ = 0 .05 , and λmax = 10 . The risk batch is not reused as the policy-gradient batch. This design makes ab-stention a measurable constraint rather than an unconstrained reward heuristic. 
+
+Implementation Details and Guardrails 
+
+The implementation groups examples by a common base identifier and rejects incomplete bundles for the relational re-ward. It explicitly disallows a historical random-bundle con-trol because unrelated questions do not share a valid transi-tion gold target. For each selected bundle, the trainer samples 
+
+K=2 joint completions, computes per-condition pointwise values, evaluates the transition relation, and computes one 
+
+Algorithm 1 CARGO-VL bundle update 
+
+Require: Complete A/V/T/N bundles, policy πθ , dual state 
+
+λ 
+
+> 1:
+
+for each update do  
+
+> 2:
+
+Sample matched bundles and K joint free-text rollouts per bundle.  
+
+> 3:
+
+Map outputs to semantic decisions and sources using the frozen labeler.  
+
+> 4:
+
+Compute RB from pointwise, transition, and soft-min terms.  
+
+> 5:
+
+Subtract rollout-level risk cost CB (λ) before group normalization.  
+
+> 6:
+
+Update θ with group-relative advantages.  
+
+> 7:
+
+Score an independent stratified risk batch and project the dual update.  
+
+> 8:
+
+end for 
+
+constrained reward per joint rollout. The advantage is nor-malized only after the individual cost has been applied. Resolved reward settings, dual-state snapshots, and run metadata are logged per seed. The shared configuration uses Qwen3.5-9B with LoRA rank 32 / α=64 , learning rate 
+
+5×10 −6, K=2 joint rollouts per update, 256 RL updates, KL coefficient 0.02 , and a size-16 stratified risk batch, with seeds {42 , 43 , 44 }. The static-penalty ablation disables dual ascent and instead subtracts fixed costs 1.5 (unsafe answer on N) and 0.5 (over-deferral on A/V/T), averaged over the four conditions. These settings are fixed protocol values, not tuned claims of optimality. 
+
+# Experiments 
+
+Benchmark Construction and Evaluation Interface 
+
+The training and evaluation pipeline builds a common schema across CMC evaluation bundles and the XMC train-ing set. An example is eligible for the transition objective only when all A/V/T/N variants are present, their base identifiers agree, and modality-specific references satisfy the expected relation. In particular, A and N require agreeing image and text references; V and T require a conflict; and the answer-able modality must match the gold answer in A, V, or T. These checks are performed before reward computation so that missing or contradictory metadata cannot silently create a spurious relational target. 
+
+Free-Text Semantic Mapping 
+
+The policy is trained and evaluated as a free-text generator. It is not asked to emit JSON, action tokens, or a source field. In-stead, a frozen mapper returns a five-way label. Deterministic rules are used only for high-confidence exact, numeric, and explicit-refusal cases; ambiguous outputs are passed to the frozen judge. The tested policy is unloaded before the judge is loaded, which makes the inference boundary and device budget explicit. We release the judge prompt, model revision, decoding settings, cache key, and the count of deterministic versus judge-resolved labels. As above, the mapper never receives an answer key when assigning ℓc; gold y enters only rans and the transition answer-invariance term via match( ·, y ). This separation pre-vents the evaluator from conflating evidence routing with answer correctness. 
+
+Experimental Details 
+
+Data and Models Policies are trained under the XMC dual-bench protocol and evaluated on CMC-Bench holdout and Modality-Bias. Native XMC applies the CMC A/V/T/N recipe to fresh TextVQA and image-bearing ScienceQA validation items (Singh et al. 2019; Lu et al. 2022) with same-type distractors, distinct same-pool images, and new identifiers; only complete bundles with agreeing A/N ref-erences, conflicting V/T evidence, and gold-consistent an-swerable modalities are kept (invalid references dropped). Train mixes 627 matched bundles ( 2,508 rows; 233 na-tive + 394 CMC non-holdout) over temporal/factual/entity (200 /214 /213 ), holds out granularity as template OOD ( 234 
+
+bundles), and never uses Modality-Bias. Dev/test hold 74 /123 
+
+bundles; primary tests are CMC-Bench holdout ( 283 /1,132 ;
+
+≈30% template-stratified) and Modality-Bias VSR ( 846 ). Leakage checks report disjoint CMC holdout base_id sfrom train/dev/test/ood, no Modality-Bias image/question overlap with training, template-disjoint train/OOD, and ver-sus CMC holdout 0 base-id / 2 question-string / 91 image-pool-path overlaps (pool reuse without instance-id leakage). The policy is Qwen3.5-9B with LoRA rank 32 / α=64 ,learning rate 5×10 −6, K=2 , 256 RL updates, and seeds 
+
+{42 , 43 , 44 }.All policy outputs are free text. A frozen Qwen3.5-27B judge maps only ambiguous outputs to { image , text , both ,
+
+neither , abstain }; high-confidence exact, numeric, and re-fusal cases may be resolved deterministically. The policy is unloaded before the judge is loaded. 
+
+Metrics and Comparisons The CMC-Bench holdout ex-periment uses the full official CMC-Bench Table 3 suite (Catapang 2026): per-condition Acc( c) from judge labels (Acc(A)/Acc(I ⋆)/Acc(T ⋆)/Acc(N)), modality preference bias (MPB-img/txt among IMAGE/TEXT commits), modality-following rate (MFR) on conflict conditions, ConfabR and CDR (NEITHER and ABSTAIN rates on conflict trials), and 
+
+∆Acc = Acc(aligned) − mean Acc(conflict) . We also list diagnostic HR = ConfabR + CDR but do not rank by HR, because ConfabR is minimized while CDR is maximized. Of-ficial Acc(N) counts both neither and abstain as hits, while training ract on N credits only abstain . Held-out Modality-Bias uses the Mixed Signals bias B = (%Img − %Txt) 
+
+(Pezeshkpour, Aminnaseri, and Hruschka 2025). For GPT-4o we report only the published VSR B from Mixed Signals Table 4; Table 3 single-modality accuracies and mitigation Acc/F1 are a different protocol and are not substituted for 
+
+%Img/ %Txt. Table 2 states the fair comparison protocol. SFT/GRPO/CFPO/CARGO-VL share XMC train data, SFT init, LoRA, decoding, 256 RL updates ( 3072 matched completions), and the free-text judge. GRPO optimizes pointwise rabs only (Shao et al. 2024). CFPO adds a visual factual/counterfactual sensitivity bonus (weight 0.5)(Kaushik, Hovy, and Lipton 2020) without CARGO’s full                              
+
+> SFT GRPO CFPO CARGO-VL Data/init XMC/– XMC/SFT XMC/SFT XMC/SFT LoRA 32/64 32/64 32/64 32/64 LR/KL –5e −6/0.02 same same RL budget –256 (3072) 256 (3072) 256 (3072) Objective CE pointwise +vis. CF +trans.+dual Seeds {42 ,43 ,44 }same same same
+
+Table 2: Fair comparison protocol (shared free-text judge). CFPO adds visual CF sensitivity; only CARGO-VL uses transition rewards and projected duals. A/V/T/N transition or duals. Base/Gemma-26B/GPT-4o are eval-only. Table 3 reports means over seeds {42 , 43 , 44 }.
+
+Main Results on CMC-Bench holdout and Modality-Bias 
+
+CMC-Bench holdout and Modality-Bias Leaderboard 
+
+Table 3 reports both native evaluation suites. The CMC-Bench holdout experiment evaluates A/V/T/N routing under retrieved image–text conflict, while Modality-Bias reports Mixed Signals bias B on the VSR split. On CMC-Bench holdout, Acc(A) and Acc(T ⋆) are already strong for fine-tuned methods, so ranking is driven by Acc(I ⋆), Acc(N), ConfabR, CDR, and 
+
+∆Acc. CARGO-VL leads these axes (Acc(I ⋆)=48 .1,Acc(N) =98 .2, ConfabR =7 .3, CDR =53 .2, ∆Acc =17 .0), while Acc(A) =99 .1 and MFR =79 .6 trail CFPO ( 99 .3) and GRPO ( 80 .0) slightly. The Acc(I ⋆) margin over GPT-4o (44 .5) and SFT ( 43 .8) is the clearest evidence that bundle-level source equivariance helps on visual-wins conflict, where instance-wise objectives tend to lock onto text. Exter-nal references sit between Base and the fine-tuned group on most CMC columns (Gemma-26B Acc(I ⋆)=43 .0), confirm-ing that scale alone does not solve the problem. Diagnostic HR is listed for CMC compatibility but is not ranked, because ConfabR and CDR move in opposite preferred directions. On Modality-Bias, CARGO-VL attains B=−3.2, the closest to zero among methods with measured exclu-sive %Img/ %Txt, while raising both exclusive rates (%Img =29 .2, %Txt =32 .4) rather than collapsing into blan-ket abstention. GPT-4o contributes only the published VSR 
+
+B=+6 .9 from Mixed Signals Table 4; its sign of B flips across Mixed Signals tasks, so +6 .9 is a VSR-specific trans-fer point rather than a universal image prior. Figure 3 high-lights Acc(I ⋆) and the CMC MPB gap |MPB i − MPB t|,where CARGO-VL is the only method near a 50 –50 commit split. 
+
+Differences in Modality Evidence Trust We next use Ta-ble 3 to compare how methods credit image versus text when the two disagree. Three complementary views are avail-able: (i) condition accuracy Acc(I ⋆) versus Acc(T ⋆), which asks whether the model follows the gold-supported modal-ity; (ii) CMC MPB, which records the IMAGE/TEXT share among single-modality commits; and (iii) Modality-Bias B
+
+with exclusive %Img/ %Txt on the VSR conflict set. 
+
+Static text lean versus calibrated routing. Base favors CMC-Bench holdout Modality-Bias                                                                                                                 
+
+> Method Acc(A) ↑Acc(I ⋆)↑Acc(T ⋆)↑Acc(N) ↑MPB iMPB tMFR ↑Conf. ↓CDR ↑HR ‡∆Acc ↓B(→0) %Img %Txt Base 93.8 41.8 89.5 85.0 44.0 56.0 58.5 12.0 26.5 38.5 21.7 −7.83.8 11.6 SFT 98.7 43.8 99.6 92.2 42.0 58.0 79.4 18.5 28.4 46.9 20.2 +7 .812.6 4.8 GRPO 99.0 43.1 99.6 96.8 45.0 55.0 80.0 13.7 36.4 50.1 19.2 +6 .19.1 3.0 CFPO 99.3 43.5 99.3 95.1 47.0 53.0 79.5 12.8 38.3 51.1 20.0 +5 .811.5 5.7 Gemma-26B 95.2 43.0 91.0 87.5 46.0 54.0 63.5 10.2 31.0 41.2 21.4 +4 .516.5 12.0 GPT-4o †94.7 44.5 91.2 88.3 33.0 67.0 71.6 14.8 32.0 46.8 20.0 +6 .9——CARGO-VL 99.1 48.1 100.0 98.2 49.0 51.0 79.6 7.3 53.2 60.5 17.0 −3.229.2 32.4
+
+Table 3: Main leaderboard: CMC-Bench holdout / Modality-Bias (mean over seeds {42 , 43 , 44 }). Left block matches the official CMC-Bench Table 3 suite (Catapang 2026): Acc( c) from judge labels; MPB img = Nimg /(Nimg + Ntxt ) and MPB txt = 1 −
+
+MPB img among single-modality commits (values >50 indicate a systematic lean); MFR on conflict conditions; ConfabR/CDR 
+
+= NEITHER/ABSTAIN on conflict trials; diagnostic HR = ConfabR + CDR (no preferred direction: ConfabR ↓ while CDR ↑); 
+
+∆Acc = Acc(aligned) − mean Acc(conflict) . Right block matches Mixed Signals bias reporting (Pezeshkpour, Aminnaseri, and Hruschka 2025): B = (%Img − %Txt) . Higher is better except ConfabR and ∆Acc; for B and MPB, closer to zero / 
+
+50 –50 is better; HR is not ranked. Best values are marked in bold with underline. Ablations reuse these columns in Table 4 and Figure 4.                 
+
+> ‡HR =ConfabR +CDR is reported only as a CMC diagnostic and is not used for ranking (ConfabR and CDR should be read separately).
+> †Modality-Bias for GPT-4o reports only the published Mixed Signals VSR bias B=+6 .9(Table 4; n=846 ) (Pezeshkpour, Aminnaseri, and Hruschka 2025). Mixed Signals also lists GPT-4o VSR single-modality / aligned accuracies (Table 3: Only-Image 67 .7, Only-Text 98 .8, Pair
+> 86 .1) and mitigation mismatch scores; those are not our %Img/ %Txt columns (exclusive favoring rates under our free-text protocol) and are not copied here. GPT-4o Bis task-dependent in Mixed Signals (e.g., Connectivity +52 .3, Convexity −65 .2); we use the VSR entry because it matches our Modality-Bias evaluation. CMC columns for GPT-4o are under our judge protocol (CMC-Bench does not evaluate GPT-4o). Conf. =ConfabR.
+
+Figure 3: CMC-Bench holdout / Modality-Bias diagnostics beyond the raw table cells. a, CMC Acc(I ⋆) (hardest condition; 1,132 examples). b, CMC modality-preference imbalance |MPB i − MPB t| (lower is closer to a 50 –50 split). Magenta denotes CARGO-VL. Means over seeds {42 , 43 , 44 } under the shared free-text judge protocol. text on CMC (MPB 44 .0/56 .0), with Acc(T ⋆)=89 .5 far above Acc(I ⋆)=41 .8. SFT raises answer accuracy but retains an asymmetric routing profile (MPB 42 .0/58 .0; B=+7 .8). GRPO and CFPO reduce the CMC MPB gap to 10 and 6,respectively, yet Acc(I ⋆) remains near 43 –44 . GPT-4o has the strongest CMC text lean (MPB 33 .0/67 .0), whereas its pub-lished VSR B=+6 .9 is comparatively mild, underscoring that bias is task-dependent. 
+
+CARGO-VL reduces preference without sacrificing the weaker modality. CARGO-VL jointly reduces the CMC MPB gap to 2, raises Acc(I ⋆) to 48 .1 while retaining Acc(T ⋆)=100 .0, and reaches B=−3.2 with substantial ex-clusive image/text rates ( 29 .2/32 .4). Thus, near-zero bias is not obtained through blanket refusal. Relative to SFT, Con-fabR falls from 18 .5 to 7.3 and CDR rises from 28 .4 to 53 .2,while MFR =79 .6 remains close to GRPO ( 80 .0). The MPB-gap sequence 16 →10 →6→2 from SFT through CARGO-VL supports the role of source-equivariant transitions and the N-switch beyond pointwise rewards alone. 
+
+Ablation Study 
+
+We ablate two CARGO-specific components while holding the XMC training split, LoRA policy, update budget, seeds 
+
+{42 , 43 , 44 }, and free-text judge fixed: (i) removing the bun-dle transition reward (pointwise + soft-min only), and (ii) re-placing projected dual penalties with fixed static costs. Ta-ble 4 and Figure 4 use the same native columns as Table 3. 
+
+Transition reward drives source routing. Dropping rtrans 
+
+cuts Acc(I ⋆) from 48 .1 to 44 .9 and Acc(N) from 98 .2 to 
+
+95 .4, while MFR stays nearly flat ( 79 .6→80 .0). The sharper failures are relational: ConfabR rises 7.3→22 .4 and CDR falls 53 .2→26 .4, so the policy answers unsupported conflict items more often and detects conflict less often. On Modality-Bias, B moves from −3.2 to +12 .9 with %Img /%Txt Method Acc(I ⋆) Acc(N) Conf. CDR ∆Acc B %Img w/o transition 44.9 95.4 22.4 26.4 19.6 +12 .9 27.4 static penalty 44.9 94.0 19.6 28.5 20.2 +13 .5 24.0 CARGO-VL 48.1 98.2 7.3 53.2 17.0 −3.2 29.2 
+
+Table 4: Ablations on CMC-Bench holdout / Modality-Bias (mean over seeds {42 , 43 , 44 }). CARGO-VL numbers match Table 3. 
+
+Figure 4: Transition reward and adaptive risk control. Radar of Table 4; outward better after reversing ∆Acc, ConfabR, and |B|.
+
+= 27 .4/14 .5, reintroducing a one-sided favor rate. CMC MPB likewise regresses from 49 .0/51 .0 to 30 .1/69 .9. These shifts match the transition terms (source equivariance and N-switch): without them, pointwise ract /rsrc /rans recover GRPO-like conflict behavior rather than bundle-consistent routing. 
+
+Static penalties under-calibrate abstention. Replacing dual updates with fixed costs yields the same Acc(I ⋆)=44 .9
+
+but weaker safety–utility balance: Acc(N) =94 .0,ConfabR =19 .6, CDR =28 .5, and ∆Acc =20 .2. Modality-Bias B=+13 .5 with %Img =24 .0 and %Txt =10 .5, and the Modality-Bias abstain rate rises to 42 .0 (versus 1.1 for full CARGO-VL), indicating over-deferral under a non-adaptive multiplier. Projected duals are therefore not redundant with the transition reward: they keep refusal high where evidence is unsupported while preserving exclusive modality rates closer to parity. 
+
+Complementary contributions. Full CARGO-VL is out-ermost on the radar after flipping lower-is-better axes, jointly improving Acc(I ⋆), Acc(N), ConfabR, CDR, ∆Acc, and |B|. Transition consistency supplies routing relative to SFT/GRPO; projected duals prevent confabulation and blan-ket abstention. 
+
+Joint interpretation and scope. Both reduced variants reach Acc(I ⋆)=44 .9, 3.2 points below full CARGO-VL, but their remaining error profiles differ. Relative to the transition-free variant, the full objective lowers ConfabR by 15 .1 points and raises CDR by 26 .8 points; relative to static penalties, it lowers ConfabR by 12 .3 points and raises CDR by 24 .7
+
+points. Both ablations also produce B> +12 , whereas full CARGO-VL reaches −3.2 while retaining substantial exclu-sive image/text rates. These joint movements support com-plementary roles for relational routing and adaptive calibra-tion under the fixed XMC split, backbone, update budget, and judge protocol. They do not establish that the selected transition weights, soft-min temperature, or risk budgets are individually optimal. 
+
+Matched visual accuracy does not imply matched con-flict behavior. The identical Acc(I ⋆)=44 .9 of both reduced variants controls for raw visual-answer capacity. Their diver-gent Acc(N), ConfabR, and ∆Acc therefore expose different conflict failures, while full CARGO-VL improves all four quantities rather than exchanging visual routing for absten-tion. 
+
+Bias must be interpreted with decision coverage. A near-zero bias can be misleading when a policy avoids modality-specific decisions. Full CARGO-VL combines B=−3.2 with exclusive image/text rates of 29 .2/32 .4, whereas static penal-ties yield B=+13 .5, rates of 24 .0/10 .5, and a 42 .0 abstain rate. Joint reporting therefore distinguishes balanced routing from low-coverage behavior and evaluates the dual controller on both safety and utility. 
+
+# Conclusion 
+
+CARGO-VL optimizes matched A/V/T/N bundles with 
+
+ract /rsrc /rans , transition consistency, weakest-condition pro-tection, and risk-constrained GRPO. Multi-seed CMC-Bench holdout and Modality-Bias means lead on Acc(I ⋆), Acc(N), ConfabR, CDR, ∆Acc, and near-zero B while keeping Acc(T ⋆) strong; ablations show that removing rtrans or freez-ing duals reintroduces one-sided commits or over-deferral. Gains concentrate on visual-wins conflict, calibrated absten-tion, and modality balance, supporting counterfactual consis-tency as a training target for reliable multimodal arbitration. References 
+
+Asai, A.; Wu, Z.; Wang, Y.; Sil, A.; and Hajishirzi, H. 2024. Self-RAG: Learning to Retrieve, Generate, and Cri-tique through Self-Reflection. In International Conference on Learning Representations .Catapang, J. K. 2026. When Image and Text Disagree: Cross-Modal Evidence Conflict in Multimodal Retrieval-Augmented Generation. In Proceedings of the 2nd Work-shop on Multimodal Augmented Generation via Multimodal Retrieval .Geifman, Y.; and El-Yaniv, R. 2017. Selective Classification for Deep Neural Networks. In Advances in Neural Informa-tion Processing Systems .Hu, E. J.; Shen, Y.; Wallis, P.; Allen-Zhu, Z.; Li, Y.; Wang, S.; and Chen, W. 2022. LoRA: Low-Rank Adaptation of Large Language Models. In International Conference on Learning Representations .Kaushik, D.; Hovy, E.; and Lipton, Z. 2020. Learning the Difference that Makes a Difference with Counterfactually-Augmented Data. In International Conference on Learning Representations .Lewis, P.; Perez, E.; Piktus, A.; Petroni, F.; Karpukhin, V.; Goyal, N.; Küttler, H.; Lewis, M.; Yih, W.-t.; Rocktäschel, T.; Riedel, S.; and Kiela, D. 2020. Retrieval-Augmented Gen-eration for Knowledge-Intensive NLP Tasks. In Advances in Neural Information Processing Systems , volume 33, 9459– 9474. Liu, H.; Li, C.; Wu, Q.; and Lee, Y. J. 2023. Visual Instruc-tion Tuning. In Advances in Neural Information Processing Systems .Lu, P.; Mishra, S.; Xia, T.; Qiu, L.; Chang, K.-W.; Zhu, S.-C.; Tafjord, O.; Clark, P.; and Kalyan, A. 2022. Learn to Explain: Multimodal Reasoning via Thought Chains for Science Question Answering. In Advances in Neural Infor-mation Processing Systems , volume 35, 2507–2521. Ouyang, L.; Wu, J.; Jiang, X.; Almeida, D.; Wainwright, C.; Mishkin, P.; Zhang, C.; Agarwal, S.; Slama, K.; Ray, A.; et al. 2022. Training Language Models to Follow Instructions with Human Feedback. In Advances in Neural Information Processing Systems , volume 35, 27730–27744. Pezeshkpour, P.; Aminnaseri, M.; and Hruschka, E. 2025. Mixed Signals: Decoding VLMs’ Reasoning and Underly-ing Bias in Vision-Language Conflict. In Findings of the Association for Computational Linguistics: EMNLP 2025 .Radford, A.; Kim, J. W.; Hallacy, C.; Ramesh, A.; Goh, G.; Agarwal, S.; Sastry, G.; Askell, A.; Mishkin, P.; Clark, J.; et al. 2021. Learning Transferable Visual Models From Natural Language Supervision. In International Conference on Machine Learning , 8748–8763. Rafailov, R.; Sharma, A.; Mitchell, E.; Manning, C. D.; Er-mon, S.; and Finn, C. 2023. Direct Preference Optimization: Your Language Model is Secretly a Reward Model. In Ad-vances in Neural Information Processing Systems .Schulman, J.; Wolski, F.; Dhariwal, P.; Radford, A.; and Klimov, O. 2017. Proximal Policy Optimization Algorithms. 
+
+arXiv preprint arXiv:1707.06347 .Shao, Z.; Wang, P.; Zhu, Q.; Xu, R.; Song, J.; Bi, X.; Zhang, H.; Zhang, M.; Li, Y.; Wu, Y.; et al. 2024. DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Lan-guage Models. arXiv preprint arXiv:2402.03300 .Singh, A.; Natarajan, V.; Shah, M.; Jiang, Y.; Chen, X.; Ba-tra, D.; Parikh, D.; and Rohrbach, M. 2019. Towards VQA Models That Can Read. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition ,8317–8326.

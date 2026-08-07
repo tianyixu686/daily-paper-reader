@@ -1,0 +1,756 @@
+Title: Through the LENS: Local Geometric Decomposition of Vision-Language Model Representations
+
+URL Source: https://arxiv.org/pdf/2608.00561v1
+
+Published Time: Tue, 04 Aug 2026 00:34:08 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# Through the LENS: Local Geometric Decomposition of Vision-Language Model Representations 
+
+## Shalom Kachko 1,* , Raz Lapid 2,* , Margarita Vald 2, Almog Dubin 3, Moshe Sipper 1
+
+> 1
+
+Ben-Gurion University of the Negev 
+
+> 2
+
+Intuit Inc. 
+
+> 3
+
+Deepkeep kachko.shulik@gmail.com, raz_lapid@intuit.com, margarita.vald@cs.tau.ac.il, almog@deepkeep.ai, sipper@bgu.ac.il 
+
+Abstract 
+
+Vision-language models (VLMs) process image patches and text tokens in a shared residual stream, but the local geometry through which the two modalities interact remains poorly un-derstood. Most interpretability methods identify global linear directions, which may miss representations that are globally high-dimensional but locally low-dimensional. We introduce 
+
+LENS (Local Explanation of Neighborhood Subspaces), a method that decomposes VLM activations into local low-rank Gaussian neighborhoods using a Mixture of Factor Analyzers. Applied to LLaVA-1.5-7B and Qwen3-VL-8B, LENS reveals distinct depth-dependent fusion trajectories consistent with each model’s fusion mechanism: LLaVA progressively mixes modalities at later layers, whereas Qwen3-VL mixes them early, partially re-segregates them, and recombines them near the output. An automated multimodal labeling pipeline assigns concise semantic descriptions to these neighborhoods. Interpo-lating activations toward neighborhood centroids causally redi-rects generation within and across modalities and outperforms difference-in-means and VL-SAE in most evaluated condi-tions; in one LLaVA vision-to-vision setting, MFA achieves 5.7 times the VL-SAE score. Human evaluation finds MFA steer-ing competitive with prompting and substantially stronger than the other intervention baselines. Finally, the MFA coefficient space improves Qwen3-VL image-to-rendered-text retrieval at the deepest evaluated layer from 14.9% to 48.6% R@1. Ablations show that the reported fusion trajectories are stable across component counts, local ranks, and modality-purity thresholds. These results support local geometric neighbor-hoods as useful interpretable and causal units for analyzing cross-modal representations in the evaluated VLMs. 
+
+## 1 Introduction 
+
+Vision-language models (VLMs) jointly process images and text for captioning, visual question answering, instruction following, and visual reasoning (Radford et al. 2021; Alayrac et al. 2022; Li et al. 2023; Liu et al. 2023; Zhang et al. 2023). Their growing use in high-stakes applications-including med-ical diagnosis, remote-sensing analysis, and industrial quality control (Xiang et al. 2025; Hu et al. 2025; Yang et al. 2025b), motivates understanding how they combine visual and lin-guistic evidence. Yet cross-modal fusion remains poorly 
+
+> *
+
+These authors contributed equally. 
+
+understood (Lin et al. 2025; Zhang et al. 2025b). Most VLMs project visual patches and text tokens into a shared resid-ual stream, where nearby representations may encode visual content, linguistic context, or interactions between the two (Elhage et al. 2022). We still lack tools to identify where modalities meet, characterize these regions, and test their causal control over model behavior. Mechanistic interpretability commonly addresses polyse-manticity - the phenomenon where individual neurons encode multiple disparate concepts in superposition. This is typically achieved using Sparse Autoencoders (SAEs), which repre-sent activations as sparse combinations of learned directions (Bricken et al. 2023; Cunningham et al. 2024). In multi-modal models, SAEs have been applied to vision-encoder representations (Fry 2024; Pach et al. 2025), aligned across vision architectures (Thasarathan et al. 2025), and trained on internal representations of large language models (LLMs) for interpretation and steering (Zhang et al. 2025a). VL-SAE further learns a unified concept space for visual and linguistic representations (Shen et al. 2026), while complementary work traces cross-modal information flow inside VLMs (Zhang et al. 2025b). Despite their differences, these approaches generally describe activations using globally shared linear features or directions, potentially missing representations that are high-dimensional globally but low-dimensional locally (Lee et al. 2025; Saglam et al. 2025). Recent work in unimodal language models Shafran et al. (2026) instead uses a Mixture of Factor Analyzers (MFA) (Ghahramani and Hinton 1996) to represent activations as Gaussian neighborhoods with locally low-dimensional structure. 
+
+From unimodal to cross-modal geometry. Extending this local-geometric approach to VLMs is nontrivial because image and text representations enter through different path-ways and may occupy geometrically separated regions, as documented by studies of the modality gap (Liang et al. 2022). A multimodal decomposition must accommodate heteroge-neous token distributions, interpret neighborhoods containing both image patches and text contexts, and test whether their semantics can be accessed causally across modalities. We introduce LENS (Local Explanation of Neighborhood 
+
+Subspaces), which decomposes token-level activations in the fused VLM residual stream into Gaussian neighborhoods with local low-rank geometry. LENS identifies where modali-ties share representation space, labels these neighborhoods arXiv:2608.00561v1 [cs.AI] 1 Aug 2026 from associated image patches and text contexts, and uses them as causal steering targets and as shared coordinates for cross-modal comparison. Applied to LLaVA-1.5-7B (Liu et al. 2023) and Qwen3-VL-8B-Instruct (Yang et al. 2025a), LENS reveals distinct depth-dependent fusion patterns as-sociated with the two architectures: progressive late fusion in LLaVA and early fusion, partial re-segregation, and late recombination in Qwen3-VL. Human evaluation supports the automated steering results: MFA achieves the highest median human-evaluation score overall and substantially out-performs VL-SAE and DiffMeans, although its performance relative to prompting varies by architecture. Human ratings are also moderately correlated with the VLM-judge scores (Spearman’s ρ = 0 .727 Pearson’s r = 0 .747 ), supporting the validity of the automated evaluation while motivating independent human validation. Our contributions are: 
+
+• Local-geometric decomposition and interpretation. We introduce an MFA-based decomposition of fused VLM residual streams, together with a pipeline for labeling neighborhoods from associated image patches and text contexts. 
+
+• Architecture-dependent fusion geometry. LENS reveals progressive late fusion in LLaVA and early, non-monotonic fusion in Qwen3-VL. These depth-dependent patterns remain stable across the evaluated component counts, local ranks, and modality-purity thresholds. 
+
+• Causal and functional validation. MFA centroid steer-ing outperforms DiffMeans and VL-SAE in most early-and middle-layer conditions and enables both within- and cross-modal control. Human evaluation supports these gains. In addition, MFA coefficient representations im-prove retrieval between natural images, rendered class names, and textual class labels over raw activations in several settings. 
+
+## 2 Related Work and Background 
+
+2.1 Dictionary Learning and VLM Interpretability 
+
+Mechanistic interpretability commonly addresses polyseman-tic representations using dictionary-learning methods, par-ticularly Sparse Autoencoders (SAEs) (Bricken et al. 2023; Templeton et al. 2024). SAEs map model activations into a sparsely activating latent space and reconstruct them from a learned dictionary of feature directions. In VLMs, recent work applies SAEs to unimodal vision encoders (Pach et al. 2025) aligns learned features across vision architectures (Thasarathan et al. 2025), and interprets internal representa-tions of large multimodal models (Zhang et al. 2025a). Most closely related to our work, VL-SAE learns a unified con-cept space for visual and linguistic representations through cascaded decoders (Shen et al. 2026). However, these methods rely on globally shared feature directions, which can yield non-atomic features (Chanin et al. 2024) and miss structure that is low-dimensional only locally (Saglam et al. 2025). Prior work also identifies a global 
+
+modality gap between image and text embeddings (Liang et al. 2022; Zhang et al. 2025b), but how this separation is bridged within fused VLM residual streams remains unclear. 
+
+2.2 Local Geometry and Factor Analysis 
+
+Recent work suggests transformer representations share global structure while retaining model-specific local geometry (Lee et al. 2025). Mixtures of Factor Analyzers (MFA) (Ghahra-mani and Hinton 1996) model this structure as K local Gaussian neighborhoods with low-rank subspaces. Shafran et al. (2026) showed that such components support concept localization and causal steering in language models. 
+
+Positioning. LENS extends MFA to VLMs by addressing three challenges: identifying mixed-modality regions despite cross-modal separation; grounding components in both im-age patches and text contexts; and enabling modality-specific interventions. LENS therefore treats local low-rank neigh-borhoods as interpretable and steerable units for analyzing cross-modal fusion. 
+
+## 3 Local Explanation of Neighborhood Subspaces 
+
+3.1 Preliminaries 
+
+VLM activations. Let M denote a VLM with L layers, and let ℓ ∈ { 1, . . . , L } be a target residual-stream layer. For a multimodal input containing visual patches and text tokens, we extract the hidden state at each selected token or patch position and treat it as an activation vector x ∈ Rd. Processing a corpus of N multimodal prompts yields multiple token- and patch-level activations per prompt. We denote the resulting activation dataset at layer ℓ by 
+
+Xℓ = {xi}SM
+
+> i=1
+
+,
+
+where SM is the total number of sampled activations for model M across the corpus. Unlike N , SM depends on the model architecture, input resolution, tokenizer, and sampling scheme. Each activation is tagged with its source modality and contextual metadata. 
+
+Mixture of Factor Analyzers (MFA). MFA (Ghahramani and Hinton 1996) models an activation space as K local low-rank Gaussian neighborhoods. A discrete latent ω ∈{1, . . . , K } assigns each sample to a component; conditioned on ω = k,
+
+x = μk+Wkzk+ϵ, with zk ∼ N (0, Iq ), ϵ ∼ N (0, Ψ),
+
+(1) where x ∈ Rd is the observed activation; μk ∈ Rd is the center of the k-th neighborhood; Wk ∈ Rd×q is the factor-loading matrix, whose columns span the orientation of the component’s local low-dimensional subspace; q ≪ d is the local latent rank per layer; zk ∈ Rq is the latent factor with a standard-normal prior; and ϵ ∈ Rd is coordinate-wise-independent zero-mean Gaussian noise with diagonal covariance Ψ ∈ Rd×d. The resulting component covariance is Ck = WkW⊤ 
+
+> k
+
++ Ψ. The marginal density is the weighted sum 
+
+p(x) = 
+
+> K
+
+X
+
+> k=1
+
+πk N (x | μk, Ck), (2) where πk ≥ 0 is the mixture weight of component k, with 
+
+PKk=1 πk = 1 . Conditioned on component k, an activation is represented by the neighborhood centroid μk and a low-rank within-neighborhood offset Wkzk. The posterior probability that component k generated x–its responsibility –is 
+
+Rk(x) = πk N (x | μk, Ck)
+
+P 
+
+> j
+
+πj N (x | μj , Cj ) . (3) Conditioned on ω=k, the posterior over the latent factors is itself Gaussian; its mean gives the local coordinate of x
+
+within component k’s subspace, 
+
+ˆzk(x) = W⊤ 
+
+> k
+
+C−1 
+
+> k
+
+(x − μk) ∈ Rq . (4) Responsibilities Rk form a soft partition of activation space and local coordinates ˆzk locate a sample within each region; together they underlie our labeling, steering, and retrieval procedures. 
+
+3.2 The LENS Pipeline 
+
+LENS comprises three stages: (i) multimodal activation ex-traction, (ii) MFA training, and (iii) automated cross-modal labeling of the MFA components. Figure 1 illustrates the extraction and deferred patch-labeling pipeline. 
+
+Stage 1: Multimodal activation extraction. Given a dataset D = {(In, cn)}Nn=1 of image-caption pairs, we extract per-token residual-stream activations from target intermedi-ate layers. To guarantee deterministic patch geometry across architectures that handle dynamic input resolutions, we pin the model to a fixed square input resolution. Specifically: 
+
+• Stratified modality sampling. Each token position is classi-fied with the class m where m=img for image-placeholder positions and m=txt for non-special, non-padding po-sitions. Image tokens typically outnumber text tokens by an order of magnitude, so a naive corpus would be vision-dominated and obscure cross-modal regions. We therefore sample min( |I| , |T | , h max ) positions per modality per pair , where |I| is the number of image tokens, |T | is the number of text tokens, and hmax = 10 is a per-pair budget. This yields a corpus with comparable mass on each modality. 
+
+• Metadata for downstream labeling. Each extracted acti-vation x is stored with its modality flag m. For image tokens I we additionally record a spatial patch index p
+
+(row, column in the vision encoder grid); for text tokens 
+
+T we record a windowed token context with the target token marked. This metadata enables deferred multimodal labeling (Section 3.2) without re-running the VLM at extraction time. 
+
+Stage 2: MFA training. We train a separate MFA inde-pendently at each target layer ℓ, since activation geometry changes with depth. Unless otherwise stated, we use the same component count K and local latent rank q across target layers; K and q are the principal hyperparameters, specified in Section 4.1 and ablated in Appendix B.1. Direct K-means initialization in the full residual dimension is prohibitive, so we follow Shafran et al. (2026): cluster activations in a dproj =256 -dimensional random orthonormal projection, then initialize each full-space centroid μk as the mean of the original activations assigned to that projected cluster. Loadings {Wk}Kk=1 are initialized with entries drawn i.i.d. from N (0 , 1) , the shared diagonal noise is initialized as 
+
+Ψ = Id, and the mixing weights are initialized uniformly as 
+
+πk = 1 
+
+> K
+
+for all k.Training minimizes the negative log-likelihood 
+
+L(θ) = − 1
+
+B
+
+> B
+
+X
+
+> n=1
+
+log 
+
+> K
+
+X
+
+> k=1
+
+πk N (xn | μk, Ck)
+
+!
+
+, (5) over θ = {πk, μk, Wk, Ψ}Kk=1 using Adam optimizer (Kingma and Ba 2017), with learning rate 10 −3, gradient clipping at norm 1.0 and batch size B = 1024 .
+
+Stage 3: Automated cross-modal labeling. A key method-ological challenge in extending MFA to VLMs is that some components are mixed : their high-responsibility or hard-assigned activations include a substantial fraction of both visual patches and text tokens. Producing a label that reflects what the model represents across modalities therefore requires more than the text-only protocol of Shafran et al. (2026). We keep the main procedure concise here and provide full details in Appendix A.3. 1. Component modality and top activations. We select a sub-set of K′ MFA components. We assign each activation to the component with maximum responsibility and compute each component’s modality purity over all hard-assigned activations. Given a purity threshold τ (set to τ = 0 .8
+
+in our experiments), a component is text-dominated or vision-dominated if the corresponding modality accounts for at least a fraction τ of its assignments, and mixed otherwise. Separately, to obtain examples for labeling, we stream the activation dataset through the trained MFA and retain the top-t activations for each selected component by responsibility Rk(·) (Equation 3), using a min-heap. 2. Visual patch extraction. For each retained image activation, we locate its source image, resize it to the model’s expected resolution, and crop a fixed-size window centered on the patch’s spatial coordinate, isolating the image region responsible for its high responsibility score. 3. Vision-language judge-based synthesis. For each selected component, we use a judge VLM to produce one con-cise natural-language description of the component. The judge is provided with contexts of the top text activations and the image patches cropped in (2) , both ordered by responsibility together with a strict system prompt de-tailed in Appendix A.3. Our prompt spans both modalities, and hence extends prior automated-interpretability pro-tocols (Bills et al. 2023; Bricken et al. 2023) from the text-only setting to the cross-modal regime. 
+
+3.3 Causal Evaluation Interventions 
+
+The labeled decomposition produced by Section 3.2 is descrip-tive; we additionally test whether the recovered components are causal handles on model behavior. We use two comple-mentary interventions. 
+
+Scoped activation steering. To test causal influence, we intervene during generation by interpolating hidden states at Figure 1: Activation extraction and labeling pipeline. (1) Image-caption pairs are processed by a VLM to extract and store intermediate multimodal activations. (2) A Mixture of Factor Analyzers (MFA) is trained on the sampled activation space. (3) learned components are interpreted by a VLM Judge, which analyzes the component’s top-activating image patches and text snippets and generates a concise, human-readable semantic description. the target layer toward a component centroid: 
+
+x′ = (1 − α) x + α μk, x ∈ S , (6) where S selects the intervention scope –image activations only, text activations only, or both–and α ∈ [0 , 1] controls intervention strength. The scope distinction is unique to multimodal models: unlike unimodal models, VLMs allow us to target visual or textual positions independently. This lets us ask not only whether a component matters, but through which modality it exerts its effect (Section 4.3). 
+
+Cross-modal coefficient-space retrieval. The MFA in-duces a shared coordinate system in which image and text activations can be compared directly. The responsibility vector 
+
+r(x) = R1(x), . . . , R K (x) ∈ [0 , 1] K ,
+
+> K
+
+X
+
+> k=1
+
+Rk(x) = 1 ,
+
+(7) encodes which Gaussian neighborhoods are active. To addi-tionally encode where an activation lies within each neigh-borhood, we weight each local coordinate ˆzk(x) (Equation 4) by its responsibility and stack the results: 
+
+b(x) = 
+
+
+
+R1(x)
+
+R1(x) ˆ z1(x)
+
+...
+
+RK (x)
+
+RK (x) ˆ zK (x)
+
+ ∈ RK(1+ q). (8) Thus, r(x) encodes which neighborhoods are active, while 
+
+b(x) also encodes where within them the activation lies. Both representations are defined in component space and are therefore shared across modalities. We use cosine similarity in r- or b-space for cross-modal retrieval, without contrastive training (Section 4.4). 
+
+## 4 Experiments 
+
+We evaluate whether LENS (i) identifies local regions that mix visual and textual evidence, (ii) provides causal handles for within- and cross-modal steering, and (iii) exposes semantic alignment through cross-modal retrieval. 
+
+4.1 Experimental Setup 
+
+Models and data. We study two open-source VLMs with distinct fusion architectures: LLaVA-1.5-7B (Liu et al. 2023), which inserts projected visual features at the input, and Qwen3-VL-8B-Instruct (Yang et al. 2025a), whose DeepStack design injects multi-level visual features into several early layers (Meng et al. 2024; Yang et al. 2025a). To obtain broad coverage of naturally occurring cross-modal concepts, we use image-caption pairs from CC3M (Sharma et al. 2018) and extract residual-stream activations at layers 8, 16 , and 
+
+29 for LLaVA and layers 9, 18 , and 27 for Qwen3. Fixed input resolutions of 336 ×336 and 448 ×448 , respectively. Full implementation and hardware details are provided in Appendix A. 
+
+Decomposition and evaluation. At each layer, we train an MFA with K=8 ,192 components and local rank q=10 using the procedure in Section 3.2; an ablation study over K and q
+
+is reported in Appendix B.1. Geometry and retrieval use the full mixture. For automated labeling, we randomly sample 
+
+1,000 components, retain their 25 highest-responsibility acti-vations, and label them with Qwen2.5-VL-7B-Instruct (Bai et al. 2025). Experiment-specific baselines and metrics are described below. 
+
+4.2 Cross-Modal Structure via Local Geometry 
+
+Prior work characterizes the modality gap globally: image and text embeddings occupy separated regions despite being trained under a shared objective (Liang et al. 2022). LENS instead asks where this gap is locally bridged within the VLM residual stream. We classify an MFA component as 
+
+mixed when neither modality constitutes at least a fraction 
+
+τ of its hard-assigned activations, where assignments are determined by maximum responsibility. We use τ =0 .8; a threshold ablation is reported in Appendix B.2. 
+
+• Architecture-dependent fusion trajectories. Figure 3 shows UMAP projections (McInnes, Healy, and Melville 2020) of the MFA centroids across depth. LLaVA exhibits a monotonic increase in mixed components at later layers: their number rises from 0 at layer 8 to 55 at layer 16 
+
+and 472 at layer 29 (0% , 0.6% , and 5.7% , respectively). Visual and textual neighborhoods are therefore initially separated and become progressively interleaved toward the output. In contrast, Qwen3-VL exhibits a distinct, non-monotonic trajectory. It contains 464 mixed components at layer 9, only 61 at layer 18 , and 128 at layer 27 (5.7% ,
+
+0.7% , and 1.5% ). This early mixing, partial re-segregation, and late recombination is consistent with DeepStack’s injection of multi-level visual features into early LLM layers (Meng et al. 2024; Yang et al. 2025a). Thus, the prevalence of mixed neighborhoods need not increase monotonically with depth and differs substantially between the two architectures. 
+
+• Semantic content of mixed neighborhoods. The selected mixed components exhibit semantic coherence across modalities: their highest-responsibility image patches and text contexts refer to related concepts. Figure 2 shows a LLaVA component associated with rockets and space launches and a Qwen3-VL component associated with polar bears. The examples are selected by the automated procedure described in Appendix C.1, which also provides additional cases. Together, these results illustrate the advantage of a local ge-ometric decomposition: rather than reducing cross-modal fusion to a single global separation measure, LENS identifies neighborhoods containing representations from both modal-ities and tracks how their prevalence changes across model depth. 
+
+4.3 Cross-Modal Activation Steering 
+
+The geometry analysis identifies neighborhoods that contain both visual and textual evidence, but does not establish whether they influence model behavior. We test whether interventions toward MFA centroids causally influence model outputs by crossing the intervention scope–text, vision, or both token types–with the modality dominance of the target component, yielding six scope →target conditions. Same-modality conditions test direct concept control, while cross-modal conditions test whether a concept localized primarily through one modality can be accessed by intervening on the other. 
+
+Setup. For each model and target layer, we select 100 labeled components ( 50 text-dominated and 50 vision-dominated) and steer prefill activations at the selected visual and/or textual positions toward their MFA centroids via interpolation (Equation 6), sweeping α over 15 values in [0 .15 , 0.8] . Each condition produces eight continuations; the image-only scope uses the prompt ”Describe the image:” , while the text and both scopes use ”I think that” , with vision-inclusive scopes additionally receiving a neutral gray image. A Qwen2.5-32B-Instruct-AWQ judge (Qwen et al. 2025) scores concept alignment CS ∈ { 0, 1, 2} and fluency FL ∈ { 0, 1, 2}. To ensure deterministic and reproducible evaluations, the judge utilizes greedy decoding with a temperature of 0 and a maximum generation limit of 150 tokens. We average CS and 
+
+FL independently over the eight generations and report the harmonic mean of these two means, following AxBench (Wu et al. 2025). To measure attainable steering performance, we report each component’s best score over the evaluated α sweep and then take the median across components. We apply the same per-component selection protocol to all computational methods. 
+
+Baselines. We compare against two computational baselines and a prompting reference. (1) DiffMeans (Rimsky et al. 2024) uses additive steering, h′ = h+αv , where v is computed from 
+
+72 positive and 72 neutral sentence templates instantiated with each MFA concept label; the same templates are used across concepts. We sweep 14 values of α ∈ [0 .4, 100] .(2) VL-SAE adapts Shen et al. (2026) by extracting unit directions from VL-SAEs trained on the same residual-stream layers as MFA. VL-SAE is evaluated on its own learned concepts, selected using the same filtering criteria as the MFA concepts. Extraction details appear in Appendix A.2. We apply h′ = h + α∥h∥vunit over 21 values of α ∈ [0 , 100] .For both baselines, we evaluate both signs and retain the better-performing direction. (3) Prompting directly inserts the target label. Text scope steering uses In the following sentences I will discuss the concept: {concept }. I think that:” ; vision scopes uses Focusing on the concept of {concept }, describe the image:” . Prompting is a non-interventional reference and cannot independently mask token types. 
+
+Results. Figure 4 presents per model the early- and middle-layer steering results; late-layer results appear in Appendix B.3. The figure shows the distribution of the harmonic-mean values across six intervention scope-to-target-modality conditions, with boxes indicating the interquartile range of the harmonic-mean values of the concepts, horizontal lines the median, and whiskers extending to 1.5 × the interquartile range. 
+
+(i) MFA achieves higher best-sweep scores than the global-direction baselines in most conditions. MFA centroid steering exceeds DiffMeans and VL-SAE across most con-ditions, with particularly large gains for vision-targeted and mixed-scope interventions. At LLaVA layer 8, MFA achieves 
+
+Vis →Vis =1 .307 , compared with 0.094 for DiffMeans and 
+
+0.227 for VL-SAE–5.7 times the VL-SAE score in this con-dition. Representative outputs are reported in Figure 11. 
+
+(ii) Steering effects transfer across modalities. At LLaVA layer 8, steering vision tokens toward a text-dominated cen-troid obtains Vis →Text =1 .244 , close to the same-modality 
+
+Vis →Vis result. Conversely, steering text tokens toward a vision-dominated centroid obtains Text →Vis =0 .921 . Thus, concepts localized primarily in one modality remain causally accessible through interventions on the other. Component Image patches Text tokens Component label 
+
+LLaVA-1.5 
+
+Layer 29 # 4982 
+
+strange objects and lights tennis player launch es his pop artist launch es her with ro cket in the model of a module 
+
+Space exploration and launch activities are strongly activating themes. 
+
+Qwen3-VL-8B 
+
+Layer 27 # 2532 
+
+p olar bear in baby polar bear enjoying these polar bears are card with a polar 
+
+p olar bears , biological 
+
+Polar bears are consistently activated across diverse visual and textual contexts. 
+
+Figure 2: Mixed components bind specific visual and textual content. Two representative mixed components (LLaVA-1.5 layer 29 and Qwen3-VL-8B layer 27), each shown with its top max-activating image patches (left), text-token contexts with the responsible token highlighted (middle), label (right). Both activate on visual patches and text tokens denoting the same concept. Layer 8 
+
+> Text (2091)
+> Vision (5783)
+> Layer 16
+> Text (3734)
+> Vision (4378)
+> Mixed (55)
+> Layer 29
+> Text (4882)
+> Vision (2733)
+> Mixed (472)
+> UMAP 1
+> UMAP 2 Layer 9
+> Text (2071)
+> Vision (5591)
+> Mixed (464)
+> Layer 18
+> Text (2400)
+> Vision (5684)
+> Mixed (61)
+> Layer 27
+> Text (4046)
+> Vision (3935)
+> Mixed (128)
+> UMAP 1
+> UMAP 2
+
+Figure 3: Cross-modal fusion regimes across architec-tures. Top (LLaVA-1.5-7B): Increasing late-layer mix-ing. Mixed centroids accumulate monotonically with depth (0 → 55 → 472 across layers 8, 16 , 29 ). Bottom (Qwen3-VL-8B): Early, non-monotonic mixing. Mixed centroids follow a non-monotonic trajectory ( 464 → 61 → 128 across layers 9,
+
+18 , 27 ). 
+
+(iii) Relative steering performance shifts with depth. 
+
+At the early layers of both models, vision-dominated com-ponents outperform text-dominated components in five of six conditions, with the highest observed score at Qwen3-VL layer 9 (Vis →Vis =1 .333 ). At the middle layers, this pattern reverses in five of six conditions. The mechanism underlying this depth-dependent shift remains an open question. 
+
+Human evaluation. We evaluated 80 outputs, balanced across MFA, prompting, VL-SAE, and DiffMeans, using human ratings of concept alignment and fluency on a three-point scale. We averaged each rating across annotators and report their harmonic mean. MFA achieved the highest overall median score ( 1.64 ), ahead of prompting ( 1.43 ), VL-SAE (0.31 ), and DiffMeans ( 0.30 ). Prompting slightly led MFA on LLaVA-1.5 ( 1.84 vs. 1.81 ), whereas MFA led on Qwen3-VL-8B ( 1.43 vs. 0.91 ). Across 75 distinct steering configurations after merging duplicates 1, human and VLM-judge scores were correlated (Spearman’s ρ = 0 .727 ; Pearson’s r = 0 .747 ), supporting the automated evaluation while motivating independent human validation. Full protocol and survey instructions are provided in Appendix A.4. 
+
+4.4 Cross-Modal Retrieval in Coefficient Space 
+
+Steering establishes that MFA neighborhoods are causally accessible; we next test whether their coordinates encode shared semantic content across modalities. Unlike contrastive representations, the MFA coefficient space is learned without additional contrastive or task-specific alignment training. 
+
+Setup. Following van Sprang et al. (2026), we use ImageNet (Russakovsky et al. 2015), whose standardized 1,000 -class label space enables controlled cross-modal comparison. For each class, we construct a natural image, a rendered class label, and a textual class label. Image–Text tests object–language alignment; Written–Text isolates identical lexical content across pixels and tokens; and Image–Written tests alignment between natural images and rendered class names. We mean-pool token representations over modality-relevant positions, compute an N ×N cosine-similarity matrix for each modality pair, model, and layer, and report bidirectional R@1 with 95% confidence intervals from 10 ,000 bootstrap resamples. 
+
+Results. Figure 6 compares raw activations, MFA respon-sibilities, full MFA coefficients, VL-SAE, and an aligned VL-SAE representation extracted after its first cross-modal alignment encoder. 
+
+(i) Local coordinates expose correspondences missed by global representations. At Qwen3-VL layer 27 , Image– Written R@1 increases from 14 .9% for raw activations to 
+
+48 .6% for b(x). At LLaVA layer 29 , Image–Text retrieval 
+
+> 1
+
+Of the 80 evaluated outputs, nine shared identical steering configurations with another output (in four groups); we aggregated each group into a single item, yielding 75 distinct items for this correlation analysis. 0.0              
+
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Score
+> Text Text Vision Vision Text Vision
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Score
+> Vision Text Both Text Both Vision
+> MFA DiffMeans VL-SAE Prompting
+
+(a) LLaVA (Layer 8) 0.0               
+
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Score
+> Text Text Vision Vision Text Vision
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Score
+> Vision Text Both Text Both Vision
+> MFA DiffMeans VL-SAE Prompting
+
+(b) Qwen3-VL (Layer 9) 0.0              
+
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Score
+> Text Text Vision Vision Text Vision
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Score
+> Vision Text Both Text Both Vision
+> MFA DiffMeans VL-SAE Prompting
+
+(c) LLaVA (Layer 16) 0.0               
+
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Score
+> Text Text Vision Vision Text Vision
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Score
+> Vision Text Both Text Both Vision
+> MFA DiffMeans VL-SAE Prompting
+
+(d) Qwen3-VL (Layer 18) 
+
+Figure 4: MFA centroids support within- and cross-modal control. Distributions show each component’s best-α har-monic score across six intervention-scope-to-target-modality conditions at early and middle layers. Boxes show the in-terquartile range, horizontal lines indicate the median, and whiskers extending to 1.5 × the interquartile range. MFA gen-erally outperforms the computational baselines and transfers concepts across modalities; prompting is shown only as a non-interventional reference. similarly rises from 27 .1% to 34 .7% . Thus, the MFA coeffi-cient space reveals semantic correspondences that are only weakly expressed by global residual-stream similarity. 
+
+(ii) The advantage is largest at intermediate depths. In several middle-layer conditions, raw-activation R@1 falls to 
+
+0.4% –0.7% , while b(x) remains above 27% . For reference, random R@1 with 1,000 candidates is 0.1% . Cross-modal content can therefore remain locally aligned even when global vector angles provide little retrieval signal. 
+
+(iii) The coefficient space preserves model-specific dif-ferences. LLaVA remains below 5% on Image–Written re-trieval, whereas Qwen3-VL performs substantially better. LENS therefore exposes, rather than artificially removes, architecture-specific differences in how visual, written, and textual inputs are represented. Together with the steering results, this shows that MFA neighborhoods are both causally useful and semantically structured across modalities. 
+
+## 5 Discussion 
+
+Summary. LENS identifies local, low-rank neighbor-hoods in fused VLM residual streams that are architecture-dependent, causally effective, and cross-modally aligned. MFA reveals progressive late fusion in LLaVA and early, non-monotonic fusion in Qwen3-VL, enables stronger within- and cross-modal steering than difference-in-means and VL-SAE across most conditions, and improves cross-modal retrieval over raw activations. Human evaluation supports the steer-ing results, although the relative performance of MFA and MFA DiffMeans VL-SAE Prompting       
+
+> Method
+> 0
+> 0.5
+> 1
+> 1.5
+> 2
+> Concept Alignment and Fluency
+> 1.64
+> 0.30 0.31
+> 1.43
+> MFA DiffMeans VL-SAE Prompting
+> Method
+> 1.81
+> 0.34
+> 0.48
+> 1.84
+> 1.43
+> 0.23
+> 0.00
+> 0.91
+> Model (pattern)
+> All Models LLaVA-1.5 Qwen3-VL-8B
+
+Figure 5: Human evaluation of steering outputs. Harmonic-mean scores combining concept alignment and fluency, shown overall and separately for each model. Boxes show the in-terquartile range of the harmonic-mean values, horizontal lines the median, and whiskers extending to 1.5 × the interquar-tile range. MFA has the highest overall median, although prompting slightly leads on LLaVA-1.5 and MFA leads on Qwen3-VL-8B. 8 16 29               
+
+> Layer
+> 0
+> 20
+> 40
+> 60
+> 80
+> R@1 (%)
+> LLaVA-1.5  (a) Image vs. Text
+> 816 29
+> Layer
+> (b) Written vs. Text
+> 816 29
+> Layer
+> (c) Image vs. Written
+> 918 27
+> Layer
+> 0
+> 20
+> 40
+> 60
+> 80
+> R@1 (%)
+> Qwen3-VL  (d) Image vs. Text
+> 918 27
+> Layer
+> (e) Written vs. Text
+> 918 27
+> Layer
+> (f) Image vs. Written
+> Raw r(x)b(x)VL-SAE VL-SAE (aligned)
+
+Figure 6: MFA coordinates expose cross-modal alignment. 
+
+Bidirectional R@1 across layers for LLaVA-1.5 (top) and Qwen3-VL (bottom). We compare raw residual-stream activa-tions, MFA responsibilities r(x), full MFA coefficients b(x),and standard and aligned VL-SAE representations. Error bars show 95% bootstrap confidence intervals. prompting varies by architecture. Together, these findings establish local geometric neighborhoods as interpretable and steerable units of VLM analysis. 
+
+Limitations. Our study is limited to two open VLMs, CC3M activations, a controlled ImageNet retrieval setting, and model-based component labels and steering scores. Hu-man evaluation covers only 80 outputs, late-layer steering is less reliable, and MFA does not identify the circuits that produce the recovered neighborhoods. 
+
+Future work. Future work should test LENS across more architectures, datasets, and tasks. Tracing how attention and MLP layers form, merge, and separate MFA neighborhoods could connect geometric structure to mechanism. Comparing image-only, text-only, and paired activations could further quantify concept-specific modality gaps and their consistency for safety-relevant concepts. References 
+
+Alayrac, J.-B.; Donahue, J.; Luc, P.; Miech, A.; Barr, I.; Hasson, Y.; Lenc, K.; Mensch, A.; Millican, K.; Reynolds, M.; et al. 2022. Flamingo: a visual language model for few-shot learning. Advances in neural information processing systems , 35: 23716–23736. Bai, S.; Chen, K.; Liu, X.; Wang, J.; Ge, W.; Song, S.; Dang, K.; Wang, P.; Wang, S.; Tang, J.; Zhong, H.; Zhu, Y.; Yang, M.; Li, Z.; Wan, J.; Wang, P.; Ding, W.; Fu, Z.; Xu, Y.; Ye, J.; Zhang, X.; Xie, T.; Cheng, Z.; Zhang, H.; Yang, Z.; Xu, H.; and Lin, J. 2025. Qwen2.5-VL Technical Report. arXiv:2502.13923. Bills, S.; Cammarata, N.; Mossing, D.; Tillman, H.; Gao, L.; Goh, G.; Sutskever, I.; Leike, J.; Wu, J.; and Saunders, W. 2023. Language models can explain neurons in language models. https://openaipublic.blob.core.windows.net/neuron-explainer/paper/index.html. Bricken, T.; Templeton, A.; Batson, J.; Chen, B.; Jermyn, A.; Conerly, T.; Turner, N.; Anil, C.; Denison, C.; Askell, A.; Lasenby, R.; Wu, Y.; Kravec, S.; Schiefer, N.; Maxwell, T.; Joseph, N.; Hatfield-Dodds, Z.; Tamkin, A.; Nguyen, K.; McLean, B.; Burke, J. E.; Hume, T.; Carter, S.; Henighan, T.; and Olah, C. 2023. Towards Monoseman-ticity: Decomposing Language Models With Dictionary Learning. Transformer Circuits Thread . Https://transformer-circuits.pub/2023/monosemantic-features/index.html. Chanin, D.; Wilken-Smith, J.; Dulka, T.; Bhatnagar, H.; Golechha, S.; and Bloom, J. 2024. A is for absorption: Study-ing feature splitting and absorption in sparse autoencoders. 
+
+arXiv preprint arXiv:2409.14507 .Cunningham, H.; Huben, R.; Smith, L. R.; Ewart, A.; and Sharkey, L. 2024. Sparse Autoencoders Find Highly In-terpretable Features in Language Models. In The Twelfth International Conference on Learning Representations .Elhage, N.; Hume, T.; Olsson, C.; Schiefer, N.; Henighan, T.; Kravec, S.; Hatfield-Dodds, Z.; Lasenby, R.; Drain, D.; Chen, C.; et al. 2022. Toy models of superposition. arXiv preprint arXiv:2209.10652 .Fry, H. 2024. Towards Multimodal Interpretability: Learn-ing Sparse Interpretable Features in Vision Transformers. 
+
+LESSWRONG .Ghahramani, Z.; and Hinton, G. E. 1996. The EM algorithm for mixtures of factor analyzers. Technical Report CRG-TR-96-1, University of Toronto .Hu, Y.; Yuan, J.; Wen, C.; Lu, X.; Liu, Y.; and Li, X. 2025. Rs-gpt: A remote sensing vision language model and benchmark. 
+
+ISPRS Journal of Photogrammetry and Remote Sensing , 224: 272–286. Kingma, D. P.; and Ba, J. 2017. Adam: A Method for Stochastic Optimization. arXiv:1412.6980. Lee, A.; Weber, M.; Viégas, F.; and Wattenberg, M. 2025. Shared Global and Local Geometry of Language Model Embeddings. In Second Conference on Language Modeling .Li, J.; Li, D.; Savarese, S.; and Hoi, S. 2023. Blip-2: Bootstrap-ping language-image pre-training with frozen image encoders and large language models. In International conference on machine learning , 19730–19742. PMLR. Liang, W.; Zhang, Y.; Kwon, Y.; Yeung, S.; and Zou, J. 2022. Mind the Gap: Understanding the Modality Gap in Multi-modal Contrastive Representation Learning. In Oh, A. H.; Agarwal, A.; Belgrave, D.; and Cho, K., eds., Advances in Neural Information Processing Systems .Lin, Z.; Basu, S.; Beigi, M.; Manjunatha, V.; Rossi, R. A.; Wang, Z.; Zhou, Y.; Balasubramanian, S.; Zarei, A.; Rezaei, K.; et al. 2025. A survey on mechanistic interpretabil-ity for multi-modal foundation models. arXiv preprint arXiv:2502.17516 .Liu, H.; Li, C.; Wu, Q.; and Lee, Y. J. 2023. Visual instruction tuning. Advances in neural information processing systems ,36: 34892–34916. McInnes, L.; Healy, J.; and Melville, J. 2020. UMAP: Uni-form Manifold Approximation and Projection for Dimension Reduction. arXiv:1802.03426. Meng, L.; Yang, J.; Tian, R.; Dai, X.; Wu, Z.; Gao, J.; and Jiang, Y.-G. 2024. DeepStack: Deeply Stacking Visual Tokens is Surprisingly Simple and Effective for LMMs. In The Thirty-eighth Annual Conference on Neural Information Processing Systems .Pach, M.; Karthik, S.; Bouniot, Q.; Belongie, S.; and Akata, Z. 2025. Sparse autoencoders learn monosemantic features in vision-language models. arXiv preprint arXiv:2504.02821 .Qwen; :; Yang, A.; Yang, B.; Zhang, B.; Hui, B.; Zheng, B.; Yu, B.; Li, C.; Liu, D.; Huang, F.; Wei, H.; Lin, H.; Yang, J.; Tu, J.; Zhang, J.; Yang, J.; Yang, J.; Zhou, J.; Lin, J.; Dang, K.; Lu, K.; Bao, K.; Yang, K.; Yu, L.; Li, M.; Xue, M.; Zhang, P.; Zhu, Q.; Men, R.; Lin, R.; Li, T.; Tang, T.; Xia, T.; Ren, X.; Ren, X.; Fan, Y.; Su, Y.; Zhang, Y.; Wan, Y.; Liu, Y.; Cui, Z.; Zhang, Z.; and Qiu, Z. 2025. Qwen2.5 Technical Report. arXiv:2412.15115. Radford, A.; Kim, J. W.; Hallacy, C.; Ramesh, A.; Goh, G.; Agarwal, S.; Sastry, G.; Askell, A.; Mishkin, P.; Clark, J.; et al. 2021. Learning transferable visual models from natural language supervision. In International conference on machine learning , 8748–8763. PmLR. Rimsky, N.; Gabrieli, N.; Schulz, J.; Tong, M.; Hubinger, E.; and Turner, A. 2024. Steering Llama 2 via Contrastive Activation Addition. In Ku, L.-W.; Martins, A.; and Srikumar, V., eds., Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 15504–15522. Bangkok, Thailand: Association for Computational Linguistics. Russakovsky, O.; Deng, J.; Su, H.; Krause, J.; Satheesh, S.; Ma, S.; Huang, Z.; Karpathy, A.; Khosla, A.; Bernstein, M.; Berg, A. C.; and Fei-Fei, L. 2015. ImageNet Large Scale Visual Recognition Challenge. International Journal of Computer Vision (IJCV) , 115(3): 211–252. Saglam, B.; Kassianik, P.; Nelson, B.; Weerawardhena, S.; Singer, Y.; and Karbasi, A. 2025. Large Language Models Encode Semantics and Alignment in Linearly Separable Rep-resentations. In Inui, K.; Sakti, S.; Wang, H.; Wong, D. F.; Bhattacharyya, P.; Banerjee, B.; Ekbal, A.; Chakraborty, T.; and Singh, D. P., eds., Proceedings of the 14th International Joint Conference on Natural Language Processing and the 4th Conference of the Asia-Pacific Chapter of the Associ-ation for Computational Linguistics . Mumbai, India: The Asian Federation of Natural Language Processing and The Association for Computational Linguistics. Shafran, O.; Ronen, S.; Fahn, O.; Ravfogel, S.; Geiger, A.; and Geva, M. 2026. From Directions to Regions: Decomposing Activations in Language Models via Local Geometry. arXiv preprint arXiv:2602.02464 .Sharma, P.; Ding, N.; Goodman, S.; and Soricut, R. 2018. Conceptual Captions: A Cleaned, Hypernymed, Image Alt-text Dataset For Automatic Image Captioning. In Gurevych, I.; and Miyao, Y., eds., Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 2556–2565. Melbourne, Australia: Association for Computational Linguistics. Shen, S.; Sun, J.; Huang, Q.; and Wang, S. 2026. VL-SAE: Interpreting and Enhancing Vision-Language Alignment with a Unified Concept Set. In The Thirty-ninth Annual Conference on Neural Information Processing Systems .Templeton, A.; Conerly, T.; Marcus, J.; Lindsey, J.; Bricken, T.; Chen, B.; Pearce, A.; Citro, C.; Ameisen, E.; Jones, A.; Cunningham, H.; Turner, N. L.; McDougall, C.; MacDiarmid, M.; Freeman, C. D.; Sumers, T. R.; Rees, E.; Batson, J.; Jermyn, A.; Carter, S.; Olah, C.; and Henighan, T. 2024. Scaling Monosemanticity: Extracting Interpretable Features from Claude 3 Sonnet. Transformer Circuits Thread .Thasarathan, H.; Forsyth, J.; Fel, T.; Kowal, M.; and Derpanis, K. G. 2025. Universal Sparse Autoencoders: Interpretable Cross-Model Concept Alignment. In Forty-second Interna-tional Conference on Machine Learning .van Sprang, A.; Samson, L.; Lucic, A.; Acar, E.; Ghebreab, S.; and Asano, Y. M. 2026. Same Content, Different Answers: Cross-Modal Inconsistency in MLLMs. arXiv:2512.08923. Wu, Z.; Arora, A.; Geiger, A.; Wang, Z.; Huang, J.; Jurafsky, D.; Manning, C. D.; and Potts, C. 2025. AxBench: Steering LLMs? Even Simple Baselines Outperform Sparse Autoen-coders. In Forty-second International Conference on Machine Learning .Xiang, J.; Wang, X.; Zhang, X.; Xi, Y.; Eweje, F.; Chen, Y.; Li, Y.; Bergstrom, C.; Gopaulchan, M.; Kim, T.; et al. 2025. A vision–language foundation model for precision oncology. 
+
+Nature , 638(8051): 769–778. Yang, A.; Li, A.; Yang, B.; Zhang, B.; Hui, B.; Zheng, B.; Yu, B.; Gao, C.; Huang, C.; Lv, C.; Zheng, C.; Liu, D.; Zhou, F.; Huang, F.; Hu, F.; Ge, H.; Wei, H.; Lin, H.; Tang, J.; Yang, J.; Tu, J.; Zhang, J.; Yang, J.; Yang, J.; Zhou, J.; Zhou, J.; Lin, J.; Dang, K.; Bao, K.; Yang, K.; Yu, L.; Deng, L.; Li, M.; Xue, M.; Li, M.; Zhang, P.; Wang, P.; Zhu, Q.; Men, R.; Gao, R.; Liu, S.; Luo, S.; Li, T.; Tang, T.; Yin, W.; Ren, X.; Wang, X.; Zhang, X.; Ren, X.; Fan, Y.; Su, Y.; Zhang, Y.; Zhang, Y.; Wan, Y.; Liu, Y.; Wang, Z.; Cui, Z.; Zhang, Z.; Zhou, Z.; and Qiu, Z. 2025a. Qwen3 Technical Report. arXiv:2505.09388. Yang, T.; Chang, L.; Yan, J.; Li, J.; Wang, Z.; and Zhang, K. 2025b. A Survey on Foundation-Model-Based Industrial Defect Detection. arXiv:2502.19106. Zhang, K.; Shen, Y.; Li, B.; and Liu, Z. 2025a. Large multi-modal models can interpret features in large multi-modal models. In Proceedings of the IEEE/CVF International Conference on Computer Vision , 3650–3661. Zhang, Z.; Yadav, S.; Han, F.; and Shutova, E. 2025b. Cross-modal information flow in multimodal large language models. In Proceedings of the Computer Vision and Pattern Recogni-tion Conference , 19781–19791. Zhang, Z.; Zhang, A.; Li, M.; Zhao, H.; Karypis, G.; and Smola, A. 2023. Multimodal chain-of-thought reasoning in language models. arXiv preprint arXiv:2302.00923 .A Implementation and Evaluation Details 
+
+A.1 Hardware and Software Specification 
+
+All experiments were run on a single NVIDIA RTX 6000 GPU with 48 GB of VRAM and 80 GB of system RAM. The complete software environment, including package versions, is provided in the anonymized repository and supplementary code archive. 
+
+A.2 VL-SAE Direction Extraction and Bias Cancellation 
+
+To isolate the pure concept direction vunit from the pretrained VL-SAE (Shen et al. 2026), we perform a one-hot passthrough at the target concept dimension in the latent space. The VL-SAE utilizes a cascaded decoding architecture consisting of a modality-specific decoder and an auxiliary autoencoder decoder, both formalized as linear transformations ( y = W x +
+
+b). Consequently, a standard one-hot passthrough yields the target column weight plus the accumulated biases from both stages ( W:,i + b1 + b2). To prevent these global reconstruction biases from skewing the geometric intervention, we execute a bias-cancellation protocol. We pass a zero-vector through the cascaded decoders to isolate the pure bias terms ( b1 + b2)and subtract this from the one-hot output: 
+
+vpure = ( W:,i + b1 + b2) − (b1 + b2) = W:,i (9) The resulting pure weight vector is then L2-normalized to yield the unit-norm steering direction: 
+
+vunit = vpure 
+
+∥vpure ∥2
+
+(10) 
+
+A.3 Automated Labeling and Component Selection 
+
+Automated Labeling Prompt. To synthesize concise, natural-language descriptions for the extracted MFA com-ponents, we provide the external judge VLM (Qwen2.5-VL-7B-Instruct) with the following system prompt. The prompt interleaves text snippets and image crops, along with their respective responsibility scores, enforcing a strict parsing format for the final output. 
+
+Prompt 1: Multimodal Centroid Description 
+
+You are a meticulous AI researcher conducting an im-portant investigation into multimodal latent space rep-resentations. You will be given examples that represent the most strongly activating stimuli for a specific neural network component. 
+
+Examples come in two forms: 
+
+1. Text snippets: The target token is highlighted be-tween « » delimiters within its surrounding context. 2. Images: A visual crop showing the content at the activation site. 
+
+Guidelines: 
+
+• Analyze the examples and produce one concise natural-language interpretation that captures the shared pattern present across the stimuli. 
+
+• Focus on describing the semantic, visual, syntactic, or conceptual pattern uniting the examples. 
+
+• Each example includes a score between 0 and 1. Higher values indicate that this example is more math-ematically important for the concept. 
+
+• If the examples are uninformative or appear as noise, give the most concise possible summary of the pat-tern you can infer. 
+
+• Do not repeat or reference the marker tokens ( « » ) in your interpretation. 
+
+• Do not list multiple possible interpretations or specu-late; provide a single, clear, crisp description. 
+
+• Keep your interpretation short, direct, and precise. Be as specific as possible so that the description is unambiguous. 
+
+RESPONSE FORMAT (STRICT): 
+
+• You may optionally include a brief explanation first. 
+
+• The FINAL line of your response MUST be exactly of the form: 
+
+[interpretation]: <your one-sentence description> 
+
+• That line MUST start with "[interpretation]:" ,MUST be plain text (no markdown bullets, no code fences, no quotes around it), MUST appear exactly once, and MUST be the last line of your response. 
+
+• Do NOT output anything after that line. 
+
+Component Selection for Steering Evaluation. To ensure the 100 components selected for causal steering (Section 4.3) represented genuine semantic concepts rather than narrow syntactic artifacts (e.g., single-token patterns), we utilized an LLM judge to rigorously filter the labeled candidate pool. The judge was provided with each component’s identifier, its automated label (generated via the protocol in Appendix A.3), and its modality distribution. It was then prompted to select exactly 50 text-dominant and 50 vision-dominant components based on the following strict criteria: 
+
+Component Selection Prompt 
+
+You are selecting MFA Gaussian components for a steer-ing experiment on a multimodal VLM. The goal is to find components whose centroids, when used to inter-polate hidden states, will visibly push model generation toward a specific concept. For each component, you are given: component_id, label (description of what the com-ponent captures), and modality_distribution (text_ratio, image_ratio). Select exactly 50 text-dominant compo-nents (text_ratio ≥ 0.8) and 50 vision-dominant compo-nents (image_ratio ≥ 0.8). Selection criteria, in priority order: 1. Concrete and specific: the label names things that would appear as recognizable words in a 50-token text completion. "Medical procedures and surgical instruments" is good. "Various patterns and designs" is bad. "The images primarily feature a person" is bad - too vague. 2. Testable: a judge reading the completion could deter-mine whether the concept is present without ambi-guity. "Sports teams and athletic events" is testable. "Abstract compositional structures" is not. 3. Diverse: spread across different topics. Don’t pick 10 variants of food-related components. 4. Avoid single-token Gaussians: skip components whose label describes only a token pattern (e.g., "the word ’in’ in various contexts"). For each selected component, output: component_id, modality ("text" or "vision"), label. Output as a JSON array. The list of components will be provided in the following messages. 
+
+To guarantee a rigorous and balanced baseline comparison, the 100 native concepts sampled for the VL-SAE evalua-tion were filtered using a structurally identical LLM judge prompt. This ensures that the exact same standards for con-creteness, diversity, and testability were enforced across both representation spaces prior to steering. 
+
+A.4 Human Evaluation Protocol 
+
+We evaluated 80 generated outputs, with 20 outputs sampled from each method: MFA, DiffMeans, VL-SAE, and prompt-ing. Forty annotators participated, and each annotator rated 20 randomly assigned outputs. Assignments were balanced such that each output received ratings from 10 annotators, yielding 800 item–annotator evaluations. For each concept–text pair, annotators independently rated concept alignment and generation fluency on the same three-point ordinal scale as the VLM judge, with scores in {0, 1, 2}.For each output, we first averaged alignment and fluency separately across annotators. We then combined the two mean ratings using their harmonic mean: 
+
+H = 2 ¯A ¯F
+
+¯A + ¯F ,
+
+where ¯A and ¯F denote the mean alignment and fluency ratings, respectively. We set H = 0 when ¯A + ¯F = 0 .To assess agreement between human and automated evalua-tion, we matched each output’s human score to its VLM-judge score and computed Pearson and Spearman correlations. Of the 80 outputs, nine shared a steering configuration with another output, forming four duplicate groups. We averaged scores within each duplicate group before computing the correlations, yielding 75 distinct steering configurations. The complete instructions shown to annotators are repro-duced below. 
+
+Human Evaluation Instructions                       
+
+> Thank you for helping with this survey. There are 20 questions in the survey.
+> Important: For every concept–text pair, provide both ratings: one for Correlation and one for Fluency .
+> Each question includes:
+> •Concept: A title or idea.
+> •Text: Text intended to represent that concept. Rate how clearly and accurately the text represents the concept.
+> Correlation ratings:
+> •Correlated (2): The text clearly and accurately repre-sents the concept.
+> •Weakly correlated (1): The text is somewhat related to the concept, but the connection is unclear or in-complete.
+> •Uncorrelated (0): The text does not meaningfully represent the concept.
+> Fluency ratings:
+> •Fluently readable (2): The text is clear, natural, and easy to read.
+> •Understandable (1): The text can be understood, but it may be awkward, incomplete, or contain noticeable errors.
+> •Unreadable (0): The text is too nonsensical, frag-mented, or unclear to understand.
+> Keep in mind:
+> •If the text is cut off, do not automatically assign it a poor rating.
+> •If the text is written in a language you do not under-stand, you may rate it as uncorrelated.
+
+## B Robustness and Sensitivity Analyses 
+
+To assess whether our conclusions depend on modeling choices or intervention depth, we examine sensitivity to MFA capacity K, local rank q, the modality-purity threshold 
+
+τ , and the choice of steering layer. Together, these analyses test the robustness of both the geometric and causal findings presented in the main text. 
+
+B.1 MFA Hyperparameter Sensitivity 
+
+We assess the sensitivity of LENS to its two principal hy-perparameters: the number of mixture components K and the per-component latent rank q (Section 4.1). Due to the computational overhead of refitting and evaluating multiple MFA variants, we conduct this comprehensive sweep on LLaVA-1.5, holding all other baseline settings fixed. We re-evaluate the two core claims upon which the main text relies: the geometric structure of cross-modal fusion (Sec-tion 4.2) and the causal efficacy of the resulting components (Section 4.3). To validate the geometric findings, we refit the variants across early, middle, and late layers, with results presented in Figure 7. Because models with higher capacity (larger K)naturally contain a larger volume of centroids, comparing raw counts is misleading. Therefore, we report the mixed-centroid share (the percentage of total components classified as mixed) to properly normalize across the sweeps. As demonstrated in the figure, while smaller mixture capacities ( K) yield a higher percentage of mixed components due to the broader geometric volume of each local neighborhood, the fundamental cross-modal trajectory—a monotonic, late-binding curve—remains entirely invariant across all tested capacities and local ranks. To validate the causal findings, we refit the variants at a representative middle fusion layer (Layer 16) and measure the best-α steering score, detailed in Table 1. Across three representative intervention scopes, the LENS framework consistently outperforms both the DiffMeans and VL-SAE baselines regardless of the mixture capacity ( K) or the local latent rank ( q). This confirms that the precise steerability of the discovered components is a robust property of the MFA formulation itself, rather than an artifact of hyperparameter configuration. 8 16 29        
+
+> 0
+> 2
+> 4
+> 6
+> 8
+> Mixed-centroid share (%)  (a) Components sweep (q=10)
+> K=1024 K=4096 K=8192 K=16384
+> 816 29
+> (b) Rank sweep (K=8192)
+> q=5 q=10 q=20
+> Network Depth (Layer)
+
+Figure 7: Sensitivity of cross-modal fusion trajectories to MFA hyperparameters. Mixed-centroid share across LLaVA-1.5 layers under (a) varying component counts K
+
+and (b) varying local ranks q. The monotonic late-fusion trajectory is preserved across all settings. Table 1: Causal steering hyperparameter ablation (LLaVA-1.5, Layer 16). Median best-α harmonic scores across 50 components per condition. MFA outperforms both baselines across all evaluated values of K and q; the main-text setting is shown in bold. 
+
+Method / Variant Vis → Vis Text → Text Text → Vis 
+
+Baselines 
+
+DiffMeans 0.194 0.409 0.413 VL-SAE 0.000 0.416 0.378 
+
+MFA Capacity Sweep ( q = 10 )
+
+MFA ( K = 1024 ) 1.238 0.645 0.742 MFA ( K = 4096 ) 1.200 0.726 0.692 
+
+MFA ( K = 8192 ) 1.261 0.806 0.600 
+
+MFA ( K = 16384 ) 1.197 0.917 0.562 
+
+MFA Local Rank Sweep ( K = 8192 )
+
+MFA ( q = 5 ) 1.219 0.738 0.614 
+
+MFA ( q = 10 ) 1.261 0.806 0.600 
+
+MFA ( q = 20 ) 1.219 0.718 0.557 
+
+B.2 Modality-Purity Threshold Sensitivity 
+
+The mixed-centroid counts reported in Section 4.2 depend on the modality-purity threshold τ . A centroid is defined as mixed when neither the visual nor the textual modality accounts for a fraction ≥ τ of its hard-assigned activations. Because raising τ sets a stricter bar for a component to be considered “pure,” it mathematically widens the bounds for a mixed classification. Consequently, higher values of τ
+
+yield higher absolute counts of mixed components. We sweep 
+
+τ ∈ { 0.70 , 0.75 , 0.80 , 0.85 , 0.90 } to confirm that while the absolute magnitude scales with τ , the underlying structural trajectories of the fusion regimes remain unchanged. As shown in Figure 8, LLaVA’s monotonic, late-binding growth and Qwen3-VL’s non-monotonic, early-and-deep binding are strictly preserved across all evaluated thresholds, confirming these patterns are robust architectural signatures rather than artifacts of our operating point ( τ = 0 .80 ). Early (8) Middle (16) Late (29)       
+
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> Mixed centroids (%)
+> (a) LLaVA-1.5
+> Early (9) Middle (18) Late (27)
+> (b) Qwen3-VL-8B
+> Network Depth (Layer)
+> = 0.70 = 0.75 = 0.80 = 0.85 = 0.90
+
+Figure 8: Sensitivity of cross-modal fusion regimes to the modality-purity threshold τ . Mixed-centroid share across layers for (a) LLaVA-1.5 and (b) Qwen3-VL-8B. Although the magnitude changes with τ , the architecture-specific tra-jectories remain stable; the main-text setting τ = 0 .80 is highlighted. 
+
+B.3 Late-Layer Steering and Rank Sensitivity 
+
+Following the early and middle layer evaluations (Section 4.3), Figure 9 presents the late-layer steering results for Qwen3-VL-8b (layer 27) and an auxiliary sweep over the local latent rank q for LLaVA-1.5 (layer 29). Empirically, MFA centroid steering at these depths is brittle. The steering scores drop compared to earlier layers, and DiffMeans often outperforms MFA in text-targeted scopes. Furthermore the LLaVA-1.5 sweep demonstrates that steering efficacy is sensitive to the local latent rank q. Notably, intervening strictly on vision tokens largely fails across both models. We hypothesize that visual information is already assimilated into the language model’s native residual flow by these late stages, rendereing manipulation at the original visual token positions mostly inef-fective. This degradation aligns with our geometric intuition: near the final vocabulary projection, interpolating towards an MFA centroid may not provide a sufficient geometric shift to redirect the output. Conversely, unconstrained additive steering (DiffMeans) pushes the activation more aggressively to force a vocabulary shift, bypassing the local geometry. 
+
+## C Additional Qualitative Results 
+
+C.1 Additional Mixed-Component Examples 
+
+To ensure qualitative examples are free from manual cherry-picking, we employ a strictly automated selection pipeline. We first establish a candidate pool by filtering all components across the evaluated models based on four objective criteria: valid automated judge parsing, strictly multimodal hard-assignment distributions (enforced via a maximum modality-purity threshold), a minimum count of hard-assigned image patches to guarantee visual coherence, and substantive textual density (requiring top-activating tokens to be content words rather than prompt artifacts). 0.0           
+
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Score
+> Text Text Vision Vision Text Vision
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Score
+> Vision Text Both Text Both Vision
+> MFA q=10
+> MFA q=15
+> MFA q=20
+> MFA q=35
+> DiffMeans
+> VL-SAE
+> Prompting
+
+(a) LLaVA-1.5 Layer 29 0.0               
+
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Score
+> Text Text Vision Vision Text Vision
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Score
+> Vision Text Both Text Both Vision
+> MFA DiffMeans VL-SAE Prompting
+
+(b) Qwen3-VL-8B Layer 27 
+
+Figure 9: Late-layer steering performance. Distributions show each component’s best-α harmonic score across six intervention-scope-to-target-modality conditions at late-layer: (a) LLaVA-1.5 Layer 29 across local ranks and (b) Qwen3-VL-8B Layer 27. Boxes show the interquartile range, horizontal lines indicate the median, and whiskers extending to 1.5x the interquartile range. Steering is generally weaker and less stable than at earlier layers. From this robust candidate pool, we select the final ex-amples via a deterministically seeded random permutation. Representative components are featured in the main text, with additional examples presented in Figure 10. 
+
+Qwen3-VL-8B Layer 18 | # 4771 
+
+Label: Breakfast items such as porridge, oatmeal, yogurt, and granola are strongly activating. 
+
+bowl of por ridge 
+
+overnight oats in a jar por ridge with berries bowl of por ridge 
+
+yog urt with blueberries 
+
+Qwen3-VL-8B Layer 18 | # 6049 
+
+Label: Birds, particularly pigeons and ravens, across snowy, urban, and natural environments. 
+
+pige on sitting on the r aven by novelist flying pige ons in front pige ons walking on a crow tucks a little 
+
+Qwen3-VL-8B Layer 18 | # 1143 
+
+Label: Bullfighting and rodeo scenes involving interactions between humans and bulls, including matadors, cowgirls, and assistants. 
+
+roping a young steer 
+
+during a bull fight 
+
+distract the bull so passes by mat ador 
+
+matador during a bull Qwen3-VL-8B Layer 27 | # 6284 
+
+Label: The token so appears in various contexts, often serving as a conjunction or intensifier. 
+
+so – skinny jeans 
+
+so aker hoses conserve 
+
+so aring: video at the so called coast 
+
+so , who do 
+
+Figure 10: Additional mixed components. Four components from multiple layers, shown with their highest-responsibility image patches, text contexts with the responsible token highlighted, and automated labels. 
+
+C.2 Representative Steering Outputs 
+
+Figure 11: Representative steering outputs for LLaVA-1.5-7B. Each intervention condition includes one example from MFA, DiffMeans, and VL-SAE. Rows report the layer, intervention type, steering strength α, harmonic score, target concept, and output.

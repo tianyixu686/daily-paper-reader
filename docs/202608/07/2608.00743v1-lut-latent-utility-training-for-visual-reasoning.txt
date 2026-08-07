@@ -1,0 +1,477 @@
+Title: LUT: Latent Utility Training for Visual Reasoning
+
+URL Source: https://arxiv.org/pdf/2608.00743v1
+
+Published Time: Tue, 04 Aug 2026 00:46:41 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# LUT: Latent Utility Training for Visual Reasoning 
+
+Jiaxuan Kang, Siyu Chen, Mingda Li, Mingjie Liu, Tianyue Wang, Zhaoyang Wei, Yongheng Zhang, Yanchao Hao, Zheng Wei Tencent PCG 
+
+Abstract 
+
+Multimodal large language models have advanced visual un-derstanding, yet perception-intensive reasoning remains chal-lenging. Recent latent visual reasoning methods introduce hidden-space computation before answering, but they often rely on costly intermediate supervision, such as bounding boxes, sketches, or interleaved rationales. These strategies fo-cus on how latent states should be shaped, but do not explicitly assess whether the latent is useful for the final answer. We propose LUT, a latent reasoning framework trained with only standard VQA pairs. LUT centers training on Latent Utility at two levels. At the trajectory level, we propose Utility-Aware Latent Distillation SFT, which explores answer-relevant la-tent trajectories, selects qualified trajectories by their informa-tion gain, and distills more reliable and learnable supervision through curriculum learning. At the step level, we propose La-tent Attribution Policy Optimization, which uses answer-to-latent attribution to differentially optimize latent steps during reinforcement learning. Experiments on perception-intensive visual reasoning benchmarks show that LUT outperforms pre-vious latent reasoning methods and remains competitive with latent-text interleaved methods with lower annotation cost. 
+
+# 1 Introduction 
+
+Multimodal large language models (Comanici et al. 2025; Zhu et al. 2025; Hong et al. 2025) have advanced vi-sual understanding, yet perception-intensive visual reasoning (Huang et al. 2025; Cheng et al. 2026b; Qiang et al. 2025; Wei et al. 2026b) remains challenging. These tasks require models to identify relevant evidence before answering, mak-ing answer-useful internal visual representations essential. Recent studies explore latent visual reasoning, where con-tinuous hidden states carry intermediate visual thoughts be-fore answer generation. Yang et al. (2025) distill latent visual tokens from synthetic auxiliary images to enable internal visual imagination. Li et al. (2025a) use region-level visual supervision to reconstruct question-relevant visual tokens be-fore answering. Wang et al. (2025b) and Cheng et al. (2026a) improve reasoning performance by organizing the interme-diate reasoning process as latent-text interleaved trajectories. These methods show the promise of latent reasoning for complex multimodal problems. However, existing methods still face two related limita-tions. (1) First, many approaches depend on extra interme-Manually Designed 
+
+> Answer
+
+…       
+
+> bbox sketch CoT
+> Extra
+> Intermediate
+> Supervision
+> MLLM Latent Thoughts
+> Expensive
+> Annotations
+> Focus on Latent Formation
+> VQA Only
+> Answer
+
+…         
+
+> Answer
+> Driven
+> explore select distill
+> Step -level Utility
+> MLLM
+> Focus on Latent Utility
+> (a) Previous Methods
+> (b) Our Method ( LUT)
+> Input
+> Input
+> No
+> Intermediate
+> Supervision
+> Trajectory -level Utility
+
+Figure 1: Overview of LUT compared with prior latent visual reasoning methods. (a) Prior methods often rely on manually designed extra intermediate supervision, and focus on how latent states should be shaped. (b) In contrast, LUT learns from VQA-format data, which consists of image-question-answer triples, and shifts the focus to answer-driven latent utility at both trajectory and step levels. 
+
+diate supervision , including bounding boxes, sketch images, or image-text interleaved reasoning annotations. Such super-vision can specify intermediate visual structure, but it also increases annotation cost and limits scalability to standard VQA data, which consists of image-question-answer triples. (2) Second, prior work mainly emphasizes latent forma-tion , which concerns how latent states should be shaped, while paying less attention to latent utility , which concerns whether latent reasoning truly improves answer genera-tion . As shown in Figure 1(a), prior methods often match latent states to predefined external targets. Effective latent reasoning should instead assess whether latent representa-tions benefit the final answer at both the trajectory level and the step level. To address these issues, we propose LUT , Latent Util-ity Training for Visual Reasoning . As illustrated in Fig-arXiv:2608.00743v1 [cs.CV] 1 Aug 2026 ure 1(b), LUT shifts the focus from latent formation to latent utility. It uses only standard VQA pairs and learns to explore, select, distill, and reinforce latent visual thoughts that better support answer generation. At the trajectory level, LUT introduces Utility-Aware La-tent Distillation SFT to improve latent utility through a three-stage pipeline. It first uses a visual bottleneck mask to guide a teacher model in exploring task-relevant latent tra-jectories. It then evaluates trajectory utility by information gain, filtering unreliable supervision and deriving a utility ordering. Finally, the selected trajectories are distilled into a student model in a low-to-high curriculum. This pipeline converts weakly answer-supervised teacher trajectories into more reliable and learnable latent supervision. At the step level, LUT introduces LAPO , Latent Attribution Policy Optimization , to refine individual latent steps during rein-forcement learning. LAPO estimates answer-to-latent associ-ations through attention attribution and uses them to assign step-specific optimization weights, enabling more targeted optimization of answer-relevant steps. Experiments show that, without extra intermediate super-vision, LUT outperforms existing latent reasoning methods on perception-intensive visual reasoning benchmarks and remains competitive with latent-text interleaved reasoning methods. Our main contributions can be summarized as fol-lows: 
+
+• We introduce LUT , a latent visual reasoning framework centered on latent utility. It is trained only with stan-dard VQA pairs and achieves stronger performance than existing methods on multiple perception-intensive visual reasoning benchmarks. 
+
+• We propose Utility-Aware Latent Distillation SFT ,which explores, selects, and distills more valuable latent trajectories, converting weakly answer-supervised trajec-tories into more reliable and learnable supervision. 
+
+• We propose LAPO , which applies answer-to-latent at-tribution for differentiated reinforcement learning over latent steps, enabling more selective optimization of answer-relevant latent reasoning. 
+
+# 2 Related Work 
+
+2.1 MLLMs for Visual Reasoning 
+
+Multimodal reasoning methods (Zhang et al. 2023; Shao et al. 2024a; Xu et al. 2025; Wei et al. 2025a; Jiang et al. 2026a; Zhang et al. 2026; Wei et al. 2025c) improve complex problem solving through textual Chain-of-Thought, struc-tured traces, or RL-based long-chain generation. However, they operate in language space, which can compress fine-grained localization, local comparison, and spatial relations into discrete text. Other methods (Wang et al. 2025a; Zheng et al. 2025; Zhang et al. 2025c; Chern et al. 2025; Xu et al. 2025; Zhang et al. 2025a; Wei et al. 2025b) introduce ex-plicit visual intermediates such as cropping, zooming, aux-iliary images, or image-text interleaved trajectories, but they often require extra annotations, external tools, or manually designed operations. Latent reasoning (Pham and Ngo 2025; Yang et al. 2025; Wu et al. 2026; Chen et al. 2025) moves pre-answer thinking into hidden space, offering a compact way to preserve fine-grained visual evidence while reducing explicit reasoning overhead. 
+
+2.2 Latent Space Reasoning 
+
+Latent space reasoning transfers intermediate reasoning from discrete text to continuous hidden states. In text reasoning, Coconut (Hao et al. 2024) and CODI (Shen et al. 2025) show that continuous thoughts can serve as compressed or implicit reasoning states. In multimodal reasoning, LVR (Li et al. 2025a) uses bounding boxes to supervise reconstruction of question-relevant regions, while Mirage (Yang et al. 2025) and SkiLa (Tong et al. 2025) learn latent visual thoughts from auxiliary images or sketches. Monet (Wang et al. 2025b), VaLR (Jeon et al. 2026), HyLaR (Cheng et al. 2026a), and SCOLAR (Wang et al. 2026a) integrate continuous visual latents into explicit textual reasoning trajectories. In con-trast, UniVLR (Jiang et al. 2026b) unifies textual reasoning and auxiliary visual evidence during training and performs latent-only visual reasoning at inference. Recent methods fur-ther explore feature-space alignment (Miao et al. 2026), pre-dictive trajectory embeddings (Adhikari and Lapata 2026), progressive latent derivation (Li et al. 2026a), and variational continuous reasoning (Li et al. 2026b). Most existing methods rely on extra intermediate supervi-sion or primarily focus on latent formation. LIVR (Li et al. 2025b) learns a shared set of additional embeddings from answer supervision, but does not further investigate how to assess the reliability of weakly supervised latent trajectories or differentially optimize critical latent steps. In contrast, LUT evaluates and optimizes latent utility at both the trajec-tory and step levels, learning more reliable and answer-useful latent reasoning from standard VQA data while achieving strong overall performance. 
+
+# 3 Method 
+
+3.1 Overall Framework 
+
+Unlike prior latent reasoning methods, LUT learns from stan-dard VQA pairs without extra intermediate supervision and explicitly evaluates and optimizes latent utility for answer generation. 
+
+Inference. Given an image I and a question Q, LUT first generates a fixed-length latent trajectory before producing the answer: 
+
+<latent> , z 1, . . . , z N , </latent> 
+
+where zi ∈ Rd denotes the continuous hidden state of the i-th latent step, and N is the predefined latent budget. The model then generates the final answer conditioned on the input and the entire latent trajectory. This fixed-budget design enables compact pre-answer reasoning while reducing the decoding cost of long textual chains. 
+
+Training. As illustrated in Figure 2, LUT is trained in two stages. First, Utility-Aware Latent Distillation SFT explores Step1: Teacher Latent Trajectory exploration 
+
+Utility -Aware Latent Distillation SFT       
+
+> Masked Attention Flow
+> Alignment
+> Q
+> KImage Embedding
+> teacher Text Embedding
+> Latent
+> Answer
+> teacher latent
+> Step3: Student Curriculum Latent Distillation lower -utility
+> group
+> higher -utility
+> group
+> curriculum
+> Attention Mask
+
+Latent Attribution Policy Optimization 
+
+> student
+
+…
+
+> actor
+
+…
+
+> High relevance
+> Low relevance
+
+…      
+
+> Compute answer -to -latent attribution
+> Reweight latent advantage by gates
+> 𝑔ates A"A
+
+z! z" z#
+
+…z! z" z# …z! z" z#
+
+……    
+
+> 𝑔 !𝑔 "𝑔 #
+> 𝑔ates
+> ∆𝒇𝒂𝒊𝒓
+> student
+> student
+> teacher latent
+> random init
+> …
+> filter
+> Step2: Latent Trajectory Selection 𝑡ℎ𝑟𝑒𝑠ℎ𝑜𝑙𝑑
+> sample !
+> sample "
+> sample #
+> sample $
+> retain
+> sample #%!
+> …
+
+Figure 2: Overview of LUT. The left part illustrates Utility-Aware Latent Distillation SFT, which explores teacher latent trajectories, selects useful trajectories with ∆fair , and distills them into the student with a curriculum. The right part illustrates LAPO, which computes answer-to-latent attribution and uses the resulting gates to reweight latent-step advantages. answer-relevant latent trajectories with a teacher model, se-lects reliable trajectories, and distills them into a student model through curriculum learning, as detailed in Sec-tion 3.2. Second, Latent Attribution Policy Optimization, or LAPO, further optimizes latent reasoning with attribution-aware reinforcement learning, as detailed in Section 3.3. 
+
+3.2 Utility-Aware Latent Distillation SFT 
+
+Without extra intermediate supervision, the central challenge is how to construct effective latent supervision from standard VQA data. We address this with a three-step pipeline: teacher latent trajectory exploration, latent trajectory selection, and student curriculum latent distillation. 
+
+Teacher Latent Trajectory Exploration. We first train a teacher model to explore latent trajectories that support answer prediction. We apply a visual bottleneck attention mask: answer tokens cannot directly attend to image tokens, and question tokens are also prevented from attending to image tokens to avoid indirect visual leakage through their hidden states. This forces answer-relevant visual cues to be mediated by the latent trajectory, enabling the teacher to form task-conditioned latent thoughts before answer generation. The teacher is optimized with answer cross-entropy to-gether with a decorrelation regularizer on the final-layer latent hidden states. Given final-layer latent states Z =[z1, . . . , z N ] ∈ RN ×d, this regularizer encourages diversity among latent steps and prevents them from collapsing into similar directions. We define 
+
+ˆzi = zi
+
+∥zi∥2
+
+, Ldec = 1
+
+N (N − 1) 
+
+X
+
+> i̸=j
+
+(ˆ z⊤ 
+
+> i
+
+ˆzj )2
+
+The teacher is trained with 
+
+Lteacher = Lans CE + λdec Ldec 
+
+This stage induces task-relevant latent trajectories from or-dinary VQA supervision and provides candidate supervision for student training. 
+
+Latent Trajectory Selection. Teacher trajectories are in-directly induced from answer supervision and thus vary in utility, where low-utility trajectories may mislead student learning. So we introduce an explicit scoring criterion to measure trajectory-level information gain, derive a utility or-dering over teacher trajectories, and select more reliable ones for subsequent distillation. We use the frozen original student model as a judge to estimate the utility of each teacher latent trajectory against a random control. For the same sample, we inject either the teacher latent ZT , taken from the teacher’s last latent hid-den states, or a random latent ZR at the latent positions, where ZR is independently sampled and rescaled to match the per-step norm of ZT to reduce scale-induced perturba-tions. Under teacher forcing, the judge computes the mean token log-probability over answer positions: 
+
+S(Z) = 1
+
+|Y | 
+
+> |Y|
+
+X
+
+> t=1
+
+log pϕ(yt | I, Q, Z, y <t )
+
+where ϕ denotes the frozen original student model. The trajectory-level utility score is 
+
+∆fair = S(ZT ) − S(ZR).
+
+A larger ∆fair indicates greater information gain brought by the teacher latent trajectory for the current task. We keep trajectories whose ∆fair exceeds a preset threshold and rank the retained trajectories by this score. The threshold is chosen to remove highly unreliable supervision while preserving sufficient data diversity for curriculum distillation. Student Curriculum Latent Distillation. The student is initialized from the original base MLLM rather than from the teacher. Since the teacher is trained under a specialized masking regime, directly continuing from its parameters may introduce bias relative to standard inference. Starting from the base model allows the student to learn answer generation and latent alignment jointly under ordinary causal attention. The student is trained with answer cross-entropy and all-layer cosine alignment. Let hSℓ,i and hTℓ,i denote the student and teacher hidden states at layer ℓ and latent step i. We define 
+
+Lalign = 1
+
+LN 
+
+> L
+
+X
+
+> ℓ=1
+> N
+
+X
+
+> i=1
+
+1 − cos  hSℓ,i , h Tℓ,i 
+
+ ,
+
+and optimize 
+
+Lstudent = Lans CE + λalign Lalign .
+
+To make effective use of the ranked latent supervision during student training, we further arrange the retained trajecto-ries in a curriculum. We first split samples at the median 
+
+∆fair into a relatively lower-utility group and a relatively higher-utility group. This partition is performed within each data subset, thereby preserving similar category proportions across curriculum stages. The order of data is arranged as the lower-utility group followed by the higher-utility group, while samples within each group are randomly shuffled. This curriculum lets the student first adapt to the latent trajectory format and alignment space using the lower-utility group, and then absorb trajectories with stronger information gain using the higher-utility group. This improves supervision uti-lization without sacrificing data coverage. 
+
+3.3 Latent Attribution Policy Optimization 
+
+Utility-Aware Latent Distillation SFT equips the model with basic latent reasoning ability, but its optimization is still dominated by teacher imitation and answer likelihood. We therefore introduce LAPO to further refine latent steps. 
+
+Preliminary. Standard GRPO (Shao et al. 2024b) defines probabilities only over discrete text tokens and cannot assign likelihoods to continuous latent vectors, so latent reason-ing is optimized only indirectly through text outputs. VLPO (Wang et al. 2025b) addresses this by treating latent hidden states as continuous actions and approximating their policy distribution with a Gaussian form. For a latent action zt, let μθ (st) be the mean predicted by the current policy. Then 
+
+log πθ (zt | st) ∝ − ∥zt − μθ (st)∥22
+
+2σ2
+
+which yields the latent importance ratio 
+
+rlat  
+
+> t
+
+= exp (log πθ (zt | st) − log πθold (zt | st)) 
+
+LAPO adopts this latent-action formulation and further dif-ferentiates the optimization strength across latent steps. 
+
+Attribution-Guided Per-Latent Credit Assignment. In our framework, different latent steps within the same latent trajectory may emphasize different cues and contribute un-equally to the final answer, as further discussed in Section 4.5. Using only a shared sequence-level advantage cannot explic-itly prioritize the most answer-relevant latent thoughts. We estimate per-latent importance through answer-to-latent attention attribution. Over a set of final layers L, we average the attention probability from answer-content tokens 
+
+A to the i-th latent step: 
+
+ri = 1
+
+|L| 
+
+X
+
+> ℓ∈L
+
+1
+
+H|A|
+
+> H
+
+X
+
+> h=1
+
+X
+
+> t∈A
+
+Attn ℓ,h (t, i )
+
+where H is the number of attention heads. Using the within-sample mean ¯r, we map attribution into a bounded gate and reweight the sequence-level advantage as 
+
+gi = 1 + α · max 
+
+
+
+0, tanh ri − ¯rτ
+
+
+
+, ˜Ai = giA
+
+and the reweighted advantage ˜Ai is applied to latent policy updates. When A > 0, latent steps more strongly associ-ated with the correct answer receive larger positive rein-forcement. When A < 0, those high-attribution latent steps incur stronger corrective updates, prioritizing the internal states most responsible for erroneous reasoning. In this way, LAPO provides more selective optimization than applying a uniform sequence-level signal to the entire latent trajectory. 
+
+Reward Design. Rewards are derived from the final re-sponse and consist of two binary signals. The accuracy re-ward equals 1 if the final answer is correct and 0 otherwise. The format reward equals 1 if the response correctly uses the designated special tokens to delimit the latent trajectory and answer span, and generates the predefined number of latent steps, and 0 otherwise. 
+
+# 4 Experiments 
+
+4.1 Experimental Setup 
+
+Training Setup. LUT is built on Qwen2.5-VL-7B. We re-tain trajectories with ∆fair > −0.5, removing 6.5% of low-utility samples. LAPO uses α = 1 .5 and τ = 0 .5, yielding gates in [1 .0, 2.5] . Unless otherwise specified, training uses 8 latent steps. Following Wang et al. (2025b), we evaluate inference budgets in {8, 10 , 12 , 16 } and report the best result per benchmark. Figure 3 reports all evaluated budgets. 
+
+Training Data. LUT uses only VQA-format data. For SFT, we randomly sample 60K examples from Visual-CoT (Shao et al. 2024a) and retain only image-question-answer triples. For RL, we sample 24K examples, including 15K from ZwZ-RL-VQA (Wei et al. 2026a) with the original images and 9K from ViRL (Wang et al. 2026b). Thus, no extra intermediate supervision is used throughout training. 
+
+Evaluation Benchmarks. We evaluate LUT on four perception-intensive benchmarks: VStar (Wu and Xie 2024), HRBench4K, HRBench8K (Wang et al. 2025c), and MME-RealWorld-Lite (Zhang et al. 2025b). We further evaluate Model Extra Annotation VStar HRBench4K HRBench8K MME-RealWorld-Lite Avg 
+
+Overall Attribute Spatial Overall FSP FCP Overall FSP FCP Overall Reasoning Perception 
+
+Proprietary Model 
+
+GPT-4o – 67.5 72.2 60.5 59.0 70.0 48.0 55.5 62.0 49.0 52.0 48.3 54.4 58.50 
+
+Open-Source Model 
+
+Qwen2.5-VL-7B No 76.44 77.39 75.00 67.00 83.50 50.50 64.38 76.50 52.25 43.67 36.00 48.59 62.87 + vanilla SFT No 81.15 84.35 76.32 70.00 83.25 56.75 64.50 75.75 53.25 51.22 46.53 54.23 66.72 + vanilla SFT+GRPO No 83.77 86.09 80.26 72.25 86.00 58.75 66.88 77.50 55.25 52.63 46.13 57.49 68.88 LLaVA-OneVision-7B – 71.25 73.48 67.89 62.50 74.25 50.75 58.25 67.50 49.00 – – – –Deepeyes BBox 83.25 84.35 81.58 71.25 83.75 58.75 65.13 77.00 53.25 54.28 50.53 56.63 68.48 
+
+Latent Reasoning Model 
+
+LVR ∗ BBox 82.2 81.74 82.89 70.88 83.75 58.00 66.75 77.75 55.75 50.55 44.67 54.32 67.60 LVR † (reproduced) BBox 79.58 – – 70.62 – – 65.88 – – 51.28 – – 66.84 SkiLa-V Sketch 79.6 – – 68.5 – – 65.2 – – 50.2 47.7 51.7 65.88 UniVLR Aux. Images 82.70 83.50 81.60 73.30 86.00 60.50 68.80 78.80 58.80 50.70 44.70 54.50 68.88 Laser ScanPath – – – 72.5 – – – – – – – – –
+
+Our Model 
+
+LUT-7B-SFT No 80.63 82.61 77.63 71.75 85.00 58.50 67.63 77.00 58.25 53.78 48.27 57.31 68.45 
+
+LUT-7B No 84.29 86.09 81.58 72.62 86.50 58.75 68.12 80.00 56.25 54.82 47.33 59.62 69.96 
+
+∆ (vs Qwen2.5-VL-7B) ↑7.85 ↑8.70 ↑6.58 ↑5.62 ↑3.00 ↑8.25 ↑3.74 ↑3.50 ↑4.00 ↑11.15 ↑11.33 ↑11.03 ↑7.09 
+
+Table 1: Performance comparison on perception-intensive visual reasoning benchmarks, including VStar, HRBench4K, HRBench8K, and MME-RealWorld-Lite. Extra Annotation denotes extra intermediate supervision beyond standard VQA-format data during training. ∗ denotes LVR results evaluated using the officially released checkpoint trained on the full 438K Visual-CoT data. † denotes our reproduction using the same 60K Visual-CoT samples and matched training settings as LUT-7B-SFT. Avg denotes the mean of the overall scores across the four benchmarks. 8 10 12 16 
+
+Inference steps    
+
+> 76
+> 78
+> 80
+> 82
+> 84
+> Accuracy (%)  VStar
+> 810 12 16
+
+Inference steps     
+
+> 66
+> 68
+> 70
+> 72
+> 74 HRBench-4K
+> 810 12 16
+
+Inference steps    
+
+> 64
+> 66
+> 68
+> HRBench-8K
+> 810 12 16
+
+Inference steps    
+
+> 42.5
+> 45.0
+> 47.5
+> 50.0
+> 52.5
+> 55.0
+> MME-RealWorld-Lite
+> 810 12 16
+
+Inference steps      
+
+> 62
+> 64
+> 66
+> 68
+> 70
+> Overall
+> LUT-7B LUT-7B-SFT (train steps=4) LUT-7B-SFT (train steps=8) LUT-7B-SFT (train steps=16) LVR Qwen2.5-VL-7B
+
+Figure 3: Effect of latent budgets during training and inference. We compare LUT-7B-SFT models trained with different latent budgets and evaluate them using inference budgets in {8, 10 , 12 , 16 }. LUT-7B is trained with the default 8-step budget. generalization on MMStar (Chen et al. 2024), BLINK (Fu et al. 2024), and VisualPuzzles (Song et al. 2025). Together, these benchmarks cover fine-grained visual search, high-resolution and real-world perception, general multimodal reasoning, and out-of-distribution abstract reasoning. 
+
+Baselines. We compare LUT with general MLLMs, in-cluding GPT-4o (Hurst et al. 2024), Qwen2.5-VL-7B (Bai et al. 2025), LLaVA-OneVision-7B (Li et al. 2024), and Deepeyes (Zheng et al. 2025). Latent-only reasoning base-lines include LVR, SkiLa-V, Laser (Wang et al. 2026c), and UniVLR. Latent-text interleaved reasoning baselines include Monet, SkiLa, and SCOLAR. Except for LVR, evaluated us-ing both its official checkpoint and our controlled reproduc-tion, baseline results are taken from public reports. Vanilla SFT and SFT+GRPO use the same stage-wise data as LUT. We reproduce LVR using the same 60K Visual-CoT samples and matched settings as LUT-7B-SFT while retaining its bbox supervision, whereas LUT uses only image-question-answer triples. 
+
+4.2 Main Results 
+
+LUT achieves strong latent-only reasoning without ex-tra intermediate supervision. As shown in Table 1, LUT-7B achieves the best average performance among the listed latent-only methods without extra intermediate supervision. The controlled comparison with LVR further demonstrates the effectiveness of learning latent reasoning from VQA-only data rather than bbox supervision. 
+
+LUT offers a favorable trade-off against latent-text inter-leaved methods. Table 2 shows that LUT remains com-petitive with SCOLAR and outperforms Monet and SkiLa. By reasoning entirely in latent space before answer genera-tion, LUT avoids intermediate textual reasoning tokens and substantially reduces decoding overhead. Model Extra Annotation VStar HRBench4K HRBench8K MME-RealWorld-Lite Avg 
+
+Overall Avg Tokens ↓ Overall Avg Tokens ↓ Overall Avg Tokens ↓ Overall Avg Tokens ↓
+
+Latent-Text Interleaved Reasoning Model 
+
+Monet Aux. + CoT 83.25 85.27 71.00 85.20 68.00 76.55 55.50 134.08 69.44 SkiLa Sketch + CoT 84.30 91.73 72.00 137.49 66.50 145.64 54.10 79.82 69.23 SCOLAR-7B Aux. + CoT 83.77 – 75.50 – 67.63 – 59.87 – 71.69 
+
+Our Model (Latent Reasoning) 
+
+LUT-7B-SFT No 80.63 23.42 71.75 22.50 67.63 26.49 53.78 14.00 68.45 
+
+LUT-7B No 84.29 15.14 72.62 18.33 68.12 18.23 54.82 14.00 69.96 
+
+Table 2: Comparison with latent-text interleaved reasoning methods on perception-intensive visual reasoning benchmarks. Extra Annotation denotes extra intermediate supervision beyond standard VQA-format data during training. Avg Tokens denotes the average number of tokens generated during inference on each benchmark. Avg denotes the mean of the overall scores across the four benchmarks.                          
+
+> Model MMStar BLINK VisualPuzzles
+> Qwen2.5-VL-7B 59.70 53.60 32.71 LLaVA-OneVision-7B 59.13 49.34 –Deepeyes 58.73 51.08 32.96 LVR ∗57.93 53.60 29.20 Laser 60.27 56.92 –
+> LUT-7B (Ours) 62.13 55.08 34.67
+> ∆(vs Qwen2.5-VL-7B) ↑2.43 ↑1.48 ↑1.96
+
+Table 3: Performance comparison on broader multimodal reasoning and generalization benchmarks. ∗ denotes results using open-source official weights. 
+
+LUT generalizes beyond perception-intensive bench-marks. As shown in Table 3, LUT improves the base model across all three benchmarks and performs best on MMStar and VisualPuzzles, demonstrating strong generalization. 
+
+LUT is robust to latent budgets. As shown in Figure 3, performance varies only slightly across inference budgets. Notably, after LAPO, LUT-7B attains its best result on every evaluated benchmark at the same 8-step inference budget. Thus, a single fixed budget suffices for all reported LUT-7B results. Training with 8 steps also performs best overall and is therefore used by default. 
+
+4.3 Ablation on SFT Stage 
+
+Filtering and curriculum both improve trajectory distil-lation. As shown in Table 4, removing both filtering and curriculum leads to weaker performance. Adding filtering improves the average score, indicating that ∆fair helps re-move unreliable trajectory supervision. A stricter threshold performs slightly worse than the full setting, suggesting that overly aggressive filtering may reduce useful data diversity. The full low-to-high curriculum achieves the best result, while reversing the curriculum causes a clear drop. These results confirm that both trajectory selection and curriculum order are important for effective latent distillation. 
+
+Each teacher and student design contributes to perfor-mance. Table 4 further shows that removing the teacher (a) Input image (b) Average over      
+
+> all latent
+> (c) Highest -
+> attribution latent
+> (d) Lowest -
+> attribution latent
+
+Figure 4: Qualitative visualization of latent-to-image atten-tion. Red boxes are from the original annotations and indicate task-relevant regions. For each example, we show attention averaged over all latent steps, attention from the single latent step with the highest answer-to-latent attribution, and atten-tion from the single latent step with the lowest attribution. bottleneck mask substantially reduces performance, indicat-ing the importance of controlled information flow for dis-covering useful trajectories. Removing teacher decorrela-tion also hurts performance, suggesting that diverse latent steps improve distillation. Without student latent alignment, the student relies only on answer supervision and performs worse. Initializing the student from the teacher checkpoint gives the lowest score, showing that the teacher is better used as a trajectory explorer than as direct student initialization. 
+
+4.4 Ablation on RL Stage 
+
+Attribution-guided reweighting improves latent policy optimization. As shown in Table 5, GRPO brings only limited gains over LUT-7B-SFT, likely because its response-level advantage affects latent reasoning only indirectly. VLPO further improves performance by directly optimiz-ing continuous latent steps. LAPO achieves the best result, showing that different latent steps should receive different op-timization strengths according to their answer contribution. To directly test this core hypothesis, we introduce LAPO (re-verse) as an intervention-style control experiment: it inverts the attribution-based update weights, assigning weaker up-dates to highly associated steps and stronger updates to less Variant ∆ Threshold Retained Ratio Curriculum Order VStar HR-4K HR-8K MME-RW-Lite Avg LUT-7B-SFT -0.5 93.5% low-to-high 80.63 71.75 67.63 53.78 68.45                                                                 
+
+> Trajectory Selection and Curriculum Order
+> w/o filtering and curriculum None 100% random 80.63 70.88 65.88 53.78 67.79 w/o curriculum -0.5 93.5% random 81.15 71.25 66.38 53.26 68.01 Stricter filtering 076.1% low-to-high 81.15 71.88 67.12 52.79 68.24 Reversed curriculum -0.5 93.5% high-to-low 75.92 71.38 65.75 51.90 66.24
+> Teacher and Student Training Design
+> w/o teacher bottleneck mask -0.5 93.5% low-to-high 78.53 70.62 63.62 51.59 66.09 w/o teacher decorrelation -0.5 93.5% low-to-high 80.10 72.00 65.88 53.05 67.76 w/o student latent alignment -0.5 93.5% low-to-high 75.39 70.88 64.88 52.68 65.96 Initialized from teacher -0.5 93.5% low-to-high 78.01 67.00 62.62 51.75 64.85
+
+Table 4: Ablation study of Utility-Aware Latent Distillation SFT. We vary trajectory selection, curriculum order, and teacher or student training designs. Avg denotes the mean score across the four benchmarks.                           
+
+> Method VStar HR-4K HR-8K MME-RW-Lite Avg
+> LUT-7B-SFT 80.63 71.75 67.63 53.78 68.45 + GRPO 82.20 71.88 66.75 54.66 68.87 + VLPO 83.77 71.88 67.75 53.99 69.35 +LAPO 84.29 72.62 68.12 54.82 69.96
+> + LAPO (reverse) 83.25 72.00 67.50 53.67 69.11
+
+Table 5: Ablation study of reinforcement learning strategies. Avg denotes the mean score across the four benchmarks. Average over 
+
+> all latent
+> Highest-attribution
+> latent
+> Lowest-attribution
+> latent
+> 0
+> 1
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> Region Attention Ratio (RAR)
+> 3.745
+> 11.250
+> 0.813
+
+Figure 5: Average RAR of latent-to-image attention on held-out samples. The dashed red line marks RAR = 1 , where at-tention density inside and outside the bounding box is equal. associated ones. Its performance drops below both LAPO and VLPO. This intervention-style result shows that LAPO benefits from correctly directed attribution-guided optimiza-tion rather than arbitrary reweighting. 
+
+4.5 Interpreting Latent Visual Thoughts 
+
+To examine whether LUT’s latent thoughts are visually grounded, we conduct a post-hoc analysis on 6K held-out Visual-CoT samples. Figures 4 and 5 provide qualitative and quantitative analyses of the same three latent-to-image atten-tion sources: the average over all latent steps, the single step with the highest answer-to-latent attribution, and the single step with the lowest attribution. In Figure 4, red boxes are original dataset annotations indicating task-relevant regions and are used only for analysis. We quantify regional align-ment using Region Attention Ratio (RAR), which compares attention density inside and outside the annotated box. A RAR greater than 1 indicates stronger attention inside the bounding box, and larger values indicate stronger concentra-tion on task-relevant regions. 
+
+LUT’s latent trajectory shows stronger attention con-centration on task-relevant regions. As shown in Fig-ure 4, attention averaged over all latent steps is concen-trated around the red-box regions. Figure 5 further confirms this trend quantitatively, with RAR all = 3 .745 . This sug-gests that LUT’s latent trajectory preferentially attends to task-relevant regions without using bounding-box supervi-sion during training. 
+
+Answer-to-latent attribution identifies latent steps that are more aligned with task-relevant evidence. The highest-attribution step achieves RAR top = 11 .250 , while the lowest-attribution step has RAR bottom = 0 .813 < 1. This contrast shows that latent steps within the same trajectory attend to different visual cues, and that answer-to-latent attri-bution can distinguish steps more aligned with task-relevant evidence, supporting LAPO’s step-level utility design. 
+
+# 5 Conclusion 
+
+We present LUT , a latent visual reasoning framework that shifts the focus from latent formation to latent utility. Trained only with standard VQA pairs, LUT improves latent utility at the trajectory level through Utility-Aware Latent Distillation SFT and at the step level through LAPO. Experiments show that LUT achieves strong performance without extra interme-diate supervision and remains competitive with more com-plex latent-text interleaved methods. Although its multi-stage pipeline introduces additional training complexity, inference remains lightweight. Future work will explore simpler train-ing pipelines for scalable VQA-only latent reasoning. References 
+
+Adhikari, A.; and Lapata, M. 2026. Multimodal La-tent Reasoning via Predictive Embeddings. arXiv preprint arXiv:2604.08065 .Bai, S.; Chen, K.; Liu, X.; Wang, J.; Ge, W.; Song, S.; Dang, K.; Wang, P.; Wang, S.; Tang, J.; Zhong, H.; Zhu, Y.; Yang, M.; Li, Z.; Wan, J.; Wang, P.; Ding, W.; Fu, Z.; Xu, Y.; Ye, J.; Zhang, X.; Xie, T.; Cheng, Z.; Zhang, H.; Yang, Z.; Xu, H.; and Lin, J. 2025. Qwen2.5-VL Technical Report. arXiv preprint arXiv:2502.13923 .Chen, C.; Ma, Z.; Li, Y.; Hu, Y.; Wei, Y.; Li, W.; and Nie, L. 2025. Reasoning in the dark: Interleaved vision-text reason-ing in latent space. arXiv preprint arXiv:2510.12603 .Chen, L.; Li, J.; Dong, X.; Zhang, P.; Zang, Y.; Chen, Z.; Duan, H.; Wang, J.; Qiao, Y.; Lin, D.; et al. 2024. Are we on the right way for evaluating large vision-language mod-els? Advances in Neural Information Processing Systems ,37: 27056–27087. Cheng, T.; Chen, S.-Z.; Zhang, H.; Qin, Y.; Luo, J.; and Wei, Z. 2026a. Hybrid Latent Reasoning with Decoupled Policy Optimization. arXiv preprint arXiv:2604.20328 .Cheng, Z.; Chen, Q.; Xu, X.; Wang, J.; Wang, W.; Fei, H.; Wang, Y.; Wang, A. J.; Chen, Z.; Che, W.; et al. 2026b. Visual thoughts: A unified perspective of understanding multimodal chain-of-thought. Advances in Neural Information Process-ing Systems , 38: 96084–96112. Chern, E.; Hu, Z.; Chern, S.; Kou, S.; Su, J.; Ma, Y.; Deng, Z.; and Liu, P. 2025. Thinking with generated images. arXiv preprint arXiv:2505.22525 .Comanici, G.; Bieber, E.; Schaekermann, M.; Pasupat, I.; Sachdeva, N.; Dhillon, I.; Blistein, M.; Ram, O.; Zhang, D.; Rosen, E.; et al. 2025. Gemini 2.5: Pushing the fron-tier with advanced reasoning, multimodality, long context, and next generation agentic capabilities. arXiv preprint arXiv:2507.06261 .Fu, X.; Hu, Y.; Li, B.; Feng, Y.; Wang, H.; Lin, X.; Roth, D.; Smith, N. A.; Ma, W.-C.; and Krishna, R. 2024. Blink: Multi-modal large language models can see but not perceive. In Eu-ropean Conference on Computer Vision , 148–166. Springer. Hao, S.; Sukhbaatar, S.; Su, D.; Li, X.; Hu, Z.; Weston, J.; and Tian, Y. 2024. Training large language models to reason in a continuous latent space. arXiv preprint arXiv:2412.06769 .Hong, W.; Yu, W.; Gu, X.; Wang, G.; Gan, G.; Tang, H.; Cheng, J.; Qi, J.; Ji, J.; Pan, L.; et al. 2025. Glm-4.5 v and glm-4.1 v-thinking: Towards versatile multimodal rea-soning with scalable reinforcement learning. arXiv preprint arXiv:2507.01006 .Huang, W.; Jia, B.; Zhai, Z.; Cao, S.; Ye, Z.; Zhao, F.; Xu, Z.; Tang, X.; Hu, Y.; and Lin, S. 2025. Vision-r1: Incentivizing reasoning capability in multimodal large language models. 
+
+arXiv preprint arXiv:2503.06749 .Hurst, A.; Lerer, A.; Goucher, A. P.; Perelman, A.; Ramesh, A.; Clark, A.; Ostrow, A.; Welihinda, A.; Hayes, A.; Rad-ford, A.; et al. 2024. Gpt-4o system card. arXiv preprint arXiv:2410.21276 .Jeon, B.; Jeong, Y.; Lee, H.; Cho, M.; and Shin, J. 2026. Vision-aligned Latent Reasoning for Multi-modal Large Lan-guage Model. arXiv preprint arXiv:2602.04476 .Jiang, C.; Heng, Y.; Ye, W.; Xu, H.; Yan, M.; Zhang, J.; Huang, F.; and Zhang, S. 2026a. Vlm-r 3: Region recog-nition, reasoning, and refinement for enhanced multimodal chain-of-thought. Advances in Neural Information Process-ing Systems , 38: 63841–63869. Jiang, H.; Fu, J.; Fang, J.; Gao, C.; Wang, X.; He, X.; and Li, Y. 2026b. UniVLR: Unifying Text and Vision in Visual Latent Reasoning for Multimodal LLMs. arXiv preprint arXiv:2605.11856 .Li, B.; Sun, X.; Liu, J.; Wang, Z.; Wu, J.; Yu, X.; Chen, H.; Barsoum, E.; Chen, M.; and Liu, Z. 2025a. Latent visual reasoning. arXiv preprint arXiv:2509.24251 .Li, B.; Zhang, Y.; Guo, D.; Zhang, R.; Li, F.; Zhang, H.; Zhang, K.; Zhang, P.; Li, Y.; Liu, Z.; et al. 2024. Llava-onevision: Easy visual task transfer. arXiv preprint arXiv:2408.03326 .Li, K.; Shang, C.; Karlinsky, L.; Feris, R.; Darrell, T.; and Herzig, R. 2025b. Latent Implicit Visual Reasoning. arXiv preprint arXiv:2512.21218 .Li, P.; Wang, Y.; Zhang, X.; Hu, Z.; Li, S.; Wei, Z.; and Tang, Y. 2026a. ProLaViT: Learning Progressive Latent Visual Thoughts in Structured Latent Space. arXiv preprint arXiv:2607.02907 .Li, S.; Gao, Y.; Yang, S.; Chen, T.; Gan, C.; He, Z.; Zhao, Z.; Guo, Y.; Lin, W.; and Yu, H. 2026b. Multimodal Continu-ous Reasoning via Asymmetric Mutual Variational Learning. 
+
+arXiv preprint arXiv:2607.00461 .Miao, Y.; Sun, Y.; Wang, D.; Zhou, M.; Poupart, P.; Lv, L.; Zhao, Q.; Wang, L.; Li, H.; Jiang, X.; et al. 2026. Fill the GAP: A Granular Alignment Paradigm for Visual Reason-ing in Multimodal Large Language Models. arXiv preprint arXiv:2605.12374 .Pham, T.-H.; and Ngo, C. 2025. Multimodal chain of contin-uous thought for latent-space reasoning in vision-language models. arXiv preprint arXiv:2508.12587 .Qiang, C.; Wei, Z.; Han, X.; Wang, Z.; Li, S.; Lan, X.; Jiao, J.; and Han, Z. 2025. VER-Bench: Evaluating MLLMs on Rea-soning with Fine-Grained Visual Evidence. In Proceedings of the 33rd ACM International Conference on Multimedia ,12698–12705. Shao, H.; Qian, S.; Xiao, H.; Song, G.; Zong, Z.; Wang, L.; Liu, Y.; and Li, H. 2024a. Visual cot: Advancing multi-modal language models with a comprehensive dataset and bench-mark for chain-of-thought reasoning. Advances in Neural Information Processing Systems , 37: 8612–8642. Shao, Z.; Wang, P.; Zhu, Q.; Xu, R.; Song, J.; Bi, X.; Zhang, H.; Zhang, M.; Li, Y.; Wu, Y.; et al. 2024b. Deepseekmath: Pushing the limits of mathematical reasoning in open lan-guage models. arXiv preprint arXiv:2402.03300 .Shen, Z.; Yan, H.; Zhang, L.; Hu, Z.; Du, Y.; and He, Y. 2025. Codi: Compressing chain-of-thought into continuous space via self-distillation. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , 677– 693. Song, Y.; Ou, T.; Kong, Y.; Li, Z.; Neubig, G.; and Yue, X. 2025. Visualpuzzles: Decoupling multimodal reason-ing evaluation from domain knowledge. arXiv preprint arXiv:2504.10342 .Tong, J.; Gu, J.; Lou, Y.; Fan, L.; Zou, Y.; Wu, Y.; Ye, J.; and Li, R. 2025. Sketch-in-latents: Eliciting unified reasoning in mllms. arXiv preprint arXiv:2512.16584 .Wang, C.; He, W.; Zhu, X.; Zhou, C.; Li, Q.; Yan, S.; Zheng, Y.; Yu, C.; Lu, F.; Zhai, W.; et al. 2026a. Self-Consistent La-tent Reasoning: Long Latent Sequence Reasoning for Vision-Language Model. arXiv preprint arXiv:2605.12163 .Wang, H.; Qu, C.; Huang, Z.; Chu, W.; Lin, F.; and Chen, W. 2026b. Vl-rethinker: Incentivizing self-reflection of vision-language models with reinforcement learning. Advances in Neural Information Processing Systems , 38: 30865–30891. Wang, H.; Su, A.; Ren, W.; Lin, F.; and Chen, W. 2025a. Pixel reasoner: Incentivizing pixel-space reasoning with curiosity-driven reinforcement learning. arXiv preprint arXiv:2505.15966 .Wang, Q.; Shi, Y.; Wang, Y.; Zhang, Y.; Wan, P.; Gai, K.; Ying, X.; and Wang, Y. 2025b. Monet: Reasoning in latent visual space beyond images and language. arXiv preprint arXiv:2511.21395 .Wang, W.; Ding, L.; Zeng, M.; Zhou, X.; Shen, L.; Luo, Y.; Yu, W.; and Tao, D. 2025c. Divide, conquer and combine: A training-free framework for high-resolution image percep-tion in multimodal large language models. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, 7907–7915. Wang, Y.; Zhang, J.; Wu, Y.; Lin, Y.; Lukas, N.; and Liu, Y. 2026c. Forest Before Trees: Latent Superposition for Effi-cient Visual Reasoning. arXiv preprint arXiv:2601.06803 .Wei, L.; He, L.; Lan, J.; Dong, L.; Cai, Y.; Li, S.; Zhu, H.; Wang, W.; Kong, L.; Wang, Y.; et al. 2026a. Zooming with-out Zooming: Region-to-Image Distillation for Fine-Grained Multimodal Perception. arXiv preprint arXiv:2602.11858 .Wei, L.; Li, Y.; Zheng, K.; Wang, C.; Wang, Y.; Kong, L.; Sun, L.; and Huang, W. 2025a. Advancing multimodal rea-soning via reinforcement learning with cold start. arXiv preprint arXiv:2505.22334 .Wei, Z.; Ding, W.; Hao, Y.; and Chen, X. 2025b. Guiding the Inner Eye: A Framework for Hierarchical and Flexible Visual Grounded Reasoning. arXiv:2511.22172. Wei, Z.; Qiang, C.; Jiang, B.; Han, X.; Yu, X.; and Han, Z. 2025c. ADˆ 2-Bench: A Hierarchical CoT Benchmark for MLLM in Autonomous Driving under Adverse Conditions. 
+
+arXiv preprint arXiv:2506.09557 .Wei, Z.; Wang, G.; Gao, G.; Hao, Y.; Li, M.; Ding, W.; Chen, X.; He, S.; and Yu, X. 2026b. Seeing Is Believing: Grounding Long-Video Understanding in Spatio-Temporal Visual Evidence. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, 10584–10592. Wu, L.; Jiang, T.; Dong, Y.; Yang, H.; Zhang, F.; Meng, S.; Xuan, A.; Song, L.; and Keung, J. 2026. LaViT: Aligning Latent Visual Thoughts for Multi-modal Reasoning. arXiv preprint arXiv:2601.10129 .Wu, P.; and Xie, S. 2024. V∗: Guided Visual Search as a Core Mechanism in Multimodal LLMs. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 13084–13094. Xu, Y.; Li, C.; Zhou, H.; Wan, X.; Zhang, C.; Korhonen, A.; and Vulić, I. 2025. Visual Planning: Let’s Think Only with Images. arXiv preprint arXiv:2505.11409 .Yang, Z.; Yu, X.; Chen, D.; Shen, M.; and Gan, C. 2025. Machine mental imagery: Empower multimodal reasoning with latent visual tokens. arXiv preprint arXiv:2506.17218 .Zhang, Y.; Liu, X.; Tao, R.; Chen, Q.; Fei, H.; Che, W.; and Qin, L. 2025a. Vitcot: Video-text interleaved chain-of-thought for boosting video understanding in large language models. In Proceedings of the 33rd ACM International Con-ference on Multimedia , 5267–5276. Zhang, Y.; Liu, Z.; Zhu, J.; Wang, S.; Chen, X.; Huang, H.; Kuang, J.; Chen, S.; Shen, A.; Wu, H.; Wang, Q.; Zhang, Q.-W.; Dong, J.; Jiang, W.; Shen, Y.; Zheng, H.-T.; Li, Y.; Yin, D.; Sun, X.; and Yu, P. S. 2026. From Chatbot to Digital Col-league: The Paradigm Shift Toward Persistent Autonomous AI. arXiv:2606.14502. Zhang, Y.; Zhang, H.; Tian, H.; Fu, C.; Zhang, S.; Wu, J.; Li, F.; Wang, K.; Wen, Q.; Zhang, Z.; et al. 2025b. Mme-realworld: Could your multimodal llm challenge high-resolution real-world scenarios that are difficult for humans? In International Conference on Learning Representations ,volume 2025, 89655–89701. Zhang, Y.-F.; Lu, X.; Yin, S.; Fu, C.; Chen, W.; Hu, X.; Wen, B.; Jiang, K.; Liu, C.; Zhang, T.; et al. 2025c. Thyme: Think beyond images. arXiv preprint arXiv:2508.11630 .Zhang, Z.; Zhang, A.; Li, M.; Zhao, H.; Karypis, G.; and Smola, A. 2023. Multimodal chain-of-thought reasoning in language models. arXiv preprint arXiv:2302.00923 .Zheng, Z.; Yang, M.; Hong, J.; Zhao, C.; Xu, G.; Yang, L.; Shen, C.; and Yu, X. 2025. DeepEyes: Incentivizing “Thinking with Images” via Reinforcement Learning. arXiv preprint arXiv:2505.14362 .Zhu, J.; Wang, W.; Chen, Z.; Liu, Z.; Ye, S.; Gu, L.; Tian, H.; Duan, Y.; Su, W.; Shao, J.; et al. 2025. Internvl3: Explor-ing advanced training and test-time recipes for open-source multimodal models. arXiv preprint arXiv:2504.10479 .

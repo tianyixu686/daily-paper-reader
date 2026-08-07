@@ -1,0 +1,565 @@
+Title: Select-And-Extract: A Lightweight Plugin for Retrieval-Augmented Generation
+
+URL Source: https://arxiv.org/pdf/2608.00658v1
+
+Published Time: Tue, 04 Aug 2026 00:41:18 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# Select-And-Extract: A Lightweight Plugin for Retrieval-Augmented Generation 
+
+## Chenming Tang 1, Jiawei Han 2
+
+> 1
+
+Peking University, 2University of Illinois Urbana-Champaign tangchenming@stu.pku.edu.cn, hanj@illinois.edu 
+
+Abstract 
+
+Retrieval-augmented generation (RAG) for language model (LM) systems fundamentally has two failure modes: retrieval failure and reading failure. The former fails to recall the right pieces of information from the external corpus, and the latter fails to produce the correct answer although the right informa-tion is retrieved. Some methods perform structured indexing for retrieval failure, but may suffer from limited generaliza-tion of the fixed structures. Some methods perform query-time structuring for reading failure, but typically require a lot of LM calls and rely heavily on the LM’s capability. To this end, we propose Select-ANd-Extract (SANE), a simple yet effective plugin for RAG. For the retrieval failure, we retrieve a wide set of candidates with a semantic retriever, and leverage the LM to select the top candidates based on their synopses, which yields better recall than the original retriever. For the reading failure, we perform blueprint-guided query-time evidence ex-traction, which allows the generator LM to use only compact and structured key information so that it can perform better reasoning. Empirical results confirm that SANE brings solid improvements, while only introducing modest extra overhead. As a lightweight plugin for RAG, SANE offers a simple alter-native to heavier approaches, and suggests a high-performance RAG framework need not be overly complex. 
+
+Code — https://github.com/JamyDon/SANE 
+
+## Introduction 
+
+Language models (LMs) encode all the knowledge in their parameter space. Retrieval-augmented generation (RAG) en-hances LM systems by retrieving knowledge from an external corpus (Lewis et al. 2020; Gao et al. 2024). Fundamentally, RAG has two basic failure modes: retrieval failure and read-ing failure. The former means the retriever fails to recall the right information, typically due to the limitation of the re-trieval approach. The latter means the generator LM fails to produce the correct answer even when the right information is retrieved, usually due to the limited capability of the LM, or the coarse and noisy representation of the information. Existing RAG approaches address these failures from dif-ferent stages of the pipeline. For retrieval, prior research improves the retriever (Karpukhin et al. 2020; Khattab and Zaharia 2020; Luan et al. 2021), rewrites the query (Ma et al. 2023a), expands the document (Nogueira et al. 2019), and builds topology indexes (Sarthi et al. 2024; Edge et al. 2025). However, with the development of embedding mod-els (Zhang et al. 2025), semantic embeddings capture in-creasingly rich information, reducing the marginal benefit of some retrieval-time enhancements. For reading, the main-stream is to structure the information, either at index time through corpus-level ingestion (Sarthi et al. 2024; Gutiérrez et al. 2024; Gutiérrez et al. 2025), or at query time through query-specific structuring (Jia et al. 2025; Jiang et al. 2026; Parekh, Jiang, and Han 2026; Joshi et al. 2026). Due to the powerful capability of LMs, most of the existing methods employ LMs to perform high-quality operations, requiring a lot of LM calls for each query, which is unfriendly to cost-constrained application scenarios. Meanwhile, they rely heavily on the capability of LMs and may not perform well without specific training or advanced large-scale LMs. To this end, we introduce Select-AN d-Extract (SANE), a simple, lightweight, and training-free plugin for RAG that targets its two fundamental failure modes while overcoming the limitations of existing methods. For the retrieval failure, we introduce synopsis-based candidate selection to help the recall, which leverages the LM to select top candidates based on the synopses including easily obtained features of a wide set of candidates retrieved by a semantic retriever. For the reading failure, we propose blueprint-guided evidence ex-traction for better information representation at read time, which calls the LM once with the raw content of all the selected candidates, the query, and a few canonical schema blueprints as guidance, to perform query-specific evidence extraction. Finally, the generator LM only sees the query and the compact structured information to perform the reason-ing. The contribution of SANE is not selection or extrac-tion alone, but a low-cost query-time augmentation mecha-nism that combines synopsis-based candidate selection with blueprint-guided evidence extraction. We evaluate SANE against other RAG enhancement meth-ods across four benchmarks, covering multi-hop QA and long-document QA tasks. The empirical results show that SANE consistently brings solid improvements with modest overhead. Quantitatively, across all the benchmarks and two backbone LMs, SANE outperforms the strongest baseline by 
+
++9.97 points on average. Ablation studies validate the effec-tiveness of all the components of our design, while additional analysis further confirms the advantage of SANE. Overall, our empirical evaluation demonstrates that SANE offers a arXiv:2608.00658v1 [cs.CL] 1 Aug 2026 Blueprints                  
+
+> Synopses
+> Corpus
+> Query Retriever Candidates LM Top -k
+> Candidates
+> Structured
+> Information LM LM Answer
+> Metadata
+> ID: 1, P.23, Date: [2024 -05 -18]
+> Keywords
+> yoga ·farmers ·market ·peaches ·sourdough
+> Excerpt
+> "After yoga, I stopped by the farmers market
+> and bought peaches and sourdough."
+> Schema Name ATOMIC
+> Selection Extraction Generation
+> Column Definitions
+> Rules Definition Column
+> ……fact
+> ……evidence_quote
+> ……source
+> ……source_date
+
+Figure 1: Overview of the SANE pipeline. Just three LM calls: selection, extraction, and generation. simple alternative to heavier or more complex approaches. Our contributions are threefold: 
+
+• We introduce SANE, a lightweight yet effective plugin for RAG that improves the retrieval recall and read-time information representation. 
+
+• We empirically validate that SANE brings solid improve-ments for RAG with modest extra overhead, offering a lightweight alternative to heavier approaches. 
+
+• We show that the simple two-step plugin is already effec-tive, suggesting that an advanced RAG framework need not be overly complex. 
+
+## Method 
+
+The overview of SANE is shown in Figure 1, and a formal algorithm description of SANE is provided by Algorithm 1. 
+
+Problem Formulation 
+
+Given a RAG-enhanced LM system S driven by a generator LM θ, the system generates the response a based on the query 
+
+q and the external corpus D:
+
+a = S(q, D ) = θ(q, d ), (1) where d is the information retrieved by the retrieval module 
+
+R from D for q. Traditional embedding-based RAG stores 
+
+D as raw content ( e.g. , chunked documents) and implements 
+
+R as retrieving the most similar k pieces for q:
+
+d = R(q, D, k ) = Top-k
+
+> c∈D
+
+(sim( q, c )) . (2) 
+
+Synopsis-Based Candidate Selection 
+
+Although embedding models have become powerful, they can still suffer from false positive distractors, which are se-mantically similar but not really relevant. Therefore, SANE leverages the LM to better select the recalled candidates, which can be more flexible compared to the similarity score. Concretely, we retrieve a large set ˆC of w candidates ( w > k) using the similarity-based retriever to ensure a high upper bound for recall while introducing no extra overhead: 
+
+ˆC = R(q, D, w ) = {ci}wi=1 . (3) The raw content of these candidates can be very long. Therefore, we leverage a few cheap features like pre-existing metadata μ (e.g. , ID, date, page number), TF-IDF keywords 
+
+κ, and query-aware lexical-overlap-based excerpts ϵ (i.e. , key sentence) to generate a short synopsis z for each candidate 
+
+c, which is much shorter than the raw content: 
+
+μi = Metadata( ci), (4) 
+
+κi = Keywords( ci, ˆC), (5) 
+
+ϵi = Excerpt( ci, q ), (6) 
+
+zi = ( μi, κ i, ϵ i). (7) These features are all rule-based and fast to compute, free of any LMs or trained policy. For the keywords, we filter com-mon stopwords and compute IDF over all the w candidates. Finally, we call the LM θ to select the top-k candidates that are most likely to be useful for q:
+
+C = θ(q, {zi}wi=1 , k ). (8) The LM call is not very costly since the synopses are short. 
+
+Blueprint-Guided Evidence Extraction 
+
+Traditional RAG presents the raw content of the recalled chunks to the generator LM, which can be long yet noisy. Meanwhile, many query-time structuring methods require multiple extra LM calls for each query, which can be ex-tremely expensive and rely heavily on the LM’s capability. Therefore, we propose to extract the key information for the query by structuring the recalled chunks with only one ex-tra LM call. This presents the most informative things in a structured way while not requiring multiple LM calls. Instead of extracting evidence based on fixed schemas, we let the LM perform extraction using customized schemas based on the query, which ensures flexibility and adaptivity of the structuring. We include a set of blueprints B in the prompt as guidance, each including a general schema as a demonstration. These pre-defined schemas, as shown in Ta-ble 1, can be generally applied in common cases, covering frequent usage. They are mainly used as in-context demon-strations that guide the LM to design and extract the schema, instead of fixed rules to constrain the LM’s extraction. In this way, the LM benefits from certain guidance while having the freedom to use adaptive schemas based on the query. Schema Information Structure Use When Columns          
+
+> ATOMIC Independent facts — no row relates to any other What / Who / Where / Define / Find / Yes-no questions fact, evidence quote, source, source date COMPARATIVE Aligned dimensions —entities compared on shared attributes Compare / Difference / Versus / Which is larger-better-faster / Rank entity, dimension, value, unit, ev-idence quote, source TEMPORAL Sequenced events — rows ordered by occurrence time When / First / Last / Most recent / Time-line / Before-After / Sequence event, position, resolved date, date precision, evidence quote, source
+
+Table 1: Blueprints serving as in-context structural guides for the evidence extraction. We only call the LM once to extract the structured evidence as the final information presented to the generator LM from all the retrieved chunks, guided by the blueprints: 
+
+d = θ(q, C, B ). (9) Finally, we pass the structured evidence d to the generator LM and perform the final generation for the answer a:
+
+a = θ(q, d ). (10) Algorithm 1: SANE: Select-And-Extract 
+
+Input : query q, corpus D
+
+Parameter : wide pool size w, final budget k, blueprint set 
+
+B, retriever R, backbone LM θ
+
+Output : answer a 
+
+> 1:
+
+Retrieve a wide candidate pool ˆC ← R (q, D, w ). 
+
+> 2:
+
+for each candidate ci ∈ ˆC do  
+
+> 3:
+
+Obtain metadata if applicable μi ← Metadata( ci). 
+
+> 4:
+
+Compute TF-IDF keywords κi ← Keywords( ci, ˆC). 
+
+> 5:
+
+Select a query-aware excerpt ϵi ← Excerpt( ci, q ). 
+
+> 6:
+
+Construct synopsis zi ← (μi, κ i, ϵ i). 
+
+> 7:
+
+end for  
+
+> 8:
+
+Select candidates C ← θ(q, {zi}wi=1 , k ). 
+
+> 9:
+
+Extract structured evidence d ← θ(q, C, B ). 
+
+> 10:
+
+Generate answer a ← θ(q, d ). 
+
+> 11:
+
+return a
+
+## Experimental Setup 
+
+Benchmarks 
+
+Benchmark Task #Inst. #Tok/Inst. 
+
+HotpotQA Multi-hop 7,405 1K MuSiQue Multi-hop 2,417 2K FinanceBench Long-document 150 115K LongMemEval Long-context 500 1018K Table 2: Benchmark statistics. “#Inst.” and “#Tok/Inst.” refer to the instance count and tokens per instance, respectively. We evaluate on two different tasks. For multi-hop QA, we use HotpotQA (Yang et al. 2018) and MuSiQue (Trivedi et al. 2022), which require gathering information from multiple sources and reasoning on it. For long-document/long-context QA, we use FinanceBench (Islam et al. 2023) with long financial filings, and the M subset of LongMemEval (Wu et al. 2025) with long conversation histories (over one million tokens). Table 2 lists the benchmark statistics. 
+
+Evaluation Metrics 
+
+For end-to-end performance, we follow the official metrics of the benchmarks. For HotpotQA and MuSiQue, we report exact match (EM) as the primary metric, paired with F1 score (F1). For FinanceBench and LongMemEval, we report LLM-judged accuracy by DeepSeek-V4-Flash (DeepSeek-AI 2026). We also report efficiency metrics: total LM token consumption (in millions), number of LM calls per instance, and per-instance latency (in seconds). 
+
+Baselines 
+
+We evaluate the following methods as baselines: (1) Embed-ding: vanilla RAG using embedding-based semantic search, which retrieves the top-k similar candidates and passes the retrieved content to the generator LM; (2) RAPTOR (Sarthi et al. 2024): recursively clusters and summarizes the doc-uments and builds hierarchical indexes; (3) HippoRAG 2 (Gutiérrez et al. 2025): builds neurobiologically inspired knowledge graphs, and retrieves through graph traversal and Personalized PageRank propagation; (4) StructRAG (Jia et al. 2025): selects a structure type (graphs, tables, etc. ) and ex-tracts the retrieved content into the chosen structure; (5) RAS (Jiang et al. 2026): iteratively retrieves evidence and con-structs a query-specific knowledge graph for answering. 
+
+Backbone Models 
+
+We evaluate multiple backbone LMs. For large-scale LMs, we employ DeepSeek-V4-Flash (DeepSeek-AI 2026). For small-scale LMs, we employ Qwen3.5-9B (Yang et al. 2025). For embedding, we employ Qwen3-Embedding-0.6B (Zhang et al. 2025), which is a moderate-scale embedding model. 
+
+Other Implementation Details 
+
+The retrieval budgets w and k are 10 and 3 for HotpotQA, and 20 and 5 for other benchmarks. The chunking is based on natural boundaries for HotpotQA (paragraph), MuSiQue (paragraph) and LongMemEval (history session), and uses a chunk size of 2,048 for FinanceBench. For a higher through-put, we run 10 and 20 concurrent instances for the DeepSeek and Qwen backbones, respectively. To minimize LM-side variance, we set the temperature to 0 for all the LM calls. Method HotpotQA MuSiQue FinanceBench LongMemEval Avg. EM F1 EM F1 
+
+DeepSeek-V4-Flash 
+
+Embedding 50.18 64.44 28.09 41.03 58.67 43.2 45.04 RAPTOR 47.08 60.75 25.07 37.43 45.33 29.8 36.82 HippoRAG 2 54.44 69.35 32.77 46.54 58.67 49.6 48.87 StructRAG 45.33 58.80 21.43 33.60 60.67 38.6 41.51 RAS lite 40.34 53.95 26.73 39.59 32.67 15.2 28.74 SANE (Ours) 59.96 75.81 40.26 53.78 75.33 57.4 58.24 
+
+Qwen3.5-9B 
+
+Embedding 48.40 60.55 26.52 37.65 57.33 40.0 43.06 RAPTOR 43.24 55.26 23.67 34.73 34.67 25.4 31.75 HippoRAG 2 54.23 66.95 35.17 46.40 56.67 43.2 47.32 StructRAG 36.60 48.29 12.74 20.73 43.33 18.8 27.87 RAS lite 21.49 30.14 5.38 14.35 24.00 9.2 15.02 SANE (Ours) 61.67 76.45 44.85 57.49 71.33 56.4 58.56 
+
+Table 3: The main evaluation results. The highest scores are bolded. “Avg.” computes the averaged primary scores (exact match for HotpotQA and MuSiQue, and accuracy for FinanceBench and LongMemEval) across all the four benchmarks. For SANE, if the selection phase selects fewer than k
+
+candidates, we pad the remaining slots with unselected top embedding candidates to ensure a consistent retrieval bud-get. For StructRAG, we train Qwen3.5-9B as the router for both backbone LMs. For RAS, we evaluate the training-free version (named as RAS lite ) by directly prompting the LMs, because the training of RAS is highly resource-consuming. More technical details, like the detailed LM prompts, can be found in the supplementary material. 
+
+## Results and Analysis 
+
+Main Results 
+
+The main results are presented in Table 3. Overall, our pro-posed SANE secures the highest scores across all the bench-marks with both backbone LMs, with averaged gains of 
+
++6.48 , +8.59 , +14.33 , and +10.50 over the second strongest method on the four benchmarks, respectively. Other compared methods exhibit certain limitations. Em-bedding, with the help of a modern embedding model, achieves relatively balanced performance, but is constantly outperformed by SANE. Index-time structuring methods like RAPTOR sometimes even underperform Embedding be-cause the structures are fixed and may not be as general as the embedding, especially when today’s embedding model is getting more powerful. Query-time structuring methods like StructRAG and RAS rely heavily on specially trained models or the LM’s capability, and perform poorly especially when the LM is smaller and less competitive. Overall, HippoRAG 2 is the strongest baseline, with solid improvements over the balanced Embedding in many cases, but underperforms SANE even when costing significantly more tokens and time, which will be specified in the next section. 
+
+Cost Analysis 
+
+We perform cost analysis both formally and empirically in Table 4. SANE introduces modest extra overhead over Em-bedding, with only two extra LM calls and not too many tokens for the selection and extraction. Its cost is dominated by the retrieval budgets w and k rather than the number of chunks N , since SANE needs no extra index-time operations. Its overhead is more marginal on longer benchmarks like Fi-nanceBench and LongMemEval, where N is very large. Among index-time structuring methods, RAPTOR is ef-ficient on shorter data like MuSiQue where the dominating 
+
+N is small, with the overall cost on par with SANE, but its benchmark performance is much worse and it costs much more on longer benchmarks. HippoRAG 2, due to the domi-nating chunk count N , is the heaviest method, especially on FinanceBench and LongMemEval, where the LM cost is ap-proximately two orders of magnitude greater than SANE. Query-time structuring methods cost less on long bench-marks since they do not perform complex indexing and are thus not dominated by the large N . StructRAG has a mod-estly higher overall cost than SANE due to more LM calls for sub-queries. Meanwhile, RAS, with poor performance when training-free, has a low cost because the LM decides no re-trieval required in many cases due to incorrect judgment, which causes the LM to directly answer the query without extra operations ( i.e. , the iteration count t is zero). The cost analysis confirms that SANE balances both per-formance and efficiency, requiring modest overhead while performing best. It also scales well to longer data. 
+
+Cost-Effectiveness of Heavy Methods 
+
+Some methods are extremely heavy, so we evaluate them only on FinanceBench within our budget, with Qwen3.5-9B as the backbone LM. These methods include: (1) GraphRAG (Edge et al. 2025): builds an entity-relation graph and generates Method LM Input LM Call MuSiQue FinanceBench LongMemEval Token Call Latency Token Call Latency Token Call Latency 
+
+Embedding k · L 1 2.1 1 0.8 0.5 1 15.4 4.9 1 27.8 RAPTOR bb−1 N · L 1 
+
+> b−1
+
+N + 1 9.1 6 10.1 19.0 30 101.4 56.2 31 95.0 HippoRAG 2 (2 N + k) · L 2N + 2 81.2 42 40.6 96.9 594 618.6 1432.4 947 238.8* StructRAG k · L + sk · lstruct k + s + 3 13.7 8 15.3 2.4 10 65.4 9.0 9 45.4 RAS lite tk · L + t2 · lstruct 2t + 2 4.6 2 2.1 0.2 2 0.9 0.7 2 0.9 SANE (Ours) w · lsynop + k · L + lstruct 3 10.7 3 5.2 1.3 3 18.3 7.8 3 32.6 Table 4: Cost analysis with Qwen3.5-9B as the LM, focusing on total token consumption (million), per-instance LM calls, and per-instance latency (second). “LM Input” and “LM Call” are formal estimations of the LM input tokens and number of LM calls per instance. L is the typical chunk size, N is the number of chunks, k and w are retrieval budgets defined in “Method”, b
+
+is the branching factor of RAPTOR, s is the number of sub-queries of StructRAG, t is the number of iterations of RAS, lstruct is the typical size of structured information, and lsynop is the typical size of each synopsis of SANE. “*” indicates that HippoRAG 2 uses intra-instance concurrency of 100 for primary information extraction, instead of the inter-instance concurrency of 20 used in other settings, due to contention issues on LongMemEval. 
+
+Method Score Token (M) LM Call Latency (s) 
+
+Embedding 57.33 0.5 1 15.4 GraphRAG fast 40.00 267.9 268 2,197.3 GraphRAG standard 50.00 684.0 2,029 5,355.9 SLIDERS 48.00 111.5 260 399.9* SANE (Ours) 71.33 1.3 3 18.3 Table 5: Extended comparison results on FinanceBench. “*” means SLIDERS uses a different concurrency setting (5 intra-instance and 4 inter-instance; other methods solely use 20 inter-instance) due to bounded resources. community summaries; the “fast” and “standard” variants ex-tract information with spaCy models and LMs, respectively; (2) SLIDERS (Joshi et al. 2026): a query-time structuring method that extracts information into databases, and applies a SQL coding agent to reason and generate the answer. Table 5 presents the results. SANE secures the highest accuracy, with significantly less overhead (typically two or-ders of magnitude less). All the heavy methods require many extra LM calls and rely heavily on the LM’s capability. There-fore, they consume significantly more tokens and time, while even underperforming Embedding when the backbone LM is a relatively small 9B one. This again confirms SANE is a simple yet effective method, less sensitive to backbone LM capability and requiring much less cost. 
+
+Ablation Study 
+
+We perform ablation studies on SANE (Table 6). The synopsis-based selection is especially important, with a significant decrease of 13.09 averaged points across the compared benchmarks when removed. The “w/o synopsis” setting directly prompts the LM with the full raw content of the candidates and serves as a proxy for zero-shot LM-based reranking. Compared with the synopsis, the raw content can be long and noisy and may confuse the LM especially when the chunk is large on long-document benchmarks, as shown by the degraded performance. It is also noteworthy that this 
+
+Setting MQ FB LME Avg. ∆
+
+SANE (Default) 44.85 71.33 56.40 57.53 -
+
+General Ablation on Components 
+
+w/o selection 31.32 58.00 44.00 44.44 -13.09 w/o extraction 38.44 68.00 52.40 52.95 -4.58 
+
+Focused Ablation on Synopsis 
+
+w/o synopsis 44.85 70.00 54.40 56.42 -1.11 w/o metadata 44.02 70.67 55.00 56.56 -0.96 w/o excerpt 39.22 70.00 52.20 53.81 -3.72 w/o keyword 44.31 70.00 52.80 55.70 -1.82 
+
+Focused Ablation on Blueprint 
+
+w/o blueprint 40.17 71.33 52.20 54.57 -2.96 Table 6: Ablation results on MuSiQue (MQ), FinanceBench (FB), and LongMemEval (LME), with Qwen3.5-9B as the backbone LM. “ ∆” shows the decrease of the averaged score. full-content setting consumes significantly more context to-kens for the selection phase ( 2× and 14 × tokens on Fi-nanceBench and LongMemEval, respectively). In addition, the three parts of the synopsis (metadata, excerpt, and key-word) all contribute, and the excerpt contributes the most with 3.72 averaged points. Meanwhile, the blueprint-guided extraction is also indis-pensable, with a degradation of 4.58 averaged points when removed. We also ablate the blueprints by extracting the in-formation with a trivial prompt without any specific blueprint or schema guidance, and show that there is a drop of 2.96 
+
+averaged points when the blueprint guidance is disabled. The above ablation results confirm that each part of our proposed SANE is effective and indispensable. We also evaluate the effect of retrieval hyperparameters, with the results in the technical supplement. The results sug-gest that the current w and k values are near-optimal, and SANE brings consistent gains over vanilla RAG under all the evaluated hyperparameter values. Recall Analysis 
+
+Recall # MQ FB LME Avg. 
+
+Embedding Top-20 w = 20 100.0 60.8 68.8 76.5 Embedding Top-5 k = 5 69.4 38.3 48.6 52.1 SANE Selected k = 5 88.7 51.1 67.3 69.0 
+
+Table 7: Recall analysis with Qwen3.5-9B on MuSiQue (MQ), FinanceBench (FB), and LongMemEval (LME). We perform recall analysis to confirm that the synopsis-based selection phase adds value. Table 7 compares the recall@ k of the native top-k of the embedding and the se-lected k candidates on benchmarks with ground truth evi-dence annotations against the wide recall@ w of the embed-ding. SANE consistently brings significantly higher recall@ k
+
+across all the three benchmarks ( +19.3 , +12.8 , and +18.7 , re-spectively), bridging the gap between embedding’s recall@ k
+
+and recall@ w. This confirms the synopsis-based selection makes a positive contribution by improving the recall. 
+
+Extraction Quality Audit 
+
+We quantitatively evaluate the quality of the blueprint-guided evidence extraction on FinanceBench with Qwen3.5-9B as the backbone. We prompt an advanced LM, DeepSeek-V4-Pro (DeepSeek-AI 2026), to annotate each row in the ex-tracted information. The results suggest that most extracted rows (81.1%) are fully faithful, while there is also a non-trivial ratio of unsupported rows (13.9%) suffering from hal-lucination. We acknowledge this is a limitation of the single-pass extraction, and leave the exploration of more faithful single-pass extraction to future work. The full breakdown is reported in the technical supplement. 
+
+Robustness to Backbone LMs 
+
+LM Embedding SANE ∆
+
+Qwen3.5-4B 40.36 53.92 +13.56 Qwen3.6-35B-A3B-FP8 46.92 60.89 +13.97 DeepSeek-V4-Pro 48.24 60.56 +12.32 Table 8: Averaged results with different LMs as the backbone. We evaluate both Embedding and SANE on all the four benchmarks with other backbone LMs to confirm the ad-vantage of SANE generalizes across different LMs. Table 8 presents the averaged scores across all the four benchmarks for both methods. SANE consistently brings substantial im-provement over the vanilla RAG with all the backbone LMs. This suggests that SANE benefits RAG whenever the LM is small (4 billion parameters for Qwen3.5-4B) or large (1.6 tril-lion total parameters for DeepSeek-V4-Pro) and the architec-ture is dense (Qwen3.5 series) or sparse (mixture-of-experts for Qwen3.6-35B-A3B-FP8 and the DeepSeek series). 
+
+Case Study 
+
+To demonstrate the advantage of SANE concretely, we pro-vide a case from FinanceBench comparing Embedding, Hip-poRAG 2, and SANE, with Qwen3.5-9B as the backbone LM (Figure 2). The query asks about CVS Health’s fixed asset turnover ratio of fiscal year 2018, which equals revenue (on page 302) divided by average PP&E (on page 304). The embedding-based retrieval is overwhelmed by simi-lar but irrelevant chunks, while HippoRAG 2’s Personalized PageRank surfaces income statement and summary pages. Therefore, the ground truth evidence chunks fall out of the top-k (highest ranked 9 and 11, respectively). As a result, the generator LM cannot answer due to the missing information. On the contrary, SANE answers correctly. In the selection phase, both evidence chunks appear in the top-w candidate pool, with the synopses showing they are about “total rev-enues” and “property and equipment”. Therefore, the two are correctly selected. Then, the extraction phase successfully extracts necessary evidence from the raw chunks. Besides the raw data including the total revenue and both the begin-ning (2017) and ending (2018) PP&E, the averaged PP&E and the fixed asset turnover ratio are also calculated based on the information, which allows the generator LM to perform clear reasoning and generate the correct answer. This case demonstrates SANE better selects the evidence with the help of the synopsis-based candidate selection, and has a better presentation of the information required for the query based on the blueprint-guided evidence extraction. 
+
+## Related Work 
+
+Retrieval-Augmented Generation 
+
+RAG allows LM systems to generate with external in-formation (Lewis et al. 2020; Gao et al. 2024; Zhao et al. 2026). Existing studies have been mainly improv-ing RAG from two directions. The first is retrieval quality, in which approaches like sparse (Robertson and Zaragoza 2009), dense (Karpukhin et al. 2020), hybrid (Luan et al. 2021), late-interaction (Khattab and Zaharia 2020) retriev-ers, query rewriting (Ma et al. 2023a), and document expan-sion (Nogueira et al. 2019) are designed. The second direc-tion builds index-time structures like trees (Sarthi et al. 2024) or graphs (Edge et al. 2025; Gutiérrez et al. 2024; Gutiérrez et al. 2025) over the corpus. These methods mainly focus on the index-time, and the structures are usually constructed before knowing the query. Therefore, they can be expensive to build, and risk mismatching the needs of specific queries. SANE performs query-time augmentation like some recent work (Jia et al. 2025; Jiang et al. 2026; Joshi et al. 2026): af-ter retrieving a broad candidate pool, we perform lightweight query-specific selection and evidence extraction before gen-eration. This avoids heavy corpus-wide restructuring while providing the generator a more usable evidence interface. 
+
+Post-Retrieval Selection 
+
+It has been validated that LMs can be used to perform rerank-ing very well for document search (Sun et al. 2023; Ma et al. 2023b). RankVicuna (Pradeep, Sharifymoghaddam, and Lin 2023a) and RankZephyr (Pradeep, Sharifymoghaddam, and Query:                     
+
+> (CVS Health) FY2018 fixed asset turnover ratio =
+> Revenue ÷average PP&E. Round to two decimals.
+> Evidence:
+> (Page 302) …Total revenues 194,579 184,786…
+> (Page 304) …Property and equipment, net 11,349…
+> Answer:
+> 17.98
+> (#1) Income
+> Statement
+> (#2) Quaterly
+> Financial Info.
+> (#3) Five -year
+> Financial Sum.
+> Embedding
+> “… are not explicitly provided …”
+> (#9) Page 302 p.1/2: "… Total revenues 194,579 184,786
+> 177,546…” keywords=[operating, loss, costs, tax, income,
+> net, products, expense, provision, attributable]
+> (#11) Page 304 p.1/2: "… Property and equipment , net
+> 11,349 10,292…" keywords=[assets, liabilities, accounts,
+> term, long, current, payable, investments, separate, debt]
+> source_date source evidence_quote fact
+> 2018 Doc 3 Total revenues 194,579 CVS Health's Total Revenues for FY2018 were $194,579 million.
+> 2018 Doc 4 Property and equipment, net 11,349 CVS Health's Property and equipment, net at December 31, 2018 was $11,349 million.
+> 2017 Doc 4 Property and equipment, net 10,292 CVS Health's Property and equipment, net at December 31, 2017 was $10,292 million.
+> 2018 Doc 4 (11,349 + 10,292) / 2 = 10,820.5 The average PP&E between FY2017 and FY2018 is $10,820.5 million.
+> 2018 Doc 3, 4 194,579 / 10,820.5 = 17.98 The FY2018 fixed asset turnover ratio for CVS Health is 17.98.
+> FY2018 Revenue: $194,579 million. Average PP&E: ($10,292 + $11,349) ÷2 =
+> $10,820.5 million. Fixed Asset Turnover Ratio = 194,579 ÷10,820.5 ≈ 17.98
+> ❌Overwhelmed by irrelevant chunks
+> …
+> ✅Correct evidence selected, necessary information structured
+> …
+> …
+> (#9) Balance
+> Sheet
+> (#8) Income
+> Statement (#10) MD&A
+> …
+> (#1) Income
+> Statement
+> (#2) Quaterly
+> Financial Info.
+> (#3) Five -year
+> Financial Sum.
+> HippoRAG 2
+> “Cannot be determined from the provided text.”
+> ❌Overwhelmed by irrelevant chunks
+> …
+> (#11) Balance
+> Sheet
+> (#10) Income
+> Before Tax
+> (#12) Dilutive
+> Shares Footnote
+> …
+> …Page 332
+> p.3/3
+> Page 376
+> p.1/2
+> Page 302
+> p.1/2
+> Page 304
+> p.1/2
+> Page 304
+> p.2/2
+> SANE
+
+Figure 2: A concrete case from FinanceBench comparing embedding, HippoRAG 2, and SANE. Lin 2023b) train LMs specifically for reranking. All these methods use the full documents for reranking, which have limitations in both performance and cost (as shown in our ab-lation study). CoRank (Tian et al. 2025) performs reranking based on LM-extracted features like category, sections, and keywords, which calls the LM for every document. How to perform efficient post-retrieval selection of candidates to mit-igate the limitations of simple semantic retrievers is sparsely studied for RAG. Our method is fully training-free and em-ploys extremely cheap features like existing pre-metadata (e.g. , ID, date, page number), excerpts, and keywords to per-form cost-friendly post-retrieval selection. 
+
+Query-time Structuring 
+
+There have been various approaches for query-time structur-ing. StructRAG (Jia et al. 2025) classifies queries and con-verts retrieved content into formats according to the query type. RAS (Jiang et al. 2026) and SARG (Parekh, Jiang, and Han 2026) construct query-specific knowledge graphs, which require trained models or a lot of query-time LM calls and do not support flexible schemas. SLIDERS (Joshi et al. 2026) extracts documents into relational databases based on query-specific schemas and employs a coding LM to reason on it, which requires numerous LM calls for extraction and strict database constraints. SchemaRAG (Wang et al. 2026) recon-structs all the documents based on query-specific schemas and performs retrieval and reasoning on that basis, which is very costly for each query. Most of these methods prioritize accuracy over efficiency and are typically heavy with a lot of pipeline steps and LM calls; some even require specific LM training. In realistic scenarios, efficiency is an impor-tant dimension to ensure a good user experience and system responsiveness. Our method for query-time structuring is training-free and does not need a lot of extra LM calls for each query, which balances performance and efficiency. Overall, existing work leaves room for a lightweight query-time plugin that helps both candidate selection and evidence structuring, which is precisely the gap addressed by SANE. 
+
+## Discussion and Conclusion 
+
+Limitations 
+
+Although SANE exhibits outstanding results with modest overhead, we acknowledge that our work has certain limi-tations. First, due to limited resource, we only perform ex-periments using two families of LMs as the backbone. We also cannot perform multiple algorithm runs due to the pro-hibitive cost of many methods. Second, the blueprints for the evidence extraction only cover three simple frequent scenar-ios, which may deserve further refinement. 
+
+Future Work 
+
+There are a few future directions worth exploration. First, further improve the blueprints by adding more high-quality schemas or designing lightweight blueprint selection mech-anisms, so that the blueprints can be more flexible to adapt to different scenarios and domains. Second, integrate our method into practical agent systems ( e.g. , coding agent, computer-use agent) as a plugin of the default RAG tool to see its performance in agentic scenarios. 
+
+Conclusion 
+
+We have presented SANE, a simple yet effective plugin for RAG, which is plug-and-play, lightweight, and training-free. It performs synopsis-based candidate selection over a wide candidate pool, and then conducts blueprint-guided evidence extraction for the selected candidates for the query. Empir-ical results confirm that SANE brings solid improvements and outperforms all the compared methods while introduc-ing only modest extra overhead, which can be significantly more efficient than many advanced methods. These results demonstrate that SANE brings a lightweight alternative to heavier methods and serves as a simple yet effective plu-gin for RAG. We suggest that an advanced RAG framework need not be overly complex, and hope our work could inspire future research on cost-efficient RAG approaches. References 
+
+DeepSeek-AI. 2026. DeepSeek-V4: Towards Highly Efficient Million-Token Context Intelligence. arXiv:2606.19348. Edge, D.; Trinh, H.; Cheng, N.; Bradley, J.; Chao, A.; Mody, A.; Truitt, S.; Metropolitansky, D.; Ness, R. O.; and Larson, J. 2025. From Local to Global: A Graph RAG Approach to Query-Focused Summarization. arXiv:2404.16130. Gao, Y.; Xiong, Y.; Gao, X.; Jia, K.; Pan, J.; Bi, Y.; Dai, Y.; Sun, J.; Wang, M.; and Wang, H. 2024. Retrieval-Augmented Generation for Large Language Models: A Sur-vey. arXiv:2312.10997. Gutiérrez, B. J.; Shu, Y.; Gu, Y.; Yasunaga, M.; and Su, Y. 2024. HippoRAG: Neurobiologically Inspired Long-Term Memory for Large Language Models. In Advances in Neural Information Processing Systems . Curran Associates, Inc. Gutiérrez, B. J.; Shu, Y.; Qi, W.; Zhou, S.; and Su, Y. 2025. From RAG to Memory: Non-Parametric Continual Learning for Large Language Models. In Forty-second International Conference on Machine Learning .Hu, E. J.; yelong shen; Wallis, P.; Allen-Zhu, Z.; Li, Y.; Wang, S.; Wang, L.; and Chen, W. 2022. LoRA: Low-Rank Adaptation of Large Language Models. In International Conference on Learning Representations .Islam, P.; Kannappan, A.; Kiela, D.; Qian, R.; Scherrer, N.; and Vidgen, B. 2023. FinanceBench: A New Benchmark for Financial Question Answering. arXiv:2311.11944. Jia, R.; Zhang, B.; Méndez, S. J. R.; and Omran, P. G. 2025. StructRAG: Structure-Aware RAG Framework with Schol-arly Knowledge Graph for Diverse Question Answering. In 
+
+Companion Proceedings of the ACM on Web Conference 2025 .Jiang, P.; Cao, L.; Zhu, R.; Jiang, M.; Zhang, Y.; Shen, J.; Sun, J.; and Han, J. 2026. RAS: Retrieval-And-Structuring for Knowledge-Intensive LLM Generation. In The Fourteenth International Conference on Learning Representations .Joshi, H.; Shethia, P.; Dao, J.; and Lam, M. S. 2026. Con-texts are Never Long Enough: Structured Reasoning for Scalable Question Answering over Long Document Sets. arXiv:2604.22294. Karpukhin, V.; Oguz, B.; Min, S.; Lewis, P.; Wu, L.; Edunov, S.; Chen, D.; and Yih, W.-t. 2020. Dense Passage Retrieval for Open-Domain Question Answering. In Proceedings of the 2020 Conference on Empirical Methods in Natural Lan-guage Processing (EMNLP) .Khattab, O.; and Zaharia, M. 2020. ColBERT: Efficient and Effective Passage Search via Contextualized Late Interac-tion over BERT. In Proceedings of the 43rd International ACM SIGIR Conference on Research and Development in Information Retrieval .Lewis, P.; Perez, E.; Piktus, A.; Petroni, F.; Karpukhin, V.; Goyal, N.; Küttler, H.; Lewis, M.; Yih, W.-t.; Rocktäschel, T.; Riedel, S.; and Kiela, D. 2020. Retrieval-Augmented Gen-eration for Knowledge-Intensive NLP Tasks. In Advances in Neural Information Processing Systems .Luan, Y.; Eisenstein, J.; Toutanova, K.; and Collins, M. 2021. Sparse, Dense, and Attentional Representations for Text Re-trieval. Transactions of the Association for Computational Linguistics , 9. Ma, X.; Gong, Y.; He, P.; Zhao, H.; and Duan, N. 2023a. Query Rewriting in Retrieval-Augmented Large Language Models. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing .Ma, X.; Zhang, X.; Pradeep, R.; and Lin, J. 2023b. Zero-Shot Listwise Document Reranking with a Large Language Model. arXiv:2305.02156. Nogueira, R.; Yang, W.; Lin, J.; and Cho, K. 2019. Document Expansion by Query Prediction. arXiv:1904.08375. Parekh, J. R.; Jiang, P.; and Han, J. 2026. Structure-Augmented Reasoning Generation. arXiv:2506.08364. Pradeep, R.; Sharifymoghaddam, S.; and Lin, J. 2023a. RankVicuna: Zero-Shot Listwise Document Reranking with Open-Source Large Language Models. arXiv:2309.15088. Pradeep, R.; Sharifymoghaddam, S.; and Lin, J. 2023b. RankZephyr: Effective and Robust Zero-Shot Listwise Reranking is a Breeze! arXiv:2312.02724. Rafailov, R.; Sharma, A.; Mitchell, E.; Ermon, S.; Manning, C. D.; and Finn, C. 2024. Direct Preference Optimiza-tion: Your Language Model is Secretly a Reward Model. arXiv:2305.18290. Robertson, S.; and Zaragoza, H. 2009. The Probabilistic Relevance Framework: BM25 and Beyond. Found. Trends Inf. Retr. , 3(4). Sarthi, P.; Abdullah, S.; Tuli, A.; Khanna, S.; Goldie, A.; and Manning, C. 2024. RAPTOR: Recursive Abstractive Processing for Tree-Organized Retrieval. In International Conference on Learning Representations .Sun, W.; Yan, L.; Ma, X.; Wang, S.; Ren, P.; Chen, Z.; Yin, D.; and Ren, Z. 2023. Is ChatGPT Good at Search? Inves-tigating Large Language Models as Re-Ranking Agents. In 
+
+Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing .Tian, R.; Xu, X.; Jin, B.; Kang, S.; and Han, J. 2025. CoRank: LLM-Based Compact Reranking with Document Features for Scientific Retrieval. arXiv:2505.13757. Trivedi, H.; Balasubramanian, N.; Khot, T.; and Sabharwal, A. 2022. MuSiQue: Multihop Questions via Single-hop Question Composition. Transactions of the Association for Computational Linguistics , 10. Wang, S.; Shen, X.; Wan, C.; Sui, Y.; Zheng, Z.; Xiong, H.; and Ye, J. 2026. SchemaRAG: Enhancing Knowledge-Intensive Reasoning of LLMs via Inference-Time Adaptive Schema. Wu, D.; Wang, H.; Yu, W.; Zhang, Y.; Chang, K.-W.; and Yu, D. 2025. LongMemEval: Benchmarking Chat Assis-tants on Long-Term Interactive Memory. In The Thirteenth International Conference on Learning Representations .Yang, A.; Li, A.; Yang, B.; Zhang, B.; Hui, B.; Zheng, B.; Yu, B.; Gao, C.; Huang, C.; Lv, C.; Zheng, C.; Liu, D.; Zhou, F.; Huang, F.; Hu, F.; Ge, H.; Wei, H.; Lin, H.; Tang, J.; Yang, J.; Tu, J.; Zhang, J.; Yang, J.; Yang, J.; Zhou, J.; Zhou, J.; Lin, J.; Dang, K.; Bao, K.; Yang, K.; Yu, L.; Deng, L.; Li, M.; Xue, M.; Li, M.; Zhang, P.; Wang, P.; Zhu, Q.; Men, R.; Gao, R.; Liu, S.; Luo, S.; Li, T.; Tang, T.; Yin, W.; Ren, X.; Wang, X.; Zhang, X.; Ren, X.; Fan, Y.; Su, Y.; Zhang, Y.; Zhang, Y.; Wan, Y.; Liu, Y.; Wang, Z.; Cui, Z.; Zhang, Z.; Zhou, Z.; and Qiu, Z. 2025. Qwen3 Technical Report. arXiv:2505.09388. Yang, Z.; Qi, P.; Zhang, S.; Bengio, Y.; Cohen, W.; Salakhut-dinov, R.; and Manning, C. D. 2018. HotpotQA: A Dataset for Diverse, Explainable Multi-hop Question Answering. In 
+
+Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing .Zhang, Y.; Li, M.; Long, D.; Zhang, X.; Lin, H.; Yang, B.; Xie, P.; Yang, A.; Liu, D.; Lin, J.; Huang, F.; and Zhou, J. 2025. Qwen3 Embedding: Advancing Text Embedding and Reranking Through Foundation Models. arXiv:2506.05176. Zhao, P.; Zhang, H.; Yu, Q.; Wang, Z.; Geng, Y.; Fu, F.; Yang, L.; Zhang, W.; Jiang, J.; and Cui, B. 2026. Retrieval-augmented generation for ai-generated content: A survey. 
+
+Data Science and Engineering .
+
+## More Implementation Details 
+
+Hyperparameters 
+
+For all methods, we use their official default hyperparame-ters. If a method uses a retrieval budget such as top-k, we set it to the same k as SANE. For RAPTOR, its default hyperparameter could not run successfully on FinanceBench and LongMemEval. We there-fore increased the maximum tokens per leaf node from 100 to 2,048, the maximum tokens per cluster from 3,500 to 32,768, and reduced the dimensionality from 10 to 5 to make it runnable on those benchmarks. 
+
+Details of Blueprints 
+
+The detailed definitions of the three blueprints used by SANE are presented in Tables 9, 10, and 11, respectively. These definitions are included in the extraction LM’s context. 
+
+Prompt Templates for the LMs 
+
+The generator’s prompt template for Embedding (vanilla RAG) is shown in Figure 3. For SANE, the prompt templates for synopsis-based can-didate selection, blueprint-guided evidence extraction, and answer generation are presented in Figures 4, 5, and 6, re-spectively. The template for the “w/o synopsis” ablation is in Figure 7, and that for the “w/o blueprint” ablation is in Figure 8. 
+
+Other Details 
+
+For StructRAG, we train Qwen3.5-9B with LoRA (Hu et al. 2022) as the router for both backbone LMs in the main experiment. Due to compatibility issues, we use standard supervised fine-tuning (SFT) instead of the official direct preference optimization (DPO) (Rafailov et al. 2024). More specifically, DPO cannot override the LM’s reasoning tokens, so it fails to train the router as intended. 
+
+## Extended Experimental Results 
+
+Significance of Improvement 
+
+In the main experiments, the significance of SANE’s im-provement over baseline methods is judged using McNe-mar’s test (Table 12). All reported p-values are below 0.001, except SANE versus HippoRAG 2 on LongMemEval with DeepSeek-V4-Flash (p=0.0037) and SANE versus Em-bedding (p=0.0014) and HippoRAG 2 (p=0.0012) on Fi-nanceBench with Qwen3.5-9B. 
+
+Effect of Retrieval Hyperparameters 
+
+We analyze the effect of retrieval hyperparameters ( w and 
+
+k) in Table 13. SANE consistently improves performance across all combinations of w and k.Regarding w, we keep k fixed at 5 and evaluate with three 
+
+w values: 10, 20 (default), and 30. The results suggest that a smaller w leads to a substantial performance drop, which is reasonable because recall@ w is naturally lower when w
+
+is small. Meanwhile, a larger w does not necessarily help, possibly because too many candidates overload the selection LM’s context. Regarding k, SANE degrades gracefully with a smaller 
+
+k, while a larger k further benefits MuSiQue but slightly hurts FinanceBench and LongMemEval, possibly because the extraction LM’s context becomes overloaded. Overall, the current w and k values are near optimal, and SANE yields consistent gains over vanilla RAG across all evaluated settings. 
+
+Extraction Quality Breakdown 
+
+We quantitatively evaluate the quality of blueprint-guided evidence extraction on FinanceBench using Qwen3.5-9B as the backbone LM. We prompt an advanced LM, DeepSeek-V4-Pro (DeepSeek-AI 2026), to classify each row in the ex-tracted information into four categories: (1) Faithful: directly supported by the retrieved content; (2) Partial: only partially supported; (3) Error: derived from incorrect reasoning; (4) Hallucinated: contradicted or unsupported by the retrieved content (typically fabricated). As presented in Table 14, 81.1% of the extracted rows are faithful, and only 5.0% rows are partial or error, showing the blueprint-guided extraction is largely reliable. Nevertheless, there are 13.9% rows hallucinated. We acknowledge this is a limitation of the single-pass extraction, and leave more faithful single-pass extraction strategies for future work. 
+
+Distribution of Extracted Schemas 
+
+Table 15 shows the distribution of the extracted schemas on FinanceBench with Qwen3.5-9B as the backbone LM. “ATOMIC” dominates most cases, whereas “TEMPORAL” is rare. Notably, the extraction LM is not constrained by the blueprints and can design an appropriate schema on its own when necessary, as shown by the 6% “OTHER” schemas. 
+
+Full Results across Backbone LMs 
+
+Table 16 shows the full results comparing Embedding and SANE with multiple different backbone LMs. SANE consis-tently brings significant gains over the vanilla RAG across all Column Definition Rules 
+
+fact A single atomic proposition ex-pressed in one sentence Split compound statements with "and"/"but"/"or" into separate rows. Use the entity or topic as the subject. evidence quote Verbatim text from source Exact quote. Use ... for elision. Never paraphrase. source Which document/session Consistent label across rows. source date When the source was created ISO 8601 when resolvable; raw expression otherwise. NULL if unknown. 
+
+Table 9: The blueprint for “ATOMIC”. 
+
+Column Definition Rules 
+
+entity Which thing is being described Same canonical name in every row for the same entity. dimension What attribute is being compared Same dimension label for all entities on the same comparison axis. Rows sharing a dimension form a comparison group. value The attribute value Numeric when the source provides a number. Source text otherwise. NULL when this entity has no information for this dimension — asymmetry is information. unit Unit of measurement Standardized (million, km, percent, USD). Empty for categorical or unquantified values. evidence quote Verbatim text Exact quote. source Which document/session —
+
+Table 10: The blueprint for “COMPARATIVE”. 
+
+Column Definition Rules 
+
+event What happened Brief description (5-15 words). Include the key entity or action. position Ordinal position in the sequence 1-based integer. Ties (same position number) are allowed and expected when order within a group is ambiguous. resolved date Best-guess absolute date ISO 8601 (YYYY-MM-DD). NULL when unresolvable — this is common and acceptable. date precision How precisely the date is known day (exact), month (month known, day unknown), year (year only), relative (only order known, not absolute date). evidence quote Verbatim text Exact quote. source Which document/session —
+
+Table 11: The blueprint for “TEMPORAL”. 
+
+Vanilla RAG 
+
+I will give you several history records. Please answer the question based on the relevant records. History Records: {history} Current Date: {question_date} Question: {question} Answer: 
+
+Figure 3: The prompt template for the vanilla RAG. Synopsis-Based Candidate Selection 
+
+System: 
+
+You are a document selector for a retrieval system. Given a question and synopses of candidate documents, pick the ones most likely to contain information relevant to answering the question. Each line shows a quoted excerpt and keyword tags. Output ONLY a JSON list of up to {max_select} line numbers (1-based). Example: [2, 5, 7] Example (no relevant docs): [] 
+
+User: 
+
+## Question {query} ## Candidate Sessions (sorted by embedding similarity) {synopses} Output a JSON list of up to {max_select} session numbers that are most relevant to the question. 
+
+Figure 4: The prompt template for the synopsis-based candidate selection of SANE. 
+
+Method HotpotQA MuSiQue FinanceBench LongMemEval 
+
+DeepSeek-V4-Flash 
+
+Embedding +9.78 ∗∗∗ +12.17 ∗∗∗ +16.66 ∗∗∗ +14.20 ∗∗∗ 
+
+RAPTOR +12.88 ∗∗∗ +15.19 ∗∗∗ +30.00 ∗∗∗ +27.60 ∗∗∗ 
+
+HippoRAG 2 +5.52 ∗∗∗ +7.49 ∗∗∗ +16.66 ∗∗∗ +7.80 ∗∗ 
+
+StructRAG +14.63 ∗∗∗ +18.83 ∗∗∗ +14.66 ∗∗∗ +18.80 ∗∗∗ 
+
+RAS lite +19.62 ∗∗∗ +13.53 ∗∗∗ +42.66 ∗∗∗ +42.20 ∗∗∗ 
+
+Qwen3.5-9B 
+
+Embedding +13.27 ∗∗∗ +18.33 ∗∗∗ +14.00 ∗∗ +16.40 ∗∗∗ 
+
+RAPTOR +18.43 ∗∗∗ +21.18 ∗∗∗ +36.66 ∗∗∗ +31.00 ∗∗∗ 
+
+HippoRAG 2 +7.44 ∗∗∗ +9.68 ∗∗∗ +14.66 ∗∗ +13.20 ∗∗∗ 
+
+StructRAG +25.07 ∗∗∗ +32.11 ∗∗∗ +28.00 ∗∗∗ +37.60 ∗∗∗ 
+
+RAS lite +40.18 ∗∗∗ +39.47 ∗∗∗ +47.33 ∗∗∗ +47.20 ∗∗∗ 
+
+Table 12: Improvement of SANE over each baseline in percentage points. Significance is assessed using paired McNemar tests. 
+
+> ∗
+
+p < 0.05 , ∗∗ p < 0.01 , ∗∗∗ p < 0.001 .Blueprint-Guided Evidence Extraction 
+
+System: 
+
+You are a precise evidence extractor. Given a question and retrieved content, extract ONLY the information needed to answer the question. The schemas below are design inspiration — useful starting points, not rigid templates. ## Schema Lookup Table | Schema | Information Structure | Use When | Columns | |—|—|—|—| | ATOMIC | Independent facts — no row relates to any other | What/Who/Where/Define/Find/Yes-no questions | fact, evidence_quote, source, source_date | | COMPARATIVE | Aligned dimensions — entities compared on shared attributes | Compare/Difference/Versus/Which is larger-better-faster/Rank | entity, dimension, value, unit, evidence_quote, source | | TEMPORAL | Sequenced events — rows ordered by occurrence time | When/First/Last/Most recent/Timeline/Before-After/Sequence | event, position, resolved_date, date_precision, evidence_quote, source | ## Column Definitions ### ATOMIC {atomic_blueprint} ### COMPARATIVE {comparative_blueprint} ### TEMPORAL {temporal_blueprint} ## How to Use the Schemas - Schemas are design aids, not constraints. The goal is a clear evidence table — not schema compliance. - Use a schema directly when it fits the question well. - Adapt columns freely — rename domain-specific ones, drop irrelevant ones, borrow from multiple schemas. - When the evidence is sparse or the question doesn’t map cleanly to any schema, a simple fact table is perfectly fine. - When multiple perspectives apply (e.g., comparison + temporal order), you may blend columns or extract multiple complementary tables. ## Instructions 1. Read the question carefully. Identify what information structure best fits: independent facts, aligned comparison, or sequenced events. 2. Consult the schemas above for inspiration. Use them as flexible starting points. Let the retrieved content shape the schema as much as the blueprints do. 3. Scan the retrieved content. Find every piece of relevant information. IGNORE everything irrelevant. 4. Design a schema that fits the evidence you found. Be exhaustive — the answerer will filter and reason. 5. Every row MUST include an exact evidence_quote. Never paraphrase. 6. Output ONLY the markdown table. No preamble, no commentary, no answer. 
+
+User: 
+
+## Question {query} ## Retrieved History {formatted_history} Extract the minimum evidence needed to answer this question as a markdown table. 
+
+Figure 5: The prompt template for the blueprint-guided evidence extraction of SANE. 
+
+Answer Generation 
+
+I will give you extracted evidence from history records. Please answer the question based on this evidence. Extracted Evidence: {evidence} Current Date: {question_date} Question: {question} Answer: 
+
+Figure 6: The prompt template for the answer generation of SANE. Full-Text Candidate Selection 
+
+> You are a document selector for a retrieval system. Given a question and full-text records, pick the ones most likely to contain information relevant to answering the question. Each record is shown as a ## Record N section with its full content. Output ONLY a JSON list of up to {max_select} record numbers (1-based). Example: [2, 5, 7] Example (no relevant docs): []
+
+Figure 7: The prompt template for the full-text candidate selection variant ( i.e. , “w/o synopsis”). 
+
+Vanilla Information Extraction 
+
+> System:
+> You are a precise evidence extractor. Given a question and retrieved content, extract ONLY the information needed to answer the question. Output ONLY the extracted information.
+> User:
+> ## Question {query} ## Retrieved History {formatted_history} Extract the minimum evidence needed to answer this question as a markdown table.
+
+Figure 8: The prompt template for the vanilla information extraction variant ( i.e. , “w/o blueprint”). 
+
+Setting MQ FB LME Avg. 
+
+RAG (k=3) 21.6 48.7 36.2 35.5 SANE (k=3, w=20) 40.8 68.7 54.8 54.7 
+
+RAG (k=10) 33.0 61.3 47.6 47.3 SANE (k=10, w=20) 46.6 68.7 54.8 56.7 
+
+RAG (k=5) 26.5 57.3 40.0 41.3 SANE (k=5, w=10) 38.8 60.0 49.4 49.4 SANE (k=5, w=20) 44.9 71.3 56.4 57.5 
+
+SANE (k=5, w=30) 44.7 70.7 49.4 54.9 Table 13: Effect of retrieval hyperparameters. Evaluated on MuSiQue (MQ), FinanceBench (FB), and LongMemEval (LME), with Qwen3.5-9B as the backbone LM. 
+
+Classification Count Percentage 
+
+Faithful 615 81.1% Partial 26 3.4% Error 12 1.6% Hallucinated 105 13.9% Table 14: Distribution of extracted rows. 
+
+Schema Count Percentage #Rows 
+
+ATOMIC 117 78.0% 5.1 COMPARATIVE 22 14.7% 8.5 TEMPORAL 2 1.3% 7.0 OTHER 9 6.0% 4.4 Table 15: Distribution of extracted schemas. “#Rows” shows the averaged number of rows per extracted table. five backbone LMs and all four benchmarks. This shows that SANE benefits RAG whenever the LM is small (4 billion parameters for Qwen3.5-4B) or large (1.6 trillion total pa-rameters for DeepSeek-V4-Pro) and the architecture is dense (Qwen3.5 series) or sparse (mixture-of-experts for Qwen3.6-35B-A3B-FP8 and the DeepSeek series). 
+
+## Computing Infrastructure 
+
+The experiments were mainly run on a machine with an Apple M4 10-core processor and 16 GB of memory running macOS Tahoe 26.5.2. For the DeepSeek-V4-Flash and DeepSeek-V4-Pro (DeepSeek-AI 2026) LMs, we use the official API provided by DeepSeek. For Qwen LMs including Qwen3.5-4B, Qwen3.5-9B, and Qwen3.6-35B-A3B (Yang et al. 2025), we deploy them on 2× NVIDIA RTX PRO 6000 Blackwell Server Edition (96 GB) GPUs with vLLM 0.23.0 on a machine with Ubuntu 22.04. For the embedding model, i.e. , Qwen3-Embedding-0.6B (Zhang et al. 2025), we deploy it on a single NVIDIA Backbone LM Method HQ MQ FB LME Avg. 
+
+Qwen3.5-4B Embedding 43.04 21.85 57.33 39.2 40.36 SANE 56.16 37.77 71.33 50.4 53.92 
+
+Qwen3.5-9B Embedding 48.40 26.52 57.33 40.0 43.06 SANE 61.67 44.85 71.33 56.4 58.56 
+
+Qwen3.6-35B-A3B-FP8 Embedding 51.68 32.31 58.67 45.0 46.92 SANE 63.55 50.35 70.67 59.0 60.89 
+
+DeepSeek-V4-Flash Embedding 50.18 28.09 58.67 43.2 45.04 SANE 59.96 40.26 75.33 57.4 58.24 
+
+DeepSeek-V4-Pro Embedding 53.99 34.38 60.00 44.6 48.24 SANE 63.15 48.94 69.33 60.8 60.56 
+
+Table 16: Full results comparing Embedding and SANE on HotpotQA (HQ), MuSiQue (MQ), FinanceBench (FB), and LongMemEval (LME), with multiple different backbone LMs. GeForce RTX 4090 (48 GB) GPU with vLLM v0.20.0 on a machine with Ubuntu 22.04. All GPU resources were leased through AutoDL. 
+
+## Use of AI Systems 
+
+The algorithmic design and core methodology of this work were derived through manual research and human reasoning. We use generative AI assistants solely for wording, editing, formatting, and coding purposes. They do not impact the scientific rigor or originality of the research.

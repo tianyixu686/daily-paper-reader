@@ -1,0 +1,381 @@
+Title: KoVRE: Training an Efficient Embedding Model for Korean Visual Document Retrieval
+
+URL Source: https://arxiv.org/pdf/2608.01389v1
+
+Published Time: Tue, 04 Aug 2026 01:30:01 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# KOVRE: Training an Efficient Embedding Model for Korean Visual Document Retrieval 
+
+Yongbin Choi 1, Gyuho Shim 2, Youngjoon Jang 2†
+
+> 1
+
+Kyung Hee University 2Korea University 
+
+yongbinchoi@khu.ac.kr {gjshim, dew1701}@korea.ac.kr 
+
+Abstract 
+
+Visual Document Retrieval (VDR) directly matches text queries against document images, preserving visual and structural information that may be lost during text extraction. How-ever, existing VDR models and training re-sources remain predominantly English-centric, while many high-performing systems rely on massive backbones or storage-intensive multi-vector representations. To address these limita-tions, we introduce KOVRE : KOrean Visual Document Retrieval Embedding, a single-vector retriever for Korean visual documents, alongside a comprehensive training recipe. We train the model on 708,729 Korean and English query–page pairs using positive-aware hard-negative mining and conduct controlled analy-ses of training-data composition, hard-negative treatment, and reranker-based knowledge dis-tillation. Across Korean visual document re-trieval benchmarks, our 2B model substantially improves over the base backbone model, out-performing both its 8B single-vector counter-part and a strong multi-vector baseline. These results demonstrate that targeted bilingual su-pervision and our carefully designed training strategies can produce a highly effective Ko-rean VDR model across diverse document do-mains, without requiring a scaled-up backbone or multi-vector representations. 
+
+1 Introduction 
+
+Retrieval-Augmented Generation (RAG) allows language models to ground their outputs in exter-nal documents, but its effectiveness depends on retrieving the right evidence (Lewis et al., 2020; Yu et al., 2025; Wang et al., 2025; Tanaka et al., 2025). Most document retrieval systems index text extracted from document pages through pipelines involving Optical Character Recognition (OCR) and layout detection (Cho et al., 2024; Dong et al., 
+
+> †Corresponding author.
+
+2025). These pipelines are prone to errors and can discard visual cues encoded in page layouts, tables, figures, infographics, and spatial relationships. As a result, relevant information may become difficult to retrieve when its meaning depends on both tex-tual and visual content (Faysse et al., 2024; Ma et al., 2024). Visual document retrieval (VDR) addresses this limitation by directly matching text queries with rendered document pages (Macé et al., 2025; Loi-son et al., 2026; Wasserman et al., 2025; Peng et al., 2025; Shorten et al., 2026). Because it operates on page images, VDR retains access to textual, visual, and structural evidence without relying solely on extracted text. Recent VDR models have achieved strong retrieval performance, but many rely on large vision-language backbones or multi-vector representations that store multiple token- or patch-level embeddings for each page (Huang and Tan, 2025; Nomic Team, 2025; Xu et al., 2025; Xiao et al., 2025; Günther et al., 2025; Moreira et al., 2026; Li et al., 2026). Although multi-vector repre-sentations enable fine-grained matching, they also increase storage and retrieval costs as the collec-tion grows (Ma et al., 2025). A compact single-vector model therefore offers an attractive alter-native when both retrieval quality and scalability matter. However, progress in VDR has been largely driven by English-centric training data and eval-uation benchmarks (Osmulski et al., 2025). Mod-els with general multilingual capabilities do not necessarily provide strong retrieval performance in Korean, and only a limited number of models perform competitively across Korean VDR bench-marks (Lee et al., 2025; Choi et al., 2026). Conse-quently, there is still a need for a compact visual document retriever that is explicitly adapted to Ko-rean. Furthermore, how such a model should be trained remains underexplored, particularly with respect to training-language composition and how arXiv:2608.01389v1 [cs.AI] 2 Aug 2026 hard negatives are mined and treated, and how su-pervision from a teacher reranker can be effectively distilled into a compact retriever. To address this gap, we adapt Qwen3-VL-Embedding-2B (Li et al., 2026) for Korean visual document retrieval. We train the model on Korean and English query–page pairs with mined hard neg-atives and a Matryoshka multiple-negative ranking objective (Kusupati et al., 2022). Alongside the model, we systematically examine the effects of training data composition, self-guide filtering, hard-ness weighting, score normalization in knowledge distillation, and embedding dimensionality. Across Korean VDR benchmarks, our model substantially improves upon the original 2B model and outper-forms both its 8B single-vector counterpart and a strong multi-vector model. These results demon-strate that well-designed training can produce a competitive Korean retriever without requiring a larger backbone or a multi-vector index. Our con-tributions are as follows: • We develop a compact single-vector retriever for Korean visual documents through two-stage training, without modifying the underly-ing vision-language architecture. • We provide a systematic analysis of the train-ing components: language composition, addi-tion of text dataset, hard-negative construction, self-guide filtering, hardness weighting, min-max scaling, and embedding dimensionality. 
+
+2 Related Work 
+
+2.1 Visual Document Retrieval and Benchmarks 
+
+Visual document retrieval represents document pages directly from their rendered images and re-trieves them using textual queries. ColPali (Faysse et al., 2024) established a prominent late-interaction approach by adapting a vision–language model to produce multiple embeddings per page. Subsequent models such as ColNomic (Nomic Team, 2025) and Nemotron ColEmbed (Xu et al., 2025; Moreira et al., 2026) retain this multi-vector formulation to preserve token-level match-ing, but storing and scoring many vectors per page incurs substantial index storage and re-trieval overhead (Ma et al., 2025). ColModern-VBERT (Teiletche et al., 2025) addresses this cost from a different angle, designing a compact bidirectional encoder while retaining late interac-tion. A complementary direction compresses each query and page into a single dense vector, as seen in Nomic Embed Multimodal, released alongside ColNomic (Nomic Team, 2025), and Qwen3-VL-Embedding (Li et al., 2026), while Jina Embed-dings v4 (Günther et al., 2025) supports both for-mulations. Qwen3-VL-Embedding further supports variable output dimensions via Matryoshka Repre-sentation Learning (MRL) (Kusupati et al., 2022) and is released at multiple scales, making it a suit-able foundation for studying compact retrieval. Although early VDR resources focused primar-ily on English or European languages (Macé et al., 2025; Loison et al., 2026), recent benchmarks have introduced evaluation suites for Korean visual documents. SDS KoPub VDR (Lee et al., 2025) evaluates structured public documents across tex-tual, visual, and cross-modal queries, while KoVi-DoRe (Choi et al., 2026) provides multi-domain documents and multi-page targets alongside the Ko-VDR Train Public corpus. Together, these resources establish evaluation infrastructure for Korean VDR, while training data for the language remains lim-ited in both scale and document diversity relative to its English counterparts. 
+
+2.2 Training Techniques for Dense Retrievers 
+
+The training techniques examined in this work were largely developed for text retrieval. Hard-negative mining strengthens contrastive training, and ANCE (Xiong et al., 2020) improves negative hardness by sampling from a periodically refreshed global index. Harder negatives, however, raise the risk of false negatives, prompting strategies to de-tect and remove them: RocketQA (Qu et al., 2021) filters mined candidates using a cross-encoder, NV-Retriever (Moreira et al., 2024) introduces positive-aware thresholds that discard candidates scoring too close to the positive, and GISTEmbed (Solato-rio, 2024) masks in-batch candidates that a separate guide model scores above the positive. Rather than removing such negatives, LLaVE (Lan et al., 2025) and EmbeddingGemma (Vera et al., 2025) reweight mined negatives by difficulty. Distilling cross-encoder rerankers into bi-encoder retrievers is likewise well established. margin-MSE (Hofstätter et al., 2020) matches score margins between teacher and student, while Rock-etQAv2 (Ren et al., 2023) and ColBERTv2 (San-thanam et al., 2022) adopt listwise objectives that align normalized score distributions. Be-Dataset Pages Q–D Pairs                          
+
+> Korean
+> ko-vdr-train-public 7,548 310,226
+> ko-vdr-train-private 28,267 118,624
+> Subtotal 35,815 428,850
+> After hard-negative selection 416,304
+> After positive refinement 406,945
+> English
+> VisRAG-Ret-Train-In-domain-data 84,417 122,752
+> vdr-multilingual-train (en) 53,335 53,512
+> REAL-MM-RAG_FinTabTrainSet_rephrased 48,206 48,206
+> colpali_train_set 38,866 118,195
+> tatdqa_train 1,890 13,251
+> Subtotal 226,714 355,916
+> After hard-negative selection 323,443
+> After positive refinement 301,784 Total 262,529 708,729
+
+Table 1: Composition of the bilingual corpus used for contrastive learning in Stage 1. Pages denote dedupli-cated page images in the hard-negative corpora. Source subtotals give the number of query–positive pairs before filtering. 
+
+cause reranker scores lie on an unbounded, query-dependent scale, these methods place teacher and student scores on a common scale before compar-ison. These techniques have been developed and validated mainly on text retrieval, and their behav-ior in visual document retrieval remains largely unexamined. 
+
+3 Training Method 
+
+We train the retriever in two stages. In Stage 1, we perform Contrastive Learning (CL) on Korean and English visual document retrieval data, where the English data is included deliberately to pre-vent catastrophic forgetting of the backbone’s pre-existing retrieval ability during Korean adaptation. We then perform reranker-based Knowledge Distil-lation (KD) using only the Korean data to further focus the model on Korean retrieval in Stage 2. 
+
+3.1 Base Model and Representation 
+
+We initialize our retriever from Qwen3-VL-Embedding-2B and largely follow its embedding training recipe (Li et al., 2026). The model ac-cepts a text query or a rendered document page and maps the input to a shared dense space. We preserve the original architecture and use a single 2,048-dimensional vector to represent each page at full dimensionality. The query instruction is "Find a document image that matches the given query." , while document pages use the default instruction, "Represent the user’s input" .Cosine similarity is used for both training and re-trieval. Following the original recipe, we preserve the as-pect ratio of each page image and cap its resolution at 1,280 visual tokens, corresponding to approxi-mately 1.3 × 10 6 pixels. Qwen3-VL-Embedding-2B supports user-defined output dimensions from 64 to 2,048. During training, we apply Matryoshka Representation Learning (MRL) at 2,048, 1,024, 768, 512, 256, and 128 dimensions (Kusupati et al., 2022). 
+
+3.2 Training Data Construction Stage 1 Training Data Table 1 summarizes the datasets used in Stage 1, listing the original dataset names and corresponding numbers of Q–D pairs. The Korean component combines the public train-ing resource released with KoViDoRe (Choi et al., 2026) and an additional private Korean collec-tion from AI Hub. 1 The English component com-bines five existing VDR resources covering re-ports, slides, tables, and other visually structured pages (Faysse et al., 2024; Yu et al., 2025; Wasser-man et al., 2025; Zhu et al., 2021; LlamaIndex, 2025). After mining and filtering, the Korean and English components retain 406,945 and 301,784 Q–D pairs, respectively. Each retained pair consists of one text query, one positive page image, and seven mined negative page images. We mine seven hard negatives per query using Qwen3-VL-Embedding-8B. Within each source dataset, we rank pages by cosine similarity af-ter excluding known positives. Following NV-Retriever (Moreira et al., 2024), we also exclude candidates whose similarity exceeds 95% of the annotated positive similarity to reduce false nega-tives. We retain the seven highest-ranked eligible pages and discard pairs with fewer than seven can-didates. We additionally remove weakly aligned query–positive pairs. Based on separate inspection of the Korean and English score distributions and manually reviewed samples, we retain a query only if at least one positive scores above 0.3. This fil-tering removes 9,359 Korean and 21,659 English pairs, yielding the totals reported in Table 1. 
+
+Stage 2 Training Data Stage 2 uses only the Ko-rean component of this corpus, keeping the same queries and positive pages but replacing binary hard negatives with soft distillation targets from a reranker teacher. For each query, we assemble a candidate pool of 64 pages: the 32 highest-ranked embedding-hard negatives mined with Qwen3-VL-Embedding-8B and 32 pages randomly sampled 
+
+> 1https://aihub.or.kr/
+
+from the corpus. We then score every query–page pair with Qwen3-VL-Reranker-8B (Li et al., 2026). These reranker scores act as the teacher relevance labels that the student is distilled toward. From the 64 scored candidates we retain the eight nega-tives with the highest teacher scores, concentrating supervision on the pages the teacher finds most confusable with the positive. Each Stage 2 instance thus consists of one query and a candidate set con-taining one positive and eight negative pages, to-gether with a teacher-score vector over the nine candidates. This yields a total of 265,311 query-level distillation instances. 
+
+3.3 Stage 1: Contrastive Learning 
+
+In Stage 1, we optimize an InfoNCE objective over paired positives, explicitly mined hard negatives, and in-batch negatives. Let qi denote a query, d+
+
+> i
+
+its paired positive page, Hi the set of seven mined hard negatives, and Bi the set of in-batch negatives. We define the full negative set as D− 
+
+> i
+
+= Hi ∪ B i.Before self-guide filtering and hardness weighting, the loss is 
+
+LCL  
+
+> i
+
+= − log exp( s(qi, d + 
+
+> i
+
+)/τ )
+
+P 
+
+> d∈{ d+
+> i}∪D −
+> i
+
+exp( s(qi, d )/τ ) ,
+
+where s(·, ·) is cosine similarity and τ is a temper-ature parameter. We apply self-guide filtering to all negatives in 
+
+D− 
+
+> i
+
+. Our self-guide setting of −0.1 excludes a neg-ative d ∈ D − 
+
+> i
+
+from the denominator when 
+
+sg( s(qi, d )) > sg  s(qi, d + 
+
+> i
+
+) + 0 .1,
+
+where sg denotes stop-gradient. The paired positive is never masked. This rule reduces the influence of potential false negatives that the model scores substantially higher than the annotated positive. We additionally adopt the hardness-weighted contrastive learning strategy used in LLaVE (Lan et al., 2025) and EmbeddingGemma (Vera et al., 2025). For each explicitly mined hard negative 
+
+h ∈ H i, we add a stop-gradient hardness term to its contrastive logit: 
+
+ℓ(qi, h ) = s(qi, h )
+
+τ + α sg( s(qi, h )) ,
+
+where α controls the hardness-weighting strength. We set α = 2 and apply the additional term only to the seven mined hard negatives in Hi; in-batch neg-atives in Bi retain the unweighted logit s(qi, d )/τ .After self-guide filtering, this weighted logit re-places the standard InfoNCE logit for each remain-ing hard negative. We apply the resulting contrastive objective jointly across the Matryoshka dimensions. Let 
+
+M = {mk}Kk=1 denote the set of training dimen-sions specified above. For an input x, its representa-tion at dimension m ∈ M is obtained by truncating and normalizing the full embedding: 
+
+z(m) 
+
+> x
+
+= zx, 1: m
+
+∥zx, 1: m∥2
+
+, sm(q, d ) = z(m)
+
+> q
+> ⊤
+
+z(m) 
+
+> d
+
+.
+
+For each m ∈ M , we compute the contrastive loss described above using sm(·, ·) with the same self-guide filtering and hardness weighting. The final Stage 1 objective is 
+
+LStage1 = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+X
+
+> m∈M
+
+LCL ,(m) 
+
+> i
+
+,
+
+where LCL ,(m) 
+
+> i
+
+denotes the contrastive loss for query i at dimension m, and N is the number of queries in the contrastive batch. 
+
+3.4 Stage 2: Knowledge Distillation 
+
+In Stage 2, we optimize the KL-Divergence objec-tive over the teacher scores. For each query qi, let 
+
+Ci denote the candidate set containing its paired positive and eight mined pages. We use tij and uij 
+
+to denote the teacher reranker score and student co-sine similarity for candidate dj ∈ C i, respectively. Because the teacher and student scores have dif-ferent numerical ranges, we independently apply min–max normalization to each score vector within the candidate set: 
+
+¯xij = xij − min k∈C i xik 
+
+max k∈C i xik − min k∈C i xik + ϵ , x ∈ { t, u },
+
+where ϵ is a small constant for numerical stabil-ity. We convert the normalized scores into distribu-tions over the candidate set: 
+
+pTij = exp(¯ tij )
+
+P 
+
+> k∈C i
+
+exp(¯ tik ) , pSij = exp(¯ uij )
+
+P 
+
+> k∈C i
+
+exp(¯ uik ) .
+
+The student minimizes the KL divergence from the teacher distribution to the student distribution: 
+
+LKD  
+
+> i
+
+= D KL 
+
+ pTi ∥ pSi
+
+ = X
+
+> j∈C i
+
+pTij log pTij 
+
+pSij 
+
+.Model # params KoViDoRe SDSKoPub OVR Cybersecurity Economic Energy HR AVG jina-clip-v2 0.9B 0.1993 0.0011 0.1096 0.0294 0.0849 0.0732 0.0825 jina-v5-omni-nano 1B 0.4404 0.0640 0.2017 0.0695 0.1939 0.0961 0.1743 jina-v5-omni-small 2B 0.4357 0.0744 0.2380 0.1029 0.2128 0.1902 0.2082 Qwen3-VL-Embedding-2B 2B 0.6111 0.1592 0.4123 0.1842 0.3417 0.4285 0.3591 Qwen3-VL-Embedding-8B 8B 0.7809 0.2373 0.6360 0.3613 0.5039 0.7293 0.5489 jina-embeddings-v4 (single-vector) 4B 0.7280 0.2058 0.6273 0.4106 0.4929 0.7222 0.5388 jina-embeddings-v4 (multi-vector) 4B 0.7714 0.2359 0.6752 0.4799 0.5406 0.7802 0.5885                 
+
+> KOVRE (Stage 1) 2B 0.7444 0.2797 0.6506 0.5002 0.5437 0.7214 0.5792
+> KOVRE (Stage 1 + Stage 2) 2B 0.7627 0.2987 0.6576 0.5082 0.5568 0.7324 0.5919
+
+Table 2: nDCG@10 results on Korean VDR benchmarks. AVG is averaged over the four KoViDoRe domains, and OVR is the macro-average over these four domains and SDS KoPub VDR. 
+
+As in Stage 1, we apply this objective across the Matryoshka dimensions M, deriving the stu-dent distribution from sm(·, ·) at each dimension 
+
+m while the teacher distribution is shared across dimensions. The final Stage 2 objective is 
+
+LStage2 = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+X
+
+> m∈M
+
+LKD ,(m) 
+
+> i
+
+,
+
+where LKD ,(m) 
+
+> i
+
+denotes the distillation loss for query i at dimension m.
+
+3.5 Implementation Details 
+
+In Stage 1, we train the full 2B model for one epoch using bfloat16 mixed precision on two B200 GPUs. The per-device batch size is 128 with two gradient-accumulation steps. We apply GradCache (Gao et al., 2021) with a mini-batch size of 8, decoupling embedding computation from loss computation to support a larger effective contrastive batch under the available GPU memory. We use a learning rate of 2×10 −5, cosine decay, and a warmup proportion of 0.1. Duplicate examples are excluded within a batch, and datasets are sampled proportionally. Korean and English examples remain in separate datasets and are not mixed within the same batch. In Stage 2, we train the student model on eight RTX PRO 6000 GPUs. The per-device batch size is 8 with two gradient-accumulation steps, yielding an effective batch size of 128. We use a learning rate of 1 × 10 −6 in this stage. 
+
+4 Experimental Setup 
+
+4.1 Benchmarks and Metrics 
+
+We evaluate Korean visual document retrieval in two complementary settings. KoViDoRe contains Korean queries over public and enterprise-style documents from four domains: cybersecurity, eco-nomics, energy, and human resources. A query may correspond to multiple relevant pages, allowing the benchmark to measure ranking quality across di-verse document domains. SDS KoPub VDR con-tains Korean public documents with textual, vi-sual, and cross-modal query categories. This set-ting evaluates out-of-distribution transfer in Korean visual document retrieval. We report nDCG@10 as the main evaluation metric, following the Mas-sive Multilingual Text Embedding Benchmark (MMTEB) (Enevoldsen et al., 2025). 
+
+4.2 Baselines 
+
+We select Qwen3-VL-Embedding-8B and jina-embeddings-v4 as baselines because both show strong performance on KoViDoRe and SDS KoPub VDR. We additionally include Qwen3-VL-Embedding-2B, the original backbone from which our model is initialized, to measure the effect of Korean adaptation. For jina-embeddings-v4, we evaluate both its single-vector and multi-vector rep-resentations. We also include jina-clip-v2 (Kouk-ounas et al., 2024), jina-v5-omni-nano, jina-v5-omni-small (Hönicke et al., 2026). All retrieval evaluations are conducted using the MTEB frame-work (Muennighoff et al., 2023). 2
+
+5 Results and Analysis 
+
+We first report the performance of K OVRE af-ter Stage 1 and Stage 2 relative to single-vector and multi-vector baselines. We then examine the main components of the training recipe through controlled ablations on training-data composition,   
+
+> 2https://github.com/embeddings-benchmark/mteb ko vdr only ko vdr + en vdr ko vdr + en vdr
+> + ko text
+> 0.555
+> 0.560
+> 0.565
+> 0.570
+> 0.575
+> 0.580
+> nDCG@10
+> 0.5649
+> 0.5762
+> 0.5737
+
+Figure 1: Effect of training-data composition on Korean VDR performance. 
+
+negative treatment, score normalization in knowl-edge distillation, and embedding dimensionality under Matryoshka representation learning (MRL). Unless otherwise stated, each experiment varies only the component under study. 
+
+5.1 Main Results 
+
+Table 2 summarizes the overall results across the evaluated benchmarks. Stage 1 improves consis-tently over the original Qwen3-VL-Embedding-2B model and already approaches the strongest baseline overall, showing that bilingual contrastive training and hard-negative supervision provide an effective adaptation signal for Korean VDR. Stage 2 further improves performance on every benchmark, indicating that reranker-based knowl-edge distillation transfers additional ranking infor-mation beyond the contrastive objective. The final K OVRE model achieves the best ag-gregate performance and the highest KoViDoRe average, with particular strengths in the eco-nomic and human-resources domains. Qwen3-VL-Embedding-8B remains strongest on cybersecurity, while multi-vector jina-embeddings-v4 leads on en-ergy and SDS KoPub VDR. These domain-level differences suggest that no model dominates ev-ery document distribution, but K OVRE provides the most balanced performance across the eval-uated Korean benchmarks. Its overall advantage over both a larger single-vector model and a strong multi-vector model further indicates that targeted training can be more consequential than increasing model size or adopting a storage-intensive repre-sentation.                 
+
+> (α)self-guide KoViDoRe SDS KoPub VDR OVR
+> 2.0 X0.5426 0.7100 0.5761 2.0 -0.1 0.5437 0.7214 0.5792
+> 5.0 -0.1 0.5439 0.7094 0.5770
+
+Table 3: Ablation study on hardness weight ( α) and self-guide. 
+
+5.2 Effect of Training Data Composition 
+
+We compare three training mixtures: Korean VDR data only, Korean and English VDR data, and the bilingual VDR mixture augmented with an addi-tional Korean text dataset. As illustrated in Figure 1, the bilingual VDR mixture performs better overall than the Korean-only configuration. Mixing En-glish examples may provide a rehearsal-like signal that helps preserve the backbone’s pre-existing mul-tilingual retrieval capability during Korean adapta-tion (M’hamdi and May, 2024; Huang et al., 2024). To evaluate the effect of an additional text dataset, we use the Korean retrieval dataset 
+
+nlpai-lab/ko-triplet-v1.0 (Jang et al., 2024) and select seven hard negatives per query using Qwen3-Embedding-8B. These examples are added to the bilingual VDR corpus but organized into separate batches from the visual document exam-ples. Adding the Korean text dataset reduces perfor-mance on both benchmarks and the overall macro average relative to the bilingual VDR mixture. Ad-ditional text supervision therefore provides no ben-efit under the current batching and sampling strat-egy. We consequently retain only the Korean and English VDR datasets in the final Stage 1 training mixture. 
+
+5.3 Negative Treatment 
+
+We jointly examine self-guide filtering and the strength of hardness weighting applied to the seven explicitly mined hard negatives. Table 3 compares a configuration without self-guide filtering with two configurations that use a self-guide threshold of 
+
+−0.1. At a fixed hardness weight ( α = 2 .0), adding self-guide filtering improves SDS KoPub VDR and the overall result while preserving KoViDoRe performance. By contrast, increasing the hardness weight yields only a negligible gain on KoViDoRe and weakens performance on SDS KoPub VDR, suggesting that excessive emphasis on mined hard negatives can reduce transfer to an unseen doc-ument distribution. Taken together, these results support using α = 2 .0 with a self-guide threshold of −0.1 in the final Stage 1 configuration. 0.55 0.56 0.57 0.58 0.59 0.60 
+
+> Avg nDCG@10
+> Stage 1
+> Stage 2 (min-max O)
+> Stage 2 (min-max X)
+> 0.5792
+> 0.5919
+> 0.5563
+
+Figure 2: Effect of per-row min–max score normal-ization on Stage 2 distillation, measured by average nDCG@10. 
+
+5.4 Score Normalization for Knowledge Distillation 
+
+During Stage 2, we distill the reranker teacher into KOVRE by matching, for each query, the student’s distribution over the positive and eight negatives to that of the teacher. Because the reranker assigns scores on an unbounded, query-dependent scale, ap-plying a softmax directly to the raw teacher scores yields sharply peaked targets that collapse onto the single highest-scoring page, discarding the graded relevance information that motivates distillation. To address this, we apply per-row min–max nor-malization that rescales each query’s student and teacher scores to [0 , 1] before applying the soft-max, placing the two distributions on a common scale while preserving the shape of the teacher’s relevance ordering. Figure 2 shows that per-query min–max normal-ization is critical under our tested distillation config-uration. Without min–max normalization, Stage 2 distillation is actively harmful: the overall score drops to 0.5563, well below the 0.5792 of the Stage 1 checkpoint. With min–max normalization, distillation instead improves the model to 0.5919. Score normalization is therefore a prerequisite for effective knowledge distillation in our setting. 
+
+5.5 Performance of Matryoshka Dimensions 
+
+Figure 3 shows the overall retrieval performance of K OVRE across the embedding dimensions used for Matryoshka representation learning. K OVRE retains strong retrieval performance even as the embedding dimension is substantially reduced, indicating that MRL effectively preserves task-relevant information in compact representations. Notably, the 256-dimensional K OVRE representa-tion slightly outperforms Qwen3-VL-Embedding-8B with 4,096 dimensions while using only one-sixteenth as many embedding dimensions. Because 128 256 512 768 1024 2048  
+
+> Embedding dimension
+> 0.50
+> 0.52
+> 0.54
+> 0.56
+> 0.58
+> 0.60
+> Avg nDCG@10
+> 0.5489
+> Qwen3-VL-Embedding-8B (4096)
+> 0.4994
+> 0.5500
+> 0.5673
+> 0.5760 0.5788
+> 0.5919
+
+Figure 3: Overall nDCG@10 of K OVRE across MRL dimensions. The dashed line denotes Qwen3-VL-Embedding-8B with a 4,096-dimensional representa-tion. 
+
+the two models also differ in size and training data, this comparison should be interpreted as evidence for the practical compactness of the learned repre-sentation rather than as an isolated effect of dimen-sionality. 
+
+6 Conclusion 
+
+We introduce K OVRE, a compact single-vector re-triever for Korean visual documents adapted from Qwen3-VL-Embedding-2B. K OVRE is trained in two stages: contrastive learning on 708,729 Korean and English query–page pairs with positive-aware hard-negative mining and targeted loss design, fol-lowed by reranker-based knowledge distillation on the Korean subset, for which per-query min–max score normalization proves essential. Across Ko-rean VDR benchmarks, the adapted 2B model sub-stantially improves over the original checkpoint, outperforms the corresponding 8B single-vector model, and slightly exceeds a strong 4B multi-vector baseline in aggregate performance, despite using a smaller backbone and a single-vector rep-resentation that remains competitive even at a frac-tion of its full dimensionality. We hope that our training recipe and the accompanying analyses serve as a practical starting point for building visual document retrievers in other languages that remain underserved by current models. 
+
+Limitations 
+
+The Korean training corpus contains substantially fewer distinct page images than its English coun-terpart, despite providing more Q–D pairs (35,815 versus 226,714 pages). Korean supervision is there-fore concentrated on a relatively limited pool of pages, restricting the diversity of layouts, docu-ment types, and visual structures observed during training. This limited exposure may constrain gen-eralization to Korean documents with page formats that are underrepresented in the training corpus. Future work should expand the diversity of Korean page images rather than increasing only the number of queries associated with existing pages. 
+
+References 
+
+Jaemin Cho, Debanjan Mahata, Ozan Irsoy, Yujie He, and Mohit Bansal. 2024. M3docrag: Multi-modal retrieval is what you need for multi-page multi-document understanding. arXiv preprint arXiv:2411.04952 .Yongbin Choi, Yongwoo Song, and Mujeen Sung. 2026. KoViDoRe: A benchmark for Korean visual doc-ument retrieval. In Proceedings of the 2nd Work-shop on Multimodal Augmented Generation via Mul-timodal Retrieval (MAGMaR 2026) , pages 54–80, San Diego, USA. Association for Computational Lin-guistics. Kuicai Dong, Yujing Chang, Derrick Goh Xin Deik, Dexun Li, Ruiming Tang, and Yong Liu. 2025. MM-DocIR: Benchmarking multimodal retrieval for long documents. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Process-ing , pages 30971–31005, Suzhou, China. Association for Computational Linguistics. Kenneth Enevoldsen, Isaac Chung, Imene Kerboua, Már-ton Kardos, Ashwin Mathur, David Stap, Jay Gala, Wissam Siblini, Dominik Krzemi´ nski, Genta Indra Winata, et al. 2025. Mmteb: Massive multilin-gual text embedding benchmark. arXiv preprint arXiv:2502.13595 .Manuel Faysse, Hugues Sibille, Tony Wu, Bilel Om-rani, Gautier Viaud, Céline Hudelot, and Pierre Colombo. 2024. Colpali: Efficient document re-trieval with vision language models. arXiv preprint arXiv:2407.01449 .Luyu Gao, Yunyi Zhang, Jiawei Han, and Jamie Callan. 2021. Scaling deep contrastive learning batch size under memory limited setup. In Proceedings of the 6th Workshop on Representation Learning for NLP (RepL4NLP-2021) , pages 316–321. Michael Günther, Saba Sturua, Mohammad Kalim Akram, Isabelle Mohr, Andrei Ungureanu, Bo Wang, Sedigheh Eslami, Scott Martens, Maximilian Werk, Nan Wang, and Han Xiao. 2025. jina-embeddings-v4: Universal embeddings for multimodal multilin-gual retrieval. In Proceedings of the 5th Workshop on Multilingual Representation Learning (MRL 2025) ,pages 531–550, Suzhuo, China. Association for Com-putational Linguistics. Sebastian Hofstätter, Sophia Althammer, Michael Schröder, Mete Sertkan, and Allan Hanbury. 2020. Improving efficient neural ranking models with cross-architecture knowledge distillation. arXiv preprint arXiv:2010.02666 .Florian Hönicke, Michael Günther, Andreas Koukounas, Mohammad Kalim Akram, Scott Martens, Saba Stu-rua, and Han Xiao. 2026. jina-embeddings-v5-omni: Geometry-preserving embeddings via locked aligned towers. arXiv preprint arXiv:2605.08384 .Jianheng Huang, Leyang Cui, Ante Wang, Chengyi Yang, Xinting Liao, Linfeng Song, Junfeng Yao, and Jinsong Su. 2024. Mitigating catastrophic forgetting in large language models with self-synthesized re-hearsal. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Vol-ume 1: Long Papers) , pages 1416–1428, Bangkok, Thailand. Association for Computational Linguistics. Xin Huang and Kye Min Tan. 2025. Beyond text: Un-locking true multimodal, end-to-end rag with tomoro colqwen3. Youngjoon Jang, Junyoung Son, Chanjun Park, Soon-woo Choi, Byeonggoo Lee, Taemin Lee, and Heuiseok Lim. 2024. Koe5: A new dataset and model for improving korean embedding performance. In 
+
+Annual Conference on Human and Language Tech-nology , pages 239–244. Human and Language Tech-nology. Andreas Koukounas, Georgios Mastrapas, Sedigheh Es-lami, Bo Wang, Mohammad Kalim Akram, Michael Günther, Isabelle Mohr, Saba Sturua, Nan Wang, and Han Xiao. 2024. jina-clip-v2: Multilingual mul-timodal embeddings for text and images. arXiv preprint arXiv:2412.08802 .Aditya Kusupati, Gantavya Bhatt, Aniket Rege, Matthew Wallingford, Aditya Sinha, Vivek Ramanu-jan, William Howard-Snyder, Kaifeng Chen, Sham Kakade, Prateek Jain, et al. 2022. Matryoshka repre-sentation learning. Advances in Neural Information Processing Systems , 35:30233–30249. Zhibin Lan, Liqiang Niu, Fandong Meng, Jie Zhou, and Jinsong Su. 2025. Llave: Large language and vi-sion embedding models with hardness-weighted con-trastive learning. arXiv preprint arXiv:2503.04812 .Jaehoon Lee, Sohyun Kim, Wanggeun Park, Geon Lee, Seungkyung Kim, and Minyoung Lee. 2025. Sds kopub vdr: A benchmark dataset for visual document retrieval in korean public documents. arXiv preprint arXiv:2511.04910 .Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Hein-rich Küttler, Mike Lewis, Wen-tau Yih, Tim Rock-täschel, et al. 2020. Retrieval-augmented generation for knowledge-intensive nlp tasks. Advances in neu-ral information processing systems , 33:9459–9474. Mingxin Li, Yanzhao Zhang, Dingkun Long, Keqin Chen, Sibo Song, Shuai Bai, Zhibo Yang, Pengjun Xie, An Yang, Dayiheng Liu, et al. 2026. Qwen3-vl-embedding and qwen3-vl-reranker: A unified frame-work for state-of-the-art multimodal retrieval and ranking. arXiv preprint arXiv:2601.04720 .LlamaIndex. 2025. vdr-multilingual-train dataset. https://huggingface.co/datasets/ llamaindex/vdr-multilingual-train .António Loison, Quentin Macé, Antoine Edy, Victor Xing, Tom Balough, Gabriel de Souza P. Moreira, Bo Liu, Manuel Faysse, Celine Hudelot, and Gautier Viaud. 2026. ViDoRe v3: A comprehensive evalu-ation of retrieval augmented generation in complex real-world scenarios. In Proceedings of the 64th An-nual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 16570– 16600, San Diego, California, United States. Associ-ation for Computational Linguistics. Xueguang Ma, Sheng-Chieh Lin, Minghan Li, Wenhu Chen, and Jimmy Lin. 2024. Unifying multimodal retrieval via document screenshot embedding. In Pro-ceedings of the 2024 Conference on Empirical Meth-ods in Natural Language Processing , pages 6492– 6505, Miami, Florida, USA. Association for Compu-tational Linguistics. Yubo Ma, Jinsong Li, Yuhang Zang, Xiaobao Wu, Xi-aoyi Dong, Pan Zhang, Yuhang Cao, Haodong Duan, Jiaqi Wang, Yixin Cao, and Aixin Sun. 2025. To-wards storage-efficient visual document retrieval: An empirical study on reducing patch-level embeddings. In Findings of the Association for Computational Linguistics: ACL 2025 , pages 19568–19580, Vienna, Austria. Association for Computational Linguistics. Quentin Macé, António Loison, and Manuel Faysse. 2025. Vidore benchmark v2: Raising the bar for visual retrieval. arXiv preprint arXiv:2505.17166 .Meryem M’hamdi and Jonathan May. 2024. Leitner-guided memory replay for cross-lingual continual learning. In Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Tech-nologies (Volume 1: Long Papers) , pages 7808–7821, Mexico City, Mexico. Association for Computational Linguistics. Gabriel de Souza P Moreira, Ronay Ak, Mengyao Xu, Oliver Holworthy, Benedikt Schifferer, Zhid-ing Yu, Yauhen Babakhin, Radek Osmulski, Jiarui Cai, Ryan Chesler, et al. 2026. Nemotron colem-bed v2: Top-performing late interaction embedding models for visual document retrieval. arXiv preprint arXiv:2602.03992 .Gabriel de Souza P Moreira, Radek Osmulski, Mengyao Xu, Ronay Ak, Benedikt Schifferer, and Even Oldridge. 2024. Nv-retriever: Improving text em-bedding models with effective hard-negative mining. 
+
+arXiv preprint arXiv:2407.15831 .Niklas Muennighoff, Nouamane Tazi, Loic Magne, and Nils Reimers. 2023. MTEB: Massive text embedding benchmark. In Proceedings of the 17th Conference of the European Chapter of the Association for Com-putational Linguistics , pages 2014–2037, Dubrovnik, Croatia. Association for Computational Linguistics. Nomic Team. 2025. Nomic embed multimodal: Inter-leaved text, image, and screenshots for visual docu-ment retrieval. Radek Osmulski, Gabriel de Souza P Moreira, Ronay Ak, Mengyao Xu, Benedikt Schifferer, and Even Oldridge. 2025. Miracl-vision: A large, multilingual, visual document retrieval benchmark. arXiv preprint arXiv:2505.11651 .Xiangyu Peng, Can Qin, Zeyuan Chen, Ran Xu, Caim-ing Xiong, and Chien-Sheng Wu. 2025. Unidoc-bench: A unified benchmark for document-centric multimodal rag. arXiv preprint arXiv:2510.03663 .Yingqi Qu, Yuchen Ding, Jing Liu, Kai Liu, Ruiyang Ren, Wayne Xin Zhao, Daxiang Dong, Hua Wu, and Haifeng Wang. 2021. Rocketqa: An opti-mized training approach to dense passage retrieval for open-domain question answering. Preprint ,arXiv:2010.08191. Ruiyang Ren, Yingqi Qu, Jing Liu, Wayne Xin Zhao, Qiaoqiao She, Hua Wu, Haifeng Wang, and Ji-Rong Wen. 2023. Rocketqav2: A joint training method for dense passage retrieval and passage re-ranking. 
+
+Preprint , arXiv:2110.07367. Keshav Santhanam, Omar Khattab, Jon Saad-Falcon, Christopher Potts, and Matei Zaharia. 2022. Colbertv2: Effective and efficient re-trieval via lightweight late interaction. Preprint ,arXiv:2112.01488. Connor Shorten, Augustas Skaburskas, Daniel M Jones, Charles Pierse, Roberto Esposito, John Trengrove, Etienne Dilocker, and Bob van Luijt. 2026. Irpa-pers: A visual document benchmark for scientific retrieval and question answering. arXiv preprint arXiv:2602.17687 .Aivin V. Solatorio. 2024. Gistembed: Guided in-sample selection of training negatives for text embedding fine-tuning. Preprint , arXiv:2402.16829. Ryota Tanaka, Taichi Iki, Taku Hasegawa, Kyosuke Nishida, Kuniko Saito, and Jun Suzuki. 2025. Vdocrag: Retrieval-augmented generation over visually-rich documents. In Proceedings of the Com-puter Vision and Pattern Recognition Conference ,pages 24827–24837. Paul Teiletche, Quentin Macé, Max Conti, Anto-nio Loison, Gautier Viaud, Pierre Colombo, and Manuel Faysse. 2025. Modernvbert: Towards smaller visual document retrievers. arXiv preprint arXiv:2510.01149 .Henrique Schechter Vera, Sahil Dua, Biao Zhang, Daniel Salz, Ryan Mullins, Sindhu Raghuram Pa-nyam, Sara Smoot, Iftekhar Naim, Joe Zou, Feiyang Chen, et al. 2025. Embeddinggemma: Powerful and lightweight text representations. arXiv preprint arXiv:2509.20354 .Qiuchen Wang, Ruixue Ding, Zehui Chen, Weiqi Wu, Shihang Wang, Pengjun Xie, and Feng Zhao. 2025. ViDoRAG: Visual document retrieval-augmented generation via dynamic iterative reasoning agents. In Proceedings of the 2025 Conference on Empiri-cal Methods in Natural Language Processing , pages 9113–9134, Suzhou, China. Association for Compu-tational Linguistics. Navve Wasserman, Roi Pony, Oshri Naparstek, Adi Raz Goldfarb, Eli Schwartz, Udi Barzelay, and Leonid Karlinsky. 2025. REAL-MM-RAG: A real-world multi-modal retrieval benchmark. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,pages 31660–31683, Vienna, Austria. Association for Computational Linguistics. Zilin Xiao, Qi Ma, Mengting Gu, Chun-cheng Jason Chen, Xintao Chen, Vicente Ordonez, and Vijai Mo-han. 2025. Metaembed: Scaling multimodal retrieval at test-time with flexible late interaction. arXiv preprint arXiv:2509.18095 .Lee Xiong, Chenyan Xiong, Ye Li, Kwok-Fung Tang, Jialin Liu, Paul Bennett, Junaid Ahmed, and Arnold Overwijk. 2020. Approximate nearest neighbor neg-ative contrastive learning for dense text retrieval. 
+
+Preprint , arXiv:2007.00808. Mengyao Xu, Gabriel Moreira, Ronay Ak, Radek Os-mulski, Yauhen Babakhin, Zhiding Yu, Benedikt Schifferer, and Even Oldridge. 2025. Llama nemore-triever colembed: Top-performing text-image re-trieval model. arXiv preprint arXiv:2507.05513 .Shi Yu, Chaoyue Tang, Bokai Xu, Junbo Cui, Junhao Ran, Yukun Yan, Zhenghao Liu, Shuo Wang, Xu Han, Zhiyuan Liu, et al. 2025. Visrag: Vision-based retrieval-augmented generation on multi-modality documents. In International Conference on Learning Representations , volume 2025, pages 21074–21098. Fengbin Zhu, Wenqiang Lei, Youcheng Huang, Chao Wang, Shuo Zhang, Jiancheng Lv, Fuli Feng, and Tat-Seng Chua. 2021. TAT-QA: A question answering benchmark on a hybrid of tabular and textual con-tent in finance. In Proceedings of the 59th Annual Meeting of the Association for Computational Lin-guistics and the 11th International Joint Conference on Natural Language Processing (Volume 1: Long Papers) , pages 3277–3287, Online. Association for Computational Linguistics.

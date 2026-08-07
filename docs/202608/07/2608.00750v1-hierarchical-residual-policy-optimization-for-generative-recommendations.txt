@@ -1,0 +1,605 @@
+Title: Hierarchical Residual Policy Optimization for Generative Recommendations
+
+URL Source: https://arxiv.org/pdf/2608.00750v1
+
+Published Time: Tue, 04 Aug 2026 00:47:08 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# Hierarchical Residual Policy Optimization for Generative Recommendations 
+
+# Kaifeng Guo ∗
+
+City University of Hong Kong Hong Kong, China kaifenguo2-c@my.cityu.edu.hk 
+
+# Yiming Yang 
+
+Kuaishou Technology Beijing, China yangyiming03@kuaishou.com 
+
+# Jingtong Gao 
+
+City University of Hong Kong Hong Kong, China jt.g@my.cityu.edu.hk 
+
+# Guolei Zeng 
+
+Independent Fuzhou, China guolei.zeng@gmail.com 
+
+# Fukang Yang 
+
+Kuaishou Technology Beijing, China yangfukang03@kuaishou.com 
+
+# Yukang Liang 
+
+Kuaishou Technology Beijing, China liangyukang@kuaishou.com 
+
+# Peng Jiang 
+
+Kuaishou Technology Beijing, China jiangpeng11@kuaishou.com 
+
+# Qingpeng Cai †
+
+Kuaishou Technology Beijing, China caiqingpeng@kuaishou.com 
+
+# Xiangyu Zhao †
+
+City University of Hong Kong Hong Kong, China xianzhao@cityu.edu.hk 
+
+## Abstract 
+
+Generative recommenders select items by autoregressively decod-ing semantic identifiers (SIDs), whose token positions induce a coarse-to-fine hierarchy over the item space. In practice, SID de-coders are trained via supervised next-token prediction, which imitates logged trajectories rather than directly optimizing down-stream utility. This motivates post-training with outcome feedback to guide decoding toward higher utility. However, logged feedback is only observed for the final exposed item, causing most post-training methods to operate at the item level and broadcast the same terminal signal across all SID tokens. As a result, token-level credit assignment becomes sparse, high-variance, and layer-dependent. To this end, we propose Hierarchical Residual Policy Optimization (HRPO), a post-training framework that converts item-level out-comes into dense, token-aligned learning signals for conservative token-wise improvement. Specifically, HRPO first estimates SID prefix-level utilities via group-wise reward smoothing over feature-based user clusters. It then decomposes these utilities into residual token credits and accumulates them into credit-to-go signals. Fi-nally, Residual-Return Policy Optimization (RRPO) optimizes the residual credits using clipped updates, group-normalized advan-tages, and KL regularization to preserve stability. Experiments on a public dataset and an online A/B test in a large-scale commercial system show consistent gains in session-level utility and key busi-ness metrics. Source code and the archived artifact are available for reproduction 1.  
+
+> ∗This work was done during Kaifeng Guo’s internship at Kuaishou Technology.
+> †Corresponding authors.
+> 1Code: https://github.com/Applied-Machine-Learning-Lab/KDD2026-HRPO; DOI: https://doi.org/10.5281/zenodo.20269678.
+> This work is licensed under a Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
+> KDD ’26, Jeju Island, Republic of Korea
+> ©2026 Copyright held by the owner/author(s). ACM ISBN 979-8-4007-2259-2/2026/08 https://doi.org/10.1145/3770855.3818206
+
+## CCS Concepts 
+
+• Information systems → Recommender systems .
+
+## Keywords 
+
+Generative Recommendation, Hierarchical Autoregressive Model-ing, Token-level Credit Assignment, Preference Alignment, Recom-mender System Simulation 
+
+ACM Reference Format: 
+
+Kaifeng Guo, Yiming Yang, Jingtong Gao, Guolei Zeng, Fukang Yang, Yukang Liang, Peng Jiang, Qingpeng Cai, and Xiangyu Zhao. 2026. Hierarchical Residual Policy Optimization for Generative Recommendations. In Proceed-ings of the 32nd ACM SIGKDD Conference on Knowledge Discovery and Data Mining V.2 (KDD ’26), August 09–13, 2026, Jeju Island, Republic of Korea. ACM, New York, NY, USA, 12 pages. https://doi.org/10.1145/3770855.3818206 
+
+## 1 Introduction 
+
+Generative recommendation has emerged as an alternative to di-rect item selection by generating item identifiers autoregressively, token by token [ 8, 24 , 36 ]. Many approaches adopt Semantic Iden-tifiers (SIDs), which assign each item a short sequence of discrete codes derived from a structured scheme such as a tree or trie [ 60 ]. Under this formulation, token positions induce a coarse-to-fine hierarchy over the item space: early tokens (SID-prefix) select a coarse partition, while later tokens progressively refine within that partition until the sequence uniquely identifies an item. This hi-erarchical factorization decomposes an enormous item universe into a small number of sequential token decisions, substantially improving scalability [24]. In practice, SID generators are typically trained in two stages [ 8,24 ]. First, supervised fine-tuning (SFT) learns a valid SID decoder by maximizing next-token likelihood on logged SID trajectories, yield-ing a stable and readily deployable initialization [ 24 , 36 ]. However, SFT is inherently likelihood-based: it models the conditional distri-bution of the next token given a logged prefix under the behavior policy, rather than directly optimizing the outcome-based utility arXiv:2608.00750v1 [cs.IR] 1 Aug 2026 KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Kaifeng Guo et al. 
+
+Figure 1: Token-level credit assignment for hierarchical Se-mantic IDs (SIDs). Logged feedback is only observed after a complete SID path is generated. (a) Uniformly assigning the terminal item reward to every token yields undifferentiated supervision. (b) Token-level credit assignment decomposes the outcome into layer-specific credits, enabling targeted post-training along the SID hierarchy. 
+
+used in downstream evaluation. In contrast, large-scale recom-mender and advertising systems are evaluated using multi-objective outcomes (e.g., engagement, conversion, and cost-related signals) that are observed after an item is generated and exposed, reflecting implicit user preferences and business constraints [3, 20, 30]. This mismatch between imitation-driven training and outcome-driven evaluation motivates a second-stage post-training procedure, which initializes from the SFT model and leverages logged outcomes to improve expected utility [8, 45]. A central challenge is how to transform item-level outcomes into effective learning signals for token-by-token SID decoding. In exist-ing SID-based generators, post-training often remains item-centric, mapping the terminal outcome of the exposed item to token-level updates [ 5, 8, 12 , 24 , 46 ]. Common approaches include (i) uniformly broadcasting the same terminal reward to all tokens along the de-coded SID path, and (ii) PPO-style optimization, in which token advantages are derived from terminal feedback [ 2 , 37 , 40 , 53 ]. Fig-ure 1 illustrates why such item-level treatments can be suboptimal for hierarchical SID decoding. Because many items share early SID prefixes and diverge only at deeper positions (Figure 1, left), uni-form broadcasting yields weak and non-discriminative supervision (Figure 1a) and may even induce conflicting gradients on shared pre-fixes. More generally, item-level updates obscure which SID layer should be adjusted to improve utility. This motivates token-level credit assignment (Figure 1b), which decomposes item outcomes into layer-specific credits, enabling post-training to update deci-sions at the appropriate depth of the SID hierarchy. While token-level credit assignment is desirable (Figure 1b), de-riving reliable token-wise learning signals from exposure-limited logs is challenging. A practical signal should be estimable for long-tail SID prefixes, attributable despite delayed end-of-sequence out-comes, and comparable across candidates at the same token position to support stable optimization. However, logged recommendation data rarely satisfies all three requirements simultaneously. We sum-marize three key obstacles. (1) SID-prefix sparsity. Interactions are highly uneven across SID prefixes; for long-tail prefixes, ob-servations are insufficient to reliably estimate prefix-level utility, resulting in noisy and unstable credits [ 1 , 42 ]. (2) Delayed attri-bution. Feedback is observed only after a SID path is completed (i.e., for the finally exposed item), so terminal outcomes do not directly indicate which intermediate token decisions should be adjusted [ 2 , 37 , 44 , 53 ]. (3) Non-comparable scales. Credits con-ditioned on different prefixes can differ substantially in scale and variance, making position-wise advantages difficult to compare and destabilizing PPO-style updates in large-scale settings [39, 40]. To address these challenges, we propose HRPO (Hierarchical Residual Policy Optimization), a post-training framework that trans-forms item-level outcomes into dense, token-aligned learning sig-nals for conservative token-wise improvement. HRPO integrates three key ideas. First, it employs feature-based grouping to ob-tain smoothed utility estimates for SID prefixes under limited log coverage. Second, it introduces residual token credits to enable incremental, layer-aware attribution. Third, it constructs position-aligned credit-to-go signals to stabilize optimization [ 32 ]. Building on these token-aligned signals, we instantiate RRPO as HRPO’s conservative optimization objective. RRPO performs clipped up-dates with group-normalized advantages and KL regularization, targeting stable improvement in large-scale systems [40]. Finally, we benchmark HRPO offline on KuaiRand [ 13 ], an open public dataset, with session-level evaluation. We further report results from a post-launch online A/B test conducted in a large-scale advertising system, demonstrating consistent improvements under real-world operational constraints [23]. Our main contributions are: 
+
+• We identify a token-level credit assignment bottleneck in post-training SID generators when learning from item-level outcomes. In particular, reward broadcasting provides weak supervision on shared prefixes, while prefix-conditioned credits are often incomparable across positions, destabilizing PPO-style updates. 
+
+• We propose HRPO , a structured post-training framework that densifies sparse feedback via feature-based grouping and derives token-aligned learning signals through residual credits and credit-to-go returns. We further instantiate RRPO as a conservative optimization objective. 
+
+• We validate HRPO on a public dataset and complementary on-line A/B test evidence, demonstrating both controlled gains in simulation and positive production effects on target business metrics. 
+
+## 2 Preliminaries 
+
+This section formalizes the problem setting and introduces the notation used throughout the paper. We highlight the key design choices and assumptions needed for offline learning from exposure-limited logs. We then summarize SID decoding as the underlying sequential decision process that our method builds on for post-training. 
+
+## 2.1 Task Formulation and Logged Multi-Feedback 
+
+We consider generative recommendation [ 8, 24 , 36 ], in which a pol-icy selects an item by generating a structured identifier sequence conditioned on a request context. Each training instance corre-sponds to one exposure in offline logs [27, 45]. Let U be the user set, I the item set, and X the space of re-quest contexts. For each impression, we represent the record as Hierarchical Residual Policy Optimization for Generative Recommendations KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+(𝑢 𝑖 , 𝑥 𝑖 , 𝑣 𝑖 , b𝑖 ) with 𝑢 𝑖 ∈ U , context 𝑥 𝑖 ∈ X (user/profile features, truncated interaction history, and situational features), displayed item 𝑣 𝑖 ∈ I , and multi-feedback vector b𝑖 ∈ { 0, 1}𝑀 , where 𝑀 is the number of feedback channels and 𝑏 𝑖,𝑚 = 1 indicates that the 
+
+𝑚 -th feedback signal is recorded (e.g., click and long-view). The offline dataset is 
+
+D = {( 𝑢 𝑖 , 𝑥 𝑖 , 𝑣 𝑖 , b𝑖 )} 𝑁 𝑖 =1.
+
+To optimize multi-objective behavior [ 20 ], we scalarize b𝑖 via a configurable linear utility 
+
+𝑟 (b𝑖 ) =
+
+> 𝑀
+
+∑︁ 
+
+> 𝑚 =1
+
+𝑤 𝑚 𝑏 𝑖,𝑚 , (1) where {𝑤 𝑚 }𝑀 𝑚 =1 ⊂ R are pre-specified weights. For conciseness, we define 𝑟 𝑖 := 𝑟 (b𝑖 ).Our goal is to learn a generative policy 𝜋 𝜃 that maximizes the expected utility of exposed items under deployment constraints. 
+
+## 2.2 Semantic Identifiers (SID) 
+
+Following recent work on SID-based generative retrieval [ 8, 24 , 36 ], each item 𝑣 ∈ I is mapped to a fixed-length SID, i.e., a depth-𝐿 
+
+token path produced by an encoding function 𝜙 :
+
+𝜙 (𝑣 ) = y = (𝑦 1, . . . , 𝑦 𝐿 ) ∈ V 1 × · · · × V 𝐿 , (2) where V𝑡 denotes the token vocabulary at depth 𝑡 .For any 𝑡 ∈ { 0, 1, . . . , 𝐿 }, we call the first 𝑡 tokens of an SID a SID prefix (or prefix), denoted by y1: 𝑡 :
+
+y1: 𝑡 ≜ (𝑦 1, . . . , 𝑦 𝑡 ), y1:0 ≜ 𝜖, (3) where 𝜖 denotes the empty sequence. A prefix y1: 𝑡 corresponds to a node in the SID trie and represents the subset of items whose SIDs share the same prefix: 
+
+I ( y1: 𝑡 ) ≜ { 𝑣 ∈ I | 𝜙 (𝑣 )1: 𝑡 = y1: 𝑡 }. (4) Intuitively, decoding proceeds by selecting tokens to refine the SID-prefix, thereby progressively shrinking I ( y1: 𝑡 ) until a unique item is reached at depth 𝐿 . In the logged data, each exposed item 𝑣 𝑖 
+
+can be equivalently represented by its SID path y𝑖 = 𝜙 (𝑣 𝑖 ), yielding records (𝑢 𝑖 , 𝑥 𝑖 , y𝑖 , 𝑟 𝑖 ) as needed. 
+
+## 2.3 Constrained Generation 
+
+Each item is represented by a semantic identifier (SID) y = (𝑦 1, . . . , 𝑦 𝐿 ).We generate y autoregressively: 
+
+𝜋 𝜃 (y | 𝑥 ) =
+
+> 𝐿
+
+Ö
+
+> 𝑡 =1
+
+𝜋 𝜃 (𝑦 𝑡 | 𝑥, y1: 𝑡 −1), (5) where 𝑦 <𝑡 denotes the SID prefix (the first 𝑡 −1 tokens). Decoding is validity-constrained by the SID trie: at step 𝑡 , we restrict the next token to an admissible set A ( 𝑦 <𝑡 ) induced by the current SID-prefix and renormalize the distribution over this set. 
+
+## 3 Methodology 
+
+In this section, we introduce the HRPO framework and describe its main components step by step. 
+
+## 3.1 Overview 
+
+Fig. 2 summarizes HRPO , a post-training framework for SID-based generative recommendation. The key difficulty is that offline logs provide utility feedback only for the final exposed item (a full SID path), while the policy makes decisions at every SID token. HRPO 
+
+addresses this action–feedback mismatch by turning logged item-level outcomes into dense, position-aligned token-level learning signals, and by updating the policy conservatively to mitigate offline distribution shift [27, 45]. Given logged interactions and a deployable base generator (e.g., an SFT model), HRPO proceeds in three stages, aligned with Fig. 2: 
+
+(a) User grouping and SID-prefix aggregation. We determin-istically map each user to a feature-defined group (cohort) 𝑐 and aggregate logged outcomes on the SID trie to estimate a smoothed expected utility for each prefix, denoted ˆ𝜇 (𝑐, y1: 𝑡 ). This step trans-forms sparse, heavy-tailed prefix statistics into stable utilities that can be queried for any prefix encountered during decoding. (b) Residual return and credit-to-go. For any candidate SID path 
+
+y = (𝑦 1, . . . , 𝑦 𝐿 ), we convert prefix utilities into token-level residual credits (marginal gains from choosing 𝑦 𝑡 given the current prefix) and accumulate them into a position-aligned credit-to-go ˆ𝐺 𝑡 (𝑐, y),which represents the remaining utility beyond the current prefix baseline. This yields comparable token-wise signals across differ-ent candidates at the same position. (c) Residual-Return Policy Optimization (RRPO). For each logged request context 𝑥 , we construct a small proposal set 𝑌 (𝑥 ) = {y(𝑤 ) }𝑊 𝑤 =1 of valid SID paths using a frozen reference policy 𝜋 𝜃 old , optionally including the logged SID path and adding unique trie-valid candidates decoded under 
+
+𝜋 𝜃 old . Importantly, 𝜋 𝜃 old is an internal reference/proposal policy for RRPO, rather than the unknown behavior policy that produced the historical log. We then update the policy with RRPO, a PPO-style clipped token objective that uses within-set, position-wise normal-ized advantages derived from ˆ𝐺 𝑡 , while regularizing toward the same frozen reference policy to prevent over-optimistic updates on out-of-distribution tokens. 
+
+## 3.2 User Grouping and SID-prefix Aggregation 
+
+Offline logs provide feedback only for the exposed final item, while token-level learning requires utility estimates for intermediate SID prefixes. A naive approach estimates a prefix utility by averaging terminal utilities over all log records that share the prefix, but this is unreliable for long-tail prefixes [ 1, 10 , 42 ]. To better align terminal outcomes with the sequential token decisions made during trie-constrained decoding, we estimate smoothed prefix utilities that can be queried for any encountered prefix (Figure 2(a)). The challenge is that prefix statistics are highly imbalanced and heavy-tailed: many long-tail prefixes (and many user–prefix pairs) have only a few exposures, making per-user estimates noisy or un-defined. To obtain well-defined, low-variance prefix utilities while retaining meaningful personalization, we pool data within feature-defined user cohorts. Since this aggregation is used in deployment, we use a deterministic grouping function; concretely, we assign each user 𝑢 to a cohort 𝑐 (𝑢 ) ∈ { 0, 1, . . . } based on a small set of stable user features (e.g., activity level, spend tier, or region): 
+
+𝑐 (𝑢 ) = 𝑔 (𝑢 ), (6) KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Kaifeng Guo et al. 
+
+Figure 2: Overview of HRPO. 
+
+where 𝑔 (·) is a fixed mapping implemented in the system; Appen-dix A.2 reports the concrete KuaiRand features, cohort support, and grouping sensitivity. For each record with cohort 𝑐 = 𝑐 (𝑢 ) and path y, we update cohort-conditional prefix statistics along the trie path: 
+
+𝑛 (𝑐, 𝑦 1: 𝑡 ) ← 𝑛 (𝑐, 𝑦 1: 𝑡 ) + 1, 𝑠 (𝑐, 𝑦 1: 𝑡 ) ← 𝑠 (𝑐, 𝑦 1: 𝑡 ) + 𝑟, 𝑡 ∈ [ 1, 𝐿 ],
+
+(7) Empirical means 𝑠 (𝑐, 𝑦 1: 𝑡 )/ 𝑛 (𝑐, 𝑦 1: 𝑡 ) can be unstable in the long tail, so we apply a lightweight shrinkage with pseudo-count 𝛼 
+
+toward the global mean 𝜇 glob :
+
+ˆ𝜇 (𝑐, 𝑦 1: 𝑡 ) = 𝑠 (𝑐, 𝑦 1: 𝑡 ) + 𝛼 𝜇 glob 
+
+𝑛 (𝑐, 𝑦 1: 𝑡 ) + 𝛼 , 𝜇 glob = 1
+
+|D| ∑︁ (𝑢,𝑥,𝑣, b) ∈ D 
+
+𝑟 (b).
+
+(8) In implementation, for rarely observed cohort-specific prefixes, we default to a broader (global) estimate. Finally, we score a candi-date SID path y under context 𝑥 (user 𝑢 ) using the terminal-prefix estimate ˆ𝜇  𝑐 (𝑢 ), 𝑦 1: 𝐿 
+
+.
+
+## 3.3 Residual Return and Credit-to-go 
+
+Given cohort-conditioned prefix utilities on the SID trie (Section 3.2), we construct position-aligned residual returns for SID tokens and accumulate them into a credit-to-go signal. These dense, token-level targets address the action–feedback mismatch in log-only training and enable stable within-proposal normalization in RRPO (Figure 2(b)). Offline feedback is only observed at the terminal leaf (the ex-posed final item), whereas the policy acts at every token position during trie-constrained decoding. A common workaround in ex-isting approaches—including terminal-reward RL and item-level reranking based post-training—is to treat the whole SID path as a single action and broadcast the same terminal reward to all tokens on the path [ 33 , 37 , 40 , 53 ]. However, this uniform assignment blurs which SID layer (or prefix transition) actually contributed to the outcome, and it often yields noisy, high-variance token updates because all positions share an undifferentiated supervision signal. Our solution is to residualize prefix utilities along the prefix se-quence (Figure 2(b)). Specifically, we view ˆ𝜇 (𝑐, 𝑦 1: 𝑡 ) as the estimated value of the trie node corresponding to prefix 𝑦 1: 𝑡 under cohort 𝑐 ,and assign each token 𝑦 𝑡 the marginal utility gain of moving from the parent prefix 𝑦 1: 𝑡 −1 to the child prefix 𝑦 1: 𝑡 :
+
+ˆ𝑟 𝑡 (𝑐, y) = ˆ𝜇 (𝑐, 𝑦 1: 𝑡 ) − ˆ𝜇 (𝑐, 𝑦 1: 𝑡 −1),𝑦 1:0 ≜ 𝜖, ˆ𝜇 (𝑐, 𝜖 ) ≜ 𝜇 glob . (9) This residual credit removes the cohort-specific prefix baseline and attributes utility locally to the token choice at position 𝑡 . Moreover, it is additive and consistent with trie traversal: the sum telescopes to Í𝐿 𝑡 =1 ˆ𝑟 𝑡 (𝑐, y) = ˆ𝜇 (𝑐, 𝑦 1: 𝐿 ) − 𝜇 glob , i.e., token credits form a decom-position of the terminal prefix score up to a constant baseline. Using only the instantaneous increment ˆ𝑟 𝑡 is insufficient: two candidates may have similar local increments at position 𝑡 but very different remaining utility depending on how the suffix will unfold. Hierarchical Residual Policy Optimization for Generative Recommendations KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+Conversely, broadcasting the terminal score to every position dis-cards the current prefix state and degenerates to undifferentiated supervision. We therefore aggregate residual credits from the cur-rent position onward, which preserves the prefix baseline at 𝑦 1: 𝑡 −1
+
+while accounting for the remaining potential beyond it. Specifically, we define the cumulative residual return (credit-to-go) as: 
+
+ˆ𝐺 𝑡 (𝑐, y) =
+
+> 𝐿
+
+∑︁ 
+
+> 𝑘 =𝑡
+
+ˆ𝑟 𝑘 (𝑐, y), (10) which telescopes to 
+
+ˆ𝐺 𝑡 (𝑐, y) = ˆ𝜇 (𝑐, 𝑦 1: 𝐿 ) − ˆ𝜇 (𝑐, 𝑦 1: 𝑡 −1). (11) Eq. (11) shows that ˆ𝐺 𝑡 measures the remaining utility beyond the current prefix baseline ˆ𝜇 (𝑐, 𝑦 1: 𝑡 −1). As a result, ˆ𝐺 𝑡 is naturally com-parable across candidates at the same position 𝑡 (same 𝑡 , different y)while remaining consistent with the cohort-conditioned terminal prefix score. This makes ˆ𝐺 𝑡 a suitable learning signal for within-group normalization and conservative token-wise optimization. 
+
+## 3.4 Residual-Return Policy Optimization (RRPO) 
+
+RRPO performs conservative offline updates of the trie-constrained generative policy by treating the token-level credit-to-go ˆ𝐺 𝑡 (𝑐, y)
+
+(Section 3.3) as the return signal. Offline policy refinement is sen-sitive to distribution shift, and under trie constraints, increasing the probability of an early token can redirect decoding to a dif-ferent feasible subtree, inducing amplified changes in later-token distributions [ 36 , 38 , 40 , 60 ]. RRPO mitigates these risks with (i) within-proposal, position-wise normalization, (ii) PPO-style clipped updates, and (iii) an explicit trust-region penalty. For a fixed context 𝑥 (user 𝑢 ), let 𝑐 ≜ 𝑐 (𝑢 ). We first sample a proposal set 𝑌 (𝑥 ) = {y(𝑤 ) }𝑊 𝑤 =1 from 𝜋 𝜃 old , where 𝑊 is the proposal size. For each candidate, define ˆ𝐺 (𝑤 ) 
+
+> 𝑡
+
+≜ ˆ𝐺 𝑡 (𝑐, y(𝑤 ) ) (Eq. (10) ). We normalize ˆ𝐺 (𝑤 ) 
+
+> 𝑡
+
+within the proposal group at each position 𝑡 to obtain a scale-free advantage: 
+
+𝐴 (𝑤 ) 
+
+> 𝑡
+
+=
+
+ˆ𝐺 (𝑤 ) 
+
+> 𝑡
+
+− 1
+
+> 𝑊
+
+Í𝑊 𝑗 =1 ˆ𝐺 ( 𝑗 )
+
+> 𝑡
+
+Std 
+
+
+
+{ ˆ𝐺 ( 𝑗 ) 
+
+> 𝑡
+
+}𝑊 𝑗 =1
+
+
+
++ 𝜀 . (12) We then form token-level likelihood ratios under the same au-toregressive factorization and trie-valid conditional distributions as in Eq. (5) . For candidate 𝑤 at position 𝑡 , with prefix y(𝑤 )  
+
+> 1: 𝑡 −1
+
+and token 𝑦 (𝑤 ) 
+
+> 𝑡
+
+, the ratio is 
+
+𝜌 𝑤,𝑡 (𝜃 ) = exp 
+
+
+
+log 𝜋 𝜃 (𝑦 (𝑤 ) 
+
+> 𝑡
+
+| 𝑥, y(𝑤 ) 
+
+> 1: 𝑡 −1
+
+) − log 𝜋 𝜃 old (𝑦 (𝑤 ) 
+
+> 𝑡
+
+| 𝑥, y(𝑤 ) 
+
+> 1: 𝑡 −1
+
+)
+
+
+
+.
+
+(13) To prevent overly large offline updates, we apply PPO-style clipping: 
+
+¯𝜌 𝑤,𝑡 (𝜃 ) = clip  𝜌 𝑤,𝑡 (𝜃 ), 1 − 𝜖 clip , 1 + 𝜖 clip 
+
+. (14) RRPO maximizes a clipped token-wise surrogate weighted by 
+
+𝐴 (𝑤 ) 
+
+> 𝑡
+
+, and penalizes deviation from 𝜋 𝜃 old via a trust-region KL term: 
+
+max 
+
+> 𝜃
+
+1
+
+𝑊 
+
+> 𝑊
+
+∑︁ 
+
+> 𝑤 =1
+> 𝐿
+
+∑︁ 
+
+> 𝑡 =1
+
+min 
+
+
+
+𝜌 𝑤,𝑡 (𝜃 ) 𝐴 (𝑤 ) 
+
+> 𝑡
+
+, ¯𝜌 𝑤,𝑡 (𝜃 ) 𝐴 (𝑤 )
+
+> 𝑡
+
+
+
+− 𝛽 KL KL TR (𝜃 ),
+
+(15) 
+
+KL TR (𝜃 ) = Ey∼𝜋 𝜃 old (· | 𝑥 )
+
+h
+
+log 𝜋 𝜃 old (y | 𝑥 ) − log 𝜋 𝜃 (y | 𝑥 )
+
+i
+
+. (16) Training alternates between (i) proposal generation under 𝜋 𝜃 old ,(ii) computing ˆ𝐺 𝑡 and 𝐴 𝑡 from cohort-conditioned prefix utilities (Eqs. (8) – (12) ), and (iii) updating 𝜋 𝜃 by maximizing Eq. (15) . We periodically synchronize 𝜃 old ← 𝜃 ; full pseudocode is provided in Appendix A for reference. 
+
+## 4 Experiments 
+
+In this section, we conduct a comprehensive evaluation of HRPO 
+
+for generative recommendation. To thoroughly assess HRPO ’s ef-fectiveness and understand when and why it works, we aim to answer the following research questions: 
+
+• RQ1: How does HRPO compare to mainstream post-training methods for optimizing immediate (single-shot) utility versus long-horizon (session-level) return? 
+
+• RQ2: How sensitive are the results to key hyperparameters and design choices? 
+
+• RQ3: How do individual components of HRPO contribute to the final performance? 
+
+• RQ4: Do the improvements persist online with validated gains? 
+
+## 4.1 Dataset and Simulator Details 
+
+We construct offline training and evaluation logs from the public KuaiRand dataset [ 13 ]. We use the Pure subset and sessionize the impression stream into user-day sessions for sequential recommen-dation. Each impression record contains a user 𝑢 , context 𝑥 , an exposed item 𝑣 , and multi-behavior feedback b, which is scalarized into a utility 𝑟 (b) via Eq. (1). Table 1 summarizes the resulting sessionized logs used throughout our experiments. Our objective is to better align token-level SID decisions with users’ latent preferences under multi-objective feedback. In prac-tice, preference signals are revealed through sequential interac-tions, and platform utility is typically a scalarization of multiple behaviors (Eq. (1)) rather than a single immediate metric. Purely offline evaluation from static logs is limited for diagnosing such interaction-induced effects and for comparing methods that require interaction. Therefore, following prior work, we additionally use a controlled simulator built on top of the same public logs to provide step-wise feedback and state transitions, enabling session-level eval-uation of cumulative simulator reward and simulator-interactive baselines. In the public KuaiSim rollout tables, we report the simu-lator’s click-based Avg./Total reward as the primary reward metric, and report Long separately as an auxiliary behavior rate. We treat the simulator as a proxy rather than a perfect replica of production, and corroborate conclusions with validated online A/B evidence in production. Accordingly, simulator results are used for controlled relative comparison under a shared environment, whereas produc-tion conclusions are drawn from the online A/B test. We use the public KuaiRand-Pure logs and KuaiSim rollout proto-col following the simulator’s standard preprocessing and evaluation setup. 
+
+## 4.2 Implementation Details 
+
+We implement all methods in PyTorch and evaluate them in KuaiSim [ 55 ]. For SID-generating policies, the action is a fixed-depth SID path with depth 𝐿 =4 and per-level vocabulary size |V 𝑡 |=32 . Decoding follows the shared SID trie admissible set 𝑦 𝑡 ∈ A ( 𝑦 <𝑡 ) (Eq. (5) ); by KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Kaifeng Guo et al. 
+
+Table 1: Summary statistics of the sessionized KuaiRand-Pure logs used in our experiments. 
+
+Statistic Value 
+
+Time span 2022-04-09 ∼ 2022-05-08 (30 days) #Users 19,574 #Items (videos) 5,659 #Interactions 1,341,250 #Sessions (user-day) 303,472 Avg. interactions/user 68.5 (median 50) Avg. interactions/session 4.42 (median 2, p90 10) Avg. active days/user 15.5 (median 15) Density | D |/( | U | | I | ) 0.012109 
+
+default, we use constrained beam search (beam width 50) and take the top-1 beam. All SID post-training baselines and HRPO share the same small Transformer decoder backbone (3 blocks, hidden width 𝑑 =128 , 4 attention heads, maximum history length 50) and start from the same SFT checkpoint trained with teacher-forced next-token pre-diction for 5 epochs. For log-only post-training, all methods use AdamW with learning rate 1×10 −5, weight decay 0.01 , batch size 1024, gradient clipping at 1.0, and one epoch over the offline logs. For HRPO , we use proposal size 𝑊 =18 , PPO clip 𝜖 clip =0.2, KL coeffi-cient 𝛽 KL =0.1, smoothing pseudo-count 𝛼 =100 , and synchronize the frozen reference policy every 20 update steps. Experiments are run on a single NVIDIA RTX 4090 GPU (24GB), representing a small-model regime in our offline study. For production-backbone scaling diagnostics, we additionally report 0.005B–0.2B model families in Appendix C. 
+
+## 4.3 Baselines 
+
+We benchmark HRPO against representative baselines spanning three families: (i) score-based sequential recommenders trained on offline logs, (ii) SID-generating policies optimized by offline post-training objectives, and (iii) simulator-interactive RL methods trained in KuaiSim. All methods are evaluated under the same experimental pipeline, with the shared backbone, decoding, and optimization settings summarized in Sec. 4.2. 
+
+• Score-based (offline logs): DT (behavior cloning) [ 4], GRU4Rec [ 16 ], SASRec [22], TIGER [36]. 
+
+• SID post-training (offline logs): SFT, DPO [ 35 ], S-DPO [ 5], SPRec [12], GRPO [46]. 
+
+• Simulator-interactive RL (KuaiSim): TD3 [ 11 ], DDPG [ 28 ], A2C [31], HAC [25], and an interactive DT [4]. Across all methods, we follow KuaiSim’s whole-session evalua-tion protocol. EpisodeLen corresponds to KuaiSim’s Depth , i.e., the number of request–feedback interactions before the user leaves the session (averaged over evaluation sessions). In the public KuaiSim rollout evaluation, we use the simulator’s click-based immediate re-ward, denoted by 𝑟 𝑡 = 𝑏 click  
+
+> 𝑡
+
+∈ { 0, 1}, as the primary reward metric for Avg./Total reward. We report the undiscounted session return (Total reward) as the average sum of immediate click rewards per session, 1
+
+> 𝑁
+
+Í𝑁 𝑖 =1
+
+Í𝑇 𝑖  
+
+> 𝑡 =1
+
+𝑟 𝑖,𝑡 , and Avg. reward as the per-request mean return, i.e., Total reward divided by EpisodeLen. We also report Cov-erage as the number of distinct exposed items, and impression-level Click/Long rates as the empirical frequencies of the corresponding 
+
+Table 2: Offline training with session-level rollout evalua-tion on KuaiSim. Bold indicates the best value; underlined indicates the second-best value.                                                                         
+
+> Method EpisodeLen Avg. reward Total reward Coverage Click Long
+> Random 11.16 0.1898 2.1170 100% 18.97% 12.32% DT 12.79 0.4274 5.4660 91% 42.74% 37.19% GRU4Rec 11.52 0.2573 2.9650 84% 25.73% 21.79% SASRec 12.09 0.3351 4.0530 72% 33.51% 26.75% TIGER 13.85 0.5442 7.5370 70% 54.42% 46.78% SFT 14.02 0.5642 7.9110 60% 56.41% 49.80% DPO 13.99 0.5610 7.8490 58% 56.10% 49.49% S-DPO 13.64 0.5240 7.1470 60% 52.39% 45.52% SPRec 14.14 0.5753 8.1370 57% 57.52% 51.29% GRPO 14.07 0.5690 8.0060 58% 56.90% 50.49%
+> HRPO 15.33 0.6869 10.5280 56% 68.69% 63.04%
+
+binary behavior indicators, respectively. Long is reported as an aux-iliary behavior metric rather than being included in the Avg./Total reward columns. For one-step evaluation, EpisodeLen = 1 and Avg. reward equals Total reward. 
+
+## 4.4 Overall Performance (RQ1) 
+
+Tables 2–4 summarize three complementary evaluation settings: (i) offline training with session-level rollouts, (ii) offline training with one-step evaluation (EpisodeLen = 1), and (iii) simulator-interactive training with session-level rollouts. Table 2 reports whole-session performance for log-only methods. (1) Score-based recommenders improve over Random but remain be-hind SID-generating policies, suggesting that validity-constrained SID decoding provides a stronger action space for long-horizon opti-mization in this simulator. (2) Among SID-generating post-training baselines, HRPO achieves the best session return: Total reward in-creases from 8.137 ( SPRec ) to 10.528 and EpisodeLen increases from 14.14 to 15.33. Coverage stays comparable to other offline baselines (56% vs. 57% for SPRec ), indicating that the gain is not explained by overly concentrating exposure on a small set of items. To isolate immediate utility, Table 3 evaluates a single decision (EpisodeLen = 1). HRPO attains the highest one-step reward (0.548 vs. 0.462 for GRPO ), consistent with stronger local preference align-ment at the first decision. The lower one-step Coverage indicates that HRPO is more selective in assigning probability mass to high-utility items, and over longer horizons these local gains can com-pound across multiple steps. Table 4 compares HRPO to simulator-interactive KuaiSim RL baselines under a matched interaction budget. These baselines achieve moderate returns but exhibit very low Coverage (e.g., 3%– 12%), which is consistent with mode-seeking behavior under nearest-neighbor action realization. HRPO achieves both the best return (Total reward 10.746) and substantially higher Coverage (57%), in-dicating more stable exploration–exploitation behavior. 
+
+## 4.5 Hyperparameter Sensitivity (RQ2) 
+
+Figure 3 summarizes sensitivity to four key knobs in HRPO/RRPO under offline training with session-level evaluation. Across sweeps (varying one hyperparameter at a time; others fixed to the default settings summarized in Sec. 4.2), performance is stable in a broad neighborhood, and the best region consistently corresponds to Hierarchical Residual Policy Optimization for Generative Recommendations KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+Table 3: Offline training with one-step evaluation on KuaiSim (EpisodeLen = 1), isolating immediate utility. Bold indicates the best value; underlined indicates the second-best value.                                           
+
+> Method EpisodeLen Avg. reward Total reward Coverage Click Long
+> Random 1.0 0.2130 0.2130 100% 21.30% 13.00% SFT 1.0 0.4510 0.4510 28% 45.10% 34.20% S-DPO 1.0 0.4600 0.4600 23% 46.00% 36.80% SPRec 1.0 0.4570 0.4570 21% 45.70% 35.30% GRPO 1.0 0.4620 0.4620 23% 46.20% 36.90%
+> HRPO 1.0 0.5480 0.5480 15% 54.80% 44.70%
+
+Table 4: Simulator-interactive training with session-level evaluation on KuaiSim. Bold indicates the best value; under-lined indicates the second-best value.                                                 
+
+> Method EpisodeLen Avg. reward Total reward Coverage Click Long
+> Random 11.16 0.1898 2.1170 100% 18.97% 12.32% TD3 13.52 0.5128 6.9330 10% 51.27% 45.41% A2C 12.19 0.3468 4.2270 50% 34.68% 27.60% DDPG 13.71 0.5359 7.3470 3% 53.59% 48.98% HAC 13.97 0.5604 7.8270 3% 56.04% 50.84% DT 13.98 0.5624 7.8630 12% 56.24% 50.17%
+> HRPO 15.50 0.6931 10.7460 57% 69.31% 63.79%
+
+moderate aggregation/regularization that balances robustness and learning capacity. For group-based updates (Figure 3A), increasing group size 𝑊 
+
+improves return and EpisodeLen up to a saturation region (best around 𝑊 ≈ 18 in our setup). Larger groups strengthen within-context normalization and expose more informative hard negatives, making token credits more contrastive; beyond saturation, extra candidates add diminishing information and can introduce overly hard/redundant negatives, increasing gradient noise and slightly hurting stability. For KL regularization (Figure 3B), a non-zero 𝛽 KL is beneficial (peak around 𝛽 KL ≈ 0.10 ), indicating that constraining updates to stay close to the frozen reference/SFT policy prevents overfitting to a narrow set of hard negatives under exposure-limited logs. However, overly large 𝛽 KL makes the update too conservative and caps improvement in both EpisodeLen and return. For PPO clipping (Figure 3C), moderate 𝜖 clip yields the best trade-off. Too small 𝜖 clip suppresses likelihood-ratio changes and slows learning, while too large 𝜖 clip allows abrupt policy shifts that am-plify token-wise variance across SID layers and can destabilize decoding. This aligns with RRPO’s goal of conservative, incremen-tal improvement: clipping controls step size when token credits are high-variance, especially for early SID tokens that gate large subtree changes. For shrinkage in prefix-utility estimation (Figure 3D), 𝛼 controls a variance–bias trade-off in the long tail. Weak shrinkage leaves rare-prefix utilities noisy and propagates high-variance credits, whereas overly strong shrinkage collapses prefix differences toward the global mean and reduces the discriminativeness needed for layer-specific credit assignment; the best region corresponds to sufficient smoothing to denoise without washing out prefix-level structure. Taken together, these sweeps support that HRPO is not brittle: it benefits from (i) sufficiently informative groups ( 𝑊 ), (ii) conser-vative policy improvement (KL and clipping), and (iii) calibrated smoothing for long-tail prefixes ( 𝛼 ), aligning with the roles of group 
+
+(a) Group size 𝑊 . (b) KL 𝛽 KL .
+
+(c) Clip 𝜖 clip . (d) Smooth 𝛼 .
+
+Figure 3: Hyperparameter sensitivity under offline training with session-level evaluation. Bars indicate EpisodeLen; the line indicates Total reward. Table 5: HRPO ablations (compact). Total reward is the undis-counted episode return; the one-step column reports Avg. reward with EpisodeLen = 1.                         
+
+> Session-level One-step Variant EpisodeLen Avg. reward Total reward Avg. reward HRPO (full) 15.33 0.6869 10.5280 0.5480
+> w/o cohorting 14.72 0.6338 9.3310 0.4280 w/o residual credit 15.13 0.6696 10.1320 0.4880 w/o credit-to-go 15.14 0.6522 9.8720 0.4670 w/o KL 15.10 0.6657 10.0490 0.4930
+
+normalization, conservative optimization, and robust reward esti-mation in our design. 
+
+## 4.6 Component Analysis (RQ3) 
+
+Table 5 studies four ablations of HRPO by removing one component at a time: cohorting, residual credit, credit-to-go, and KL regulariza-tion. The results reveal a clear division of labor across the pipeline. Cohorting has the largest effect on signal quality: removing it re-duces session return from 10.528 to 9.331 and one-step reward from 0.548 to 0.428. This indicates that stable prefix-utility estimation is the main bottleneck under exposure-limited logs, where raw prefix feedback can be sparse and heterogeneous. (1) Removing cohorting yields the largest drop in both one-step and whole-session metrics, highlighting the importance of cohort-conditioned prefix utilities for stabilizing group-based up-dates. Without cohorting, prefix utilities become less calibrated across heterogeneous contexts, making within-group comparisons noisier and amplifying spurious advantages early in the SID path. (2) Removing residual credit reduces session return from 10.528 to 10.132 and one-step reward from 0.548 to 0.488. This supports the KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Kaifeng Guo et al. 
+
+Figure 4: Production-backbone architecture used for A/B serving and the scaling-law diagnostic. 
+
+need for token-aligned residual advantages that disentangle per-layer contributions along the SID path. Such localization prevents late-token noise (fine-level errors) from being incorrectly attrib-uted to early coarse decisions, which is crucial for coarse-to-fine decoding. (3) Removing credit-to-go further reduces session return to 9.872 and one-step reward to 0.467. This shows that accumulating residual credits over the remaining suffix provides a more informative and lower-variance training signal than using only local token credit. In particular, credit-to-go makes advantages more comparable at the same SID position by accounting for remaining utility beyond the current prefix baseline, reducing myopic updates. (4) Finally, removing KL regularization causes a consistent degra-dation, reducing session return to 10.049 and one-step reward to 0.493. This suggests that anchoring updates to the SFT initialization is beneficial when optimizing against hard negatives in group-based objectives. KL acts as a trust region that limits overreaction to a finite proposal set, which otherwise can overfit rare tokens/prefixes and hurt constrained decoding stability. 
+
+## 4.7 Online Deployment (RQ4) 
+
+We validate whether the offline improvements translate to a real production setting with an online A/B experiment in a large-scale advertising system. Figure 4 shows the production backbone used for A/B serving. The encoder memory sequence is formed by con-catenating interaction-history tokens and static-feature tokens, and the SID decoder uses cross-attention to this memory while au-toregressively decoding SID tokens. Figure 5 summarizes the de-ployment loop shared by online/simulator serving and RRPO-style continuation. In panel (a), the deployed SID policy serves requests and generates impressions; user responses are recorded and stored 
+
+Figure 5: Online/simulator serving and offline RRPO training loop. 
+
+as interaction logs. In panel (b), we convert logged outcomes into token-level credits via hierarchical credit assignment and optimize the SID decoder with RRPO to obtain an updated policy, which is periodically deployed to refresh the online policy. Here, the old policy denotes the frozen reference policy used to generate pro-posal groups and compute PPO-style likelihood ratios during RRPO training, rather than an estimate of the historical online behavior policy. Thus, RRPO does not require logged serving probabilities; instead, the old and updated policies are evaluated on the same SID prefixes, and the frozen reference serves as a conservative anchor for token-level updates. Table 6 reports the relative changes of HRPO versus control on three target IAA traffic segments. Exposure measures served traffic Hierarchical Residual Policy Optimization for Generative Recommendations KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+Table 6: Online A/B results by in-app advertising (IAA) traffic segment.             
+
+> Segment Exposure Cost Target Cost Short-Drama IAA -0.117% +0.024% +0.168% Mini-Game IAA -0.132% -0.283% +0.186% Fiction IAA +0.750% +0.823% +3.490%
+
+volume and is used as a guardrail. Cost measures observed business cost, while Target Cost is the calibrated target-cost metric used in the launch review. The results show positive Target Cost lifts across all three segments, with the strongest gain on Fiction IAA, while Exposure and Cost remain close to the control policy. This pattern suggests that the online gain is not driven by a large traffic-volume shift or by uniformly increasing cost. Instead, HRPO improves the target metric within the existing serving distribution, which is consistent with its conservative token-level update design and the deployment requirement of preserving stable business traffic. 
+
+## 5 Related Work 5.1 Generative retrieval and semantic identifiers 
+
+Large-scale retrieval and recommendation search enormous ac-tion spaces under efficiency constraints [ 7, 49 ]. Score-based se-quential recommendation predicts/ranks the next item from his-tory (e.g., GRU4Rec [ 16 ], SASRec [ 22 ], and LLM-based sequential models [ 48 ]), while structured retrieval exploits hierarchical index-ing (e.g., TDM [ 60 ]) to scale search. Generative retrieval replaces nearest-neighbor search with constrained identifier decoding [ 47 ]. Building on structured identifiers, SID-based generative recom-menders (e.g., TIGER [ 36 ] and follow-ups [ 8, 24 , 51 , 52 ]) scale recom-mendation via validity-constrained decoding. Recent tokenization studies improve action/item and user-context representations: LET-TER learns item tokenizers, ActionPiece tokenizes action sequences with context, Pctx tokenizes personalized context, and MTGRec pre-trains with multi-identifier item tokenization [ 17 , 50 , 58 , 59 ]. However, they mainly use next-token imitation [ 8, 24 , 36 ], and post-training often remains item/sequence-level [ 5, 12 , 35 , 46 ]. This leaves a log-only gap: turning exposure-limited item feedback into token-aligned, layer-sensitive signals for stable token-wise up-dates [ 3, 9 , 27 , 45 ]. We address this by token-wise credit design for SID decoding, complementing item-level post-training [5, 12, 46]. 
+
+## 5.2 Preference Optimization for Generative Recommendation 
+
+Preference-based post-training aligns generative models beyond imitation via RLHF-style PPO updates [ 6, 33 , 40 ]. Preference-only objectives such as DPO optimize a supervised log-ratio without reward modeling [ 35 ], and group-based variants improve stability via within-group normalization [41]. In recommendation, S-DPO adapts DPO to list-wise learning with Plackett–Luce objectives and multiple negatives [ 5 , 34 ], while SPRec uses self-play style data construction for LM-based rec-ommenders [ 12 , 15 , 21 ]. RL-based post-training has also been ex-plored, e.g., ReRe applies RL-driven reranking over generated can-didates [ 46 , 51 ]. Yet most methods optimize at the item/list level, providing coarse supervision for internal token decisions of hier-archical identifier generators. We instead derive structured token-wise credits from logged outcomes and optimize the SID decoder with conservative, PPO-style token-level updates [40]. 
+
+## 5.3 Interactive Policy Learning for Recommendation 
+
+Recommendation is sequential with delayed, multi-objective feed-back. Sequential recommenders (GRU4Rec [ 16 ], NARM [ 26 ], SAS-Rec [ 22 ], BERT4Rec [ 43 ]) target next-item prediction, while RL formulations optimize session-level objectives [ 56 ]; for slate ac-tions, SlateQ decomposes slate value for tractable learning [19]. Prior work studies off-policy RL (DDPG [ 28 ], TD3 [ 11 ]), pairwise learning from negative feedback [ 57 ], latent-action exploration and regularization [ 29 ], and hierarchical RL (HAC [ 25 ]) for delayed feed-back and competing objectives [ 14 , 61 ]. Because online iteration is costly, simulators support controlled evaluation: RecSim [ 18 ] is a general framework, and KuaiSim [ 55 ] is an industrial-scale simula-tor benchmarked on logs such as KuaiRand [ 13 ]. Reward shaping motivates densifying sparse rewards under suitable conditions [ 32 ]. We use simulators for policy evaluation and continued improve-ment. Our PPO-compatible, token-level objective enables a hier-archical semantic-ID generator to start from logs and seamlessly fine-tune further with rollouts, motivating comparisons to RL base-lines while we focus on stable optimization under sparse multi-behavior feedback via reward densification and cross-layer token credit assignment. Thus, HRPO bridges contextual bandit-style logged learning and simulator-interactive RL by keeping the same token-level update rule. 
+
+## 6 Conclusion 
+
+In this work, we present HRPO , a post-training framework for SID-based generative recommendation under exposure-limited offline logs with only terminal, item-level feedback. HRPO estimates reli-able utilities for SID prefixes and decomposes them into residual, token-aligned credits, which are optimized via a conservative RRPO objective for stable offline improvement. Experiments show that 
+
+HRPO delivers substantial gains in simulator rollouts and transfers to production, improving Target Cost across target IAA traffic seg-ments while keeping exposure and cost close to the control policy in an online A/B experiment. Future work will extend residual credit assignment beyond trie-structured SIDs and improve robustness under distribution shift and long-tail sparsity in broader industrial serving settings. 
+
+## Acknowledgments 
+
+This research was partially supported by National Natural Science Foundation of China (No. 62502404), Hong Kong Research Grants Council (Research Impact Fund No. R1015-23, Collaborative Re-search Fund No. C1043-24GF, General Research Fund No. 11218325), Institute of Digital Medicine of City University of Hong Kong (No. 9229503), and Kuaishou (CCF-Kuaishou Large Model Explorer Fund No. 2025008, Kuaishou University Cooperation Project). KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Kaifeng Guo et al. 
+
+## References 
+
+[1] Himan Abdollahpouri. 2019. Popularity Bias in Ranking and Recommendation. In Proceedings of the AAAI/ACM Conference on AI, Ethics, and Society (AIES) .529–530. https://doi.org/10.1145/3306618.3314309 [2] Dzmitry Bahdanau, Philemon Brakel, Kelvin Xu, Anirudh Goyal, Ryan Lowe, Joelle Pineau, Aaron C. Courville, and Yoshua Bengio. 2017. An Actor-Critic Algorithm for Sequence Prediction. In International Conference on Learning Rep-resentations (ICLR) . https://arxiv.org/abs/1607.07086 [3] Léon Bottou, Jonas Peters, Joaquin Quiñonero-Candela, Denis X. Charles, D. Max Chickering, Elon Portugaly, Dipankar Ray, Patrice Simard, and Ed Snelson. 2013. Counterfactual Reasoning and Learning Systems: The Example of Computational Advertising. Journal of Machine Learning Research 14, Nov (2013), 3207–3260. http://leon.bottou.org/papers/bottou-jmlr-2013 [4] Lili Chen, Kevin Lu, Aravind Rajeswaran, Kimin Lee, Aditya Grover, Michael Laskin, Pieter Abbeel, Aravind Srinivas, and Igor Mordatch. 2021. Decision Transformer: Reinforcement Learning via Sequence Modeling. In Advances in Neural Information Processing Systems (NeurIPS) . arXiv:2106.01345 [5] Yuxin Chen, Junfei Tan, An Zhang, Zhengyi Yang, Leheng Sheng, Enzhi Zhang, Xiang Wang, and Tat-Seng Chua. 2024. On Softmax Direct Preference Optimiza-tion for Recommendation. In Advances in Neural Information Processing Systems (NeurIPS) . https://doi.org/10.48550/arXiv.2406.09215 arXiv:2406.09215 [cs.IR] [6] Paul F. Christiano, Jan Leike, Tom B. Brown, Miljan Martic, Shane Legg, and Dario Amodei. 2017. Deep Reinforcement Learning from Human Preferences. In 
+
+Advances in Neural Information Processing Systems (NeurIPS) . https://arxiv.org/ abs/1706.03741 [7] Paul Covington, Jay Adams, and Emre Sargin. 2016. Deep Neural Networks for YouTube Recommendations. In Proceedings of the 10th ACM Conference on Recommender Systems (RecSys) . 191–198. https://doi.org/10.1145/2959100.2959190 [8] Jiaxin Deng, Shiyao Wang, Kuo Cai, Lejian Ren, Qigen Hu, Weifeng Ding, Qiang Luo, and Guorui Zhou. 2025. OneRec: Unifying Retrieve and Rank with Generative Recommender and Iterative Preference Alignment. https://doi.org/10.48550/ arXiv.2502.18965 arXiv:2502.18965 [cs.IR] [9] Miroslav Dudík, John Langford, and Lihong Li. 2011. Doubly Robust Policy Evaluation and Learning. In Proceedings of the 28th International Conference on Machine Learning (ICML) . 1097–1104. [10] Bradley Efron and Carl Morris. 1975. Data Analysis Using Stein’s Estimator and Its Generalizations. J. Amer. Statist. Assoc. 70, 350 (1975), 311–319. https: //doi.org/10.1080/01621459.1975.10479864 [11] Scott Fujimoto, Herke van Hoof, and David Meger. 2018. Addressing Function Approximation Error in Actor-Critic Methods. In Proceedings of the 35th Interna-tional Conference on Machine Learning (ICML) . https://doi.org/10.48550/arXiv. 1802.09477 arXiv:1802.09477 [cs.LG] [12] Chongming Gao, Ruijun Chen, Shuai Yuan, Kexin Huang, Yuanqing Yu, and Xiangnan He. 2025. SPRec: Self-Play to Debias LLM-based Recommendation. In 
+
+Proceedings of the ACM Web Conference 2025 . 5075–5084. https://doi.org/10.1145/ 3696410.3714524 arXiv:2412.09243 [13] Chongming Gao, Shijun Li, Yuan Zhang, Jiawei Chen, Biao Li, Wenqiang Lei, Peng Jiang, and Xiangnan He. 2022. KuaiRand: An Unbiased Sequential Recom-mendation Dataset with Randomly Exposed Videos. In Proceedings of the 31st ACM International Conference on Information and Knowledge Management (CIKM) .https://doi.org/10.1145/3511808.3557624 arXiv:2208.08696 [cs.IR] [14] Jingtong Gao, Yewen Li, Shuai Mao, Peng Jiang, Nan Jiang, Yejing Wang, Qing-peng Cai, Fei Pan, Peng Jiang, Kun Gai, Bo An, and Xiangyu Zhao. 2025. Genera-tive Auto-Bidding with Value-Guided Explorations. https://doi.org/10.48550/ arXiv.2504.14587 arXiv:2504.14587 [cs.LG] [15] Shijie Geng, Shuchang Liu, Zuohui Fu, Yingqiang Ge, and Yongfeng Zhang. 2022. Recommendation as Language Processing (RLP): A Unified Pretrain, Personalized Prompt & Predict Paradigm (P5). In RecSys . 299–315. https://doi.org/10.1145/ 3523227.3546767 [16] Balázs Hidasi, Alexandros Karatzoglou, Linas Baltrunas, and Domonkos Tikk. 2016. Session-based Recommendations with Recurrent Neural Networks. In 
+
+International Conference on Learning Representations (ICLR) . https://doi.org/10. 48550/arXiv.1511.06939 arXiv:1511.06939 [cs.IR] [17] Yupeng Hou, Jianmo Ni, Zhankui He, Noveen Sachdeva, Wang-Cheng Kang, Ed H. Chi, Julian McAuley, and Derek Zhiyuan Cheng. 2025. ActionPiece: Contextually Tokenizing Action Sequences for Generative Recommendation. In Proceedings of the 42nd International Conference on Machine Learning (ICML) .arXiv:2502.13581 [cs.IR] [18] Eugene Ie, Chih-wei Hsu, Martin Mladenov, Vihan Jain, Sanmit Narvekar, Jing Wang, Rui Wu, and Craig Boutilier. 2019. RecSim: A Configurable Simulation Platform for Recommender Systems. https://doi.org/10.48550/arXiv.1909.04847 arXiv:1909.04847 [cs.IR] [19] Eugene Ie, Vihan Jain, Jing Wang, Sanmit Narvekar, Ritesh Agarwal, Rui Wu, Heng-Tze Cheng, Tushar Chandra, and Craig Boutilier. 2019. SlateQ: A Tractable Decomposition for Reinforcement Learning with Recommendation Sets. In Pro-ceedings of the Twenty-Eighth International Joint Conference on Artificial Intelli-gence, IJCAI-19 . 2592–2599. https://doi.org/10.24963/ijcai.2019/360 [20] Dietmar Jannach and Himan Abdollahpouri. 2023. A survey on multi-objective recommender systems. Frontiers in Big Data 6 (2023). https://doi.org/10.3389/ fdata.2023.1157899 [21] Yangqin Jiang, Yuhao Yang, Lianghao Xia, Da Luo, Kangyi Lin, and Chao Huang. 2025. RecLM: Recommendation Instruction Tuning. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) . 15443–15459. https://doi.org/10.18653/v1/2025.acl-long.751 [22] Wang-Cheng Kang and Julian McAuley. 2018. Self-Attentive Sequential Rec-ommendation. In 2018 IEEE International Conference on Data Mining (ICDM) .https://doi.org/10.1109/ICDM.2018.00035 [23] Ron Kohavi, Alex Deng, Brian Frasca, Roger Longbotham, Toby Walker, and Ya Xu. 2012. Trustworthy Online Controlled Experiments: Five Puzzling Outcomes Explained. In Proceedings of the 18th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD) . 786–794. https://doi.org/10.1145/ 2339530.2339653 [24] Xiaoyu Kong, Leheng Sheng, Junfei Tan, Yuxin Chen, Jiancan Wu, An Zhang, Xiang Wang, and Xiangnan He. 2025. MiniOneRec: An Open-Source Framework for Scaling Generative Recommendation. https://doi.org/10.48550/arXiv.2510. 24431 arXiv:2510.24431 [cs.IR] [25] Andrew Levy, George Konidaris, Robert Platt, and Kate Saenko. 2019. Learning Multi-Level Hierarchies with Hindsight. In International Conference on Learning Representations . arXiv:1712.00948 [26] Jing Li, Pengjie Ren, Zhumin Chen, Zhaochun Ren, Tian Lian, and Jun Ma. 2017. Neural Attentive Session-based Recommendation. In Proceedings of the 26th ACM International Conference on Information and Knowledge Management (CIKM) .https://doi.org/10.1145/3132847.3132926 [27] Lihong Li, Wei Chu, John Langford, and Xuanhui Wang. 2011. Unbiased Offline Evaluation of Contextual-bandit-based News Article Recommendation Algo-rithms. In Proceedings of the 4th ACM International Conference on Web Search and Data Mining (WSDM) . 297–306. https://doi.org/10.1145/1935826.1935878 arXiv:1003.5956 [28] Timothy P. Lillicrap, Jonathan J. Hunt, Alexander Pritzel, Nicolas Heess, Tom Erez, Yuval Tassa, David Silver, and Daan Wierstra. 2015. Continuous Control with Deep Reinforcement Learning. https://doi.org/10.48550/arXiv.1509.02971 arXiv:1509.02971 [cs.LG] [29] Shuchang Liu, Qingpeng Cai, Bowen Sun, Yuhao Wang, Ji Jiang, Dong Zheng, Peng Jiang, Kun Gai, Xiangyu Zhao, and Yongfeng Zhang. 2023. Exploration and Regularization of the Latent Action Space in Recommendation. In Proceedings of the ACM Web Conference 2023 . 833–844. https://doi.org/10.1145/3543507.3583244 [30] H. Brendan McMahan, Gary Holt, David Sculley, Michael Young, Dietmar Ebner, Julian Grady, Lan Nie, Todd Phillips, Eugene Davydov, Daniel Golovin, Sharat Chikkerur, Dan Liu, Martin Wattenberg, Arnar Mar Hrafnkelsson, Tom Boulos, and Jeremy Kubica. 2013. Ad click prediction: a view from the trenches. In KDD 2013 . 1222–1230. https://doi.org/10.1145/2487575.2488200 [31] Volodymyr Mnih, Adria Puigdomenech Badia, Mehdi Mirza, Alex Graves, Tim-othy P. Lillicrap, Tim Harley, David Silver, and Koray Kavukcuoglu. 2016. Asynchronous Methods for Deep Reinforcement Learning. arXiv preprint arXiv:1602.01783 (2016). https://doi.org/10.48550/arXiv.1602.01783 [32] Andrew Y. Ng, Daishi Harada, and Stuart Russell. 1999. Policy Invariance un-der Reward Transformations: Theory and Application to Reward Shaping. In 
+
+Proceedings of the 16th International Conference on Machine Learning (ICML) .https://doi.org/10.5555/645528.657613 [33] Long Ouyang, Jeff Wu, Xu Jiang, Diogo Almeida, Carroll L. Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, John Schul-man, Jacob Hilton, Fraser Kelton, Luke Miller, Maddie Simens, Amanda Askell, Peter Welinder, Paul Christiano, Jan Leike, and Ryan Lowe. 2022. Training Lan-guage Models to Follow Instructions with Human Feedback. arXiv preprint arXiv:2203.02155 (2022). https://doi.org/10.48550/arXiv.2203.02155 [34] R. L. Plackett. 1975. The Analysis of Permutations. Journal of the Royal Statistical Society: Series C (Applied Statistics) 24, 2 (1975), 193–202. https://doi.org/10.2307/ 2346567 [35] Rafael Rafailov, Archit Sharma, Eric Mitchell, Stefano Ermon, Christopher D. Manning, and Chelsea Finn. 2023. Direct Preference Optimization: Your Language Model is Secretly a Reward Model. https://doi.org/10.48550/arXiv.2305.18290 arXiv:2305.18290 [cs.LG] [36] Shashank Rajput, Nikhil Mehta, Anima Singh, Raghunandan Keshavan, Trung Vu, Lukasz Heldt, Lichan Hong, Yi Tay, Vinh Q. Tran, Jonah Samost, Maciej Kula, Ed H. Chi, and Maheswaran Sathiamoorthy. 2023. Recommender Systems with Generative Retrieval. In Advances in Neural Information Processing Systems (NeurIPS) . https://doi.org/10.48550/arXiv.2305.05065 arXiv:2305.05065 [cs.IR] [37] Marc’Aurelio Ranzato, Sumit Chopra, Michael Auli, and Wojciech Zaremba. 2016. Sequence Level Training with Recurrent Neural Networks. In International Con-ference on Learning Representations (ICLR) . https://arxiv.org/abs/1511.06732 [38] John Schulman, Sergey Levine, Pieter Abbeel, Michael Jordan, and Philipp Moritz. 2015. Trust Region Policy Optimization. arXiv:1502.05477 [39] John Schulman, Philipp Moritz, Sergey Levine, Michael Jordan, and Pieter Abbeel. 2016. High-Dimensional Continuous Control Using Generalized Advantage Estimation. arXiv:1506.02438 Hierarchical Residual Policy Optimization for Generative Recommendations KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+[40] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. 2017. Proximal Policy Optimization Algorithms. https://doi.org/10.48550/arXiv. 1707.06347 arXiv:1707.06347 [cs.LG] [41] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. 2024. DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models. https: //doi.org/10.48550/arXiv.2402.03300 arXiv:2402.03300 [cs.CL] [42] Harald Steck. 2011. Item Popularity and Recommendation Accuracy. In Pro-ceedings of the 5th ACM Conference on Recommender Systems (RecSys) . 125–132. https://doi.org/10.1145/2043932.2043957 [43] Fei Sun, Jun Liu, Jian Wu, Changhua Pei, Xiao Lin, Wenwu Ou, and Peng Jiang. 2019. BERT4Rec: Sequential Recommendation with Bidirectional En-coder Representations from Transformer. In Proceedings of the 28th ACM Inter-national Conference on Information and Knowledge Management (CIKM) . https: //doi.org/10.1145/3357384.3357895 [44] Richard S. Sutton and Andrew G. Barto. 2018. Reinforcement Learning: An Intro-duction (2 ed.). MIT Press. https://doi.org/10.5555/3312046 [45] Adith Swaminathan and Thorsten Joachims. 2015. Counterfactual Risk Min-imization: Learning from Logged Bandit Feedback. In Proceedings of the 32nd International Conference on Machine Learning (ICML) . 814–823. arXiv:1502.02362 [46] Junfei Tan, Yuxin Chen, An Zhang, Junguang Jiang, Bin Liu, Ziru Xu, Han Zhu, Jian Xu, Bo Zheng, and Xiang Wang. 2025. Reinforced Preference Op-timization for Recommendation. https://doi.org/10.48550/arXiv.2510.12211 arXiv:2510.12211 [cs.IR] [47] Yi Tay, Vinh Q. Tran, Mostafa Dehghani, Jianmo Ni, Dara Bahri, Harsh Mehta, Zhen Qin, Kai Hui, Zhe Zhao, Jai Gupta, Tal Schuster, William W. Cohen, and Donald Metzler. 2022. Transformer Memory as a Differentiable Search Index. In Advances in Neural Information Processing Systems . https://doi.org/10.5555/ 3600270.3601857 arXiv:2202.06991 [cs.IR] [48] Hanbing Wang, Xiaorui Liu, Wenqi Fan, Xiangyu Zhao, Venkataramana Kini, Devendra Pratap Yadav, Fei Wang, Zhen Wen, and Hui Liu. 2025. Rethinking Large Language Model Architectures for Sequential Recommendations. In Proceedings of the 14th International Joint Conference on Natural Language Processing and the 4th Conference of the Asia-Pacific Chapter of the Association for Computational Linguistics . 3376–3391. https://doi.org/10.18653/v1/2025.ijcnlp-long.180 [49] Maolin Wang, Xinjian Zhao, Wanyu Wang, Sheng Zhang, Jiansheng Li, Bowen Yu, Binhao Wang, Shucheng Zhou, Dawei Yin, Qing Li, Ruocheng Guo, and Xiangyu Zhao. 2026. Embedding in Recommender Systems: A Survey. ACM Transactions on Information Systems (2026). https://doi.org/10.1145/3812652 [50] Wenjie Wang, Honghui Bao, Xinyu Lin, Jizhi Zhang, Yongqi Li, Fuli Feng, See-Kiong Ng, and Tat-Seng Chua. 2024. Learnable Item Tokenization for Generative Recommendation. In Proceedings of the 33rd ACM International Conference on Information and Knowledge Management (CIKM) . 2400–2409. https://doi.org/10. 1145/3627673.3679569 [51] Yejing Wang, Shengyu Zhou, Jinyu Lu, Qidong Liu, Xinhang Li, Wenlin Zhang, Feng Li, Pengjie Wang, Jian Xu, Bo Zheng, and Xiangyu Zhao. 2025. GFlowGR: Fine-tuning Generative Recommendation Frameworks with Generative Flow Networks. https://doi.org/10.48550/arXiv.2506.16114 arXiv:2506.16114 [cs.IR] [52] Yejing Wang, Shengyu Zhou, Jinyu Lu, Ziwei Liu, Langming Liu, Maolin Wang, Wenlin Zhang, Feng Li, Wenbo Su, Pengjie Wang, Jian Xu, and Xiangyu Zhao. 2026. NEZHA: A Zero-sacrifice and Hyperspeed Decoding Architecture for Generative Recommendations. https://doi.org/10.48550/arXiv.2511.18793 arXiv:2511.18793 [cs.AI] [53] Ronald J. Williams. 1992. Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning. Machine Learning 8, 3-4 (1992), 229–256. https://doi.org/10.1007/BF00992696 [54] An Zhang, Yuxin Chen, Leheng Sheng, Xiang Wang, and Tat-Seng Chua. 2024. On Generative Agents in Recommendation. In Proceedings of the 47th International ACM SIGIR Conference on Research and Development in Information Retrieval .1807–1817. https://doi.org/10.1145/3626772.3657844 [55] Kesen Zhao, Shuchang Liu, Qingpeng Cai, Xiangyu Zhao, Ziru Liu, Dong Zheng, Peng Jiang, and Kun Gai. 2023. KuaiSim: A Comprehensive Simu-lator for Recommender Systems. https://doi.org/10.48550/arXiv.2309.12645 arXiv:2309.12645 [cs.IR] [56] Xiangyu Zhao, Long Xia, Liang Zhang, Zhuoye Ding, Dawei Yin, and Jiliang Tang. 2018. Deep Reinforcement Learning for Page-wise Recommendations. In 
+
+Proceedings of the 12th ACM Conference on Recommender Systems (RecSys) . 95–103. https://doi.org/10.1145/3240323.3240374 [57] Xiangyu Zhao, Liang Zhang, Zhuoye Ding, Long Xia, Jiliang Tang, and Dawei Yin. 2018. Recommendations with Negative Feedback via Pairwise Deep Reinforce-ment Learning. In Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining . 1040–1048. https://doi.org/10.1145/ 3219819.3219886 [58] Bowen Zheng, Enze Liu, Zhongfu Chen, Zhongrui Ma, Yue Wang, Wayne Xin Zhao, and Ji-Rong Wen. 2025. Pre-training Generative Recommender with Multi-Identifier Item Tokenization. https://doi.org/10.48550/arXiv.2504.04400 arXiv:2504.04400 [cs.IR] [59] Qiyong Zhong, Jiajie Su, Yunshan Ma, Julian McAuley, and Yupeng Hou. 2025. Pctx: Tokenizing Personalized Context for Generative Recommendation. https: //doi.org/10.48550/arXiv.2510.21276 arXiv:2510.21276 [cs.IR] [60] Han Zhu, Xiang Li, Pengye Zhang, Guozheng Li, Jie He, Han Li, and Kun Gai. 2018. Learning Tree-based Deep Model for Recommender Systems. In Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining . 1079–1088. https://doi.org/10.1145/3219819.3219826 [61] Lixin Zou, Long Xia, Zhuoye Ding, Jiaxing Song, Weidong Liu, and Dawei Yin. 2019. Reinforcement Learning to Optimize Long-term User Engagement in Recommender Systems. In KDD . 2810–2818. https://doi.org/10.1145/3292500. 3330668 
+
+## A HRPO Algorithms 
+
+This appendix summarizes the offline post-training loop used in the paper. The procedure optimizes the RRPO objective (Eq. (15) ) using cohort-conditioned smoothed prefix means (Eq. (8) ) and residual credit-to-go (Eqs. (10)–(11)). 
+
+Algorithm 1 HRPO Post-Training (Offline) 
+
+Require: Logged dataset D = {( 𝑢 𝑖 , 𝑥 𝑖 , 𝑣 𝑖 , b𝑖 )} ; mapping 𝜙 (·) ; ad-missible set A (·) .
+
+Require: Pretrained policy 𝜋 𝜃 ; frozen reference policy 𝜋 𝜃 old .
+
+Require: Max cohorts 𝐶 ; group size 𝑊 ; smoothing 𝛼 ; clip 𝜖 clip ;
+
+𝛽 KL ; small constant 𝜀 ; sync period 𝑀 sync .
+
+1: (Cohorts) Build cohort ids 𝑐 (𝑢 ) and include a global cohort 
+
+𝑐 = −1 (Eq. (6)). 
+
+2: (Prefix tables) Initialize prefix stats 𝑛 (𝑐, 𝑦 1: 𝑡 ), 𝑠 (𝑐, 𝑦 1: 𝑡 ) for 𝑐 ∈{− 1, 0, . . . , 𝐶 − 1} and all trie prefixes 𝑦 1: 𝑡 .
+
+3: for each (𝑢, 𝑥, 𝑣, b) ∈ D do 
+
+4: 𝑦 ←𝜙 (𝑣 ), 𝑟 ←𝑟 (b) (Eq. (1) ); update (𝑛, 𝑠 ) for all prefixes of 
+
+𝑦 for both 𝑐 (𝑢 ) and 𝑐 = −1 (Eq. (7)). 
+
+5: end for 
+
+6: Compute smoothed prefix means ˆ𝜇 (𝑐, 𝑦 1: 𝑡 ) (Eq. (8)). 
+
+7: for each training step 𝑠 = 1, 2, . . . do 
+
+8: Sample a minibatch {( 𝑢 𝑖 , 𝑥 𝑖 , 𝑣 𝑖 , b𝑖 )} 𝐵 𝑖 =1 from D.
+
+9: for each instance (𝑢 𝑖 , 𝑥 𝑖 , 𝑣 𝑖 , b𝑖 ) in the minibatch do 
+
+10: 𝑐 𝑖 ← 𝑐 (𝑢 𝑖 ); 𝑦 (1)
+
+𝑖 ← 𝜙 (𝑣 𝑖 ).
+
+11: (Proposals) 𝑌 (𝑥 𝑖 ) ← { 𝑦 (1)
+
+𝑖 }∪ up to 𝑊 − 1 additional unique candidates via constrained decoding under 𝜋 𝜃 old with 
+
+𝑦 𝑡 ∈ A ( 𝑦 <𝑡 ), then deduplicate. 
+
+12: (Returns & advantages) For each 𝑦 (𝑤 )
+
+𝑖 ∈ 𝑌 (𝑥 𝑖 ), compute 
+
+{ ˆ𝐺 (𝑤 )
+
+𝑡 }𝐿 𝑡 =1 from ˆ𝜇 (𝑐 𝑖 , ·) by Eq. (11) , then normalize across 𝑤 per position to obtain {𝐴 (𝑤 )
+
+𝑡 } (Eq. (12)). 
+
+13: end for 
+
+14: (RRPO update) Update 𝜃 by maximizing Eq. (15) on the minibatch with trust-region penalty KL TR (Eq. (16)). 
+
+15: if 𝑠 mod 𝑀 sync = 0 then 
+
+16: Sync reference: 𝜃 old ← 𝜃 .
+
+17: end if 
+
+18: end for 
+
+## A.1 Offline HRPO Post-Training 
+
+Offline training first precomputes cohort-conditioned prefix sta-tistics from D and then repeats: (i) proposal generation under the frozen reference policy 𝜋 𝜃 old , (ii) token-wise advantages from prefix tables via residual credit-to-go, and (iii) RRPO updates with periodic reference-policy synchronization (Alg. 1). This procedure yields a KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Kaifeng Guo et al. 
+
+Table 7: Grouping sensitivity under different cohort construc-tion strategies.                         
+
+> Strategy Session length Avg. reward Total reward One-step reward No cohorting 14.72 0.6338 9.3310 0.4280 Coarse buckets 15.01 0.6615 9.9300 0.4960 Default buckets 15.33 0.6869 10.5280 0.5480 KMeans clusters 15.27 0.6812 10.4010 0.5330 Overfine buckets 15.09 0.6704 10.1180 0.5070
+
+Table 8: Cohort support statistics for non-empty cohort con-struction strategies. 
+
+Strategy Effective cohorts P25 Median P75 Mean Coarse buckets 63 87 133 367 380.14 Default buckets 120 34 62 137 216.34 KMeans clusters 192 12 42 84 142.11 Overfine buckets 424 1 5 24 64.35 
+
+stable post-trained decoder while keeping updates aligned with the logged-data support. 
+
+## A.2 Cohort Construction and Sensitivity 
+
+For the default cohort mapping 𝑔 (𝑢 ) in Eq. (6) , we use determinis-tic tuple bucketing over stable, coarse-grained user-side attributes available in KuaiRand. The mapping is fixed before post-training, ig-nores empty buckets, and yields 120 effective cohorts in the default setting. Tables 7–8 report grouping sensitivity and cohort-support statistics. These results show a support–granularity trade-off. With-out cohorting, global prefix statistics are too coarse for heteroge-neous users. Coarse buckets under-partition users, whereas overfine buckets fragment support and make prefix estimates noisy. Default buckets and KMeans clusters remain close, suggesting that HRPO benefits from cohort-level smoothing rather than from a specific handcrafted partition. 
+
+## B Evaluation on Agent4Rec-MovieLens 
+
+To further examine whether the benefit of HRPO transfers beyond the KuaiRand/KuaiSim environment, we conduct an additional evaluation on the public Agent4Rec-MovieLens simulator [ 54 ]. Agent4Rec constructs LLM-powered user agents from MovieLens-1M profiles and simulates page-by-page recommendation sessions. We evaluate all methods under the same simulator setup and report two session-level metrics: AvgR, the average reward over simu-lated interactions, and Avg. Session Length, the average number of recommendation pages consumed before the user leaves. Table 9 shows that TIGER+ HRPO achieves the best performance on both metrics. Compared with TIGER, HRPO improves AvgR from 0.853 to 0.884 and session length from 8.33 to 9.12, also outper-forming DPO and GRPO on the same backbone. Since Agent4Rec differs from KuaiSim in simulator construction and user modeling, this result suggests the gain is not tied to one rollout environment. 
+
+Table 9: Evaluation on the public Agent4Rec-MovieLens sim-ulator. Higher is better for both metrics.                         
+
+> Model AvgR Avg. Session Length Random 0.558 4.67 GRU4Rec 0.797 6.96 SASRec 0.859 7.79 TD 0.878 8.85 DDPG 0.878 9.02 HAC 0.873 8.94 A2C 0.869 8.73 TIGER 0.853 8.33 TIGER+DPO 0.861 8.48 TIGER+GRPO 0.869 8.70 TIGER+ HRPO 0.884 9.12
+
+## C Scaling-Law Logs for A/B Models 
+
+In addition to the main HRPO experiments, we report auxiliary scaling-law diagnostics from six A/B model sizes used in production training logs. Table 10 summarizes the model-size and training settings used in the scaling study. Here, Size denotes the number of model param-eters (in billions, e.g., 0.2B = 200M parameters). Batch size is chosen per model scale based on our production training recipe; learning rate is tuned per scale accordingly. Figure 6 plots the correspond-ing training loss curves. Larger models generally reach lower loss faster, and all curves decrease smoothly without unstable spikes. We include these logs as a diagnostic complement to the online experiment, showing that production training remains numerically stable across the A/B model-size range, while the main HRPO con-clusions still come from the controlled offline, simulator, and online comparisons. 
+
+Table 10: A/B model configurations for the scaling-law diagnostic. FLOPs are reported with batch size 1. Abbre-viations: 𝑑 =𝑑 model (hidden width), #L=#layers, #H=#heads, emb=embedding dimension, bs=batch size, lr=learning rate.   
+
+> Size FLOPs
+
+𝑑 #L #H emb bs lr 0.005B 20M 64 6 4 16 896 0.0030 0.01B 40.6M 128 8 4 16 512 0.0010 0.02B 83.2M 256 12 8 16 256 0.0005 0.05B 160.5M 512 6 8 16 128 0.0004 0.1B 243.8M 768 8 12 16 64 0.0003 0.2B 332.7M 1024 12 16 16 32 0.0001 
+
+Figure 6: Scaling-law diagnostic for A/B model sizes.

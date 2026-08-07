@@ -1,0 +1,471 @@
+Title: HierDoc: Hierarchical Page-to-Region Evidence Routing for Long-Document Visual Question Answering
+
+URL Source: https://arxiv.org/pdf/2607.29638v1
+
+Published Time: Mon, 03 Aug 2026 01:10:49 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# HierDoc: Hierarchical Page-to-Region Evidence Routing for Long-Document Visual Question Answering 
+
+## Rongjian Gu 1 Wengang Zhou 1 Junyu Xiong 1 Yonghui Wang 1
+
+## Bing Yin 2 Bei Wang 3 Houqiang Li 1
+
+> 1
+
+University of Science and Technology of China 2iFLYTEK Research 
+
+> 3
+
+Anhui Transport Consulting & Design Institute Co. Ltd., Hefei, China gurongjian@mail.ustc.edu.cn, xiongjyu@mail.ustc.edu.cn, zhwg@ustc.edu.cn 
+
+Abstract 
+
+Multi-page document visual question answering requires lo-cating sparse evidence at both the page and region levels. Existing approaches typically emphasize one level over the other: page-centric methods focus on page acquisition, with region operations serving mainly as navigation aids, whereas region-centric methods assume that the relevant pages have al-ready been supplied. Consequently, page and region selection remain disconnected rather than forming successive evidence decisions. We propose HierDoc, a hierarchical evidence-routing framework that formulates long-document evidence acquisition as two-stage set prediction from pages to regions. A page policy selects evidence pages from the full docu-ment; these pages are then parsed for semantic elements, af-ter which a region policy selects the elements passed to a downstream answer model. Both answer-agnostic policies are optimized with stage-wise GRPO using granularity-specific structured-set rewards. The answer model receives selected full pages together with selected region crops and OCR or table text, preserving global context while emphasizing fine-grained evidence. Across the evaluated benchmarks, HierDoc achieves state-of-the-art or competitive performance among open-weight systems, improving LongDocURL by 16.87% relative to the strongest reported open-weight baseline. Con-trolled ablations further show that selected regional evidence improves the page-only system in accuracy and F1 by 5.51% and 4.82%, respectively. These results demonstrate the bene-fit of organizing coarse page routing and fine-grained region routing as successive, separately optimized stages of a unified evidence-acquisition process. 
+
+## Introduction 
+
+Document visual question answering is moving from single-page reading toward multi-page and long-document reason-ing, where answer evidence is often sparse across pages and visual elements. DocVQA established question answer-ing over individual document images (Mathew, Karatzas, and Jawahar 2021), while MP-DocVQA, SlideVQA, and DUDE extended the task to collections of related pages (Tito, Karatzas, and Valveny 2023; Tanaka et al. 2023; Van Landeghem et al. 2023). More recent benchmarks such as MMLongBench-Doc and LongDocURL further increase document length, visual diversity, and evidence-localization demands (Ma et al. 2024; Deng et al. 2025). As the context expands, the central challenge shifts from understanding a supplied page to acquiring the right evidence before reason-ing: a system must identify relevant pages and then locate relevant semantic regions within them. Existing approaches typically operate primarily at either the page level or the within-page region level. Visual re-trievers such as ColPali and VisRAG use rendered pages as retrieval units (Faysse et al. 2025; Yu et al. 2025), and DocR1 makes evidence-page selection trainable through page-guided GRPO (Xiong et al. 2026b). Agentic systems such as Doc-V ∗ extend page acquisition beyond one-shot retrieval (Zheng et al. 2026). Across these page-oriented ap-proaches, fine-grained evidence is therefore not formulated as a separately optimized region-set action. At the within-page level, AgenticOCR learns query-driven zoom-and-OCR op-erations over pages supplied by an external page retriever, making within-page extraction explicit while taking page ac-quisition as an upstream input (Wang et al. 2026). DocLens most directly connects these granularities: its Page Naviga-tor retrieves relevant pages, and its Element Localizer applies query-agnostic layout detection and exhaustively crops de-tected elements for downstream answering (Zhu et al. 2026). Although this establishes a full-document-to-element path, it neither learns query-conditioned region-subset selection nor optimizes page and region acquisition as separate evidence policies. Consequently, existing methods lack a unified for-mulation of page and region routing as successive, answer-agnostic evidence-set policies optimized at their respective granularities. HierDoc addresses this gap with a hierarchical evidence-routing framework that casts evidence acquisition as suc-cessive page and region-level set prediction. Given a ques-tion and a rendered document, a page policy first returns a structured set of evidence pages. Selected pages are then parsed into candidate semantic regions with bounding boxes, element types, and recognized textual content (Niu et al. 2026). A region policy conditions on the question, selected-page images, and parser candidates to return a structured set of evidence-region IDs. A separate answer model receives the selected pages together with the selected region crops and textual metadata, retaining global layout context while emphasizing local evidence. Each routing policy is answer-agnostic, terminates at an evidence set, and is optimized independently with stage-wise GRPO (Shao et al. 2024). Granularity-specific structured-set rewards let the page pol-arXiv:2607.29638v1 [cs.CV] 31 Jul 2026 icy balance evidence coverage and context volume while the region policy selects precise semantic elements and penal-izes surplus actions. Bounding-box supervision is mapped to parser-native region IDs to form a discrete semantic ac-tion space; at inference time, the two policies compose into one page-to-region-to-answer path. Figure 1 summarizes this inference path and the evidence passed between stages. Experiments across multiple multi-page and long-document VQA benchmarks test end-to-end answering, page routing, and evidence composition. Across the reported evaluations, HierDoc achieves state-of-the-art or competi-tive performance among open-weight systems, including a 16.87% relative accuracy improvement over the strongest re-ported open-weight baseline on LongDocURL. Controlled evidence-composition ablations further show that selected regional evidence improves the page-only system by 5.51% in accuracy and 4.82% in F1, supporting the complementary roles of global page context and fine-grained region routing. Our contributions are threefold: 
+
+• We introduce HierDoc, a hierarchical evidence-routing framework that represents page and semantic-region ac-quisition as successive, answer-agnostic structured-set policies, making both routing decisions explicit and in-dependently analyzable. 
+
+• We develop a stage-wise training strategy with granularity-specific set rewards and a parser-native se-mantic action space that maps spatial supervision to dis-crete region decisions. 
+
+• We evaluate HierDoc across multi-page and long-document VQA benchmarks and conduct controlled rout-ing and evidence-composition studies, demonstrating strong open-weight performance and the complementary value of page context and selected regional evidence. 
+
+## Related Work 
+
+MLLMs for Document VQA 
+
+Document VQA requires joint reasoning over text, layout, and visual structure. Beyond DocVQA, InfographicVQA, ChartQA, and TAT-DQA emphasize infographic, chart, and financial table–text reasoning, respectively (Mathew, Karatzas, and Jawahar 2021; Mathew et al. 2022; Masry et al. 2022; Zhu et al. 2022). Multi-page benchmarks such as MP-DocVQA, SlideVQA, and DUDE further require cross-page evidence aggregation (Tito, Karatzas, and Val-veny 2023; Tanaka et al. 2023; Van Landeghem et al. 2023), while MMLongBench-Doc and LongDocURL extend eval-uation to long, visualization-rich PDFs with explicit local-ization demands (Ma et al. 2024; Deng et al. 2025). General-purpose MLLMs, including Qwen2.5-VL, GLM-4.5V, and InternVL3.5, directly process document images with high-resolution perception and multimodal reasoning (Bai et al. 2025b; GLM-V Team 2025; Wang et al. 2025c). Document-specialized mPLUG-DocOwl2 compresses pages into com-pact visual tokens for OCR-free multi-page understanding, while DeepSeek-OCR explores optical compression of long textual contexts (Hu et al. 2025; Wei, Sun, and Li 2025). Long documents therefore motivate explicit evidence rout-ing across pages and regions, which motivates HierDoc’s hierarchical evidence-routing design. 
+
+Evidence Routing across Pages and Regions 
+
+Visual document retrieval provides a natural first step to-ward evidence acquisition. For visually rich documents, ColPali represents page images with multi-vector embed-dings (Faysse et al. 2025). M3DocRAG couples multimodal page retrieval with an MLLM answerer, SV-RAG adapts an MLLM with separate retrieval and answering modules, and MoLoRAG augments page selection with graph-based logical links (Cho et al. 2024; Chen et al. 2025; Wu et al. 2025). These approaches demonstrate the value of query-conditioned page selection, but the retrieved object remains an entire page and fine-grained evidence is left implicit. DocR1 uses Evidence Page-Guided GRPO to reward page judgments together with reasoning format and answer accu-racy (Xiong et al. 2026b). This establishes page evidence as an optimizable behavior rather than fixed preprocessing and provides precedent for learning evidence selection with verifiable set rewards. Finer-grained methods localize evidence within docu-ment pages. RegionRAG learns localized visual represen-tations and groups salient patches into semantic regions be-fore generation (Li et al. 2026). AgenticOCR learns query-conditioned zoom-and-OCR operations over externally re-trieved pages (Wang et al. 2026). These designs provide within-page localization but generally remain separate from upstream page retrieval. HierDoc connects page acquisition and semantic localization by selecting a discrete evidence set from parser-native regions conditioned on the pages chosen upstream. 
+
+Reinforcement-Learned and Agentic Document Reasoning 
+
+Agentic document systems extend static retrieval by allowing models to seek and combine evidence during reasoning. In visual document understanding, ViDoRAG coordinates re-trieval, exploration, summarization, and reflection; MDocA-gent combines specialized text and image agents (Wang et al. 2025a; Han et al. 2025). DocLens composes page navigation, element localization, answer sampling, and adjudication in a tool-augmented multi-agent workflow (Zhu et al. 2026). Recent work also optimizes evidence-seeking trajectories with reinforcement learning. Doc-V ∗ alternates retrieval, page fetching, and answering via structured memory, VRAG-RL learns iterative coarse-to-fine visual search, and HIEVI-RAG combines hierarchical question decomposition with GRPO-trained page verification (Zheng et al. 2026; Wang et al. 2025b; Xiong et al. 2026a). These closed-loop de-signs couple evidence discovery with answer-oriented rea-soning. HierDoc adopts a complementary factorization: page and semantic-region acquisition are standalone structured-set policies, and answer generation begins only after both routing stages terminate. PAGE  ROUTING  REGION  ROUTING      
+
+> WINDOWED
+> PAGE
+> SELECTOR
+> SEMANTIC PARSING
+> GROUNDED ANSWERING
+> REGION SELECTION
+> REGION
+> SELECTOR ANSWER
+> MODEL
+> REFLECTION REFLECTION
+
+Figure 1: Overview of HierDoc inference. A trainable page policy selects evidence pages from fixed-size windows and routes them both to semantic parsing and directly to grounded answering. MinerU2.5-Pro converts the selected pages into typed semantic regions with bounding boxes and OCR or table metadata, after which a trainable region policy retains the relevant region crops and associated text. The answer model jointly consumes the selected full pages, region crops, and textual metadata. Flame badges denote trainable selectors. 
+
+## Method 
+
+Overview and Problem Formulation 
+
+Given a question q and a document D = ( I1, . . . , I N ) of rendered page images, HierDoc produces an answer in three stages. First, page routing selects the pages likely to contain answer evidence. Second, region routing parses those pages into semantic regions and retains the regions most relevant to the question. Finally, grounded answering combines the selected full pages with the selected region crops and their textual metadata to generate the answer. Figure 1 presents the overall workflow of the HierDoc framework. Let D ˆP = {Ip : p ∈ ˆP } denote the selected page images, where ˆP ⊆ { 1, . . . , N } contains 1-based physical page in-dices. MinerU2.5 (Niu et al. 2026) parses these images into the candidate set 
+
+C( ˆP ) = {rj = ( aj , p j , b j , u j , t j )}Mj=1 ,
+
+where aj is a sample-local action alias, pj ∈ ˆP is the physical page index, bj = ( x1, y 1, x 2, y 2) is a pixel-space bounding box, uj is a semantic type, and tj is OCR or table text. For a selected region set ˆR ⊆ C ( ˆP ), the selected crops and their associated metadata are denoted as 
+
+E ˆR = {(crop( Ipj , b j ), r j ) : rj ∈ ˆR}.
+
+To summarize, the inputs and outputs of the three stages are 
+
+πp : ( q, D ) 7 → ˆP , πr : ( q, D ˆP , C( ˆP )) 7 → ˆR, F : ( q, D ˆP , E ˆR) 7 → ˆy. 
+
+Page Routing 
+
+Windowed Page Selection For a candidate page set, the page policy returns exactly one XML action of the form 
+
+<evidence_page>2,4</evidence_page> and is instructed not to answer the question. An empty tag denotes an empty page set, and indices outside the presented candi-dates are invalid actions. At inference time, a long document is partitioned into consecutive, non-overlapping windows 
+
+W1, . . . , W K , each containing at most Mp pages, where Mp
+
+denotes the page-window capacity. The policy acts indepen-dently on each window, after which valid local predictions are deduplicated and combined by union: 
+
+ˆP (0) =
+
+> K
+
+[
+
+> k=1
+
+πp(q, W k).
+
+This construction lets the same set policy operate on docu-ments longer than a single visual context while preserving physical page identities across windows. After the window-level predictions are merged, heuristic reflection is triggered when | ˆP (0) | > τ p, where τp denotes the page-reflection threshold. The same page policy then reconsiders only the first-pass pages and returns a refined set 
+
+ˆP satisfying | ˆP | < M p; otherwise ˆP = ˆP (0) . If the second pass does not produce an admissible action, the first-pass set is retained. By pruning redundant pages accumulated across independent windows, reflection reduces the visual context passed to semantic parsing and grounded answering while requiring neither an additional policy nor a separate training objective. Page-Policy Optimization To improve evidence coverage without forwarding excessive or malformed page sets, we optimize the page policy πp with Group Relative Policy Op-timization (GRPO) (Shao et al. 2024). For each question– window prompt, πp samples N candidate page-set actions, standardizes their rule-based rewards within the group, and uses the resulting relative advantages to update the policy under a clipped surrogate objective with KL regularization to the reference policy. The key component is a structured reward that evaluates both the selected page set and its serial-ization. Let op be the serialized action for a candidate index set W , eP its parsed indices, and Gp the document-level gold page set. We define Up = eP \ W , the valid set Sp = eP ∩ W ,and the window-local target Gp,W = Gp ∩ W . The reward is 
+
+Rp = clip [0 ,1] 
+
+
+
+λp 
+
+> rec
+
+Rec( Sp, G p,W ) + λp 
+
+> f1
+
+F1( Sp, G p,W )+ λp 
+
+> fmt
+
+Fmt( op) − Ωinv (Up)
+
+
+
+.
+
+We define Ωinv (Up) = min(0 .20 , 0.05 |Up|). The recall and F1 terms favor evidence coverage, while F1 also discourages forwarding the entire window. The format term and invalid-index penalty enforce valid serialization, and clipping keeps the combined reward in [0 , 1] .
+
+Region Routing 
+
+Semantic Parsing For each selected page, MinerU2.5-Pro decomposes the page into semantically typed units such as paragraphs, tables, figures, and captions. Each unit retains its page index, pixel-space bounding box, semantic type, and available OCR or table text. The resulting parser-native regions form a discrete action space, avoiding the need for the selector to generate free-form coordinates. We assign consecutive aliases aj ∈ { 1, . . . , M } that are unique within each sample and shared across all of its selected pages. 
+
+Region Selection The region policy observes the ques-tion, selected pages with the aliases overlaid on their corresponding regions, and a candidate list formatted as 
+
+alias|type|OCR hint . The page images remain the authoritative visual input, while the recognized text serves as an auxiliary cue. Following the same protocol as the page policy, πr outputs a single cross-page action such as 
+
+<evidence_region>3,17</evidence_region> 
+
+over the sample-local aliases; an empty tag denotes no selected region, and out-of-list aliases are invalid. Let ˆR(0) denote the first-pass region set. As in page rout-ing, reflection is triggered only when | ˆR(0) | > τ r , where τr
+
+denotes the region-reflection threshold. The same policy then reconsiders the first-pass candidates; otherwise ˆR = ˆR(0) ,and a failed refinement falls back to the first-pass set. Un-like page reflection, region reflection imposes no fixed output limit and instead seeks the smallest sufficient subset ˆR, reduc-ing the crop and OCR context passed to grounded answering. 
+
+Region-Policy Optimization To improve fine-grained ev-idence coverage without forwarding all parser candidates, we optimize πr with a similar GRPO procedure to the page pol-icy, with independent training prompts and a region-specific reward. Training supervision is originally provided as evi-dence boxes, whereas the policy acts on parser-native aliases. To map the original annotations to these aliases, we compare each gold evidence box g with every parser candidate box bj
+
+in the same page coordinate system. Candidate j is assigned to the gold region set when 
+
+IoU( g, b j ) ≥ 0.10 ∨ |g ∩ bj ||bj | ≥ 0.80 .
+
+The containment criterion captures semantic units lying in-side a larger annotated evidence area even when their IoU is small. All matched candidates are retained and merged across gold boxes to form the gold region-action set, which is then subjected to fine-grained quality filtering. To provide document-consistent distractors, training prompts also in-clude randomly sampled non-evidence pages from the same document; their parsed regions enter the candidate set but never the gold region set. Let or be a serialized region action, eAr its parsed aliases, 
+
+A( ˆP ) = {aj : rj ∈ C ( ˆP )} the candidate alias set, and Gr ⊆A( ˆP ) the mapped gold aliases. We define Ur = eAr \ A ( ˆP )
+
+and Sr = eAr ∩ A ( ˆP ). Analogous to the page reward, the region reward combines recall, F1, precision, format com-pliance, and an invalid-action penalty: 
+
+Rr = clip [0 ,1] 
+
+
+
+λr 
+
+> rec
+
+Rec( Sr , G r ) + λr 
+
+> f1
+
+F1( Sr , G r )+ λr 
+
+> prec
+
+Prec( Sr , G r ) + λr 
+
+> fmt
+
+Fmt( or )
+
+− Ωinv (Ur )
+
+
+
+.
+
+We define Ωinv (Ur ) = min(0 .50 , 0.10 |Ur |). The clipped reward is set to zero if the evidence-region tag is missing, capped at 0.25 for a non-strict action, and capped at 0.10 
+
+for an action containing any invalid alias. The dominant F1 term balances evidence coverage and selection precision, while the explicit recall and precision terms further penalize missed evidence and unnecessary regions, respectively. 
+
+Grounded Answering 
+
+If the final page set is empty, the system returns Not answerable without invoking the remaining stages. Oth-erwise, MinerU and the region policy operate on the se-lected pages. For a non-empty region set, the answer model receives the clean selected page images, available selected-region crops, region metadata, and cleaned OCR or table text. Full pages preserve layout, legends, and cross-element relations; crops increase the visual prominence of local evi-dence; and OCR supplies a compact textual view of the same units. If the region set is empty, the crop and OCR channels are omitted and the answer model operates on the selected full pages alone. The answer stage therefore uses region rout-ing as local evidence augmentation while retaining the global context established by page routing. Method Model Size MMLongBench-Doc (Acc.) LongDocURL (Acc.) SlideVQA (F1) PaperTab (Acc.) FetaTab (Acc.) mPLUG-DocOwl2 8B 13.40 5.30 27.80 – –InternVL3 8B 24.10 38.70 64.40 – –Qwen2.5-VL 7B 28.00 32.90 55.20 12.70 32.90 M3DocRAG 7B 21.00 35.10 55.70 28.50 63.80 MoLoRAG+ 7B 41.00 51.90 – 31.00 69.20 CogDoc 7B 33.00 – 67.90 – –Doc-V ∗ 7B 42.10 56.30 77.20 – –MDocAgent 7B 38.50 46.90 – 30.00 66.30 
+
+HierDoc (Qwen2.5-VL) 7B 51.29 61.65 71.88 30.90 58.55 
+
+HierDoc (Qwen3-VL) 8B 53.62 65.80 76.45 42.49 69.50 
+
+Table 1: Main results on five long-document VQA benchmarks. Each dataset uses the metric shown in its column. All scores are reported to two decimal places. The best and second-best directly comparable results in each column are shown in bold and underlined, respectively. 
+
+## Experiments 
+
+Experiment Setup 
+
+Datasets and Metrics We evaluate HierDoc on five multi-page and long-document benchmarks. MMLongBench-Doc contains visually rich long PDFs that require understanding text, tables, charts, and cross-page evidence; we follow its of-ficial 1,082-question protocol and report accuracy (Ma et al. 2024). LongDocURL targets understanding, numerical rea-soning, and cross-element localization in long multimodal documents; we report the official average accuracy produced by its evaluator (Deng et al. 2025). SlideVQA evaluates ques-tion answering over complete slide decks, including single-hop, multi-hop, and numerical questions; we report answer F1 on the 2,215-question test split (Tanaka et al. 2023). Pa-perTab and FetaTab are the table-oriented academic-paper and Wikipedia subsets of UDA-QA, with 393 and 1,023 test questions, respectively (Hui, Lu, and Zhang 2024). Follow-ing common practice, we adopt an LLM-as-a-judge protocol for both datasets (Zheng et al. 2023). Specifically, GPT-5.5 assigns a binary correctness score to each prediction over the complete test splits. 
+
+Compared Methods We compare against the direct multimodal backbones InternVL3, mPLUG-DocOwl2, and Qwen2.5-VL (Zhu et al. 2025; Hu et al. 2025; Bai et al. 2025b). The document-specific and retrieval-based baselines comprise M3DocRAG, MoLoRAG+, CogDoc, Doc-V ∗, and MDocAgent (Cho et al. 2024; Wu et al. 2025; Xu et al. 2025; Zheng et al. 2026; Han et al. 2025). 
+
+Implementation Details All experiments are conducted on 8 NVIDIA A100 GPUs. The page and region selectors are initialized from Qwen3-VL-8B-Thinking and trained in-dependently, while the final answer model is instantiated with either Qwen2.5-VL-7B-Instruct or Qwen3-VL-8B-Instruct (Bai et al. 2025a,b). The page-policy corpus contains 2,200 examples from MMDocIR’s subset, which is annotated from DUDE and MP-DocVQA (Dong et al. 2025). The region corpus begins with 2,418 ViDoRe-v3 records; parser align-ment and data auditing retain 1,022 clean records (Loison et al. 2026). We optimize both selectors with GRPO for one epoch. For the page-policy reward, we set (λp
+
+> rec
+
+, λ p
+
+> f1
+
+, λ p
+
+> fmt
+
+) = (0 .40 , 0.45 , 0.15) . For the region-policy reward, we set 
+
+(λr
+
+> rec
+
+, λ r
+
+> f1
+
+, λ r
+
+> prec
+
+, λ r
+
+> fmt
+
+) = (0 .20 , 0.50 , 0.20 , 0.10) . The page and region policies use global prompt batch sizes of 32 and 16, respectively. For each prompt, we sample N = 4 rollouts. Both policies use a learning rate of 1×10 −6 and low-variance KL regularization with a coefficient of 0.01. Selector images have a maximum long edge of 1,024 pixels. At inference time, we set the page-window capacity to Mp = 16 and the reflection thresholds to τp = τr = 8 .
+
+Main Results 
+
+End-to-End QA Performance HierDoc achieves the best reported performance on four of the five benchmarks and remains competitive on SlideVQA, as shown in Table 1. With Qwen3-VL-8B-Instruct as the answer model, HierDoc delivers relative improvements of 27.36% and 16.87% over Doc-V ∗ on MMLongBench-Doc and LongDocURL, respec-tively. Relative to the strongest reported baselines, it further improves PaperTab and FetaTab by 37.06% and 0.43%, re-spectively. On SlideVQA, the relative gap to Doc-V ∗ is only 0.97%. Together, these results demonstrate broad effective-ness across long PDFs, table-oriented documents, and slide decks. The performance gains are not solely attributable to the stronger Qwen3-VL answer model. When paired with Qwen2.5-VL-7B-Instruct, HierDoc substantially outper-forms the direct backbone across the evaluated benchmarks and, on MMLongBench-Doc and LongDocURL, also sur-passes every competing method. This result shows that the hierarchical evidence-routing pipeline transfers across an-swer backbones and remains effective without relying on the stronger answer model. 
+
+Evidence Retrieval Evaluation To assess the page selec-tor independently of downstream answering, we conduct a Dataset Page-retrieval method Page P Page R Page F1 Avg. pages MMLongBench-Doc ColQwen + Qwen2.5-VL – – 30.9 6.0 MMLongBench-Doc Doc-V ∗ + ColQwen – – 49.7 5.6 MMLongBench-Doc HierDoc page policy 67.9 76.9 68.9 2.2 
+
+LongDocURL Doc-V ∗ retrieve_page action 32.7 83.4 44.4 –LongDocURL Doc-V ∗ fetch_page action 36.6 37.3 31.9 –LongDocURL HierDoc page policy 71.9 75.2 69.6 2.1 
+
+SlideVQA Doc-V ∗ retrieve_page action 39.0 95.7 54.1 –SlideVQA Doc-V ∗ fetch_page action 81.2 70.9 72.9 –SlideVQA HierDoc page policy 81.9 88.4 82.3 1.5 
+
+Table 2: Page-level evidence retrieval. Doc-V ∗ reports its retrieve_page and fetch_page actions separately.                    
+
+> Incremental configuration Selector F1 Avg. selected QA Acc. QA F1
+> Page routing (average selected pages)
+> Untrained backbone 57.3 2.6 47.5 43.2 + GRPO training 67.8 2.6 50.0 45.1
+> + Bounded reflection 68.9 2.2 50.8 45.6
+> Region routing (average selected regions)
+> Page-only (no region pol-icy) N/A N/A 50.8 45.6 + Untrained region pol-icy 46.9 1.1 51.9 45.8 + GRPO training 46.9 3.7 52.7 46.9
+> + Bounded reflection 59.5 2.9 53.6 47.8
+
+Table 3: Incremental ablation of selector training and bounded reflection on MMLongBench-Doc. Each row adds the indicated component to the preceding configuration within the same routing block. Selector F1 and average se-lected refer to pages in the page block and regions in the region block. dedicated page-retrieval evaluation. This protocol enables di-rect comparison with the page-selection components of prior methods and characterizes the quality of the evidence pool passed to later stages. Such evaluation is critical because all subsequent region-selection experiments in HierDoc oper-ate exclusively on the selected pages; page-level evidence omitted at this stage cannot be recovered downstream. Ta-ble 2 reports page-level evidence precision, recall, F1, and the average number of selected pages. The Doc-V ∗ action rows describe the pages returned by two different tools rather than a single final page set, so they serve as reported reference points rather than strictly matched one-shot baselines. Relative to the strongest reported Page-F1 reference on each benchmark, the HierDoc page pol-icy improves Page F1 by 38.63%, 56.76%, and 12.89% on MMLongBench-Doc, LongDocURL, and SlideVQA, re-spectively. On MMLongBench-Doc, it additionally reduces the average number of selected pages by 60.71% compared with Doc-V ∗ with ColQwen. Taken together, these gains demonstrate that the HierDoc page selector achieves excel-lent retrieval quality while constructing compact evidence sets, providing a reliable foundation for subsequent region selection and grounded answering. 
+
+Ablation Studies 
+
+Effects of Selector Training and Reflection Table 3 iso-lates the effects of policy training and bounded reflection at the two routing stages on MMLongBench-Doc. The two incremental blocks make the contribution of each added component explicit: the page-policy ablation disables region routing, whereas the region-stage ablation evaluates region selection on top of the selected-page evidence. For page selection, GRPO improves Page F1 by 18.32% and downstream QA accuracy/F1 by 5.26%/4.40% relative to the untrained backbone. Bounded reflection provides further relative gains of 1.62% in Page F1 and 1.60%/1.11% in QA accuracy/F1, while reducing the average number of selected pages by 15.38%. These results indicate that policy training supplies the main localization improvement, whereas reflec-tion removes redundant evidence without sacrificing down-stream quality. At the region stage, GRPO improves QA accuracy/F1 by 1.54%/2.40% over the untrained region policy even though Region F1 remains unchanged. Adding bounded reflection then raises Region F1 by 26.87%, improves QA accuracy/F1 by another 1.71%/1.92%, and reduces the average number of selected regions by 21.62%. Relative to page-only answer-ing, the complete region stage improves QA accuracy/F1 by 5.51%/4.82%, demonstrating that trained region routing and reflection provide complementary gains beyond page selec-tion. 
+
+Effects of Evidence Composition We further ablate the vi-sual and textual evidence passed to the answer model while holding the selected pages and regions fixed. Figure 2 com-pares full-page context, region crops, and OCR at different levels of selection. Relative to full selected pages alone, appending OCR from every parsed region improves accuracy by 1.57% but reduces F1 by 0.44%, indicating that unfiltered text can introduce distracting context. Across four random seeds, the matched random-region controls provide modest gains over page-only evidence: random crops improve accura-cy/F1 by 2.85%/1.17%, random OCR by 2.79%/1.28%, and their combination by only 2.26%/0.35%. Restricting OCR Figure 2: Evidence-composition ablation for the final answer model. Random-region controls report the mean and sample standard deviation over four seeds (0–3), while all other points are single runs. The dashed line marks full-page-only performance, diamonds mark the all-region OCR baseline, and ∆ denotes the absolute gain of trained region selection over the matched random-region control. to selected regions instead yields relative gains of 4.33% in accuracy and 2.85% in F1. Selected region crops pro-vide larger gains of 5.51%/4.61%, and combining them with selected OCR produces the strongest configuration, improv-ing accuracy/F1 by 5.51%/4.82% over page-only evidence. More importantly, learned selection consistently outperforms the four-seed mean of its matched random controls: se-lected OCR improves accuracy/F1 by 1.50%/1.55%, selected crops by 2.59%/3.39%, and selected crops with OCR by 3.18%/4.46%. In contrast, removing the full pages and re-taining only selected crops and OCR reduces accuracy/F1 by 5.51%/5.92%. Together, these results show that the gains arise primarily from question-conditioned region routing rather than merely adding more inputs; global page context and selected local evidence remain complementary, while targeted OCR provides a smaller additional refinement. 
+
+## Conclusion 
+
+We introduced HierDoc, a hierarchical evidence-routing framework that formulates page and semantic-region ac-quisition as successive, answer-agnostic structured-set de-cisions. HierDoc independently optimizes its page and re-gion policies with stage-specific GRPO rewards, uses parser-native semantic regions as a discrete action space, and com-bines selected full pages, region crops, and textual metadata for grounded answering. Across five multi-page and long-document VQA benchmarks, HierDoc achieves the best re-ported performance among open-weight methods on four benchmarks and competitive performance on the remain-ing one, with consistent improvements across different an-swer backbones. The retrieval evaluation and controlled ab-lations further show that policy training substantially im-proves evidence localization, bounded reflection produces more compact evidence sets, and selected regional evidence complements the global context retained by full pages. These findings demonstrate the effectiveness of organizing coarse-to-fine document understanding as an explicit and indepen-dently analyzable page-to-region evidence-routing process. Several limitations remain. First, the hierarchical design introduces irreversible error propagation: because the region policy operates only on the selected pages, evidence omit-ted during page routing cannot be recovered downstream. Second, region routing depends on MinerU for candidate re-gions and textual metadata, so layout-parsing errors, OCR noise, and heuristic box-to-region alignment can constrain the available action space. Third, the routing policies are op-timized independently with set-level objectives rather than end-to-end answer feedback; consequently, improvements in evidence-selection metrics may not always translate propor-tionally into answer quality. Future work could incorporate uncertainty-aware recovery across routing stages, jointly op-timize evidence acquisition with grounded answering, and evaluate the resulting accuracy–efficiency trade-offs across broader document domains and languages. References 
+
+Bai, S.; Cai, Y.; Chen, R.; Chen, K.; Chen, X.; Cheng, Z.; Deng, L.; Ding, W.; Gao, C.; Ge, C.; Ge, W.; Guo, Z.; Huang, Q.; Huang, J.; Huang, F.; Hui, B.; Jiang, S.; Li, Z.; Li, M.; Li, M.; Li, K.; Lin, Z.; Lin, J.; Liu, X.; Liu, J.; Liu, C.; Liu, Y.; Liu, D.; Liu, S.; Lu, D.; Luo, R.; Lv, C.; Men, R.; Meng, L.; Ren, X.; Ren, X.; Song, S.; Sun, Y.; Tang, J.; Tu, J.; Wan, J.; Wang, P.; Wang, P.; Wang, Q.; Wang, Y.; Xie, T.; Xu, Y.; Xu, H.; Xu, J.; Yang, Z.; Yang, M.; Yang, J.; Yang, A.; Yu, B.; Zhang, F.; Zhang, H.; Zhang, X.; Zheng, B.; Zhong, H.; Zhou, J.; Zhou, F.; Zhou, J.; Zhu, Y.; and Zhu, K. 2025a. Qwen3-VL Technical Report. arXiv:2511.21631. Bai, S.; Chen, K.; Liu, X.; Wang, J.; Ge, W.; Song, S.; Dang, K.; Wang, P.; Wang, S.; Tang, J.; Zhong, H.; Zhu, Y.; Yang, M.; Li, Z.; Wan, J.; Wang, P.; Ding, W.; Fu, Z.; Xu, Y.; Ye, J.; Zhang, X.; Xie, T.; Cheng, Z.; Zhang, H.; Yang, Z.; Xu, H.; and Lin, J. 2025b. Qwen2.5-VL Technical Report. arXiv:2502.13923. Chen, J.; Zhang, R.; Zhou, Y.; Yu, T.; Dernoncourt, F.; Gu, J.; Rossi, R. A.; Chen, C.; and Sun, T. 2025. SV-RAG: LoRA-Contextualizing Adaptation of MLLMs for Long Document Understanding. In The Thirteenth International Conference on Learning Representations .Cho, J.; Mahata, D.; Irsoy, O.; He, Y.; and Bansal, M. 2024. M3DocRAG: Multi-modal Retrieval is What You Need for Multi-page Multi-document Understanding. arXiv:2411.04952. Deng, C.; Yuan, J.; Bu, P.; Wang, P.; Li, Z.-Z.; Xu, J.; Li, X.-H.; Gao, Y.; Song, J.; Zheng, B.; and Liu, C.-L. 2025. LongDocURL: A Comprehensive Multimodal Long Docu-ment Benchmark Integrating Understanding, Reasoning, and Locating. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 1135–1159. Dong, K.; Chang, Y.; Goh Xin Deik, D.; Li, D.; Tang, R.; and Liu, Y. 2025. MMDocIR: Benchmarking Multimodal Retrieval for Long Documents. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Pro-cessing , 30971–31005. Faysse, M.; Sibille, H.; Wu, T.; Omrani, B.; Viaud, G.; Hude-lot, C.; and Colombo, P. 2025. ColPali: Efficient Document Retrieval with Vision Language Models. In The Thirteenth International Conference on Learning Representations .GLM-V Team. 2025. GLM-4.5V and GLM-4.1V-Thinking: Towards Versatile Multimodal Reasoning with Scalable Re-inforcement Learning. arXiv:2507.01006. Han, S.; Xia, P.; Zhang, R.; Sun, T.; Li, Y.; Zhu, H.; and Yao, H. 2025. MDocAgent: A Multi-Modal Multi-Agent Frame-work for Document Understanding. arXiv:2503.13964. Hu, A.; Xu, H.; Zhang, L.; Ye, J.; Yan, M.; Zhang, J.; Jin, Q.; Huang, F.; and Zhou, J. 2025. mPLUG-DocOwl2: High-resolution Compressing for OCR-free Multi-page Document Understanding. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 5817–5834. Hui, Y.; Lu, Y.; and Zhang, H. 2024. UDA: A Benchmark Suite for Retrieval Augmented Generation in Real-World Document Analysis. In Advances in Neural Information Pro-cessing Systems , volume 37, 67200–67217. Li, Y.; Lu, Z.; Liu, Z.; Sun, Y.; Liu, C.; and Xie, H. 2026. Re-gionRAG: Region-level Retrieval-Augmented Generation for Visual Document Understanding. Proceedings of the AAAI Conference on Artificial Intelligence , 40(8): 6662–6670. Loison, A.; Macé, Q.; Edy, A.; Xing, V.; Balough, T.; Mor-eira, G.; Liu, B.; Faysse, M.; Hudelot, C.; and Viaud, G. 2026. ViDoRe V3: A Comprehensive Evaluation of Retrieval Augmented Generation in Complex Real-World Scenarios. arXiv:2601.08620. Ma, Y.; Zang, Y.; Chen, L.; Chen, M.; Jiao, Y.; Li, X.; Lu, X.; Liu, Z.; Ma, Y.; Dong, X.; Zhang, P.; Pan, L.; Jiang, Y.-G.; Wang, J.; Cao, Y.; and Sun, A. 2024. MMLongBench-Doc: Benchmarking Long-context Document Understanding with Visualizations. In Advances in Neural Information Process-ing Systems , volume 37, 95963–96010. Masry, A.; Long, D. X.; Tan, J. Q.; Joty, S.; and Hoque, E. 2022. ChartQA: A Benchmark for Question Answering about Charts with Visual and Logical Reasoning. In Findings of the Association for Computational Linguistics: ACL 2022 ,2263–2279. Mathew, M.; Bagal, V.; Tito, R.; Karatzas, D.; Valveny, E.; and Jawahar, C. 2022. InfographicVQA. In Proceedings of the IEEE/CVF Winter Conference on Applications of Com-puter Vision (WACV) , 1697–1706. Mathew, M.; Karatzas, D.; and Jawahar, C. 2021. DocVQA: A Dataset for VQA on Document Images. In Proceedings of the IEEE/CVF Winter Conference on Applications of Com-puter Vision (WACV) , 2200–2209. Niu, J.; Liu, Z.; Gu, Z.; Wang, B.; Ouyang, L.; Zhao, Z.; Chu, T.; He, T.; Wu, F.; Zhang, Q.; Jin, Z.; Liang, G.; Zhang, R.; Zhang, W.; Qu, Y.; Ren, Z.; Sun, Y.; Tang, Z.; Niu, B.; Zheng, Y.; Ma, D.; Miao, Z.; Dong, H.; Qian, S.; Zhang, J.; Wang, F.; Chen, J.; Zhao, X.; Wei, L.; Li, W.; Wang, S.; Xu, R.; Cao, Y.; Chen, L.; Wu, Q.; Gu, H.; Lu, L.; Lin, D.; Shen, G.; Zhou, X.; Zhang, L.; Zang, Y.; Dong, X.; Wang, J.; Zhang, B.; Bai, L.; Chu, P.; Li, W.; Wu, J.; Wu, L.; Li, Z.; Wang, G.; Tu, Z.; Xu, C.; Chen, K.; Zhou, B.; Lin, D.; Zhang, W.; and He, C. 2026. MinerU2.5: A Decoupled Vision-Language Model for Efficient High-Resolution Document Parsing. In 
+
+Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 6: Industry Track) ,13–42. Shao, Z.; Wang, P.; Zhu, Q.; Xu, R.; Song, J.; Bi, X.; Zhang, H.; Zhang, M.; Li, Y. K.; Wu, Y.; and Guo, D. 2024. DeepSeekMath: Pushing the Limits of Mathematical Rea-soning in Open Language Models. arXiv:2402.03300. Tanaka, R.; Nishida, K.; Nishida, K.; Hasegawa, T.; Saito, I.; and Saito, K. 2023. SlideVQA: A Dataset for Document Vi-sual Question Answering on Multiple Images. Proceedings of the AAAI Conference on Artificial Intelligence , 37(11): 13636–13645. Tito, R.; Karatzas, D.; and Valveny, E. 2023. Hierarchical Multimodal Transformers for Multi-Page DocVQA. Pattern Recognition , 144: 109834. Van Landeghem, J.; Tito, R.; Borchmann, Ł.; Pietruszka, M.; Joziak, P.; Powalski, R.; Jurkiewicz, D.; Coustaty, M.; Anckaert, B.; Valveny, E.; Blaschko, M.; Moens, S.; and Stanislawek, T. 2023. Document Understanding Dataset and Evaluation (DUDE). In Proceedings of the IEEE/CVF In-ternational Conference on Computer Vision (ICCV) , 19528– 19540. Wang, Q.; Ding, R.; Chen, Z.; Wu, W.; Wang, S.; Xie, P.; and Zhao, F. 2025a. ViDoRAG: Visual Document Retrieval-Augmented Generation via Dynamic Iterative Reasoning Agents. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , 9113–9134. Wang, Q.; Ding, R.; Zeng, Y.; Chen, Z.; Chen, L.; Wang, S.; Xie, P.; Huang, F.; and Zhao, F. 2025b. VRAG-RL: Empower Vision-Perception-Based RAG for Visually Rich Information Understanding via Iterative Reasoning with Reinforcement Learning. arXiv:2505.22019. Wang, W.; Gao, Z.; Gu, L.; Pu, H.; Cui, L.; Wei, X.; Liu, Z.; Jing, L.; Ye, S.; Shao, J.; Wang, Z.; Chen, Z.; Zhang, H.; Yang, G.; Wang, H.; Wei, Q.; Yin, J.; Li, W.; Cui, E.; Chen, G.; Ding, Z.; Tian, C.; Wu, Z.; Xie, J.; Li, Z.; Yang, B.; Duan, Y.; Wang, X.; Hou, Z.; Hao, H.; Zhang, T.; Li, S.; Zhao, X.; Duan, H.; Deng, N.; Fu, B.; He, Y.; Wang, Y.; He, C.; Shi, B.; He, J.; Xiong, Y.; Lv, H.; Wu, L.; Shao, W.; Zhang, K.; Deng, H.; Qi, B.; Ge, J.; Guo, Q.; Zhang, W.; Zhang, S.; Cao, M.; Lin, J.; Tang, K.; Gao, J.; Huang, H.; Gu, Y.; Lyu, C.; Tang, H.; Wang, R.; Lv, H.; Ouyang, W.; Wang, L.; Dou, M.; Zhu, X.; Lu, T.; Lin, D.; Dai, J.; Su, W.; Zhou, B.; Chen, K.; Qiao, Y.; Wang, W.; and Luo, G. 2025c. InternVL3.5: Advancing Open-Source Multimodal Models in Versatility, Reasoning, and Efficiency. arXiv:2508.18265. Wang, Z.; Ma, D.; Zhong, H.; Li, J.; Zhang, W.; Wang, B.; and He, C. 2026. AgenticOCR: Parsing Only What You Need for Efficient Retrieval-Augmented Generation. arXiv:2602.24134. Wei, H.; Sun, Y.; and Li, Y. 2025. DeepSeek-OCR: Contexts Optical Compression. arXiv:2510.18234. Wu, X.; Tan, Y.; Hou, N.; Zhang, R.; and Cheng, H. 2025. MoLoRAG: Bootstrapping Document Understanding via Multi-modal Logic-aware Retrieval. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , 14024–14045. Xiong, J.; Wang, Y.; Gu, R.; Liu, C.; Yin, B.; Zhou, W.; and Li, H. 2026a. Hierarchical Evidence-Driven Reasoning for Long Document Understanding. arXiv:2607.04625. Xiong, J.; Wang, Y.; Zhao, W.; Liu, C.; Yin, B.; Zhou, W.; and Li, H. 2026b. DocR1: Evidence Page-Guided GRPO for Multi-Page Document Understanding. Proceedings of the AAAI Conference on Artificial Intelligence , 40(13): 11178– 11186. Xu, Q.; Wang, H.; Liu, C.; Lin, F.; and Chen, W. 2025. CogDoc: Towards Unified thinking in Documents. arXiv:2512.12658. Yu, S.; Tang, C.; Xu, B.; Cui, J.; Ran, J.; Yan, Y.; Liu, Z.; Wang, S.; Han, X.; Liu, Z.; and Sun, M. 2025. VisRAG: Vision-based Retrieval-augmented Generation on Multi-modality Documents. In The Thirteenth International Con-ference on Learning Representations .Zheng, L.; Chiang, W.-L.; Sheng, Y.; Zhuang, S.; Wu, Z.; Zhuang, Y.; Lin, Z.; Li, Z.; Li, D.; Xing, E. P.; Zhang, H.; Gonzalez, J. E.; and Stoica, I. 2023. Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena. In Advances in Neural Information Processing Systems , volume 36, 46595–46623. Zheng, Y.; Fu, P.; Li, H.; Wang, Z.; Zhang, Y.; Ruan, W.; Zhang, X.; Wei, Z.; Luo, Z.; Luan, J.; Chen, W.; and Bai, X. 2026. Doc-V ∗: Coarse-to-Fine Interactive Visual Reason-ing for Multi-Page Document VQA. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 45901–45923. Zhu, D.; Meng, R.; Chen, J.; Li, S.; Pfister, T.; and Yoon, J. 2026. DocLens: A Tool-Augmented Multi-Agent Framework for Long Visual Document Understanding. In Proceedings of the 64th Annual Meeting of the Association for Computa-tional Linguistics (Volume 1: Long Papers) , 26804–26829. Zhu, F.; Lei, W.; Feng, F.; Wang, C.; Zhang, H.; and Chua, T.-S. 2022. Towards Complex Document Understanding By Discrete Reasoning. In Proceedings of the 30th ACM Inter-national Conference on Multimedia , 4857–4866. Zhu, J.; Wang, W.; Chen, Z.; Liu, Z.; Ye, S.; Gu, L.; Tian, H.; Duan, Y.; Su, W.; Shao, J.; Gao, Z.; Cui, E.; Wang, X.; Cao, Y.; Liu, Y.; Wei, X.; Zhang, H.; Wang, H.; Xu, W.; Li, H.; Wang, J.; Deng, N.; Li, S.; He, Y.; Jiang, T.; Luo, J.; Wang, Y.; He, C.; Shi, B.; Zhang, X.; Shao, W.; He, J.; Xiong, Y.; Qu, W.; Sun, P.; Jiao, P.; Lv, H.; Wu, L.; Zhang, K.; Deng, H.; Ge, J.; Chen, K.; Wang, L.; Dou, M.; Lu, L.; Zhu, X.; Lu, T.; Lin, D.; Qiao, Y.; Dai, J.; and Wang, W. 2025. InternVL3: Exploring Advanced Training and Test-Time Recipes for Open-Source Multimodal Models. arXiv:2504.10479. Supplementary Material 
+
+This supplement reports dataset accounting, benchmark-specific evaluation choices, the GRPO objectives used for the two routing policies, complete inference prompts, addi-tional ablations, and space for extended qualitative examples. Unless stated otherwise, “page” denotes a 1-based physical rendered page rather than a printed PDF page label. 
+
+## Datasets and Evaluation Protocols 
+
+Dataset Scale 
+
+Table 4 reports both the number of unique rendered page im-ages and the number of page-image inputs accumulated over questions. The latter repeats a document’s pages whenever multiple questions refer to the same document and therefore reflects the uncompressed evaluation workload. All counts are computed before page routing, window padding, or evi-dence selection. 
+
+MMLongBench-Doc Dataset Size 
+
+The initial MMLongBench-Doc release contained 1,091 records, whereas the current released test file contains 1,082. We use the current 1,082-record release. The nine-record net reduction is an upstream data-cleaning change, not model-dependent filtering by our method. Some affected entries are declarative statements rather than questions (e.g., “there are four different rungs for the ladder of causation”). They are marked Not answerable and have no annotated evi-dence page, so they do not define a grounded page-selection or VQA target. 
+
+Semantic Evaluation for PaperTab and FetaTab 
+
+PaperTab and FetaTab use free-form, sentence-level answers rather than short extractive spans. Token-level F1 is diffi-cult to interpret in this setting because a semantically correct response may use different wording or a different level of detail from the reference. We therefore use LLM-as-a-judge, a common scalable protocol for open-ended generation eval-uation, with an explicit semantic-correctness rubric (Zheng et al. 2023). This choice does not introduce an evaluation mismatch between HierDoc and the comparison systems. The other methods also report LLM-as-a-judge results on PaperTab and FetaTab for the same reason, and we use their reported scores directly. Thus, the compared results consistently use LLM-based semantic evaluation rather than mixing token-F1 scores with judge scores. Table 5 gives two representative cases from our outputs. 
+
+## Stage-Wise GRPO Training 
+
+Algorithm Overview 
+
+We independently optimize the page and region selectors with Group Relative Policy Optimization (GRPO) (Shao et al. 2024). For each prompt x, the old policy samples a group of G = 4 structured selections {oi}Gi=1 . Their scalar rewards are standardized within the group, 
+
+bAi = Ri − R
+
+Std( R1, . . . , R G) + ϵ . (1) Writing ρi,t = πθ (oi,t | x, o i,<t )/π old (oi,t | x, o i,<t ) and 
+
+eρi,t = clip( ρi,t , 1 − ε, 1 + ε), the update is 
+
+JGRPO (θ) = 1
+
+G
+
+> G
+
+X
+
+> i=1
+
+1
+
+|oi|
+
+> |oi|
+
+X
+
+> t=1
+
+min 
+
+
+
+ρi,t bAi, eρi,t bAi
+
+
+
+− βD KL (πθ ∥ πref ), (2) where the reference-policy coefficient is β = 0 .01 . Rela-tive advantages remove the need for a learned value critic and compare alternative evidence sets for the same document-question context. This is especially natural here: the action is a discrete set serialized in an XML tag, and its quality can be scored deterministically against annotated evidence. 
+
+Stage-Specific Rewards 
+
+Let S and G be the predicted and gold evidence sets. We compute set recall, precision, and F1 after parsing the single required XML tag. The reward weights are shown in Table 6. The page policy is intentionally recall-sensitive because a missed page is an irreversible error: the region selector cannot inspect a page it never receives. Set F1 discourages indiscriminate page selection, while the format term teaches the exact <evidence_page> protocol. Invalid page IDs incur a penalty of min(0 .20 , 0.05 |Up|), where Up is the set of IDs not present in the candidate window. The region action space is denser, so its reward explicitly includes precision. A missing region tag receives zero re-ward; a non-strict parse is capped at 0.25, and any invalid numeric alias caps the reward at 0.10. All rewards are clipped to [0 , 1] . This asymmetry encodes the cascade’s error struc-ture: page routing favors sufficient coverage, whereas region routing must retain that evidence while producing a compact crop set. Dataset Samples Documents / decks Unique images Accumulated image inputs MMLongBench-Doc (Ma et al. 2024) 1,082 135 6,529 51,699 LongDocURL (Deng et al. 2025) 2,325 396 16,230 69,750 SlideVQA (Tanaka et al. 2023) 2,215 400 8,000 44,300 PaperTab (Hui, Lu, and Zhang 2024) 393 307 3,375 4,211 FetaTab (Hui, Lu, and Zhang 2024) 1,023 878 13,822 16,708 Table 4: Dataset image and sample counts used in our evaluation. “Unique page images” deduplicates physical pages within each evaluated split, whereas “accumulated” counts all pages supplied for every question before routing.            
+
+> Dataset Reference Prediction Token F1 Judge score FetaTab In 2016, Platt played the role of Evan Hansen at Second Stage Theatre. Evan Hansen 0.286 1.0 PaperTab SimpleQuestions, WebQSP SimpleQuestions and WebQSP 0.800 1.0
+
+Table 5: Why lexical overlap alone can understate semantic correctness. The first prediction supplies exactly the requested role; the second returns the same two benchmarks with a natural-language list separator. Selector Recall F1 Precision Format Page 0.40 0.45 0.00 0.15 Region 0.20 0.50 0.20 0.10 Table 6: Coefficients of the selector rewards. Each row sums to one before invalid-action penalties or caps. 
+
+## Additional Ablations 
+
+Recall–F1 Reward Balance 
+
+We keep the page-format coefficient fixed at λp 
+
+> fmt
+
+= 0 .15 
+
+and vary the coverage–compactness balance. The bal-anced reward gives the best downstream QA accuracy/F1 (49.97/45.09) while selecting only 2.645 pages on average. The recall-heavy variant obtains the highest selector recall and full-evidence coverage (78.95 and 69.89), but expands the selected set to 3.123 pages and reduces downstream QA to 49.59/44.60. Conversely, the F1-based setting selects 3.766 pages and is less precise. Thus, maximizing one retrieval statistic in isolation is inferior to balancing evidence cover-age with a compact input context. 
+
+Same-Document Negative Pages 
+
+Region-policy training data Accuracy F1 Evidence pages only 55.2 47.4 
+
+Evidence + negative pages 55.6 47.9 
+
+Table 8: Effect of same-document negative pages in region-policy training. With oracle evidence pages, identical parser candidates, training only on evidence pages yields 55.18 accuracy and 47.38 F1. Adding non-evidence pages from the same docu-ment raises these scores to 55.62 and 47.89. The gains of 0.44 accuracy and 0.51 F1 points show that document-specific dis-tractors provide useful negative signal without changing the region policy’s semantic action space. 
+
+## Additional Qualitative Examples 
+
+Figures 3 and 4 illustrate two successful routing patterns on MMLongBench-Doc. Both examples expose the question, reference answer, selected page IDs, selected region aliases, and final prediction, making the intermediate evidence deci-sions directly auditable. The first example isolates a caption– table pair from a single page, whereas the second combines values retrieved from two different pages. 
+
+## Complete Inference Prompts 
+
+Listings 1–3 show the three-stage prompts for page selec-tion, region selection, and final answer fusion. Braced fields and <image> denote values and multimodal image slots inserted at runtime. Reward configuration λp 
+
+> F1
+
+λp 
+
+> rec
+
+Macro P Macro R Macro F1 Full coverage Avg. pages QA Acc. QA F1 F1-based 0.85 0.00 54.5 78.9 59.5 69.3 3.8 49.4 44.7 
+
+Balanced 0.45 0.40 66.3 77.4 67.8 67.8 2.6 50.0 45.1 
+
+Recall-based 0.10 0.75 63.4 79.0 65.8 69.9 3.1 49.6 44.6 
+
+Table 7: Ablation of the recall–F1 balance in the page-policy reward. Q:  What's the AP50 value of DETR with L1 loss and without GIoU loss on the COCO validation set? 
+
+Gold: 57.3  Selected Pages: 13  Selected Regions: 7, 8  Prediction:  57.3 
+
+26  pages 
+
+Page 
+
+Selector 
+
+Region 
+
+Selector 
+
+Region  7 & 8
+
+Page  13 
+
+Answer 
+
+57.3 
+
+Figure 3: Single-page evidence routing on MMLongBench-Doc. For an AP 50 lookup over a 26-page DETR paper, the page selector retains page 13. The region selector then selects aliases 7 and 8, which provide the loss-component caption and the corresponding ablation table. From this compact evidence, the answer model returns 57.3, matching the reference answer. Q:  What is the sum of percentage of customers and employees said that Wi -Fi increases customer loyalty in hospitality in 2015?", 
+
+Gold: 122  Selected Pages: 37, 38  Selected Regions: p37.r8, p38.r12  Prediction:  122 
+
+43  pages 
+
+Page 
+
+Selector 
+
+Region 
+
+Selector 
+
+Region  r8 @ p37  & r12 @ p38 
+
+Page  37, 38 
+
+Answer 
+
+61+61=122 
+
+Figure 4: Cross-page compositional routing on MMLongBench-Doc. From a 43-page document, the page selector retains pages 37 and 38. The region selector isolates the hospitality rows as p37.r8 and p38.r12, which respectively report 61% for customer and employee Wi-Fi. The answer model aggregates the two values as 61 + 61 = 122 , again matching the reference answer. Listing 1: Stage 1: evidence-page selector prompt. 
+
+You are an evidence −page selector for multi −page document VQA. Task: given a question and the candidate document page images, select every candidate page that contains information needed to answer the question. Rules: 
+
+− Use only the page numbers printed before the images. 
+
+− Do not answer the question. 
+
+− Do not output JSON or markdown. 
+
+− Return page numbers in ascending order, separated by commas. 
+
+− The final response must be exactly one tag like <evidence_page>2,3,4</evidence_page>. 
+
+− If no candidate page contains evidence, return <evidence_page></evidence_page>. Format examples: Candidate pages: 1,2,3,4 Question: Which pages show the revenue table and its footnote? Output: <evidence_page>2,4</evidence_page> Candidate pages: 5,8,9 Question: What is the invoice number? Output: <evidence_page>5</evidence_page> Now select the evidence pages for the real document. Candidate pages: {candidate_page_numbers} Candidate page {page_number}: <image> ... Question: {question} Output: Listing 2: Stage 2: evidence-region selector prompt. 
+
+You are an evidence −region selector for document VQA. Task: given a question, candidate page images, and candidate region IDs, select every candidate region needed to answer the question. Rules: 
+
+− Region IDs are numeric aliases assigned only for this sample. 
+
+− Use only the listed numeric region IDs. 
+
+− Do not answer the question. 
+
+− Do not output JSON or markdown. 
+
+− Prioritize recall: include every candidate region that may be needed to answer the question. 
+
+− Missing required evidence is worse than including a few extra relevant or adjacent regions. 
+
+− Select a compact high −recall set; do not blindly select all candidates or clearly irrelevant regions. 
+
+− For tables, charts, figures, forms, captions, legends, axes, headers, footnotes, sources, comparisons, counts, aggregations, or cross −page evidence, include every supporting region needed to interpret the evidence. 
+
+− When uncertain between related neighboring regions, include the plausible evidence region. 
+
+− The candidate regions list gives each numeric ID, region type, and OCR hint. 
+
+− The page images are authoritative. OCR/table text is only a helpful hint. 
+
+− Return numeric region IDs in page/image order, separated by commas. 
+
+− The final response must be exactly one tag like <evidence_region>3,17</evidence_region>. 
+
+− If no candidate region contains evidence, return <evidence_region></evidence_region>. Format examples: Candidate region IDs: 1,2,3 Question: Which table shows total revenue? Output: <evidence_region>2</evidence_region> Candidate region IDs: 4,5,6,7 Question: Which chart and caption compare revenue and profit? Output: <evidence_region>4,7</evidence_region> Candidate region IDs: 8,9 Question: What is the invoice number? Output: <evidence_region></evidence_region> Now select the evidence regions for the real document. Candidate pages and images: {candidate_pages_and_images} Candidate region IDs: {candidate_region_ids} Candidate regions: {numeric_alias} | type={region_type} | OCR/table text={ocr_hint} ... Question: {question} Final reminder: represent the selected evidence regions only with one <evidence_region>...</evidence_region> tag. Do not output page IDs, JSON, markdown, or the answer. Output: Listing 3: Stage 3: final fusion-and-answer prompt. For PaperTab and FetaTab, the system instruction additionally emphasizes academic-paper/Wikipedia documents, exhaustive use of tables, captions, footnotes, formulas, and cross-page context, and exact 
+
+Yes /No output. 
+
+[System] You are a document visual question −answering model. You will receive selected full page images from one document plus cropped evidence regions and cleaned OCR/table text extracted from regions selected by an evidence −region selector. Use only the provided page images, region crops, and selected OCR/table text to answer the question. The page and crop images are authoritative; the selected OCR/table text is a helpful hint about likely evidence. Combine information across pages and regions when needed and follow the requested answer format. Return only the final answer. Do not include explanations, citations, page numbers, markdown, or extra text. If the expected answer is a list, return a valid JSON array. If the answer is not visible in the provided pages and selected OCR/table text, return exactly "Not answerable". [User] Selected page images: Page {page_number}: <image> ... Selected evidence regions: Region id={region_id}, page={page_number}, type={region_type}, bbox={x1,y1,x2,y2} Crop image: <image> OCR/table text: {cleaned_ocr_or_table_text} ... Question: {question} Expected answer format: {answer_format} Final answer:
