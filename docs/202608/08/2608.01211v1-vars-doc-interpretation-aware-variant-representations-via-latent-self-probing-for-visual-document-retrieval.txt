@@ -1,0 +1,743 @@
+Title: VaRS-Doc: Interpretation-Aware Variant Representations via Latent Self-Probing for Visual Document Retrieval
+
+URL Source: https://arxiv.org/pdf/2608.01211v1
+
+Published Time: Tue, 04 Aug 2026 01:39:13 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# VaRS-Doc: Interpretation-Aware Variant Representations via Latent Self-Probing for Visual Document Retrieval 
+
+Haocheng Wang 1, Tongkun Guan 1, Wei Shen 1∗, Xiaokang Yang 1
+
+1MoE Key Lab of Artificial Intelligence, AI Institute, School of Computer Science, Shanghai Jiao Tong University, China {wanghaocheng2023, wei.shen}@sjtu.edu.cn 
+
+Abstract 
+
+Visual document retrieval has recently become increasingly important in applications such as enterprise search, scien-tific literature discovery, and retrieval-augmented generation. These applications depend on efficiently identifying query-relevant pages across large collections of visually rich doc-uments. Existing methods commonly adopt late-interaction architectures that encode and index documents offline to en-able scalable and low-latency online retrieval. Despite its ef-ficiency, this paradigm requires each document to be encoded into a fixed representation before the query is known. How-ever, the same content in a visual document may induce dif-ferent interpretations depending on the query intent, which a fixed representation struggles to capture. Yet postponing document encoding until the query arrives would incur pro-hibitive online retrieval latency. To address this gap, we pro-pose VaRS-Doc, a visual document retrieval framework that diversifies document representations by enabling the model to actively explore variant latent interpretations during document encoding, while preserving efficient late-interaction retrieval in which each query adaptively selects the best-fit represen-tation. We further introduce a two-stage training strategy that encourages the model to capture complementary semantic interpretations and prevents it from falling back to train a single dominant representation. Experiments on visual doc-ument retrieval benchmarks show that VaRS-Doc achieves state-of-the-art retrieval performance, offering a practical so-lution to the mismatch between query-agnostic document en-coding and query-specific retrieval needs. Code is available at https://github.com/bokufa/VaRS-Doc. 
+
+Introduction 
+
+Visual document retrieval has become important for access-ing information in large collections of visually rich doc-uments, such as scientific papers, business reports, slides, manuals, and scanned PDFs (Lewis et al. 2020). A retrieval model is therefore expected to search over document images and identify pages that are relevant to a natural language query. Unlike conventional text retrieval, visual document re-trieval must handle heterogeneous evidence, including para-graphs, tables, figures, and layout structures. This makes the task both practically important and semantically challenging. Early visual document retrieval methods apply text re-trieval models to OCR-extracted content, but inevitably lose important visual cues such as layout, typography, tables, and 
+
+> ∗
+
+Corresponding author. q1   
+
+> q2
+> q3
+> q4
+> d
+> S( q1, d )
+> S( q2, d )
+> S( q3, d )
+> S( q4, d )
+> 0.53
+> 0.53
+> 0.55
+> 0.54
+> (a) Ordinary methods:
+> Fixed Single Doc Representation for All Query intents
+> Limited to average low similarity
+> (b) VaRS-Doc (Ours):
+> Interpretation-Aware Variant Doc Representations
+> S( q1, d )
+> S( q2, d )
+> S( q3, d )
+> S( q4, d )
+> 0.92
+> 0.93
+> 0.94
+> 0.95
+> Learn high similarity for all query intents
+> q1
+> q2
+> q3
+> q4
+> V1
+> V2
+> V3
+> V4
+
+...     
+
+> Which region contributed most to overall economics?
+> Does Asian market shows a growth potential?
+> What kind of risk is promised for recent market?
+> Single Visual Evidence
+> Online: Diverse Possible Query Intents
+> User
+> Without the query, I can only interpret the evidence generally.
+> Offline: Query-Agnostic Encoding
+> Gap: Query-agnostic encoding vs. query-specific retrieval needs .
+> Model
+> query rep.
+> doc rep.
+> optim. dir.
+> variant doc rep.
+> ... A chart comparing how major economies contribute to global growth from 2010 through 2026...
+> (focusing on numerical comparison)
+> (focusing on trends)
+> (focusing on overall assessment)
+> Not Best
+> Match
+> （General Interpretation ）
+
+Figure 1: Motivation of VaRS-Doc. Scalable retrieval re-quires query-agnostic document encoding, creating a gap against query-specific retrieval needs. (a) Existing methods align queries with diverse intents with single document rep-resentation, limiting its alignment. (b) VaRS-Doc instead provides interpretation-aware variants, allowing queries to be better aligned with its best-matched variant. figures (Robertson and Zaragoza 2009; Chen et al. 2024a; Zhang et al. 2025). Recent methods such as ColPali and Vis-RAG (Faysse et al. 2025; Yu et al. 2025; Alayrac et al. 2022; Li et al. 2022) therefore turn to multimodal large language models (MLLMs) to perform fine-grained visual-textual se-mantic matching. However, applying MLLMs to large-scale retrieval introduces a severe efficiency challenge: the corpus may contain millions of pages, whereas user queries arrive in real time. To make retrieval scalable, most practical methods decouple query and document encoding by adopting a Late-Interaction (Khattab and Zaharia 2020; Faysse et al. 2025) architecture. Documents are encoded offline and stored in arXiv:2608.01211v1 [cs.CV] 2 Aug 2026 an index, while each incoming query is encoded online and compared with the indexed documents. However, this efficiency comes with a fundamental con-straint: once a document has been indexed, its representation is fixed and cannot adapt to the intent of a later query. There-fore, index models can only be trained to interpret the doc-ument in a general way for all possible queries. Meanwhile, the same visual evidence can support different semantic read-ings. For example, the chart shown in Fig. 1 may be examined to compare regional contributions, identify growth trends in specific markets, or assess recent market risks, depending on the query intent. In such cases, relevance depends not only on whether the evidence is present, but also on which semantic interpretation of that evidence is activated by the query. Therefore, a general-purpose document representa-tion would fail to match the specific interpretation needed for a given query, limiting retrieval performance, as shown in Fig. 1(a). Some methods (Li et al. 2026) instead postpone document encoding until the query arrives and cross-encode the query and document to predict a relevance score for the pair, allowing document evidence to be interpreted under the specific query intent. However, this cross encoding process must be repeated for all the documents at query time and the resulting representations can not be reused for future queries, making them impractical for full-range large-scale retrieval. This reveals a key gap: document representations must be computed offline before the queries are known for scalable retrieval, making it impossible for the model to adaptively en-code specific interpretations of the same visual evidence for different query intents. This gap motivates us to ask whether part of the benefit of query-conditioned interpretation can be obtained without sacrificing the scalability of offline in-dexing. To this end, we propose VaRS-Doc (Interpretation-Aware Va riant Representations via Latent Self-Probing for Visual Doc ument Retrieval ), a retrieval framework that en-courages the model to internally explore complementary in-terpretations of the same document evidence before any user query is observed. The key idea behind latent self-probing is that the model itself probes a document from different seman-tic perspectives during encoding. Specifically, VaRS-Doc en-codes each page together with a set of learnable latent inter-pretation probing tokens . These tokens first read the shared document context without affecting the encoding of the docu-ment tokens, becoming document-conditioned probes. Each probe then guides a separate branch of encoding process to differentiate the document states into a variant interpre-tation representation of the document. The resulting vari-ants therefore capture complementary interpretations of the same visual evidence. This Shared-Contextualization with Branched-Encoding design first establishes a rich, document-specific context shared by all variants and then allows each branch to develop a distinct interpretation on top of it, while also avoiding repeating the full document encoding for every variant. At retrieval time, the incoming query scores a doc-ument by selecting the most relevant variant. In this way, as shown in Fig. 1(b), VaRS-Doc enables each query to adap-tively activate the specific best-fit reading of a document, while preserving the efficiency of late-interaction retrieval. Training these representations from random initialization can cause the model to rely on a single dominant branch for most queries, leaving the others poorly trained. We address this with a two-step training strategy: we first learn a reli-able retriever with one representation and then expand it to multiple representations, ensuring that every branch begins multi-variant training with competitive retrieval ability. The second step then encourages different branches to win on different training examples with a clear best match for each query. This keeps all representations useful and allows them to capture complementary readings of a document. Finally, our contributions are summarized as follows: 
+
+• We propose VaRS-Doc , a novel retrieval framework that actively reads and encodes documents in complementary interpretations, enabling different queries to adaptively select best-fit readings of documents, while preserving the efficiency of late-interaction architecture. 
+
+• We develop a training strategy that ensures different vari-ants are effectively used and learn complementary inter-pretations, preventing the model from relying on a single dominant branch. 
+
+• Experimental results show that VaRS-Doc achieves state-of-the-art retrieval performance, while further analyses confirm that the learned variants are effectively used and capture complementary interpretations. 
+
+Related Work 
+
+Multimodal Large Language Models for Document Un-derstanding. Multimodal large language models have made rapid progress in understanding visually rich docu-ments (Fu et al. 2025; Alayrac et al. 2022; Li et al. 2022; Tschannen et al. 2025). Early document understanding meth-ods, such as LayoutLM (Xu et al. 2020) and LayoutLMv2 (Xu et al. 2021), incorporate OCR tokens and layout information to model document structure. Later OCR-free models, in-cluding Donut (Kim et al. 2022) and Pix2Struct (Lee et al. 2023), directly process document images for structured vi-sual understanding (Guan et al. 2025). Recent MLLMs, such as LLaVA (Liu et al. 2023), PaliGemma (Beyer et al. 2024), Qwen-VL (Bai et al. 2023), and InternVL (Chen et al. 2024b; Zhu et al. 2025), further strengthen visual-textual alignment and reasoning over text-rich images. These models provide strong foundations for visual document retrieval, where both textual content and visual layout need to be captured. 
+
+Visual Document Retrieval. Visual document retrieval aims to retrieve relevant pages from image-based document collections using natural-language queries. Traditional ap-proaches extract OCR text and apply text retrieval mod-els such as BM25 (Robertson and Zaragoza 2009; Zhang et al. 2025), but often lose important layout and visual infor-mation. Recent MLLM-based retrievers (Jiang et al. 2024, 2025; Günther et al. 2025; Nussbaum, Duderstadt, and Mul-yar 2024; Team 2025; Guan et al. 2026; Zeng et al. 2021, 2023, 2024; Qin et al. 2025), including ColPali (Faysse et al. 2025), ColQwen (Faysse et al. 2025; Bai et al. 2025), and VisRAG (Yu et al. 2025), directly encode document im-ages and adopt late-interaction architectures, where docu-ment representations are computed offline and matched with Vision 
+
+Encoder 
+
+MLP 
+
+> ...
+
+k Proj. 
+
+LLM 
+
+Proj. 
+
+LLM 
+
+w/  self-probing 
+
+> What is Visual Document Retrieval?
+
+Query Doc images  
+
+> ...
+> Similarity Score
+> LoRA LoRA
+
+VaRS-Doc Framework 
+
+Self-Probing Mechanism  Variant-Aware Late-Interaction 
+
+Training Strategy                            
+
+> Early L-n LLM encoder blocks
+> Final n LLM encoder blocks
+> (k-th branch)
+> Shared Contextualization Branched Encoding
+> doc
+> tokens
+> probing
+> tokens *k
+> Simple Causal
+> Attention Mask
+> Allowed
+> Masked
+> d1 d2 d3 d4 p1 p2 p3 p4
+> d1
+> d2
+> d3
+> d4
+> p1
+> p2
+> p3
+> p4
+> Copied
+> States
+> ...
+> Branch-k Attention Mask
+> Allowed
+> Masked
+> d1 d2 d3 d4 p1 p2 pk p4
+> d1
+> d2
+> d3
+> d4
+> p1
+> p2
+> pk
+> p4
+> Doc embeds
+> query embeds
+> ...
+> Variant Doc interpretation representations for d n MaxSim
+> MaxSim
+> MaxSim
+> ...
+> s1
+> s2
+> sk
+> Max S(q, d n)
+> Warmup (Variant Num = 1)
+> Basic Retrieval Ability
+> Probing token
+> # wins
+> ...
+> V1V2V3
+> ...
+> V2V3
+> Before(unbalanced)
+> After(balanced)
+> V1
+> V2
+> V3
+> V1
+> 0.93
+> V2V3
+> Get gradient
+> V1
+> 0.95
+> V2V3
+> ... ...
+> 0.91
+> V2V3
+> ...
+> V1
+> (q 1, d 1)(q 2, d 2)(q 3, d 3)
+> Variant Competition
+> Pull closer
+> Push away
+> Query Embed.
+> Positive Doc.
+> In-batch Negative
+
+...   
+
+> Copy-Init
+> Warm start
+> Multi-Variant Adaption (Variant Num = k)
+> # wins
+> (i) Hardness-aware Retrieval Loss
+> (ii) Diversity
+> Loss
+> (iii) Balance Loss
+> d1
+> d2
+> d3
+> d4
+> p1
+> p2
+> p3
+> p4
+> Branch 1
+> Branch 2
+> Branch k
+> Get gradient Get gradient
+> V1
+
+Figure 2: Overview of VaRS-Doc. During offline indexing, latent interpretation probing tokens silently read the document context in Shared Contextualization and then guide separate branches in Branched Encoding to produce complementary variant representations. At retrieval time, variant-aware late interaction selects the best-matched precomputed variant for each query. Two-stage variant optimization prevents branch collapse and encourages complementary specialization. independently encoded queries (Khattab and Zaharia 2020). Qwen3-Reranker (Li et al. 2026) instead postpones docu-ment encoding until the query arrives and cross-encodes each query–document pair to directly predict its relevance score. Although this enables document evidence to be inter-preted according to the query intent, the repeated online doc-ument encoding makes it unsuitable for first-stage retrieval at scale. Our approach, VaRS-Doc retains efficient offline indexing while preparing multiple document interpretations from which each query can select. 
+
+Method 
+
+Problem Formulation. Given a natural language query 
+
+q and a large collection of visual document pages D =
+
+{d1, d 2, . . . , d N }, visual document retrieval aims to rank all pages according to their relevance to the query. The retrieval objective is formulated as 
+
+[dπ1 , d π2 , . . . , d πN ] = argsort 
+
+di∈D 
+
+S(q, d i), (1) where S(q, d i) denotes the relevance score between query q
+
+and document page di.Most practical large-scale retrieval systems adopt a late-interaction architecture, where the query and document are encoded independently, 
+
+ZQ = fQ(q), Z D = fD (d), S (q, d ) = h(ZQ, Z D ). (2) where fQ(·) and fD (·) denote the query and document en-coders, ZQ and ZD are the corresponding embeddings, and 
+
+h(·, ·) is a lightweight similarity function. Document em-beddings can therefore be precomputed and indexed offline. While this design enables efficient first-stage retrieval, the document representation is constructed before the query is observed and therefore cannot adapt to different query inter-pretations. Meanwhile, cross-encoding methods that jointly encode the query and document can adaptively interpret the document under the specific query intent, but they require expensive online computation for each query-document pair and cannot reuse document representations for future queries. This motivates us to seek an approach that encodes each document for diverse possible interpretations rather than compress it into a fixed representation during offline index-ing, while retaining the efficiency of late interaction. 
+
+Method Overview 
+
+Following the above motivation, we propose VaRS-Doc , a novel visual document retrieval framework that actively reads and encodes documents from complementary interpretive perspectives. Instead of forcing a document page into a sin-gle representation before knowing how it will be queried, VaRS-Doc encourages the model to internally explore multi-ple latent interpretations of the same document evidence dur-ing offline indexing. These interpretations serve as prepared semantic views that can later be matched against different query intents. Specifically, as illustrated in Fig. 2, VaRS-Doc prepares each visual document for possible interpretations through la-tent self-probing . Specifically, given a document page, we in-sert a set of learnable latent interpretation probing tokens into the document encoder. These tokens read the document con-tent and serve as internal anchors for different potential query intents. To produce such interpretations efficiently, VaRS-Doc adopts a Shared-Contextualization with Branched-Encoding architecture: the early encoder blocks are shared to encode the document content once, while the final encoder blocks branch into complementary variant streams guided by probing tokens. The resulting document variants are pre-computed and indexed offline, and are later matched with the independently encoded query under the variant-aware late-interaction paradigm. To train these prepared interpre-tation variants to be effectively used and complementary, we further introduce a two-stage variant optimization strategy, which first learns a strong single-representation retriever and then expands it for multi-interpretation training. 
+
+Variant Interpretation Encoding via Self-Probing 
+
+Latent Interpretation Probing Tokens In offline docu-ment indexing, the document encoder must represent a page before any future query is known. Compressing the page into one fixed representation can erase distinctions among inter-pretations relevant to different query intents. We therefore let the model explore possible readings through learnable latent probes rather than predefined natural-language questions. Specifically, given a page d represented by M document tokens XD = {x1, . . . , x M }, we introduce K learnable la-tent interpretation probing tokens P = {p1, . . . , p K }. These tokens are concatenated after the document tokens, acting as latent encoding instructions. They first read the page context, and then each probing token provides a distinct probing in-struction for encoding the same document under a different interpretation. The learnable probing tokens are optimized directly through retrieval supervision, allowing them to discover complementary, task-relevant reading directions and adapt them to each document after reading its context. This avoids manually specifying possible reading aspects and reduces sensitivity to the wording and length of explicit natural-language prompts. As a result, VaRS-Doc can prepare doc-uments for diverse future query intents beyond a manually defined set of interpretations. 
+
+Shared Contextualization with Branched Encoding To leverage latent probing tokens for interpreting each document page from diverse perspectives, we divide document encod-ing into two stages: shared context reading and probe-guided branching. The probing tokens first silently read the docu-ment context without affecting the encoding of the document tokens; the resulting document-aware probes then guide dif-ferent branches toward complementary interpretations of the same document. 
+
+i) Shared Semantic Contextualization. Let the document LLM encoder contain L transformer blocks, with the final n
+
+blocks used for branched encoding. The first L − n blocks perform shared contextualization. Given the document token sequence XD and probing tokens P, we append the probing tokens to the end of the document token sequence, forming the input 
+
+U (0) = [ XD ; P] = [ x1, . . . , x M , p 1, . . . , p K ]. (3) This ordering allows us to naturally reuse the causal attention mask in the LLM blocks. Since document tokens appear before the probing tokens, they cannot attend to the later probes. Meanwhile, each probing token can attend to the preceding document tokens. The shared contextualization stage is therefore computed as 
+
+U (ℓ) = Fℓ
+
+ U (ℓ−1) ; Acausal 
+
+, ℓ = 1 , . . . , L − n, (4) where Fℓ denotes the ℓ-th transformer block. After the first 
+
+L−n blocks, the output hidden sequence can be decomposed as 
+
+U (L−n) = [ H(L−n) 
+
+> D
+
+; H(L−n) 
+
+> P
+
+]. (5) where H(L−n) 
+
+> D
+
+contains the M shared document states, while 
+
+H(L−n) 
+
+> P
+
+contains the K document-conditioned probe states. The states in H(L−n) 
+
+> P
+
+are no longer generic learnable tokens, but page-specific latent probes that guide the subsequent variant interpretation encoding. 
+
+ii) Probe-Guided Branched Encoding. The final n blocks per-form probe-guided branching. Specifically, we first duplicate the shared hidden sequence into K variant streams: 
+
+V (L−n) 
+
+> k
+
+= U (L−n), k = 1 , . . . , K. (6) Thus, each branch still contains all document states and all document-conditioned probe states. Branch specialization is controlled by a branch-specific binary visibility mask A(k)br , where A(i, j ) = 1 permits the token at position i to attend to that at position j. Since 
+
+[H(L−n) 
+
+> D
+
+; H(L−n) 
+
+> P
+
+] contains M document states followed by 
+
+K probe states, the k-th probe is located at position M + k.Branch k extends the causal mask Acausal by allowing every document state to attend to this probe: 
+
+A(k)br (i, j ) = Acausal (i, j ) ∨ 11 ≤ i ≤ M, j = M + k,
+
+(7) where ∨ denotes element-wise logical OR and 1[·] is the in-dicator function. Thus, branch k preserves the original causal visibility while exposing only its corresponding probe state in H(L−n) 
+
+> P
+
+to the document states. These final n transformer blocks are then applied to each branch with its own attention mask: 
+
+V (ℓ) 
+
+> k
+
+= Fℓ
+
+ V (ℓ−1)  
+
+> k
+
+; A(k)br 
+
+, ℓ = L − n + 1 , . . . , L. (8) After the final block, the hidden states of the k-th branch are grouped as 
+
+V (L) 
+
+> k
+
+= [ H(L)
+
+> D,k
+
+; H(L)
+
+> P,k
+
+], (9) where H(L) 
+
+> D,k
+
+and H(L) 
+
+> P,k
+
+contain the final document and probe states, respectively. The document states are then projected into the retrieval embedding space after discarding the probe states: 
+
+Z(k) 
+
+> D
+
+= Proj k
+
+ H(L)
+
+> D,k
+
+. (10) Therefore, probe tokens do not directly enter the final query matching. They influence retrieval only by guiding the doc-ument token representations during the branched encoding. This masking-based branching preserves the original to-ken order and positional embeddings of the document tokens. Each branch starts from the same shared document states, but gains access to a different document-conditioned probe state, allowing the final document embeddings to specialize toward different latent aspects of the same page. Variant-Aware Late Interaction 
+
+After offline indexing, each document page d is represented by a set of variant embeddings 
+
+ZD = {Z(1)  
+
+> D
+
+, Z (2)  
+
+> D
+
+, . . . , Z (K) 
+
+> D
+
+}, (11) where Z(k) 
+
+> D
+
+denotes the k-th probe-guided document variant. At retrieval time, the query is encoded independently as 
+
+ZQ = fQ(q). (12) where fQ processes the query with the same MLLM back-bone in document encoding and projects its output hid-den states into the shared retrieval space. For each variant 
+
+k ∈ { 1, . . . , K }, we compute its late-interaction MaxSim score directly as (Khattab and Zaharia 2020) 
+
+sk(q, d ) = 
+
+> |ZQ|
+
+X
+
+> u=1
+
+max  
+
+> 1≤v≤| Z(k)
+> D|
+
+D
+
+zq,u , z (k)
+
+> d,v
+
+E
+
+, (13) where zq,u is the u-th query-token embedding and z(k) 
+
+> d,v
+
+is the 
+
+v-th document-token embedding in variant k.The final relevance score is obtained by selecting the best-matched variant: 
+
+S(q, d ) = K
+
+max  
+
+> k=1
+
+sk(q, d ). (14) This variant-aware late-interaction score evaluates each branch independently and lets the query select the best-matched one, keeping the outputs and learning signals of different branches separate and allowing each branch to de-velop a coherent document-level interpretation. 
+
+Two-stage Variant Optimization 
+
+Training multiple document variants from random initial-ization can be unstable, since different branches may start to compete before the model has learned a reliable retrieval space and quickly fall into relying on one variant who dom-inates most query-document pairs while the remaining vari-ants receive little effective supervision. We therefore adopt a two-stage optimization strategy to address this. 
+
+Single-Variant Warmup. We first train a non-branched re-triever with one probe token and one document variant. This stage follows the standard late-interaction training pipeline and learns a stable query-document embedding space. Af-ter convergence, the resulting checkpoint serves as a strong initialization point for multi-variant training. When this ini-tialization is copied to multiple variants, every variant enters training as a strong competitor. The subsequent training can therefore focus on differentiating the variants into comple-mentary interpretations rather than learning basic retrieval ability from scratch. Given a mini-batch of B positive query-document pairs 
+
+{(qi, d i)}Bi=1 , the optimization objective is as below: 
+
+Lwarm = 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+log 
+
+
+
+1 + exp 
+
+
+
+max   
+
+> j̸=i
+
+S(qi, d j ) − S(qi, d i)
+
+ 
+
+.
+
+(15) 
+
+Multi-Variant Adaptation. We then expand the single-variant model into a K-variant model. Specifically, the learned probe token and the projection head are copied into 
+
+K branch instances. The following variant-aware objective then breaks this symmetry and drives branch specialization. 
+
+i) Hardness-Aware Retrieval Loss. We redesign the standard InfoNCE loss (van den Oord, Li, and Vinyals 2018) into a hardness-aware InfoNCE loss to train model to focus on resolving challenging negatives. Specifically, we increase the contribution of negative documents according to their current similarity scores, so that training focuses more on confusing query-document pairs while still preserving the efficiency of in-batch contrastive learning. 
+
+Lret = − 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+log exp( Sii )exp( Sii ) + P  
+
+> j̸=i
+
+wij exp( Sij ) , (16) where wij is hardness weight computed from detached score: 
+
+wij = sg (exp( Sij )) , j̸ = i, (17) where sg( ·) denotes the stop-gradient operation. 
+
+ii) Batch-Level Balance Loss. To further avoid long-term domination by a single variant, we introduce a batch-level balance loss. For each positive query-document pair (qi, d i),we use s(k) 
+
+> ii
+
+to denote the score between query qi and the k-th variant of its positive document. We convert these scores into a probability-like usage distribution over variants: a higher score means that the corresponding variant is more respon-sible for matching this sample. The average usage of the k-th variant within a mini-batch B is computed as 
+
+¯ak = 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+exp( s(k) 
+
+> ii
+
+)
+
+PKk′=1 exp( s(k′) 
+
+> ii
+
+) . (18) The balance loss encourages the batch-level variant usage to be close to a uniform distribution: 
+
+Lbal =
+
+> K
+
+X
+
+> k=1
+
+
+
+¯ak − 1
+
+K
+
+2
+
+. (19) This loss encourages variant branch usage across a batch, preventing one branch from dominating all training samples. 
+
+iii) Batch-Level Diversity Loss. Complementary to batch-level balancing, we apply a top margin diversity loss to en-large the winner margin. For the positive pair (qi, d i), the best variant score is exactly the document-level score Sii .We define the second-best variant score as Rii . The diversity loss is then defined as 
+
+Ldiv = 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+max  0, γ − (Sii − Rii ), (20) where γ is a small target margin. This loss encourages the best-matched variant to outperform the second-best variant by at least γ, avoiding ambiguous cases where variants pro-duce nearly identical scores for the same query. Finally, the objective of the second stage is as below: 
+
+Lstage2 = Lret + λbal Lbal + λdiv Ldiv , (21) Table 1: Performance comparison on the ViDoRe V2 and V3 benchmarks. Results are reported using NDCG@10 (%). † denotes our direct backbone baseline. The best and second-best results are shown in bold and underlined, respectively.                                                                                                                                                   
+
+> Model Size ViDoRe V2 ViDoRe V3 All Bio. Econ. ESG-S ESG-H Avg. HR Fin.-EN Ind. Pharm. CS Energy Physics Fin.-FR Avg.
+> Vision-Language Contrastive Models
+> CLIP (Radford et al. 2021) 149M 11.5 6.2 7.4 14.1 9.8 4.6 1.4 2.1 14.3 6.1 4.7 8.2 0.8 5.3 6.8 SigLIP (Zhai et al. 2023) 877M 30.7 18.2 39.4 50.1 34.6 15.0 16.0 8.9 29.0 28.6 16.0 17.8 6.6 17.2 23.0
+> MLLM-Based Retrieval Models
+> ColPali (Faysse et al. 2025) 3B 58.8 48.4 57.4 62.4 56.7 44.8 34.4 35.6 53.1 65.3 46.9 41.7 21.8 43.0 47.5 eager-embed (Balarini 2025) 4B 65.5 50.3 57.5 60.6 58.5 49.3 44.5 35.2 60.3 70.9 56.3 46.5 31.0 49.3 52.3 SauerkrautLM-ColQwen3 (Golchinfar 2025) 2B 62.5 53.8 57.3 72.9 61.6 53.0 54.3 44.0 60.6 73.7 61.2 47.6 40.2 54.3 56.8 ColNomic-Embed-Multimodal (Team 2025) 3B 65.4 53.6 53.3 60.7 58.2 57.3 56.3 47.4 61.1 72.7 64.5 47.6 44.3 56.4 57.0 ColQwen2.5 (Faysse et al. 2025; Bai et al. 2025) †3B 63.1 52.8 62.4 68.2 61.6 51.2 52.3 41.3 57.9 72.3 59.5 45.9 39.1 52.5 55.5
+> VaRS-Doc (Ours) 3B 66.8 59.9 64.2 75.2 66.5 54.3 57.2 49.0 62.8 75.5 63.4 48.2 42.9 56.7 60.0
+
+where λbal and λdiv control the strengths of balance loss and diversity loss, respectively. The balance loss and diversity loss together create mean-ingful competition in which different branches win for dif-ferent queries, driving the variants of the same document to specialize toward complementary interpretations. In both stages, we apply Low-Rank Adaptation (LoRA) (Hu et al. 2022) to the transformer layers of the language-model backbone, latent probing tokens and the out-put projection layers. This training design keeps the adapta-tion lightweight and stable. 
+
+Experiments 
+
+Implementation Details. We use ColQwen2.5 (Faysse et al. 2025; Bai et al. 2025) as backbone, with K = 5 
+
+document variants and n = 4 branched transformer blocks. We first warm up the single-variant retriever on the training dataset (Faysse et al. 2025) for three epochs with a learning rate of 5 × 10 −4, followed by two epochs of multi-variant adaptation with a learning rate of 5 × 10 −5. We use four NVIDIA A800 GPUs with a batch size of 32 per GPU. LoRA is applied with rank r = 32 and scaling factor α = 32 . We set 
+
+λbal = 0 .1, λdiv = 0 .05 , and γ = 0 .05 . Additional details and hyperparameter analyses are provided in Appendix. 
+
+Datasets. We evaluate VaRS-Doc on the ViDoRe V2 and V3 benchmarks (Macé, Loison, and Faysse 2025; Loison et al. 2026; Muennighoff et al. 2023), which together cover 12 retrieval datasets across diverse domains and document formats. Document pages are provided directly as images. Following prior work, we report NDCG@10 as the metric. 
+
+Main Results 
+
+As shown in Table 1, VaRS-Doc achieves state-of-the-art performance on both ViDoRe V2 and V3, obtaining aver-age NDCG@10 scores of 66.5 and 56.7, respectively, and an overall average of 60.0. Since VaRS-Doc is directly built upon the ColQwen2.5 retrieval framework with the same MLLM backbone, ColQwen2.5 serves as the most relevant comparison for isolating the effectiveness of our proposed variant representations. VaRS-Doc consistently outperforms ColQwen2.5 on all 12 datasets, improving the V2 and V3 averages by 4.9 and 4.2 points, respectively, and the overall average by 4.5 points. Particularly large gains are observed on Economics Reports (+7.1), Industrial Documents (+7.7), Table 2: Probability that query pairs select the same docu-ment variant (%). 
+
+Model Same Intent ( Psame ) Different Intents ( Pcross )
+
+VaRS-Doc 77.6 30.8 and human-labeled ESG Reports (+7.0), demonstrating that query-adaptive variant representations provide more effec-tive coverage of the diverse semantic interpretations con-tained in visual documents. 
+
+Interpretation Complementarity Analysis. We ran-domly sample N = 100 pages in ViDoRe V2 and select one localized evidence region from each. Given only this region, an MLLM generates two distinct query intents and two paraphrases per intent. We manually verify intent dis-tinctness, paraphrase equivalence, and that every query is answerable from the selected region. For page di, let qi,a,m 
+
+denote formulation m of intent a, where a, m ∈ { 1, 2}. The selected variant and comparison probabilities are 
+
+vi,a,m = argmax 
+
+> k∈{ 1,...,K }
+
+sk(qi,a,m , d i),Psame = 12N
+
+> N
+
+X
+
+> i=1 2
+
+X
+
+> a=1
+
+1[vi,a, 1 = vi,a, 2],Pcross = 14N
+
+> N
+
+X
+
+> i=1 2
+
+X
+
+> m,n =1
+
+1[vi, 1,m = vi, 2,n ].
+
+(22) Here, Psame and Pcross measure the same-variant probability for same- and different-intent query pairs, respectively. As shown in Table 2, same-intent paraphrases select the same variant in 77.6% of cases, compared with 30.8% for different intents. This result shows that the variants remain stable across paraphrases while capturing complementary semantics of the same evidence under different query intents. 
+
+Efficiency Analysis. Table 3 shows that the index size grows linearly with the number of variants as expected, since each variant stores a full document representation. In con-trast, index time increases by only 1.01 × and 1.14 ×, as document encoding also includes the vision encoder and the shared LLM blocks, while only the final few LLM blocks are branched; the branched design therefore shows a modest in-crease in index time. Online, the query is encoded only once, Table 3: Efficiency Analysis. All results are measured using the same ViDoRe V2 corpus, hardware, and retrieval config-uration. Values in parentheses are relative to baseline. Method Index Size / Doc Index Time / Doc Latency / Query Baseline ( K = 1 ) 1.48 MiB (1.00 ×) 201.85 ms (1.00 ×) 22.38 ms (1.00 ×)VaRS-Doc ( K = 3 ) 4.44 MiB (3.00 ×) 203.26 ms (1.01 ×) 26.40 ms (1.18 ×)VaRS-Doc ( K = 5 ) 7.41 MiB (5.00 ×) 230.72 ms (1.14 ×) 27.15 ms (1.21 ×)Table 4: Ablation of the variant representation design on ViDoRe V2. We report the average NDCG@10 (%).                       
+
+> Setting Latent Probing Branched Encoding. Variant Projection NDCG@10
+> Baseline (ColQwen) %%%61.6 + variant projection %%!61.8 + probing token !%%62.1 + branched encoding !!%65.8
+> Full Model !!!66.5
+
+and additional variants require only lightweight MaxSim scoring and score maximization rather than extra MLLM forward passes. Since late-interaction similarity computa-tion is inherently fast, this additional scoring increases query latency only modestly, from 22.38 ms to 26.40 ms and 27.15 ms. Such a small absolute overhead poses no substantial barrier to practical online deployment, yielding a favorable trade-off between retrieval effectiveness and efficiency. 
+
+Ablation Studies 
+
+We conduct ablation studies to examine the contributions of the variant representation design and the proposed optimiza-tion strategy. Unless otherwise specified, all experiments use the default settings with five document variants, and four branched Transformer blocks ( n = 4 ). We report the aver-aged NDCG@10 on ViDoRe V2. 
+
+Variant Representation Design. Table 4 evaluates the proposed variant representation design, together with a projection-only control that tests whether its gains can be attributed simply to increased output capacity. Adding mul-tiple variant-specific projection heads without latent probing or branched encoding improves NDCG@10 only from 61.6 to 61.8. This marginal gain shows that the full-model im-provement does not primarily come from increased output capacity: projection alone is insufficient to produce distinct interpretations, and the main semantic differentiation must occur within the MLLM encoder. Introducing latent self-probing alone brings only a modest improvement, increas-ing the average NDCG@10 from 61.6 to 62.1. In contrast, enabling branched contextualization substantially raises the score to 65.8, indicating that the main benefit comes from allowing different branches to develop distinct document in-terpretations rather than merely appending probing tokens. Variant-specific projection heads provide a further improve-ment to 66.5. Overall, the full design outperforms the single-representation baseline by 4.9 points, with branched encod-ing accounting for the majority of the gain. 
+
+Optimization Strategy. Table 5 evaluates the main com-ponents of our two-stage optimization. Removing the single-Table 5: Ablation of the optimization strategy on ViDoRe V2, averaged over four datasets. Tie Rate@0.01 is the fraction of samples with near-tied top variants, and Max Branch Usage is the largest branch winning ratio; lower is better for both.                    
+
+> Setting NDCG@10 Tie Rate @0.01 Max Branch Usage
+> w/o Warm-up 63.7 11.5 94.2 w/o hardness weighting 64.8 24.8 31.7 w/o Lbal 65.8 11.6 92.4 w/o Ldiv 65.3 56.8 27.9
+> Full Model 66.5 18.9 26.2
+
+variant warm-up causes the largest performance degradation, reducing NDCG@10 from 66.5 to 63.7. More importantly, the maximum branch usage increases from 26.2% to 94.2%, showing that direct multi-variant training causes nearly all samples to be assigned to a single dominant branch. Re-placing hardness-weighted InfoNCE with the standard ob-jective also lowers NDCG@10 to 64.8 and increases both the tie rate and branch concentration, confirming that em-phasizing informative hard negatives benefits both retrieval accuracy and variant specialization. The two auxiliary losses regulate complementary aspects of the variant assignment. Without Lbal , the maximum branch usage rises sharply to 92.4%, indicating severe global branch collapse. Although this setting exhibits a relatively low tie rate, the result is caused by one branch consistently dominating rather than by meaningful specialization. In contrast, removing Ldiv 
+
+increases Tie Rate@0.01 from 18.9% to 56.8%, showing that the variants become difficult to distinguish within in-dividual query–document pairs. The full objective achieves the best NDCG@10 while maintaining substantially more balanced branch utilization and clear query-dependent pref-erences. These results demonstrate that warm-up and Lbal 
+
+prevent global collapse, whereas Ldiv promotes confident within-sample specialization. 
+
+Conclusion 
+
+In this paper, we presented VaRS-Doc, a novel visual docu-ment retrieval framework that provides interpretation-aware variant representations for document encoding. VaRS-Doc enables self-probing encoding using a Shared Contextualiza-tion with Branched Encoding architecture to generate variant document representations, while variant-aware late interac-tion allows each query to select the best-matched variant efficiently. By preparing different readings before queries are observed, VaRS-Doc provides a practical solution to the gap between the query-agnostic document encoding and the query-specific interpretation needs for accurate match-ing. Comprehensive experiments demonstrate state-of-the-art performance and verify the effectiveness of the proposed components. We want to emphasize that, beyond simple performance gains, VaRS-Doc introduces a novel retrieval paradigm: preparing a single fixed representation for any possible query is limiting the model. Expressive power of the retrieval model can be further revealed by allowing it to probe more possible interpretations. References 
+
+Alayrac, J.-B.; Donahue, J.; Luc, P.; et al. 2022. Flamingo: A Visual Language Model for Few-Shot Learning. In 
+
+Advances in Neural Information Processing Systems , vol-ume 35, 23716–23736. Bai, J.; Bai, S.; Yang, S.; et al. 2023. Qwen-VL: A Ver-satile Vision-Language Model for Understanding, Localiza-tion, Text Reading, and Beyond. arXiv:2308.12966. Bai, S.; Chen, K.; Liu, X.; Wang, J.; Ge, W.; Song, S.; Dang, K.; Wang, P.; Wang, S.; Tang, J.; Zhong, H.; Zhu, Y.; Yang, M.; Li, Z.; Wan, J.; Wang, P.; Ding, W.; Fu, Z.; Xu, Y.; Ye, J.; Zhang, X.; Xie, T.; Cheng, Z.; Zhang, H.; Yang, Z.; Xu, H.; and Lin, J. 2025. Qwen2.5-VL Technical Report. arXiv preprint arXiv:2502.13923 .Balarini, J. P. 2025. Eager Embed V1: Multimodal Dense Embeddings for Retrieval. Beyer, L.; Steiner, A.; Pinto, A. S.; et al. 2024. PaliGemma: A Versatile 3B Vision-Language Model for Transfer. arXiv:2407.07726. Chen, J.; Xiao, S.; Zhang, P.; Luo, K.; Lian, D.; and Liu, Z. 2024a. M3-Embedding: Multi-Linguality, Multi-Functionality, Multi-Granularity Text Embeddings Through Self-Knowledge Distillation. In Findings of the Association for Computational Linguistics: ACL 2024 , 2318–2335. Chen, Z.; Wu, J.; Wang, W.; et al. 2024b. InternVL: Scal-ing Up Vision Foundation Models and Aligning for Generic Visual-Linguistic Tasks. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition ,24185–24198. Faysse, M.; Sibille, H.; Wu, T.; Omrani, B.; Viaud, G.; Hude-lot, C.; and Colombo, P. 2025. ColPali: Efficient Document Retrieval with Vision Language Models. In International Conference on Learning Representations .Fu, P.; Guan, T.; Wang, Z.; et al. 2025. Multimodal Large Language Models for Text-Rich Image Understanding: A Comprehensive Review. In Findings of the Association for Computational Linguistics: ACL 2025 , 19941–19958. Golchinfar, D. 2025. SauerkrautLM-ColPali: Multi-Vector Vision Retrieval Models. Guan, T.; Wang, H.; Shen, W.; and Yang, X. 2026. Light-STAR: Efficient Visual Document Retrieval via Lightweight Selection with Vision-Adaptive Refinement. In European Conference on Computer Vision .Guan, T.; Wang, Z.; Fu, P.; et al. 2025. A Token-Level Text Image Foundation Model for Document Understanding. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision , 23210–23220. Günther, M.; Sturua, S.; Akram, M. K.; et al. 2025. jina-embeddings-v4: Universal Embeddings for Multimodal Mul-tilingual Retrieval. In Proceedings of the 5th Workshop on Multilingual Representation Learning , 531–550. Hu, E. J.; Shen, Y.; Wallis, P.; et al. 2022. LoRA: Low-Rank Adaptation of Large Language Models. In International Conference on Learning Representations .Jiang, T.; Song, M.; Zhang, Z.; et al. 2024. E5-V: Univer-sal Embeddings with Multimodal Large Language Models. arXiv:2407.12580. Jiang, Z.; Meng, R.; Yang, X.; Yavuz, S.; Zhou, Y.; and Chen, W. 2025. VLM2Vec: Training Vision-Language Models for Massive Multimodal Embedding Tasks. In International Conference on Learning Representations .Khattab, O.; and Zaharia, M. 2020. ColBERT: Efficient and Effective Passage Search via Contextualized Late Interac-tion over BERT. In Proceedings of the 43rd International ACM SIGIR Conference on Research and Development in Information Retrieval , 39–48. Kim, G.; Hong, T.; Yim, M.; et al. 2022. OCR-Free Docu-ment Understanding Transformer. In European Conference on Computer Vision , 498–517. Lee, K.; Joshi, M.; Turc, I. R.; et al. 2023. Pix2Struct: Screen-shot Parsing as Pretraining for Visual Language Understand-ing. In Proceedings of the 40th International Conference on Machine Learning , 18893–18912. Lewis, P.; Perez, E.; Piktus, A.; et al. 2020. Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks. In Advances in Neural Information Processing Systems , vol-ume 33, 9459–9474. Li, J.; Li, D.; Xiong, C.; and Hoi, S. 2022. BLIP: Boot-strapping Language-Image Pre-Training for Unified Vision-Language Understanding and Generation. In Proceedings of the 39th International Conference on Machine Learning ,12888–12900. Li, M.; Zhang, Y.; Long, D.; Keqin, C.; Song, S.; Bai, S.; Yang, Z.; Xie, P.; Yang, A.; Liu, D.; Zhou, J.; and Lin, J. 2026. Qwen3-VL-Embedding and Qwen3-VL-Reranker: A Unified Framework for State-of-the-Art Multimodal Retrieval and Ranking. arXiv preprint arXiv:2601.04720 .Liu, H.; Li, C.; Wu, Q.; and Lee, Y. J. 2023. Visual Instruc-tion Tuning. In Advances in Neural Information Processing Systems , volume 36, 34892–34916. Loison, A.; Macé, Q.; Edy, A.; Xing, V.; Balough, T.; Mor-eira, G. d. S. P.; Liu, B.; Faysse, M.; Hudelot, C.; and Vi-aud, G. 2026. ViDoRe V3: A Comprehensive Evaluation of Retrieval Augmented Generation in Complex Real-World Scenarios. In Liakata, M.; Moreira, V. P.; Zhang, J.; and Jurgens, D., eds., Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 16570–16600. San Diego, California, United States: Association for Computational Linguistics. ISBN 979-8-89176-390-6. Macé, Q.; Loison, A.; and Faysse, M. 2025. ViDoRe Bench-mark V2: Raising the Bar for Visual Retrieval. arXiv preprint arXiv:2505.17166 .Muennighoff, N.; Tazi, N.; Magne, L.; and Reimers, N. 2023. MTEB: Massive Text Embedding Benchmark. In Proceed-ings of the 17th Conference of the European Chapter of the Association for Computational Linguistics , 2014–2037. Nussbaum, Z.; Duderstadt, B.; and Mulyar, A. 2024. Nomic Embed Vision: Expanding the Latent Space. arXiv:2406.18587. Qin, X.; Zhang, P.; Yang, J. J. O.; Zeng, G.; Li, Y.; Wang, Y.; Zhang, W.; and Dai, P. 2025. Clip is almost all you need: towards parameter-efficient scene text retrieval without OCR. In Proceedings of the Computer Vision and Pattern Recognition Conference , 24873–24883. Radford, A.; Kim, J. W.; Hallacy, C.; et al. 2021. Learning Transferable Visual Models from Natural Language Super-vision. In Proceedings of the 38th International Conference on Machine Learning , 8748–8763. Robertson, S.; and Zaragoza, H. 2009. The Probabilistic Relevance Framework: BM25 and Beyond. Foundations and Trends in Information Retrieval , 3(4): 333–389. Team, N. 2025. Nomic Embed Multimodal: Interleaved Text, Image, and Screenshots for Visual Document Retrieval. Tschannen, M.; Gritsenko, A.; Wang, X.; et al. 2025. SigLIP 2: Multilingual Vision-Language Encoders with Improved Semantic Understanding, Localization, and Dense Features. arXiv:2502.14786. van den Oord, A.; Li, Y.; and Vinyals, O. 2018. Rep-resentation Learning with Contrastive Predictive Coding. arXiv:1807.03748. Xu, Y.; Li, M.; Cui, L.; Huang, S.; Wei, F.; and Zhou, M. 2020. LayoutLM: Pre-Training of Text and Layout for Docu-ment Image Understanding. In Proceedings of the 26th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining , 1192–1200. Xu, Y.; Xu, Y.; Lv, T.; et al. 2021. LayoutLMv2: Multi-Modal Pre-Training for Visually-Rich Document Understanding. In 
+
+Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics , 2579–2591. Yu, S.; Tang, C.; Xu, B.; et al. 2025. VisRAG: Vision-Based Retrieval-Augmented Generation on Multi-Modality Documents. In International Conference on Learning Rep-resentations .Zeng, G.; Zhang, Y.; Wei, J.; Yang, D.; Zhang, P.; Gao, Y.; Qin, X.; and Zhou, Y. 2024. Focus, distinguish, and prompt: Unleashing clip for efficient and flexible scene text retrieval. In Proceedings of the 32nd ACM International Conference on Multimedia , 2525–2534. Zeng, G.; Zhang, Y.; Zhou, Y.; and Yang, X. 2021. Beyond ocr+ vqa: Involving ocr into the flow for robust and accu-rate textvqa. In Proceedings of the 29th ACM international conference on multimedia , 376–385. Zeng, G.; Zhang, Y.; Zhou, Y.; Yang, X.; Jiang, N.; Zhao, G.; Wang, W.; and Yin, X.-C. 2023. Beyond OCR+ VQA: Towards end-to-end reading and reasoning for robust and accurate textvqa. Pattern Recognition , 138: 109337. Zhai, X.; Mustafa, B.; Kolesnikov, A.; and Beyer, L. 2023. Sigmoid Loss for Language Image Pre-Training. In Proceed-ings of the IEEE/CVF International Conference on Computer Vision , 11975–11986. Zhang, J.; Zhang, Q.; Wang, B.; et al. 2025. OCR Hinders RAG: Evaluating the Cascading Impact of OCR on Retrieval-Augmented Generation. arXiv:2412.02592. Zhu, J.; Wang, W.; Chen, Z.; et al. 2025. InternVL3: Ex-ploring Advanced Training and Test-Time Recipes for Open-Source Multimodal Models. arXiv:2504.10479. VaRS-Doc: Interpretation-Aware Variant Representations via Latent Self-Probing for Visual Document Retrieval (Supplementary Material) 
+
+A Implementation and Experimental Details 
+
+Basic Setup. VaRS-Doc uses ColQwen2.5 with five docu-ment variants and four branched Transformer blocks. It is trained on four NVIDIA A800 GPUs using a three-epoch single-variant warm-up followed by two epochs of multi-variant adaptation. The complete settings are listed in Ta-ble A.1. Table A.1: Hyperparameter settings used in our experiments. 
+
+Setting Value 
+
+Backbone ColQwen2.5 Variants K 5Branched n 4GPUs 4× A800 Batch/GPU 32 LoRA rank r 32 LoRA scaling α 32 Warm-up epochs 3Warm-up LR 5 × 10 −4
+
+Adapt. epochs 2Adapt. LR 5 × 10 −5
+
+λbal 0.1 
+
+λdiv 0.05 Margin γ 0.05 
+
+Training Dataset. We train VaRS-Doc on the same train-ing dataset used by ColPali (Faysse et al. 2025). It contains 118,695 English query–page pairs, combining the training splits of DocVQA, InfoVQA, TAT-DQA, and arXivQA with synthetic pairs constructed from pages in web-crawled PDFs. 
+
+Efficiency Measurement. All testing experiments are con-ducted on a single NVIDIA A800 GPU with a batch size of 32. Each efficiency measurement is repeated 10 times, and we report the average result. We measure efficiency on the ViDoRe V2 document corpus under the same hardware and retrieval configuration. Index Size / Doc measures stored em-beddings per page; Index Time / Doc measures the time to encode and store one page; and Latency / Query measures online query encoding and retrieval from the same corpus. 
+
+B Additional Experimental Results 
+
+B.1 Ablation Study 
+
+Variant-Aware Late Interaction. We compare three strate-gies for aggregating multiple document variants. Mean over Variants averages the independently computed vari-ant scores, Token-Level Fusion combines all variant tokens before late interaction, and Max over Variants scores each variant separately and retains the highest score. Table B.1: Ablation of the variant aggregation strategy on ViDoRe V2. We report the average NDCG@10 (%). 
+
+Aggregation Strategy NDCG@10 
+
+Mean over Variants 66.2 Token-Level Fusion 66.3 Max over Variants 66.5 
+
+As shown in Table B.1, max-over-variants achieves the best NDCG@10 of 66.5, compared with 66.2 for mean ag-gregation and 66.3 for token-level fusion. Keeping the vari-ants separate prevents the evidence captured by one branch from being mixed with or diluted by other branches, allowing each branch to develop a complete document interpretation. The query can then directly select the interpretation that best matches its intent.  
+
+> (a) Number of variants. (b) Branching depth.
+
+Figure B.1: Effects of the number of variants and branching depth on ViDoRe V2. We report the average NDCG@10 (%) over its four datasets. Randomly Select  an Region     
+
+> Does Asian market show a growth potential?
+> Is there evidence that the Asian market could continue to expand?
+> Which region contributed most to overall performance
+> ?
+> Which country accounted for the largest share of total growth?
+> q1：
+> q1‘：
+> q2‘：
+> q2：
+> Different Intents
+> Same Intent
+> Same Intent
+> Generate Queries
+> MLLM
+> doc
+> doc
+> VaRS-Doc Encoding
+> V1
+> V2
+> V3
+> V4
+> V5
+> Variant Repretations
+
+Figure C.1: Example of interpretation complementarity analysis. Given a localized evidence region, Qwen3.5-9B generates two query intents and one meaning-preserving paraphrase for each intent. Same-intent queries select the same document variant, whereas queries with different intents select different variants.   
+
+> (a) Loss weights. (b) Diversity margin γ.
+
+Figure B.2: Effects of the loss weights and diversity margin on ViDoRe V2. We report the average NDCG@10 (%) over its four datasets. 
+
+B.2 Hyperparameter Analysis 
+
+Number of Variants and Branching Depth. We further ex-amine how the number of document variants and the branch-ing depth affect retrieval performance. As shown in Fig-ure B.1(a), increasing the number of variants from one to three improves NDCG@10 from 61.6 to 65.1, demonstrat-ing the benefit of representing a document through multiple interpretations. Performance further increases to 66.5 with five variants, whereas increasing the number to seven yields only a marginal gain. This suggests that five variants provide sufficient interpretation coverage, while additional variants increase storage and computational costs with limited bene-fit. Figure B.1(b) shows that using two branched Transformer blocks achieves 65.0 NDCG@10, suggesting insufficient ca-pacity for the branches to develop differentiated interpreta-tions. Increasing the depth to four blocks improves perfor-mance to 66.5. Branching earlier by using six or eight blocks instead decreases performance to 66.0 and 65.4, respectively, because it weakens shared document contextualization. Four branched blocks therefore provide the best balance between shared document understanding and interpretation special-ization. 
+
+Loss Weights and Diversity Margin. Figure B.2(a) shows that both regularization objectives benefit from moderate weights. As discussed in the main paper, the two losses prevent complementary collapse modes. Removing Lbal in-creases the maximum branch usage to 92.4%, indicating global branch collapse in which one variant dominates most samples. Removing Ldiv instead raises Tie Rate@0.01 to 56.8%, corresponding to a within-sample collapse toward nearly indistinguishable variant scores. Increasing λbal from 0 to 0.1 improves NDCG@10 from 65.8 to 66.5, whereas a larger weight of 0.2 reduces it to 66.0. Similarly, λdiv = 0 .05 
+
+achieves the best performance of 66.5, while increasing it to 0.2 decreases NDCG@10 to 65.7, suggesting that overly strong diversity regularization separates variants at the ex-pense of retrieval relevance. Figure B.2(b) further shows that a small positive diver-sity margin is important. Performance increases from 65.7 with γ = 0 to 66.5 with γ = 0 .05 , but falls to 65.9 when the margin is increased to 0.2. This indicates that a moder-ate margin prevents variant collapse, whereas an excessively large margin forces unnecessary separation. We therefore use 
+
+λbal = 0 .1, λdiv = 0 .05 , and γ = 0 .05 in all experiments. 
+
+C Interpretation Complementarity Analysis 
+
+MLLM-Based Query Generation. We use Qwen3.5-9B to generate queries. From 100 randomly sampled ViDoRe V2 pages, we select one localized evidence region per page and provide only that crop to the MLLM. It generates two semantically distinct queries and one meaning-preserving paraphrase for each. We manually verify intent distinctness, paraphrase equivalence, and answerability from the selected evidence. We then evaluate the four queries against the orig-inal page and record the highest-scoring document variant for each query. Figure C.1 shows an example based on a region describ-ing contributions to global growth. The query pair concern-ing the largest regional contribution selects V2, whereas the pair concerning the growth potential of the Asian market selects V4. Thus, variant assignment remains consistent un-der meaning-preserving rephrasing within an intent, while different intents activate different variants. This illustrates that the learned variants provide stable yet complementary interpretations of the same document content.

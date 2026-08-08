@@ -6,105 +6,77 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-07
-- 运行时间：2026-08-07 02:00:25 UTC
+- 最新运行日期：2026-08-08
+- 运行时间：2026-08-08 20:32:04 UTC
 - 运行状态：成功
-- 本次总论文数：27
-- 精读区：15
+- 本次总论文数：19
+- 精读区：7
 - 速读区：12
 
 ### 今日简报（AI）
-今日精读27篇论文，聚焦文本视频检索与知识型视觉问答两大方向。
-
-最值得关注的是《PHA-Net》与《UniHEAR》，均获9.0高分，分别在跨模态对齐和异构知识融合上提出新框架。
-
-普通读者可优先浏览精读论文摘要，速读中联邦多模态图学习与生成式推荐也值得一瞥。
-- 详情：[/202608/07/README](/202608/07/README)
+今日精选19篇论文，聚焦检索增强智能体与多模态长期记忆两大方向。最值得精读的是《Search-GRT》以引导检索训练优化复杂问答，以及《V-Mem》用模态路由构建多模态代理记忆。建议优先精读这两篇，并顺带关注速读中《Remember-R1》缓解长上下文视觉遗忘的进展。
+- 详情：[/202608/08/README](/202608/08/README)
 
 ### 精读区论文标签
-1. [PHA-Net: Prototype-based Hierarchical Alignment Network for Text-Video Retrieval](/202608/07/2608.00551v1-pha-net-prototype-based-hierarchical-alignment-network-for-text-video-retrieval)  
+1. [Search-GRT: Guided Retrieval Training of Search Agents to Optimize for Complex Question Answering](/202608/08/2608.00974v1-search-grt-guided-retrieval-training-of-search-agents-to-optimize-for-complex-question-answering)  
    标签：评分：9.0/10、query:mr
-   evidence：基于原型的分层跨模态对齐用于文本-视频检索
-2. [UniHEAR: Unified Heterogeneous-Source Attentive Retrieval for Knowledge-Based Visual Question Answering](/202608/07/2608.01147v2-unihear-unified-heterogeneous-source-attentive-retrieval-for-knowledge-based-visual-question-answering)  
+   evidence：面向复杂多跳问答的引导式检索训练，直接对应多跳推理
+2. [V-Mem: Modality-Routed Retrieval for Long-Term Multimodal Agentic Memory](/202608/08/2608.01543v1-v-mem-modality-routed-retrieval-for-long-term-multimodal-agentic-memory)  
    标签：评分：9.0/10、query:mr
-   evidence：面向多模态VQA的统一异构源检索
-3. [The Graph Language: How Knowledge Graphs Speak to Large Language Models](/202608/07/2608.01175v1-the-graph-language-how-knowledge-graphs-speak-to-large-language-models)  
+   evidence：面向多模态智能体记忆的模态路由检索
+3. [CoCo-IR: Contextual Composed Image Retrieval](/202608/08/2608.05149v1-coco-ir-contextual-composed-image-retrieval)  
    标签：评分：9.0/10、query:mr
-   evidence：基于知识图谱的复杂多跳推理增强
-4. [KoVRE: Training an Efficient Embedding Model for Korean Visual Document Retrieval](/202608/07/2608.01389v1-kovre-training-an-efficient-embedding-model-for-korean-visual-document-retrieval)  
+   evidence：组合图像检索，融合文本与图像查询的跨模态检索
+4. [A Paragraph is Worth a Thousand Captions: Rethinking Text Supervision for Vision-Language Retrieval](/202608/08/2608.05260v1-a-paragraph-is-worth-a-thousand-captions-rethinking-text-supervision-for-vision-language-retrieval)  
    标签：评分：9.0/10、query:mr
-   evidence：文本查询与文档图像的跨模态检索
-5. [DeepVoyager-VL: Incentivizing Vision-in-the-Loop Search for Long-Horizon Multimodal Agents](/202608/07/2608.01827v1-deepvoyager-vl-incentivizing-vision-in-the-loop-search-for-long-horizon-multimodal-agents)  
+   evidence：基于段落级文本监督的视觉语言检索
+5. [M$^3$Prune: Hierarchical Collaborative Pruning for Efficient Multi-Modal Multi-Agent Retrieval-Augmented Generation](/202608/08/2608.05967v1-m3prune-hierarchical-collaborative-pruning-for-efficient-multi-modal-multi-agent-retrieval-augmented-generation)  
    标签：评分：9.0/10、query:mr
-   evidence：视觉在环的长程多模态检索与推理
-6. [HALT: Verification-Aware Stopping for Retrieval-Augmented Search Agents](/202608/07/2608.02009v2-halt-verification-aware-stopping-for-retrieval-augmented-search-agents)  
+   evidence：直接面向多模态检索增强生成（mRAG）架构的效率优化
+6. [Learning from Failures: Retrieval-Centric CoT via Hard Negatives for Unified Multimodal Retrieval](/202608/08/2608.06060v1-learning-from-failures-retrieval-centric-cot-via-hard-negatives-for-unified-multimodal-retrieval)  
    标签：评分：9.0/10、query:mr
-   evidence：面向多跳检索增强搜索代理的验证感知停止策略
-7. [MEGRAG: Multi-Granular Evidence Graphs for Answer-Aware Multi-Hop RAG](/202608/07/2608.02195v1-megrag-multi-granular-evidence-graphs-for-answer-aware-multi-hop-rag)  
-   标签：评分：9.0/10、query:mr
-   evidence：面向答案感知的多跳RAG，使用多粒度证据图表示推理过程
-8. [Bayesian Data Reweighting Improves Multimodal Retrieval for Knowledge-Based Visual Question Answering](/202608/07/2608.02907v1-bayesian-data-reweighting-improves-multimodal-retrieval-for-knowledge-based-visual-question-answering)  
-   标签：评分：9.0/10、query:mr
-   evidence：贝叶斯数据重加权改进多模态检索
-9. [Evidence-Grounded Multimodal Knowledge Graph Construction for Multi-Lecture Educational Reasoning](/202608/07/2608.03161v1-evidence-grounded-multimodal-knowledge-graph-construction-for-multi-lecture-educational-reasoning)  
-   标签：评分：9.0/10、query:mr
-   evidence：多模态知识图谱构建，结合视觉语言证据
-10. [Aligning Large Vision-Language Models at Test Time: A Trajectory-Guided Structured Sampling Approach](/202608/07/2608.03204v1-aligning-large-vision-language-models-at-test-time-a-trajectory-guided-structured-sampling-approach)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：面向视觉语言模型的强化学习对齐方法
-11. [DocTrace: Towards Traceable Long Document VQA via Hierarchical Evidence Graph Reasoning](/202608/07/2608.03292v1-doctrace-towards-traceable-long-document-vqa-via-hierarchical-evidence-graph-reasoning)  
-   标签：评分：9.0/10、query:mr
-   evidence：利用层级证据图推理解决长文档VQA，涉及多模态检索增强生成流程
-12. [D$^2$F-ReAG: Dynamic Decomposition and Filtering for Multi-Hop Reasoning-Augmented Generation](/202608/07/2608.04444v1-d2f-reag-dynamic-decomposition-and-filtering-for-multi-hop-reasoning-augmented-generation)  
-   标签：评分：9.0/10、query:mr
-   evidence：提出多跳推理增强生成中的动态分解与过滤方法
-13. [CARGO-VL: Counterfactual Arbitration with Risk-Constrained Group Optimization for Vision-Language Models](/202608/07/2608.04509v1-cargo-vl-counterfactual-arbitration-with-risk-constrained-group-optimization-for-vision-language-models)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：面向视觉语言模型的后训练对齐方法，直接匹配视觉语言模型训练需求
-14. [Hierarchical Graph Memory for LLM Agents with Path-level Localization and Rewrite](/202608/07/2608.05095v1-hierarchical-graph-memory-for-llm-agents-with-path-level-localization-and-rewrite)  
-   标签：评分：9.0/10、query:mr
-   evidence：面向多跳检索与推理的图记忆
-15. [OPD-V: Visual On-Policy Self-Distillation with Modality Balance](/202608/07/2608.05131v1-opd-v-visual-on-policy-self-distillation-with-modality-balance)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：面向多模态大语言模型的视觉自蒸馏后训练，直接匹配视觉语言模型训练
+   evidence：统一多模态检索，基于检索反馈的思维链推理
+7. [VaRS-Doc: Interpretation-Aware Variant Representations via Latent Self-Probing for Visual Document Retrieval](/202608/08/2608.01211v1-vars-doc-interpretation-aware-variant-representations-via-latent-self-probing-for-visual-document-retrieval)  
+   标签：评分：8.0/10、query:mr
+   evidence：基于潜在自探的查询感知视觉文档检索
 
 ### 速读区论文标签
-1. [Towards Effective Federated Multimodal Graph Learning via Navigating Multifaceted Heterogeneity](/202608/07/2608.00623v1-towards-effective-federated-multimodal-graph-learning-via-navigating-multifaceted-heterogeneity)  
+1. [Remember-R1: Mitigating Long-Context Visual Forgetting through Reinforcement Learning](/202608/08/2608.01314v1-remember-r1-mitigating-long-context-visual-forgetting-through-reinforcement-learning)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：针对多模态大模型视觉证据使用的强化学习框架
+2. [HopRefusalBench: Diagnosing Refusal Failures in Search-Augmented Agents for Multi-Hop Reasoning](/202608/08/2608.01358v1-hoprefusalbench-diagnosing-refusal-failures-in-search-augmented-agents-for-multi-hop-reasoning)  
    标签：评分：8.0/10、query:mr
-   evidence：针对多模态属性图(即多模态知识图谱)的联邦学习方法，直接匹配多模态知识图谱需求
-2. [Hierarchical Residual Policy Optimization for Generative Recommendations](/202608/07/2608.00750v1-hierarchical-residual-policy-optimization-for-generative-recommendations)  
+   evidence：面向多跳推理的搜索增强智能体拒答行为的受控基准
+3. [DocNavRAG: Document-Structured Graph RAG with Stateful Evidence Construction for Complex Document Question Answering](/202608/08/2608.01565v1-docnavrag-document-structured-graph-rag-with-stateful-evidence-construction-for-complex-document-question-answering)  
+   标签：评分：8.0/10、query:mr
+   evidence：基于文档结构图的有状态证据构建用于复杂多文档问答
+4. [RING: Retrieval-Internalized Generation for Continual Large-Scale Knowledge Injection](/202608/08/2608.01630v1-ring-retrieval-internalized-generation-for-continual-large-scale-knowledge-injection)  
    标签：评分：8.0/10、query:post-multi
-   evidence：针对自回归生成模型的后训练优化方法，对应后训练技术需求
-3. [PixVL: Self-Supervised Training of Pixel-Level MLLMs via a Unified Mask--Text Consistency Cycle](/202608/07/2608.01354v1-pixvl-self-supervised-training-of-pixel-level-mllms-via-a-unified-mask--text-consistency-cycle)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：像素级多模态大语言模型的自监督后训练
-4. [Beyond Routing Saturation: A Long-Horizon Class-Incremental Perspective on Expert Routing in Multimodal Continual Instruction Tuning](/202608/07/2608.01437v1-beyond-routing-saturation-a-long-horizon-class-incremental-perspective-on-expert-routing-in-multimodal-continual-instruction-tuning)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：多模态持续指令微调中的专家路由与长时程类增量分析
-5. [Understanding Is Done Early: A Depth Division of Labor in Large Language Models and Its Use for Unbounded-Context Memory](/202608/07/2607.28263v1-understanding-is-done-early-a-depth-division-of-labor-in-large-language-models-and-its-use-for-unbounded-context-memory)  
+   evidence：通过持续预训练、监督微调和强化学习实现知识内化的后训练范式
+5. [RAGOCR: Optical Compression of Retrieval-Augmented Text via Visual Representation](/202608/08/2608.00765v1-ragocr-optical-compression-of-retrieval-augmented-text-via-visual-representation)  
+   标签：评分：7.0/10、query:mr
+   evidence：基于视觉表示的检索增强生成压缩框架
+6. [ACE-GraphRAG: Agentic Context Engineering for Hierarchical GraphRAG](/202608/08/2608.01269v2-ace-graphrag-agentic-context-engineering-for-hierarchical-graphrag)  
+   标签：评分：7.0/10、query:mr
+   evidence：图RAG上下文工程，可迁移到多模态RAG
+7. [Multimodal Embeddings for 3D Similarity Search in Semantic Web-of-Things Digital-Twin Platforms](/202608/08/2608.01852v1-multimodal-embeddings-for-3d-similarity-search-in-semantic-web-of-things-digital-twin-platforms)  
+   标签：评分：7.0/10、query:mr
+   evidence：多模态嵌入扩展知识图谱以支持相似性检索
+8. [Unpaired Modality-Agnostic Generative Recommendation](/202608/08/2608.02477v1-unpaired-modality-agnostic-generative-recommendation)  
    标签：评分：7.0/10、query:post-multi
-   evidence：基于LoRA的持续训练用于语言模型记忆优化
-6. [Beyond Token-Level Cross-Entropy: Fréchet Distributional Post-Training for Autoregressive Image Generation](/202608/07/2608.00562v1-beyond-token-level-cross-entropy-frchet-distributional-post-training-for-autoregressive-image-generation)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：基于表示空间Fréchet距离的自回归图像生成后训练方法
-7. [LUT: Latent Utility Training for Visual Reasoning](/202608/07/2608.00743v1-lut-latent-utility-training-for-visual-reasoning)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：面向MLLM的潜在视觉推理训练
-8. [PMMC: Prospective Multimodal Memory Compilation for Long-Term LVLM Agents](/202608/07/2608.00962v1-pmmc-prospective-multimodal-memory-compilation-for-long-term-lvlm-agents)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：面向LVLM智能体的多模态记忆方法
-9. [MMOOC: A Comprehensive Benchmark for Out-of-Context Evaluation in Multimodal Large Language Models](/202608/07/2607.27637v1-mmooc-a-comprehensive-benchmark-for-out-of-context-evaluation-in-multimodal-large-language-models)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：评估多模态大语言模型在上下文偏移场景下表现的综合基准
-10. [HierDoc: Hierarchical Page-to-Region Evidence Routing for Long-Document Visual Question Answering](/202608/07/2607.29638v1-hierdoc-hierarchical-page-to-region-evidence-routing-for-long-document-visual-question-answering)  
+   evidence：从未配对观测中学习多模态表示的方法
+9. [LLM-Based Generative Retrieval for Snapchat Content Recommendation](/202608/08/2607.28895v1-llm-based-generative-retrieval-for-snapchat-content-recommendation)  
    标签：评分：6.0/10、query:mr
-   evidence：层级证据路由类似多跳选择
-11. [Through the LENS: Local Geometric Decomposition of Vision-Language Model Representations](/202608/07/2608.00561v1-through-the-lens-local-geometric-decomposition-of-vision-language-model-representations)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：视觉语言模型表征的局部几何分解与融合分析
-12. [Select-And-Extract: A Lightweight Plugin for Retrieval-Augmented Generation](/202608/07/2608.00658v1-select-and-extract-a-lightweight-plugin-for-retrieval-augmented-generation)  
+   evidence：利用多模态嵌入的生成式检索方法，可迁移至跨模态检索任务。
+10. [Exploiting Intrinsic Duality for Multi-Hop Question Generation](/202608/08/2608.00712v1-exploiting-intrinsic-duality-for-multi-hop-question-generation)  
    标签：评分：6.0/10、query:mr
-   evidence：轻量级RAG插件，可迁移至多模态检索增强场景
+   evidence：多跳问题生成与问答对偶性
+11. [SG-Layout: Structured Scene Graph-Guided Layout Generation with LLMs](/202608/08/2608.01106v1-sg-layout-structured-scene-graph-guided-layout-generation-with-llms)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：在图文对齐后进行基于LoRA的指令微调
+12. [Structured Memory for Edge Language Models: Persistent Context and Corpus Retrieval via O(1) SSM State Injection](/202608/08/2608.02560v1-structured-memory-for-edge-language-models-persistent-context-and-corpus-retrieval-via-o1-ssm-state-injection)  
+   标签：评分：6.0/10、query:mr
+   evidence：利用状态注入的高效RAG架构，与面向推理的RAG架构相关。
 
 
 <div class="dpr-home-promo-card">

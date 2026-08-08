@@ -1,0 +1,309 @@
+Title: SG-Layout: Structured Scene Graph-Guided Layout Generation with LLMs
+
+URL Source: https://arxiv.org/pdf/2608.01106v1
+
+Published Time: Tue, 04 Aug 2026 01:13:21 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# SG-Layout: Structured Scene Graph–Guided Layout Generation with LLMs 
+
+Junsheng Wang, Chao Chen ⋆, Mengying Xie, Mingyan Li, and Fuqiang Gu 
+
+Chongqing University, Chongqing, China 
+
+{csjunshengwang,cschaochen,xiemy,limy2021,gufq}@cqu.edu.cn 
+
+Abstract. Understanding and generating spatially coherent layouts from natural language remains a fundamental yet challenging task for large language models (LLMs). Existing LLMs often struggle to capture ex-plicit geometric relationships and structural dependencies between ob-jects. To address this issue, we propose SG-Layout , a graph-guided lay-out generation framework that explicitly incorporates structured spatial knowledge into LLMs. SG-Layout follows a two-stage training paradigm: (1) a graph–language feature alignment stage, where a relational graph encoder and a projector are trained to map scene-graph embeddings into the LLM’s linguistic space; and (2) an instruction tuning stage, where LoRA-based adapters enable efficient fine-tuning for instruction-driven layout generation while keeping the backbone frozen. We evaluate SG-Layout on image layout generation, indoor scene synthesis and robotic object rearrangement tasks. Experimental results show that SG-Layout improves spatial reasoning accuracy and geometric consistency over the compact open-source backbone, with particularly clear advantages in relation-dense and compositionally complex scenes. These results high-light the effectiveness of graph-structured feature alignment for enhanc-ing controllable layout generation. 
+
+Keywords: Indoor Scene Synthesis · Image Layout Generation · Large Language Models 
+
+1 Introduction 
+
+Layout generation refers to the process of producing structured representations of object arrangements—such as positions, sizes, and orientations—based on in-put conditions including textual descriptions, semantic labels, or task-specific instructions [11,12]. Serving as a bridge between high-level task planning and low-level visual generation or robotic execution, layout generation has become an essential intermediate step across multiple fields. In computer vision, it is of-ten employed as a precursor to text-to-image synthesis, where precise spatial ar-rangements enhance semantic consistency in generated images [36,8,14]. Within embodied intelligence, layout generation provides actionable spatial configura-tions for robotic manipulation and object rearrangement tasks [18,13,2,29,31].  
+
+> ⋆
+
+Corresponding author. arXiv:2608.01106v1 [cs.CV] 2 Aug 2026 2 J. Wang et al. wardrobe sofa bed nightstand nightstand    
+
+> Front of Right rear of Left rear of Right of
+> chair desk
+> Front of Left front of
+> In a bedroom, a large bed is placed at the center, with a sofa in front of it. Two nightstands are on both sides of the bed. A wardrobe is on the right-of the bed. A table and a chair are on the left front of of the bed.
+> Input ：unstructured text Input ：structured scene graph
+> Original LLM SG-Layout LLM
+> Result Result
+
+Fig. 1: Scene graph guides LLM for layout generation. Recent advances in large language models (LLMs) have demonstrated great potential for layout generation, as their strong semantic understanding and rea-soning abilities enable them to translate natural language instructions into struc-tured spatial configurations [20,32,7,22,25,21]. To further mitigate the limitations of data scarcity and insufficient spatial reasoning, retrieval-augmented genera-tion (RAG) techniques have been introduced. Representative frameworks such as LayoutGPT [5] and SKE-Layout [30] incorporate external layout knowledge bases, retrieving task-relevant examples as contextual guidance for LLM-driven layout generation. Despite these efforts, current LLM-based approaches still face a fundamental limitation: natural language alone is inherently ambiguous and lacks the structural rigor required to express spatial layouts. Moreover, as scenes grow more complex, models struggle to ground textual cues into metrically cor-rect object sizes, positions, and poses. These limitations highlight the need to move beyond purely text-based representations. Scene graphs provide explicit, compositional modeling of objects and their spatial relations, while LLMs con-tribute strong semantic understanding, instruction following, and open-world generalization. Integrating scene graphs into the LLM-driven layout generation pipeline converts ambiguous language into structured guidance, tightening align-ment between user instructions and produced layouts and yielding better layouts in both 2D and 3D scenes, as shown in Fig. 1. Achieving high-precision graph-guided layout generation requires address-ing two fundamental challenges [19,4]. First, LLMs are text-native models and are not well suited to directly consume structured inputs such as scene graphs. Bridging this modality gap requires a mechanism to encode scene graphs into em-beddings that are semantically aligned with the LLM’s latent space, enabling the model to interpret and reason over structured spatial knowledge in a language-compatible form. Second, even with semantically aligned representations, ef-fectively injecting graph-based information into the layout generation process remains non-trivial. It demands training strategies that support efficient adap-tation and structural generalization, without disrupting the pretrained language backbone or incurring prohibitive computational costs. To address these challenges, we propose the Scene Graphs-Layouts (SG-Layout) framework, a two-stage graph-guided approach for text-conditioned layout generation. In the first stage, graph–language feature alignment , natu-ral language instructions are parsed into structured scene graphs, where nodes represent objects and their attributes, and edges encode semantic and spatial re-lations. A relational graph encoder and a projector are trained to align graph em-beddings with the LLM’s linguistic latent space, allowing the model to interpret structured spatial information in a unified representation. In the second stage, SG-Layout 3
+
+instruction tuning , the graph encoder and projector are frozen, and LoRA-based [9] adapters are introduced to efficiently fine-tune the LLM for instruction-driven layout generation. This non-invasive injection keeps the backbone stable and up-dates only a small fraction of parameters, yielding parameter-efficient adaptation without full-parameter fine-tuning. Together, the two stages produce more accu-rate and semantically consistent layouts under complex spatial constraints while preserving the pretrained backbone parameters. The main contributions are summarized as follows: 
+
+– We introduce SG-Layout , a graph-guided layout generation framework that bridges structured spatial representations and language modeling through a two-stage training paradigm. 
+
+– We design a graph–language alignment mechanism that maps relational scene-graph embeddings into the LLM’s token space, and a LoRA-based instruction tuning strategy that efficiently adapts the model for layout gen-eration without full fine-tuning. 
+
+– We conduct evaluations across image layout generation , indoor scene syn-thesis , and object rearrangement , showing that graph conditioning provides the largest gains in relation-dense and compositionally complex scenes, while improving overall spatial consistency over the same Qwen3-8B backbone. 
+
+2 Related Work 
+
+2.1 Image Layout Generation 
+
+Image layout generation aims to produce structured object arrangements for downstream visual synthesis. Early deep learning methods, such as Layout-GAN [12], LayoutVAE [11], and LayoutTransformer [8], are usually trained un-der fixed categories or partially specified layout conditions, which limits their flexibility for free-form instructions. Recent LLM-based approaches attempt to bridge this gap by mapping natural language prompts into structured layouts. LayoutGPT [5] uses an LLM planner to generate CSS-like spatial descriptors and hierarchical layout plans, while subsequent methods improve object ground-ing through attention refocusing [20], LLM-in-the-loop correction [32], compo-sitional blueprints [7], or lightweight semantic adapters [37]. Automated cor-rection strategies have also been explored to mitigate spatial errors during or after generation [17]. SKE-Layout [30] further introduces retrieval-augmented spatial knowledge to guide LLM-based planning. However, these methods still mainly rely on text prompts or retrieved textual examples, and thus may strug-gle with complex object-to-object relations. In contrast, SG-Layout explicitly injects structured scene-graph embeddings into the LLM, enabling more direct modeling of compositional spatial constraints. 
+
+2.2 Indoor Scene Synthesis 
+
+Indoor scene synthesis focuses on generating plausible 3D room layouts that sat-isfy both semantic and geometric constraints. Existing methods can be broadly 4 J. Wang et al. 
+
+divided into unconditional and conditional generation. Unconditional methods learn scene distributions from large-scale datasets and synthesize complete rooms from object sets, such as ATISS [18] and GRAINS [13]. Although these meth-ods can generate diverse and plausible scenes, they are not designed to faith-fully follow user-specified instructions. Conditional methods incorporate addi-tional constraints, including floor plans, partial layouts, semantic descriptions, or scene graphs. Representative examples include SceneFormer [31], DiffuScene [27], Graph-to-3D [1], LayoutVLM [25], DirectLayout [22], and LayoutGPT [5]. These methods improve controllability from different perspectives, but complex spatial reasoning and metrically grounded object placement remain challenging, espe-cially when instructions involve multiple interacting objects and relations. Re-cent graph-conditioned methods, such as InstructScene [15] and EchoScene [35], also demonstrate the value of explicit relational structure for 3D scene gener-ation. SG-Layout follows this direction but formulates scene graphs as graph tokens aligned with an LLM, allowing structured spatial priors to guide layout generation in a parameter-efficient manner. 
+
+2.3 Large Language Models for Embodied Spatial Reasoning 
+
+LLMs have shown emerging potential for embodied spatial reasoning and task planning. For example, Language Models as Zero-Shot Planners [10] demon-strates that LLMs can decompose high-level instructions into executable plans, while LLM-GROP [2] extracts commonsense object-placement knowledge from LLMs for manipulation and layout reasoning. However, such methods mainly depend on implicit language representations, which may be insufficient for ac-curately modeling explicit spatial dependencies. Graph-structured representa-tions provide a more compositional interface for objects and their relations. SayPlan [23] maps high-level instructions to scene graphs for scalable robotic planning, and SG-Bot [34] uses a coarse-to-fine scene-graph pipeline for ob-ject rearrangement. These works suggest that explicit structure can improve spatial organization, while SG-Layout further integrates such structure into an LLM-based layout generation framework through graph-language alignment and LoRA-based adaptation. 
+
+2.4 Graph-Structured Representations for LLMs 
+
+Recent studies have explored graph-structured representations as controllable inputs for language models. Let Your Graph Do the Talking [19] serializes graph data into token sequences so that LLMs can directly process structured informa-tion, and GraphGPT [26] aligns LLMs with graph inputs for graph-conditioned instruction following and reasoning. These works mainly focus on graph under-standing or language-centric reasoning tasks, where outputs are typically an-swers, explanations, or decisions. SG-Layout differs in both objective and eval-uation: it uses scene graphs as an explicit spatial interface for layout synthesis, conditions generation on graph embeddings, and outputs metrically grounded geometric attributes such as object boxes, positions, and poses. The resulting SG-Layout 5
+
+layouts are evaluated not only by linguistic correctness but also by spatial con-sistency and physical feasibility, including out-of-bound and collision metrics. 
+
+3 Method 
+
+As illustrated in Fig. 2, SG-Layout proposes a scene graph–guided LLM frame-work for layout generation. First, user instructions in natural language are parsed and combined with scene graphs generated by GPT-4o under rule guidance, in order to capture objects and their spatial relations. The scene graph is then en-coded by a Graph Encoder , and the resulting structured representations are pro-jected by a Projector into Graph Tokens that are compatible with the input space of the language model. These graph tokens are concatenated with text tokens ob-tained by tokenizing the user instructions, forming a unified input sequence to the pretrained LLM. To efficiently adapt the model to task-specific requirements, we insert LoRA adapters into the LLM, freezing the original weights while training only a small number of parameters. Finally, by integrating semantic information with structural constraints, the model outputs a textual description of the room layout, which is further decoded into 2D or 3D layouts. Overall, the framework effectively combines explicit spatial constraints from scene graphs with the se-mantic generalization capability of LLMs, enabling efficient and plausible layout generation across 2D and 3D scenarios. ① USER: Describe the room based on graph. ASSISTANT: [Room Description] </s>        
+
+> Large Language Model ②Lora adapter
+> ①Projector
+> Graph Encoder
+> Tokenizer
+> Scene Graph
+> Ignored Token GraphToken Text Token Frozen Weight Active Weight
+> User Instruction
+> bench bed nightstand nightstand ceiling lamp cabinet
+> lamp lamp
+> ②USER: Generate the room layout based on graph. ASSISTANT: [Room Layout] </s>
+> ②[Room Layout] </s>
+> ①②①[Room Description] </s>
+> Stage 1: Feature alignment Stage 2: Instruction Tuning
+> Scene Graph Construction Graph Encoding and Projection
+> LoRA Adaptation Layout Generation and Decoding
+
+Fig. 2: Framework of SG-Layout. User instructions are parsed into scene graphs, encoded into graph embeddings, and injected into an LLM via a graph encoder and LoRA adapter to guide layout generation. 
+
+3.1 Problem Settings 
+
+We study the task of layout generation from natural language instructions, where the goal is to produce a structured layout that satisfies both semantic and spatial constraints. Formally, we define the problem as follows. 
+
+Definition 1. User instruction. A user instruction is a natural-language text denoted by u, which specifies concrete objects and their pairwise spatial relations. It serves as the textual condition for constructing the scene graph ˆG and gener-ating the layout L.6 J. Wang et al. 
+
+Definition 2. Scene graph representation. A scene graph is denoted as: 
+
+ˆG = ( V, E ), (1) 
+
+where V = {v1, v 2, . . . , v n} represents the set of object nodes. Each node vi =(id i, p i) encodes the object identity id i and its attribute information pi. The edge set E = {eij } describes the spatial relations between objects, where eij = rij and 
+
+eij ̸ = eji . Each relation rij belongs to a predefined set of spatial relations: 
+
+R = {left_of , right_of , front_of , behind , above , below }. (2) 
+
+In practice, rij ∈ { 0, 1}|R| is represented as a multi-hot vector indicating the relation types contained in the edge. 
+
+Definition 3. Layout representation. A layout is represented as: 
+
+L = {o1, o 2, . . . , o n}, (3) 
+
+where each object is defined as: 
+
+oi = {id i, x i, y i, z i, w i, h i, d i}. (4) 
+
+Here id i denotes the object category, (xi, y i, z i) its 3D position, and (wi, h i, d i)
+
+its width, height, and depth. 
+
+Problem Statement . Given a natural language instruction u, the objective is to generate a layout L such that the spatial arrangement of objects satisfies the semantic description and adheres to the structural constraints encoded in the scene graph ˆG.
+
+3.2 Dataset Construction 
+
+During training, we construct Instruction–Scene Graph–Layout triplets (u, ˆG, L )
+
+to provide supervised signals for graph-augmented generation. For 2D layout gen-eration, we build an MSCOCO-Subset by filtering MSCOCO instances according to category and bounding-box size, removing tiny or task-irrelevant objects, and grouping the remaining layouts by object count. A VLM is used to extract can-didate scene graphs and suitability decisions, followed by manual verification to correct object lists and pairwise relations when necessary. For 3D indoor scene synthesis, we use bedroom and living-room scenes from 3D-FRONT/3D-FUTURE. We extract furniture categories, 3D positions, sizes, rotations, and room dimensions from the original annotations, and query a vision-language model with the layout summary and rendered room image to obtain an ori-ented scene graph. For object rearrangement, we use the relational subset of SK-Dataset containing qualitative spatial instructions. The resulting dataset is represented as 
+
+D = {(ui, ˆGi, L i)}Ni=1 . (5) SG-Layout 7
+
+3.3 Layout Generation Pipeline 
+
+• Scene Graph Construction. We parse user instructions into structured scene graphs with the help of GPT-4o. Given a natural language input u ∈ U , the model generates the graph representation ˆG = ( V, E ). This process allows am-biguous natural language to be transformed into a symbolic form that captures objects and their spatial relations. 
+
+• Graph Encoding and Projection. Once the scene graph ˆG is constructed, we encode it to obtain embeddings that reflect both semantic and structural de-pendencies. We adopt a relational graph transformer (RGT) [3] as the default encoder: 
+
+ZG = fRGT ( ˆG), (6) where ZG contains node- and relation-aware representations. Since these embed-dings live in a graph space that is not directly compatible with the token space of the LLM, we introduce a projector: 
+
+TG = fproj (ZG), (7) which maps the graph embeddings into the same latent space as user instruction text tokens. This alignment ensures that spatial knowledge extracted from graphs can be fused with text representations in subsequent stages. 
+
+• Large Language Model with LoRA Adaptation. We encode the user instruction into text tokens via a tokenizer: 
+
+Tu = fTokenizer (u). (8) The text tokens Tu and the projected graph tokens TG are concatenated to form a unified sequence: 
+
+T = [ TG; Tu]. (9) This fused representation is fed into a large language model enhanced with LoRA adapters: 
+
+H = fLLM (T ; θ, ∆θ LoRA ), (10) where θ denotes the frozen backbone parameters and ∆θ LoRA denotes the train-able low-rank updates. In our implementation, we adopt the Qwen3-8B model [33] as the backbone LLM. LoRA modules allow the model to be efficiently adapted to layout genera-tion tasks by training only a small number of low-rank parameters while keeping the backbone frozen. This design achieves a balance between efficiency and flex-ibility, enabling the LLM to incorporate spatial knowledge without sacrificing scalability. 8 J. Wang et al. 
+
+• Layout Generation and Decoding. Finally, the LLM autoregressively predicts a serialized layout sequence. Each object is represented by its category and geometric attributes, and the predicted sequence is parsed back into a structured layout: 
+
+ˆL = fDecode (H) = {oi = ( id i, x i, y i, z i, w i, h i, d i)}ni=1 . (11) For 2D layout generation, the same schema is used after omitting the unused depth dimension. This text-to-structure decoding keeps the output compatible with the LLM vocabulary while preserving the object-level coordinates, sizes, and orientations required for geometric evaluation. 
+
+3.4 Loss Function 
+
+We supervise layout generation using token-level cross-entropy on the serialized ground-truth layout sequence with teacher forcing, conditioning on both the user instruction and scene graph: 
+
+Lgen = −
+
+> |L|
+
+X
+
+> t=1
+
+log P (lt | l<t , u, ˆG). (12) This objective encourages the model to generate layout tokens that are faithful to the input instruction, the graph-encoded pairwise relations, and the ground-truth geometric attributes. 
+
+3.5 Two Stage Training Strategy 
+
+We adopt a two-stage training paradigm while keeping the LLM backbone frozen; only the graph-side modules or the LoRA adapters are optimized at each stage. At the first stage, we align scene-graph representations with the language embedding space while keeping both the LLM and LoRA adapters frozen. Given a scene graph ˆG, we encode it with a relational graph encoder and project it into the LLM token space to obtain graph tokens TG. A brief prompt (e.g., “Describe the room.”) is tokenized into Tu, and the concatenated sequence [TG; Tu] is fed to the frozen LLM. The model is supervised to produce a concise scene description; minimizing token-level cross-entropy on this output aligns graph embeddings with the language space without modifying the LLM weights. At the second stage, we perform instruction tuning for layout generation with the LoRA adapters made trainable, while the graph encoder and projector are kept frozen. Given the user instruction u and the precomputed graph tokens 
+
+TG, we form [TG; Tu] and autoregressively predict the target layout sequence L.A standard generation loss (token-level cross-entropy against the ground-truth layout sequence) updates only the LoRA parameters, yielding parameter-efficient adaptation while preserving the pretrained backbone. SG-Layout 9
+
+Table 1: Baselines and comparison protocols. Controlled ablations use the same Qwen3-8B backbone and task data; reference baselines follow their standard settings.         
+
+> Category Task Models
+> Controlled ablations All tasks Qwen3; Qwen3+LoRA; SG-Layout Reference baselines 2D image layout LayoutGPT (GPT-3.5/GPT-4) [5]; SKE-Layout [30] Reference baselines 3D indoor scene DiffuScene [27]; InstructScene [15]; GPT-4; SKE-Layout Reference baselines Object rearrangement LLM-GROP [2]; SKE-Layout
+
+Table 2: Overview of datasets and data scales used in our experiments. 
+
+Dataset Task category Data scale 
+
+NSR-1K Numerical + spatial reasoning 39,436 MSCOCO-Subset 2 / 4 / 6 / 8 objects 4 × 1000 
+
+3D-FRONT / 3D-FUTURE Bedroom scenes 4,041 3D-FRONT / 3D-FUTURE Living-room scenes 813 SK-Dataset 2 / 4 / 6 / 8 objects 4 × 1000 
+
+4 Experiment 
+
+In this section, we present extensive empirical results of the proposed SG-Layout model and several competitive baseline methods. Across representative tasks involving spatial reasoning, including image layout generation, indoor scene synthesis and robotic object rearrangement , our proposed SG-Layout generally improves spatial understanding and reasoning ability, with the clearest advan-tages in complex and relation-dense settings. Compared to the original LLM backbone, SG-Layout achieves notably higher task success rates, confirming the effectiveness of incorporating graph-structured spatial knowledge. 
+
+4.1 Experimental Setup 
+
+• Implementation Details. We adopt Qwen3-8B as the backbone LLM, which provides strong instruction-following and text generation capabilities. The graph encoder is implemented using RGT, which extracts semantic and geometric fea-tures from scene graphs and encodes their spatial relationships (e.g., left of , in front of ). 
+
+• Baselines. Table 1 separates controlled ablations from reference baselines. The controlled comparison among Qwen3, Qwen3+LoRA, and SG-Layout iso-lates the effect of instruction tuning and graph conditioning under the same backbone family. The remaining methods are included as task-specific reference systems to position SG-Layout against prior LLM-, retrieval-, and generation-based pipelines. 
+
+• Datasets. We use task-specific datasets for 2D, 3D, and rearrangement-style layout evaluation. NSR-1K [5] provides template-based and human-written prompts 10 J. Wang et al. 
+
+for testing spatial relation satisfaction. MSCOCO-Subset [16] is our curated 2D subset grouped by object count. 3D-FRONT/3D-FUTURE [6] provides room layouts, furniture assets, and geometric annotations for indoor scene synthe-sis. SK-Dataset [30] is used to evaluate relational compliance under qualitative tabletop rearrangement instructions. The data scales are summarized in Table 2. 
+
+• Evaluation Metrics. For image layout generation and object rearrangement, we report AUC for spatial-relation satisfaction, IoU for geometric overlap, and CLIP similarity for semantic consistency. For indoor scene synthesis, we eval-uate structural accuracy, geometric accuracy, and physical feasibility. F1 mea-sures category-level object matching after greedy one-to-one matching within each scene. Positional Error (Pos. ↓) and Rotational Error (Rot. ↓) are the mean center-distance and yaw-angle errors over matched objects. Out-of-Bound Rate (OOB ↓) is the fraction of predicted objects whose 3D boxes exceed the room boundary, and Collision Rate (Col. ↓) is the fraction of predicted objects col-liding with at least one other object. Physically-Grounded Semantic Alignment (PSA ↑) measures the percentage of ground-truth directional relations preserved in the predicted layout according to the relation definitions in Eq. (2). Table 3: Quantitative comparison on the indoor Scene Synthesis task.                                                    
+
+> Models PSA Out of Bound Collision Pos. Rot. F1
+> DiffuScene 25.3% –––––InstructScene 58.3% –––––GPT-4 42.5% 76.3% 21.3% 40.86 80.20 0.973 SKE-Layout (GPT-4) 65.4% 48.7% 18.7% 25.58 64.34 0.979
+> SKE-Layout (Qwen3) 35.2% 67.1% 21.2% 30.84 78.95 0.645 Qwen3 23.5% 80.9% 22.8% 37.67 82.47 0.563 Qwen3 + LoRA 56.7% 57.2% 19.0% 31.56 63.25 0.903 SG-Layout(ours) 66.2% 43.5% 19.2% 26.89 57.45 0.978
+> Bold indicates the best overall result; underlined values indicate the best Qwen3-based result when different.
+
+Table 4: Comparison of image layout accuracy under different numbers of objects                                                      
+
+> Method K=2 K=4 K=6 K=8 AUC AUC AUC AUC IoU CLIP
+> LayoutGPT (GPT-3.5) 82.54 —————LayoutGPT (GPT-4) 91.73 74.5 56.0 42.0 0.195 0.235 SKE-Layout (GPT-4) 95.05 76.0 57.0 44.5 0.240 0.246
+> SKE-Layout (Qwen3) 71.73 55.0 35.0 25.0 0.163 0.194 Qwen3 80.92 62.0 41.5 30.5 0.185 0.201 Qwen3 + LoRA 92.58 73.0 49.0 38.0 0.205 0.218 SG-Layout (ours) 89.85 71.5 53.5 42.5 0.228 0.240
+> Bold indicates the best overall result; underlined values indicate the best Qwen3-based result. SG-Layout 11
+
+4.2 Results and Discussions 
+
+The overarching goal of our experiments is to test whether explicit graph-structured spatial knowledge improves a compact open-source LLM under controlled set-tings. Therefore, we emphasize comparisons within the Qwen3 family, where the backbone and task data are aligned, and use GPT-4-, retrieval-, and diffusion-based systems as reference baselines rather than strictly identical training pro-tocols. 
+
+• Image Layout Generation. Table 4 summarizes the quantitative results for the image layout generation task, comparing how different models maintain spa-tial reasoning accuracy as scene complexity increases. As shown in the table, the performance of all models declines with more complex layouts, reflecting the growing difficulty of preserving spatial consistency under intricate object interactions. Overall, GPT-4-based systems remain strong reference baselines, while the smaller Qwen3-8B backbone degrades more rapidly as the number of objects in-creases. Within the controlled Qwen3 family, LoRA tuning brings large gains on simpler layouts, whereas SG-Layout becomes more beneficial as relation density increases. In particular, SG-Layout gives the best Qwen3-based results at K=6 
+
+and K=8 , as well as higher IoU and CLIP scores than the text-only LoRA vari-ant, suggesting that explicit graph conditioning is most useful for compositional spatial layouts. 
+
+• Indoor Scene Synthesis. Table 3 summarizes the quantitative results for the 
+
+3D indoor scene synthesis task, evaluating each model’s semantic alignment and physical plausibility in generating realistic and coherent room layouts. As shown in the table, SG-Layout achieves substantial improvements over the Qwen3 back-bone and its variants, demonstrating more consistent and physically grounded 3D spatial reasoning. SG-Layout achieves the highest PSA and the lowest OOB rate in Table 3, showing that graph embeddings help preserve spatial relations and room-boundary constraints. Within the Qwen3-based controlled setting, SG-Layout also im-proves Pos., Rot., and F1 over the vanilla and text-only LoRA variants, although Qwen3+LoRA has a slightly lower collision rate. These results support our cen-tral claim that graph conditioning improves a fixed compact backbone, while the comparison with GPT-4/SKE-Layout should be interpreted as a reference comparison rather than a fully identical training protocol. 
+
+• Object Rearrangement. Figure 3 reports layout accuracy for the object rear-rangement task under different numbers of objects. The LoRA-enhanced Qwen3-8B performs well in simple configurations but degrades as the scene becomes more crowded. SG-Layout maintains higher accuracy in higher-object settings, indicating that graph-structured conditioning helps preserve qualitative spatial relations when instructions involve multiple interacting objects. GPT-4-based 12 J. Wang et al. 
+
+Encoder PSA ↑ OOB ↓ Collision ↓ F1 ↑
+
+R-GCN 63.8% 45.9% 18.1% 0.974 RGT 66.2% 43.5% 19.2% 0.978 
+
+GAT 64.3% 47.7% 18.5% 0.965 
+
+Table 5: Graph encoder ablation on 3D indoor scene synthesis. 2 4 6 8
+
+> Number of Objects
+> 020 40 60 80 100
+> Accuracy (%)
+> GPT-4 (SKE-Layout) Ours GPT-4 (LLM-GROP) Qwen3-8B + LoRA Qwen3-8B
+
+Fig. 3: 3D Object Rearrangement Lay-out Accuracy. systems such as LLM-GROP and SKE-Layout remain strong reference base-lines, but SG-Layout provides a parameter-efficient alternative built on a com-pact open-source backbone. 
+
+Ablation on Graph Encoders. To study the impact of graph encoding architec-tures, we instantiate the scene-graph encoder with three alternatives: (i) R-GCN [24] as a lightweight relational baseline, (ii) GAT [28] with relation-type embed-dings, and (iii) a relational graph transformer (RGT)[3] that models typed rela-tions via attention. As shown in Table 5, transformer-style relational encoding (RGT) yields the most consistent gains, especially on constraint-sensitive met-rics. These results suggest that improving relation modeling in the graph encoder directly benefits spatial grounding and compositional consistency in SG-Layout. [2D Image Layout Gener ation] [3D Indoor Scene Synthesis] 
+
+“In a bedroom, a large bed is placed at the center, with a sofa in front of it. A nightstand is on the left rear of the bed and a nightstand is on the right rear of it. A cabinet is on the right-of the bed. A table and a chair are on the left front of of the bed. ”       
+
+> DiffuScene LayoutGPT SKE-Layout SG-Layout
+> Missing furniture Spatial relationship error
+> Stable Diffusion LayoutGPT SKE-Layout SG-Layout
+
+“On the west side of the living room, there is a dining table surrounded by four chairs. 
+
+On the east side of the living room, there is a sofa against the east wall, with a coffee table in front of it. ”   
+
+> Out of bound
+> Stable Diffusion LayoutGPT SKE-Layout SG-Layout
+
+a cup is on the left of a laptop. Two cars are parked side by side on the road. One traffic light is on the 
+
+upper left of the cars and the other pedestrian is on the right .There is a cat lying on the bench. In front of the bench is a dog and behind 
+
+it is a person. To the left of the bench is a tree and to the right is a trash can. 
+
+Bed at center (a cat on it); bedside tables left/right —lamp on left ,book on right ; sofa in front ; wardrobe to the left. 
+
+> furniture collision
+> Missing object Spatial relationship error
+
+Fig. 4: Comparison results across prompts with increasing object counts on image layout generation. 
+
+4.3 Case Study 
+
+To complement quantitative metrics and make failure modes visually explicit, we present several case studies. Comparisons in Fig. 4 (2D) and Fig. 5 (3D) SG-Layout 13 [3D Indoor Scene Synthesis]                                             
+
+> “In a bedroom, a large bed is placed at the center, with a sofa in front of it. A nightstand is on the left rear of the bed and a nightstand is on the right rear of it. A cabinet is on the right-of the bed. A table and a chair are on the left front of of the bed. ”
+> DiffuScene LayoutGPT SKE-Layout SG-Layout
+> Missing furniture Spatial relationship error
+> “On the west side of the living room, there is a dining table surrounded by four chairs.
+> On the east side of the living room, there is a sofa against the east wall, with a coffee table in front of it. ”
+> Out of bound
+> A cup is on the left of a laptop. Two cars are parked side by side on the road. One traffic light is on the
+> upper left of the cars and the other pedestrian is on the right .There is a cat lying on the bench. In front of the bench is a dog and behind
+> it is a person. To the left of the bench is a tree and to the right is a trash can.
+> Bed at center (a cat on it); bedside tables left/right —lamp on left ,book on right ; sofa in front ; wardrobe to the left.
+> furniture collision
+> Missing object Spatial relationship error
+> Set the table. (Plate at center, bowl on it; fork left; knife right; spoon above; cup top-right.)
+> Two books stacked at center with an apple on top; banana front-right of the books; orange left of the banana; pear behind the banana.
+> LLM-GROP SKE-Layout SG-Layout
+> Missing object
+> LLM-GROP SKE-Layout SG-Layout
+> object collision Spatial relationship error
+
+Fig. 5: Comparison results across scenes with varying relations on indoor scene synthesis and 3D object rearrangement tasks. illustrate typical failure modes of prior methods and how SG-Layout overcomes them. In 2D image layout generation , most methods succeed on simple two-object prompts, but as object count and relational density increase they ex-hibit missing or duplicated objects and violated relations, as shown in Fig. 4. In 3D indoor scene synthesis and object rearrangement , baselines frequently show missing furniture, inter-object collisions, out-of-bound placements, and incorrect spatial relationship, as shown in Fig. 5. Taken together, these failure modes are mitigated by SG-Layout , which conditions decoding on scene-graph–derived structured guidance via a two-stage alignment and instruction-tuning scheme, yielding more accurate and consistent layouts with fewer errors in both 2D and 3D layouts. 
+
+5 Conclusion 
+
+In this work, we introduce SG-Layout , a graph-guided LLM designed for text-conditioned 2D and 3D layout generation. By decomposing the training process into two stages, graph–language feature alignment and LoRA-based instruction tuning, SG-Layout effectively bridges structured spatial representations with the linguistic latent space of the LLM. Extensive experiments on both image and indoor scene benchmarks show that this approach enhances spatial rea-soning accuracy, reduces physical violations, and yields layouts that are both semantically and geometrically consistent. Compared to the original LLM back-bone, SG-Layout achieves clear improvements in spatial coherence while main-taining parameter efficiency. Looking ahead, we will target precisely quantifi-able domains—e.g., surgical-tool layout on trays and in operating rooms—where 14 J. Wang et al. 
+
+millimeter-level tolerance constraints must be satisfied. We will also explore re-inforcement feedback and human-in-the-loop refinement for LLMs. 
+
+Acknowledgments. This work was supported by the National Natural Science Foun-dation of China under Grants 62322601 and 62572084, and the Fundamental Research Funds for the Central Universities (Nos. 2024IAIS-QN017 and 2025CDJZDGF001). 
+
+Disclosure of Interests. The authors have no competing interests to declare that are relevant to the content of this article. 
+
+References 
+
+1. Dhamo, H., Manhardt, F., Navab, N., Tombari, F.: Graph-to-3d: End-to-end gen-eration and manipulation of 3d scenes using scene graphs. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 16352–16361 (2021) 2. Ding, Y., Zhang, X., Paxton, C., Zhang, S.: Task and motion planning with large language models for object rearrangement. In: 2023 IEEE/RSJ International Con-ference on Intelligent Robots and Systems (IROS). pp. 2086–2092. IEEE (2023) 3. Dwivedi, V.P., Jaladi, S., Shen, Y., López, F., Kanatsoulis, C.I., Puri, R., Fey, M., Leskovec, J.: Relational graph transformer. arXiv preprint arXiv:2505.10960 (2025) 4. Fatemi, B., Halcrow, J., Perozzi, B.: Talk like a graph: Encoding graphs for large language models. In: International Conference on Learning Representations (ICLR) (2024) 5. Feng, W., Zhu, W., Fu, T.j., Jampani, V., Akula, A., He, X., Basu, S., Wang, X.E., Wang, W.Y.: Layoutgpt: Compositional visual planning and generation with large language models. Advances in Neural Information Processing Systems 36 ,18225–18250 (2023) 6. Fu, H., Cai, B., Gao, L., Zhang, L.X., Wang, J., Li, C., Zeng, Q., Sun, C., Jia, R., Zhao, B., et al.: 3d-front: 3d furnished rooms with layouts and semantics. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 10933–10942 (2021) 7. Gani, H., Bhat, S.F., Naseer, M., Khan, S., Wonka, P.: Llm blueprint: En-abling text-to-image generation with complex and detailed prompts. arXiv preprint arXiv:2310.10640 (2023) 8. Gupta, K., Lazarow, J., Achille, A., Davis, L.S., Mahadevan, V., Shrivastava, A.: Layouttransformer: Layout generation and completion with self-attention. In: Pro-ceedings of the IEEE/CVF International Conference on Computer Vision. pp. 1004–1014 (2021) 9. Hu, E.J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang, L., Chen, W.: Lora: Low-rank adaptation of large language models (2021), https://arxiv. org/abs/2106.09685 10. Huang, W., Abbeel, P., Pathak, D., Mordatch, I.: Language models as zero-shot planners: Extracting actionable knowledge for embodied agents. In: International conference on machine learning. pp. 9118–9147. PMLR (2022) 11. Jyothi, A.A., Durand, T., He, J., Sigal, L., Mori, G.: Layoutvae: Stochastic scene layout generation from a label set. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 9895–9904 (2019) SG-Layout 15 12. Li, J., Yang, J., Hertzmann, A., Zhang, J., Xu, T.: Layoutgan: Generating graphic layouts with wireframe discriminators. arXiv preprint arXiv:1901.06767 (2019) 13. Li, M., Patil, A.G., Xu, K., Chaudhuri, S., Khan, O., Shamir, A., Tu, C., Chen, B., Cohen-Or, D., Zhang, H.: Grains: Generative recursive autoencoders for indoor scenes. ACM Transactions on Graphics (TOG) 38 (2), 1–16 (2019) 14. Li, Z., Wu, J., Koh, I., Tang, Y., Sun, L.: Image synthesis from layout with locality-aware mask adaption. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 13819–13828 (2021) 15. Lin, C., Mu, Y.: Instructscene: Instruction-driven 3d indoor scene synthesis with semantic graph prior. arXiv preprint arXiv:2402.04717 (2024) 16. Lin, T.Y., Maire, M., Belongie, S., Hays, J., Perona, P., Ramanan, D., Dollár, P., Zitnick, C.L.: Microsoft coco: Common objects in context. In: European conference on computer vision. pp. 740–755. Springer (2014) 17. Pan, L., Saxon, M., Xu, W., Nathani, D., Wang, X., Wang, W.Y.: Automatically correcting large language models: Surveying the landscape of diverse self-correction strategies. arXiv preprint arXiv:2308.03188 (2023) 18. Paschalidou, D., Kar, A., Shugrina, M., Kreis, K., Geiger, A., Fidler, S.: Atiss: Autoregressive transformers for indoor scene synthesis. Advances in Neural Infor-mation Processing Systems 34 , 12013–12026 (2021) 19. Perozzi, B., Fatemi, B., Zelle, D., Tsitsulin, A., Kazemi, M., Al-Rfou, R., Halcrow, J.: Let your graph do the talking: Encoding structured data for llms. arXiv preprint arXiv:2402.05862 (2024) 20. Phung, Q., Ge, S., Huang, J.B.: Grounded text-to-image synthesis with attention refocusing. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 7932–7942 (2024) 21. Qu, L., Wu, S., Fei, H., Nie, L., Chua, T.S.: Layoutllm-t2i: Eliciting layout guidance from llm for text-to-image generation. In: Proceedings of the 31st ACM Interna-tional Conference on Multimedia. pp. 643–654 (2023) 22. Ran, X., Li, Y., Xu, L., Yu, M., Dai, B.: Direct numerical layout generation for 3d indoor scene synthesis via spatial reasoning. arXiv preprint arXiv:2506.05341 (2025) 23. Rana, K., Haviland, J., Garg, S., Abou-Chakra, J., Reid, I.D., Suenderhauf, N.: Sayplan: Grounding large language models using 3d scene graphs for scalable task planning. CoRR (2023) 24. Schlichtkrull, M., Kipf, T.N., Bloem, P., Van Den Berg, R., Titov, I., Welling, M.: Modeling relational data with graph convolutional networks. In: European semantic web conference. pp. 593–607. Springer (2018) 25. Sun, F.Y., Liu, W., Gu, S., Lim, D., Bhat, G., Tombari, F., Li, M., Haber, N., Wu, J.: Layoutvlm: Differentiable optimization of 3d layout via vision-language models. In: Proceedings of the Computer Vision and Pattern Recognition Conference. pp. 29469–29478 (2025) 26. Tang, J., Yang, Y., Wei, W., Shi, L., Su, L., Cheng, S., Yin, D., Huang, C.: Graphgpt: Graph instruction tuning for large language models. In: Proceedings of the 47th International ACM SIGIR Conference on Research and Development in Information Retrieval. pp. 491–500 (2024) 27. Tang, J., Nie, Y., Markhasin, L., Dai, A., Thies, J., Nießner, M.: Diffuscene: De-noising diffusion models for generative indoor scene synthesis. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 20507– 20518 (2024) 28. Veličković, P., Cucurull, G., Casanova, A., Romero, A., Lio, P., Bengio, Y.: Graph attention networks. arXiv preprint arXiv:1710.10903 (2017) 16 J. Wang et al. 29. Vidanapathirana, M., Wu, Q., Furukawa, Y., Chang, A.X., Savva, M.: Plan2scene: Converting floorplans to 3d scenes. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 10733–10742 (2021) 30. Wang, J., Cao, N., Ding, Y., Xie, M., Gu, F., Chen, C.: Ske-layout: Spatial knowl-edge enhanced layout generation with llms. In: Proceedings of the Computer Vision and Pattern Recognition Conference. pp. 19414–19423 (2025) 31. Wang, X., Yeshwanth, C., Nießner, M.: Sceneformer: Indoor scene generation with transformers. In: 2021 International Conference on 3D Vision (3DV). pp. 106–115. IEEE (2021) 32. Wu, T.H., Lian, L., Gonzalez, J.E., Li, B., Darrell, T.: Self-correcting llm-controlled diffusion models. In: Proceedings of the IEEE/CVF Conference on Computer Vi-sion and Pattern Recognition. pp. 6327–6336 (2024) 33. Yang, A., Li, A., Yang, B., Zhang, B., Hui, B., Zheng, B., Yu, B., Gao, C., Huang, C., Lv, C., et al.: Qwen3 technical report. arXiv preprint arXiv:2505.09388 (2025) 34. Zhai, G., Cai, X., Huang, D., Di, Y., Manhardt, F., Tombari, F., Navab, N., Busam, B.: Sg-bot: Object rearrangement via coarse-to-fine robotic imagination on scene graphs. In: 2024 IEEE International Conference on Robotics and Au-tomation (ICRA). pp. 4303–4310. IEEE (2024) 35. Zhai, G., Örnek, E.P., Chen, D.Z., Liao, R., Di, Y., Navab, N., Tombari, F., Busam, B.: Echoscene: Indoor scene generation via information echo over scene graph diffu-sion. In: European Conference on Computer Vision. pp. 167–184. Springer (2024) 36. Zhao, B., Yin, W., Meng, L., Sigal, L.: Layout2image: Image generation from lay-out. International journal of computer vision 128 (10), 2418–2435 (2020) 37. Zhong, S., Huang, Z., Wen, W., Qin, J., Lin, L.: Sur-adapter: Enhancing text-to-image pre-trained diffusion models with large language models. In: Proceedings of the 31st ACM International Conference on Multimedia. pp. 567–578 (2023)
