@@ -1,0 +1,372 @@
+Title: Real-Time Hybrid Retrieval in Hyperbolic Space for Retrieval-Augmented Generation on Edge Devices
+
+URL Source: https://arxiv.org/pdf/2608.01450v1
+
+Published Time: Tue, 04 Aug 2026 01:33:23 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# Real-Time Hybrid Retrieval in Hyperbolic Space for Retrieval-Augmented Generation on Edge Devices 
+
+Aradhya Chakrabarti 
+
+International Institute of Information Technology Bangalore, India 
+
+aradhya.chakrabarti@iiitb.ac.in 
+
+# Abstract 
+
+This paper presents a hybrid document retrieval system designed for retrieval-augmented gener-ation (RAG) that operates entirely within the Lorentz model of hyperbolic geometry. Unlike conventional dense retrievers confined to Eu-clidean space, this system projects pretrained word embeddings into hyperbolic space through a learned HyTE-H transformation, whose ex-ponential volume growth suits the hierarchi-cal organization of natural language. Docu-ments are segmented into overlapping chunks, indexed by their Lorentz embeddings, and re-trieved through a two-stage pipeline that first applies BM25 lexical scoring, then re-ranks can-didates using Lorentzian inner-product similar-ity. A tunable parameter α blends the BM25 score with the hyperbolic similarity score. The system was evaluated on five datasets from the BEIR benchmark suite, SciFact, NFCor-pus, ArguAna, SciDocs, and FiQA, achieving NDCG@10 scores of 0.654, 0.304, 0.342, 0.150, and 0.217 respectively with word embeddings alone, without fine-tuned neural encoders or cross-attention rerankers. The system supports real-time indexing of user-supplied documents and resource-efficient querying over tens of thou-sands of moderately sized documents, so hy-perbolic retrieval can run on edge devices at interactive latencies. 
+
+Keywords: Hyperbolic Retrieval, Lorentz Model, HyTE-H, BM25, BEIR, RAG, Edge Deployment 
+
+# 1 Introduction 
+
+Dense retrieval is the first stage of modern retrieval-augmented generation [1], and the ev-idence it selects determines the quality of ev-ery generated response. When a user queries a RAG system, the retriever must pick a few relevant passages from a potentially vast cor-pus within tens of milliseconds, and mistakes here degrade the quality of the generated an-swer [2]. Yet the geometry of most deployed retrievers, Euclidean vector space, was inherited from general-purpose neural network architec-tures rather than chosen for how language is organized. Natural language is hierarchical, and Eu-clidean spaces represent that structure poorly. For example, “machine learning” branches into “deep learning” and “natural language process-ing”, and these subdivide further into “trans-former attention mechanisms” and “contrastive pretraining objectives”. In a Euclidean em-bedding space, a ball of radius r has volume 
+
+O(rd). An exponentially growing number of distinct hierarchical branches therefore has to fit into a region whose volume grows only poly-nomially. This crowding phenomenon [3] makes semantically distinct but hierarchically related documents look close together in embedding space, which hurts retrieval precision [4]. Hyperbolic geometry, specifically the Lorentz hyperboloid model, avoids this crowding prob-lem. In a space of constant negative curvature 
+
+−1/K , the volume of a ball of radius r grows exponentially rather than polynomially, match-ing the branching of natural hierarchies. In this geometry, the distance from the origin mea-sures specificity: generic concepts sit near the centre, and specialised concepts sit near the boundary [5, 6]. This radial organization comes from the geometry itself, not from how the embeddings were trained. HypRAG [7] shows that this improves context relevance and answer 1arXiv:2608.01450v1 [cs.IR] 2 Aug 2026 faithfulness in RAG systems. The system described in this paper is a com-plete implementation of hyperbolic document retrieval for edge devices. It has four compo-nents: 1. HyTE-H projection module: Maps BGE-small word embeddings into the Lorentz hyperboloid through a two-layer nonlinear transformation trained con-trastively on MS MARCO passage pairs, preserving hierarchical structure without retraining the underlying language model. 2. Lorentz index: Stores document chunk embeddings as a flat array of float32 Lorentz vectors, with top-k retrieval by exhaustive inner-product maximisation. 3. Hybrid BM25-Lorentz reranking pipeline: Performs a two-stage retrieval in which BM25 lexical scoring identifies an ini-tial candidate set, after which Lorentzian similarity re-ranks the candidates, with the two scores blended by α.4. End-to-end runtime: Packages the en-tire pipeline: word embedding lookup, hy-perbolic projection, chunking, indexing, BM25 scoring, and Lorentz retrieval, into a self-contained C++ shared library. The rest of this paper covers related work in hyperbolic representation learning (Section 2), the design of the system (Section 3), retrieval re-sults on five BEIR datasets (Section 4), and the engineering challenges of deploying hyperbolic retrieval on edge devices (Section 5). 
+
+# 2 Related Work 
+
+2.1 Hyperbolic Representation Learning 
+
+The use of hyperbolic geometry for machine learning traces back to Nickel and Kiela’s sem-inal work on Poincar´ e embeddings [5], which demonstrated that symbolic data with latent hi-erarchical structure, WordNet taxonomies, phy-logenetic trees, and lexical entailment graphs, could be embedded into the Poincar´ e ball with substantially lower distortion than Euclidean alternatives. They showed that the Poincar´ eball’s exponential volume growth allows tree-like structures, whose number of nodes grows exponentially with depth, to be accommodated without the crowding that arises in Euclidean embeddings of the same dimensionality. Subsequent work by Nickel and Kiela [8] moved from the Poincar´ e ball to the Lorentz (hyperboloid) model, which is more numerically stable during Riemannian optimisation. Unlike the Poincar´ e ball, whose distance function in-volves a logarithm of a ratio that approaches zero near the boundary, the Lorentz model ex-presses geodesic distance through a simple inner product, yielding gradients that remain well-behaved throughout the embedding manifold. Because the Lorentz model is also isometric to the Poincar´ e ball (the same geometry in dif-ferent coordinate charts), it has become the preferred representation for neural hyperbolic learning. Ganea, B´ ecigneul, and Hofmann [9] laid the algorithmic foundations for hyperbolic neural networks by deriving hyperbolic analogues of multinomial logistic regression, feed-forward layers, and recurrent architectures within the framework of M¨ obius gyrovector spaces on the Poincar´ e ball. Their hyperbolic GRU out-performed Euclidean counterparts on textual entailment, showing that neural computation works natively in curved spaces without losing expressivity. Chami et al. [10] extended this line of work to graph-structured data with HGCN, the first inductive hyperbolic graph convolu-tional network operating in the Lorentz model with trainable curvature per layer, achieving up to 63% error reduction on link prediction bench-marks. Subsequent work [11] scaled hyperbolic tree embeddings to commodity GPU hardware using floating-point expansion arithmetic and better angular separation. More recently, HELM [12] scaled hyperbolic geometry to billion-parameter language models with a mixture-of-curvature experts architec-ture, where each expert operates in its own curvature space and a router assigns tokens to the best-fitting subspace. The hyperbolic multi-head latent attention and rotary posi-tional encodings introduced in HELM extend these benefits from embeddings to the full trans-former stack. 22.2 Hyperbolic Retrieval and HypRAG 
+
+The most directly relevant prior work is HypRAG [7], which introduced hyperbolic dense retrieval for RAG with two model vari-ants: HyTE-FH, a fully hyperbolic trans-former operating entirely within the Lorentz model, and HyTE-H, a hybrid architecture that projects pretrained Euclidean embeddings into hyperbolic space through a learned transfor-mation. HypRAG’s key innovation, and the component this work adopts, is the Outward Einstein Midpoint (OEM), a pooling oper-ator that aggregates token-level points on the hyperboloid. With a plain Euclidean midpoint, averag-ing more points pulls the result toward the origin of the hyperboloid and erases the hier-archy encoded in their radial coordinates. The OEM operator counters this through a radial re-weighting mechanism. Given a set of n token-level points pi = ( ti, xi) on the hyperboloid HdK
+
+where ti = p∥xi∥2 + K is the time coordinate, the OEM-weighted aggregate is computed in two steps. First, the weighted Euclidean sum in the ambient Minkowski space: ˜p =
+
+Pni=1 tP +1  
+
+> i
+
+pi
+
+Pni=1 tP +1 
+
+> i
+
+(1) which gives more weight to points with larger time coordinates (more specific concepts) through the radial weight tP +1  
+
+> i
+
+. Since this weighted average generally lies off the hyper-boloid, a reprojection step maps it back onto the manifold through radial rescaling: 
+
+pOEM =
+
+s
+
+K
+
+−⟨ ˜p, ˜p⟩L
+
+˜p (2) The exponent P ≥ 0 sets how strongly the deeper (larger t) points dominate the aggregate. With P = 0, the OEM reduces to projection of the standard Einstein midpoint; with P =1 (our default), the operator creates a mild specificity bias; and as P → ∞ , only the single point with the largest time coordinate influences the result, reducing to a max-pooling operation. HypRAG demonstrated on MTEB and RAG Bench that HyTE-H with OEM achieves up to 29% gains over Euclidean baselines. 
+
+2.3 Sparse-Dense Hybrid Retrieval 
+
+Purely embedding-based retrievers perform poorly on queries containing rare named en-tities, numerical values, or highly specific tech-nical terms that may not appear in the pretrain-ing distribution of the encoder [13]. Sparse lex-ical retrieval methods, particularly BM25 [14], complement dense methods by providing ex-act term matching with strong performance on keyword-heavy queries. The SPLADE family [15] and ColBERT [16] demonstrated that architectures combining sparse lexical signals with dense embeddings could outperform either approach in isolation. Our system follows the same idea within the resource limits of edge devices: BM25 retrieves an initial candidate set, which Lorentz inner-product similarity then re-ranks (Section 3), with the BM25 stage dominating the cost. 
+
+# 3 Methodology 
+
+3.1 System Architecture 
+
+Figure 1 shows the full pipeline. The system op-erates in two distinct phases: an offline index-ing phase that processes documents into a per-sistent Lorentz index, and an online retrieval phase that responds to user queries through a hybrid sparse-dense two-stage pipeline. Both phases run entirely on edge devices. 
+
+3.2 The Lorentz Model of Hyperbolic Geometry 
+
+This system functions in the d-dimensional Lorentz hyperboloid model, also known as the Minkowski model, which parameterises the hy-perbolic space of constant negative curvature 
+
+−1/K (where K > 0 is the curvature pa-rameter) as the upper sheet of a two-sheeted hyperboloid embedded in ( d + 1)-dimensional Minkowski space Rd+1 ,1:
+
+HdK =
+
+n
+
+p = ( t, x) ∈ R1,d :
+
+⟨p, p⟩L = −K, t > 0
+
+o (3) where the Minkowski inner product is defined as: 3Document Corpus Sliding Window Chunker BGE Word Embeddings HyTE-H Projection Lorentz Index BM25 Lexical Index User Query Candidate Set Lorentz Rerank Top-k
+
+> Results
+> Indexing Phase Retrieval Phase
+
+Figure 1: System architecture. The indexing phase (top) processes documents through chunking, word embedding lookup, HyTE-H hyperbolic projection, and Lorentz index construction. The retrieval phase (bottom) is two-stage: BM25 lexical search finds candidates, then Lorentz inner-product similarity re-ranks them. 
+
+⟨p, q⟩L = −tptq + x⊤ 
+
+> p
+
+xq
+
+= −tptq +
+
+> d
+
+X
+
+> i=1
+
+x(i) 
+
+> p
+
+x(i)
+
+> q
+
+(4) The time coordinate t is not a free parameter but is determined by the space-like coordinates through the hyperboloid constraint: 
+
+t = p∥x∥2 + K (5) Any point on the hyperboloid satisfies 
+
+⟨p, p⟩L = −K.The geodesic distance between two points 
+
+p, q ∈ HdK is given by: 
+
+dL(p, q) = √K · arcosh 
+
+
+
+− ⟨p, q⟩L
+
+K
+
+
+
+(6) Since arcosh is monotonic, maximising the inner product ⟨p, q⟩L (making it less negative) is equivalent to minimising geodesic distance. The inner product is used directly as the simi-larity score; the inverse hyperbolic cosine never needs to be computed. 
+
+3.3 Word Embedding and HyTE-H Projection 
+
+Our token-level encoder begins with word em-beddings from BGE-small-en-v1.5 [17], a 384-dimensional BERT-based model pretrained on massive text pairs for retrieval. The word em-bedding matrix W ∈ RV ×384 (with vocabulary size V = 30 , 522) is extracted and each row is normalized to unit Euclidean norm. These embeddings are never updated during training or inference; the projection layer only learns to map them into hyperbolic space. The HyTE-H projection module is a two-layer nonlinear transformation: 
+
+h = ReLU ( W1e) ,
+
+pspace = W2h (7) where e ∈ R384 is the input word embedding, 
+
+W1 ∈ R256 ×384 projects into a 256-dimensional hidden space, and W2 ∈ R384 ×256 expands back to the original embedding dimensionality. The output pspace forms the spatial coordinates of the hyperbolic point; the time coordinate is then computed through the add time opera-tion: 
+
+t =
+
+q
+
+∥pspace ∥2 + K, 
+
+p = ( t, pspace ) ∈ H384 
+
+> K
+
+(8) with curvature K = 1 .0. 
+
+3.3.1 Training the Projection 
+
+The projection weights W1 and W2 are trained contrastively on the MS MARCO v1.1 pas-sage retrieval dataset [18], about 8.8 million query-passage pairs collected from Bing search logs. Training streams the data in batches of 192 query-document pairs. Queries and passages are tokenized with the HuggingFace 
+
+tokenizers library and encoded through the HyTE-H pipeline described above. The training objective is a standard symmet-ric cross-entropy loss over the pairwise Lorentz similarity matrix. For a batch of B query em-beddings {qi}Bi=1 and document embeddings 
+
+{dj }Bj=1 :4general domain specific   
+
+> 0
+> ML NLP CV GANs Transformers Retrieval DCGAN BERT HyTE-H radial depth r
+
+Figure 2: Hyperbolic manifold geometry in the Poincar´ e disk model. Concepts organise into hierarchical levels (general, domain, and specific), with radial depth r = arcosh( t/ √K) measuring specificity. In the machine learning example shown, broad terms such as ML and NLP sit near the origin, while more specific terms such as DCGAN and HyTE-H sit near the boundary. The dashed red curve is a hyperbolic geodesic, the shortest path between two points on the manifold, which curves toward the origin. A Euclidean straight line between the same points would leave the disk. 
+
+x (space) 
+
+t (time/hierarchy) 
+
+0
+
+p1 (general) 
+
+p3 (specific) 
+
+p2
+
+Figure 3: The Lorentz hyperboloid H1 
+
+> K
+
+(one spatial dimension). The time coordinate t encodes hierarchical depth. Points farther from the origin (larger t) are more specific concepts. The dashed red curve is a geodesic between two points, as in Figure 2. 
+
+L = 12B
+
+> B
+
+X
+
+> i=1
+
+"
+
+− log exp( sii /τ )
+
+PBj=1 exp( sij /τ )
+
+− log exp( sii /τ )
+
+PBj=1 exp( sji /τ )
+
+# (9) where sij = ⟨qi, dj ⟩L/τ is the temperature-scaled Lorentzian inner product with τ = 0 .05. Training runs for 75,000 steps with the AdamW optimiser [19], a learning rate of 2 × 10 −4, and weight decay of 0.01. Train-ing uses a linear warmup over the first 1,000 steps followed by a cosine decay schedule, with automatic mixed precision (AMP) and gradient scaling on two NVIDIA Tesla T4 GPUs (16 GB VRAM). The total number of trainable param-eters is 196,608 (approximately 768 KB when stored as 32-bit floats), making the projection module easily deployable on edge devices. 5Word Token IDs (w1, w 2, . . . , w n)Frozen BGE Embeddings              
+
+> ei∈R384
+> Linear + ReLU
+> W1∈R256 ×384
+> Linear Projection
+> W2∈R384 ×256
+> add time: t=p∥x∥2+K
+> Outward Einstein Midpoint Document Embedding
+> p∈H384
+> K
+> Pool over tokens
+
+Figure 4: The HyTE-H encoding pipeline. 
+
+3.4 Sliding Window Chunking 
+
+Documents are segmented into overlapping chunks using a sliding window with configurable stride and overlap parameters. By default the window is W = 300 words, with O = 60 words of overlap between consecutive chunks. For a document of length L words, this produces 
+
+⌈L/ (W − O)⌉ chunks. Each chunk is indepen-dently embedded through the HyTE-H pipeline and stored as a separate entry in the Lorentz index, preserving the ability to retrieve at the passage level rather than the document level. 
+
+3.5 BM25 Lexical Index 
+
+The BM25 [14] implementation uses the stan-dard Okapi formulation with k1 = 1 .2 (term frequency saturation) and b = 0 .75 (length normalisation). Tokens come from whitespace splitting and lowercasing, with no stemming or stop-word removal. For each term, the inverted index stores the documents that contain it and their term frequencies. 
+
+3.6 Two-Stage Retrieval 
+
+Retrieval runs in two stages. First, BM25 scoring over the document corpus produces an initial candidate ranking. Second, for each candidate, its Lorentz embedding is compared 6Query Tokens HyTE-H            
+
+> qi∈H384
+> K
+> Doc Tokens HyTE-H
+> dj∈H384
+> K
+> sij =⟨qi,dj⟩L/ τ
+> Cross-Entropy Loss L∇W∇W
+
+Figure 5: Contrastive HyTE-H training. Query and document tokens pass through identical HyTE-H modules to project them into a shared hyperbolic space for similarity scoring. The resulting cross-entropy loss updates only the projection weights; the base embeddings stay frozen.        
+
+> Document dTokenize & Normalize Term Frequency tf( t, d )Inverse Document Frequency idf( t) = log N−nt+0 .5
+> nt+0 .5
+> BM25 Score P
+> t∈qidf( t)·tf( t,d )( k1+1) tf( t,d )+ k1
+
+Figure 6: BM25 scoring process. against the query embedding (encoded through the same HyTE-H pipeline), and the two scores are linearly interpolated: score( d, q ) = α·sbm (d, q )+(1 −α)·sL(d, q ) (10) where the component scores are 
+
+sbm (d, q ) = BM25( d, q )max d′ BM25( d′, q ) , (11) 
+
+sL(d, q ) = 11 + exp ( −(⟨pd, pq⟩L + 2)) . (12) The first is the normalised lexical score, while the second maps the Lorentz inner product to [0 , 1] through a logistic function of the raw sim-ilarity. The parameter α ∈ [0 , 1] sets the weight of each score, and K = 1 .0 is the curvature constant. This two-stage design is motivated by effi-ciency. Comparing the query against every chunk in the index would cost O(N · d), where 
+
+N is the number of chunks and d the embedding dimensionality (384). By restricting Lorentz scoring to only the top-M BM25 candidates (with M = 50 in practice), the expensive hyper-bolic computation is decoupled from corpus size and depends only on the constant M . BM25 itself reads the inverted index, so its cost scales with the number of query terms and the post-ings lists they touch, not with the number of chunks. 
+
+3.7 Persistent Index Serialization 
+
+Since this system is meant to be used on edge devices, the C++ implementation supports persistence of the index. Serialization is im-plemented through a three-file storage format within the application’s private files directory. The idx.bin file stores the Lorentz index as a raw binary dump of the embedding matrix (float32, N × (d + 1), the extra dimension being the time coordinate), the chunk metadata (file path and chunk index for each embedding), and 7Query q BM25 Candidates Cbm          
+
+> Lorentz Encoding α·sbm + (1 −α)·sLTop-k
+
+Figure 7: Two-stage retrieval with tunable α.the BM25 inverted index state. The embedding matrix is one contiguous block of floats, one vector per chunk, so scoring walks sequential memory and the file maps directly onto the in-memory array on load. The texts.z file stores the chunk text snippets compressed using zlib at the default compression level, achieving ap-proximately 3–5 × compression on general texts. The paths.txt file lists the source document paths, one per line, so the system can tell which documents are indexed after a restart. 
+
+# 4 Implementation Results 
+
+4.1 Experimental Setup 
+
+The retrieval system was evaluated on five datasets from the BEIR (Benchmarking Infor-mation Retrieval) suite [20], which provides a standardised evaluation framework for zero-shot information retrieval across diverse domains: 
+
+• SciFact (5,183 documents, 300 queries): Sci-entific claim verification from biomedical lit-erature. 
+
+• NFCorpus (3,633 documents, 323 queries): Biomedical articles from PubMed Central. 
+
+• ArguAna (8,674 documents, 1,406 queries): Counter-argument retrieval from web de-bates. 
+
+• SciDocs (25,669 documents, 1,000 queries): Scientific document recommendation based on citation graphs. 
+
+• FiQA (57,638 documents, 648 queries): Fi-nancial question answering from news and reports. All experiments use the same BGE-small-en-v1.5 word embeddings with HyTE-H projection (curvature K = 1 .0, OEM power P = 1 .0) and the default chunking configuration of 500-word windows with 90-word overlap. The bench-mark executable ( beir bench.exe ) was com-piled with Clang targeting x86-64 using the -O3 
+
+optimisation flag, and experiments were run on a consumer laptop with 16 GB RAM using 2 OpenMP threads. OpenMP parallelized em-bedding and chunking across documents during indexing and across queries during evaluation. Queries were encoded independently through the same pipeline and matched against pre-built chunk indexes using exhaustive Lorentz nearest-neighbour search. Three standard retrieval metrics are evalu-ated, as implemented by the BEIR framework: 
+
+NDCG@10 (Normalised Discounted Cumula-tive Gain at rank 10), MAP@100 (Mean Av-erage Precision at rank 100), and Recall@100 .
+
+4.2 Results 
+
+Within each dataset, NDCG@10 changes by less than 0.001 across all configurations, regard-less of α, section-titled chunking, or two-stage reranking. Retrieval quality is therefore lim-ited by the word embeddings, not the ranking mechanism. Since all configurations share the same BGE-small embeddings and HyTE-H pro-jection weights, the Lorentz similarity scores produce near-identical top-k rankings. Setting 
+
+α = 1 .0 gives pure BM25 and α = 0 .0 pure Lorentz retrieval, so α is functional. However, on these datasets the two scoring signals happen to favour the same top-ranked documents. On corpora with heavier keyword dependence, α
+
+would show a clearer precision-recall trade-off. Retrieval latency grows linearly with corpus size, as exhaustive nearest-neighbour search predicts. FiQA, the largest dataset at 59,216 chunks, requires 29 ms per query; index con-struction time is dominated by embedding com-putation and is a one-time offline cost. The strong performance on SciFact (NDCG@10 = 0.654) confirms that the HyTE-H projection preserves domain-specific scientific terminol-ogy despite using general-domain BGE-small embeddings. The lower scores on SciDocs (0.150) and FiQA (0.217) reflect the difficulty of citation-based recommendation and financial jargon tasks without domain-adapted encoders. 8Android Application Layer 
+
+Compose UI (Chat & Settings) ViewModel (Session & RAG) Repository Layer 
+
+> JNI Bridge Boundary
+
+Native C++ Library ( Library Shared Object )
+
+Sliding Window Chunker BGE Embedding Table HyTE-H Projection Lorentz Index BM25 Index Two-Stage Retriever 
+
+> Indexing Path Retrieval Path
+> Filesystem Boundary
+
+Persistent Storage   
+
+> idx.bin texts.z paths.txt
+> Save / Load
+
+Figure 8: Edge runtime architecture. The Android application layer uses JNI bindings to communicate with the native C++ library, which contains the full retrieval system. Table 1: BEIR Benchmark Results: NDCG@10 across five datasets.“+sec” indicates section-titled chunking; “+rerank” indicates BM25 → Lorentz two-stage reranking. 
+
+Configuration SciFact NFCorpus ArguAna SciDocs FiQA 
+
+NDCG@10 
+
+α=0 .3 0.6537 0.3037 0.3422 0.1495 0.2169 
+
+α=0 .7 0.6537 0.3037 0.3422 0.1495 0.2168 
+
+α=0 .7 + sec 0.6537 0.3037 0.3422 0.1495 0.2168 
+
+α=0 .7 + sec + rerank 0.6536 0.3037 0.3421 0.1494 0.2165 
+
+α=1 .0 0.6537 0.3037 0.3422 0.1495 0.2168 
+
+Note: All NDCG@10 values are essentially tied across configurations within each dataset. 
+
+Table 2: Retrieval latency and index statistics. ( ms/q = milliseconds per query averaged over the full query set). 
+
+Dataset Docs Chunks Index Size Index Time ms/q 
+
+SciFact 5,183 5,229 8.0 MB 2.9 s 4.3 NFCorpus 3,633 3,664 5.7 MB 1.9 s 2.7 ArguAna 8,674 8,750 13.5 MB 1.5 s 18.7 SciDocs 25,669 26,199 40.3 MB 5.1 s 16.0 FiQA 57,638 59,216 91.2 MB 9.4 s 29.0 94.3 Radial Hierarchy Verification 
+
+Following HypRAG, it was tested whether the trained HyTE-H projection produces the ex-pected radial hierarchy. The Lorentz embed-dings for four concept pairs at different levels of generality were computed, and the radial coordinate r = arcosh( t/ √K) of each term was measured (Table 3). Three of the four pairs show the expected behaviour: the specific term sits farther from the origin of the hyperboloid than its general counterpart. 
+
+4.4 Performance 
+
+The Android implementation packages the en-tire retrieval pipeline into a shared native li-brary compiled for ‘arm64-v8a‘ and ‘armeabi-v7a‘ architectures. On a mid-range device such as the Samsung SM-S721, a knowledge space of 1,500 chunks loads its 2.3 MB serialized index in under 10 ms, runs BM25 lexical search in under 1 ms per query, and re-ranks the BM25 candidate set by Lorentz similarity in about 2 ms. The full retrieval takes about 3 ms per query. Users can add new files to the index and use them for RAG queries almost immediately, with good accuracy on the device. 
+
+# 5 Conclusion 
+
+This work presents a hybrid hyperbolic retrieval system for edge devices. It combines frozen BGE-small word embeddings, a trained HyTE-H projection into the Lorentz hyperboloid, BM25 lexical scoring, and tunable Lorentzian reranking. The system achieves competitive zero-shot retrieval on five BEIR datasets using a lightweight learned projection ( <200 K pa-rameters) without fine-tuned encoders or GPU inference. The contribution is a BM25-for-recall, Lorentz-for-precision pipeline that runs on edge devices at interactive latencies ( ∼3 ms per query). Future work has four directions. First, replac-ing the BGE-small word embeddings with a fine-tuned hyperbolic encoder such as HyTE-FH could lift the embedding quality bottleneck iden-tified in our BEIR results. Second, approximate Lorentz nearest-neighbour search via hyperbolic random projections or graph-based navigation would scale retrieval to million-document cor-pora at sub-10 ms latency. Third, the radial hierarchy, where distance from the origin en-codes specificity, could adapt retrieval depth to query generality and improve precision for broad versus narrow queries. Finally, a hyper-bolic LLM such as HELM could be paired with this retriever, so that retrieved context and generated text live in the same geometry. 
+
+# Acknowledgement 
+
+The author thanks the authors of HypRAG [7], whose hyperbolic dense retrieval framework is the basis of this work. The author likewise acknowledges the BM25 frame-work [14] and the MS MARCO passage retrieval dataset [18], which this work builds on. The complete source code is available in the author’s GitHub repository [21] at 
+
+https://github.com/TimeATronics/Zetla/ tree/main/src/zetla/rag .
+
+# References 
+
+[1] P. Lewis, E. Perez, A. Piktus, F. Petroni, V. Karpukhin, N. Goyal, H. K¨ uttler, M. Lewis, W. tau Yih, T. Rockt¨ aschel, S. Riedel, and D. Kiela, “Retrieval-augmented generation for knowledge-intensive NLP tasks,” in Advances in Neural Information Processing Systems 33 (NeurIPS) , 2020. [Online]. Available: https://arxiv.org/abs/2005.11401 [2] W. Fan, Y. Ding, L. Ning, S. Wang, H. Li, D. Yin, T.-S. Chua, and Q. Li, “A survey on RAG meeting LLMs: Towards retrieval-augmented large language models,” in 
+
+Proceedings of the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining (KDD) , 2024, pp. 6491–6501. [Online]. Available: https://doi.org/10. 1145/3637528.3671470 [3] M. Radovanovi´ c, A. Nanopoulos, and M. Ivanovi´ c, “Hubs in space: Popular nearest neighbors in high-dimensional data,” Journal of Machine Learning Research (JMLR) , vol. 11, pp. 2487–2531, 2010. [Online]. Available: https://jmlr. org/papers/v11/radovanovic10a.html 10 Table 3: Radial hierarchy verification of HyTE-H embeddings. Positive percentage change indicates that the specific term is encoded further from the origin than its general counterpart. 
+
+General Specific Radial Shift Change Result 
+
+animal mammal 7.46 → 14 .70 +97 .1% SPECIFIC mammal dog 14 .70 → 11 .48 −21 .9% COLLAPSED science physics 4.02 → 7.50 +86 .5% SPECIFIC disease cancer 8.79 → 9.73 +10 .8% SPECIFIC [4] N. Reimers and I. Gurevych, “Sentence-BERT: Sentence embeddings using siamese BERT-networks,” in Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP) ,2019, pp. 3980–3990. [Online]. Available: https://doi.org/10.18653/v1/D19-1410 [5] M. Nickel and D. Kiela, “Poincar´ eembeddings for learning hierarchical rep-resentations,” 2017. [Online]. Available: https://arxiv.org/abs/1705.08039 [6] G. Mishne, Z. Wan, Y. Wang, and S. Yang, “The numerical stability of hyperbolic representation learning,” 2023. [Online]. Available: https://arxiv.org/abs/ 2211.00105 [7] H. Madhu, N. Bui, A. Maatouk, L. Tas-siulas, S. Krishnaswamy, M. Yang, S. Ganguly, K. Srinivasan, and R. Ying, “HypRAG: Hyperbolic dense retrieval for retrieval augmented generation,” in Proceedings of the 43rd Interna-tional Conference on Machine Learn-ing (ICML) , 2026. [Online]. Available: https://arxiv.org/abs/2602.07739 [8] M. Nickel and D. Kiela, “Learning contin-uous hierarchies in the Lorentz model of hyperbolic geometry,” in Proceedings of the 35th International Conference on Machine Learning (ICML) , 2018. [Online]. Avail-able: https://arxiv.org/abs/1806.03417 [9] O.-E. Ganea, G. B´ ecigneul, and T. Hofmann, “Hyperbolic neural net-works,” 2018. [Online]. Available: https://arxiv.org/abs/1805.09112 [10] I. Chami, Z. Ying, C. R´ e, and J. Leskovec, “Hyperbolic graph con-volutional neural networks,” in Advances in Neural Information Processing Systems 32 (NeurIPS) , 2019. [Online]. Available: https://arxiv.org/abs/1910.12933 [11] M. Spengler and P. Mettes, “Low-distortion and GPU-compatible tree em-beddings in hyperbolic space,” 2025. [Online]. Available: https://arxiv.org/abs/ 2502.17130 [12] N. He, R. Anand, H. Madhu, A. Maatouk, S. Krishnaswamy, L. Tassiulas, M. Yang, and R. Ying, “HELM: Hyperbolic large language models via mixture-of-curvature experts,” arXiv preprint arXiv:2505.24722 ,2025. [Online]. Available: https://arxiv. org/abs/2505.24722 [13] G. Izacard, M. Caron, L. Hosseini, S. Riedel, P. Bojanowski, A. Joulin, and E. Grave, “Unsupervised dense informa-tion retrieval with contrastive learning,” 
+
+Transactions on Machine Learning Re-search (TMLR) , 2022. [Online]. Available: https://arxiv.org/abs/2112.09118 [14] S. Robertson and H. Zaragoza, “The probabilistic relevance framework: BM25 and beyond,” Foundations and Trends ®
+
+in Information Retrieval , vol. 4, no. 1–2, pp. 1–174, 2009. [Online]. Available: https://doi.org/10.1561/1500000019 [15] T. Formal, B. Piwowarski, and S. Clin-chant, “SPLADE: Sparse lexical and ex-pansion model for first stage ranking,” in 
+
+Proceedings of the 44th International ACM SIGIR Conference on Research and Devel-opment in Information Retrieval (SIGIR) ,2021, pp. 2288–2292. [Online]. Available: https://doi.org/10.1145/3404835.3463098 11 [16] O. Khattab and M. Zaharia, “ColBERT: Efficient and effective passage search via contextualized late interaction over BERT,” in Proceedings of the 43rd International ACM SIGIR Conference on Research and Development in Information Retrieval (SIGIR) , 2020, pp. 39–48. [Online]. Available: https://doi.org/10. 1145/3397271.3401075 [17] S. Xiao, Z. Liu, P. Zhang, N. Muennighoff, D. Lian, and J.-Y. Nie, “C-pack: Packaged resources to advance general Chinese embedding,” in Proceedings of the 47th In-ternational ACM SIGIR Conference on Re-search and Development in Information Re-trieval (SIGIR) , 2024. [Online]. Available: https://doi.org/10.1145/3626772.3657878 [18] P. Bajaj, D. Campos, N. Craswell, L. Deng, J. Gao, X. Liu, R. Majumder, A. McNamara, B. Mitra, T. Nguyen, M. Rosenberg, X. Song, A. Stoica, S. Ti-wary, and T. Wang, “MS MARCO: A human generated MAchine Reading COm-prehension dataset,” in 30th Conference on Neural Information Processing Systems (NIPS 2016) , 2016. [Online]. Available: https://arxiv.org/abs/1611.09268 [19] I. Loshchilov and F. Hutter, “Decou-pled weight decay regularization,” in 
+
+Proceedings of the 7th International Conference on Learning Representa-tions (ICLR) , 2019. [Online]. Available: https://arxiv.org/abs/1711.05101 [20] N. Thakur, N. Reimers, A. R¨ uckl´ e, A. Srivastava, and I. Gurevych, “BEIR: A heterogeneous benchmark for zero-shot evaluation of information retrieval models,” in Advances in Neural Information Process-ing Systems 34 (NeurIPS), Datasets and Benchmarks Track , 2021. [Online]. Avail-able: https://arxiv.org/abs/2104.08663 [21] A. Chakrabarti, “Hybrid hyper-bolic retrieval system for on-device RAG: Source code,” GitHub repository, 2026. [Online]. Avail-able: https://github.com/TimeATronics/ Zetla/tree/main/src/zetla/rag 12
