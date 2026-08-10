@@ -1,0 +1,3781 @@
+Title: Multimodal Alignment Through Joint Kernel Entropic Gromov–Wasserstein Optimal Transport
+
+URL Source: https://arxiv.org/pdf/2608.04234v1
+
+Published Time: Thu, 06 Aug 2026 00:17:55 GMT
+
+Number of Pages: 50
+
+Markdown Content:
+# Multimodal Alignment Through Joint Kernel Entropic Gromov–Wasserstein Optimal Transport 
+
+Yixuan Florence Wu yixuanwu@u.northwestern.edu 
+
+Department of Engineering Sciences and Applied Mathematics Northwestern University Evanston, IL 60208, USA 
+
+Yilun Zhu allanzhu@umich.edu 
+
+Deparment of Electrical Engineering and Computer Science University of Michigan Ann Arbor, MI 48109, USA 
+
+Naichen Shi naichen.shi@northwestern.edu 
+
+Department of Industrial Engineering and Management Sciences Department of Mechanical Engineering Northwestern University Evanston, IL 60208, USA 
+
+Abstract 
+
+We study the problem of aligning data from multiple modalities into a shared representation space, focusing on settings where strong pretrained unimodal encoders are available but cross-modal paired data are scarce. We propose a structure-preserving alignment framework, joint kernel entropic Gromov–Wasserstein Optimal Transport (JK-EGW), which maps multiple modalities into a common latent space by minimizing a quadratic optimal transport objective. JK-EGW leverages fine-grained similarity relationships within and across modalities to construct a global affinity kernel instead of relying on raw feature-space distances. Our framework naturally provides explicit control over the geometry and distribution of the latent embedding. On the theory side, we establish parametric sample complexity rate of 
+
+n−1/2, matching the corresponding rates for standard, entropic and Gromov–Wasserstein optimal transport. On the algorithmic side, we derive a scalable alternating procedure to solve JK-EGW with entropic optimal transport (EOT) updates through a low-rank kernel approximation and a variational lifting. This lifting scheme effectively relieves the burden of a quadratic objective, and allowing us to take the advantage of existing EOT solvers. Empirically, we focus on post-hoc alignment of embeddings from pretrained encoders in data-scarce regimes, and show that our proposed method achieves improved multimodal retrieval performance compared to existing alignment baselines. 
+
+Keywords: Kernel Gromov–Wasserstein Optimal Transport, Multimodal Alignment, Finite-rank Approximation, Sample Complexity, Representation Learning 
+
+1 Introduction 
+
+Multimodal learning aims to integrate information from heterogeneous data sources, such as images, text, audio, and sensor measurements. Since different modalities are often represented in distinct feature spaces, a fundamental challenge is to construct a shared representation in which semantically related observations from different modalities become comparable (Wang et al., 2022; Liu et al., 2023; Zhao et al., 2025). Such aligned represen- 
+
+> ©2026 Yixuan Florence Wu, Yilun Zhu, Naichen Shi. License: CC-BY 4.0, see https://creativecommons.org/licenses/by/4.0/ .arXiv:2608.04234v1 [math.ST] 4 Aug 2026 Wu, Zhu, and Shi
+
+tations provide a common interface for downstream tasks (Liang et al., 2024), including cross-modal retrieval (Karpathy and Fei-Fei, 2015; Faghri et al., 2017), zero-shot classifica-tion (Frome et al., 2013; Radford et al., 2021), multimodal prediction (Liang et al., 2021), and representation transfer (Moschella et al., 2022), etc. Developing principled methods for multimodal alignment is therefore a basic step toward learning systems that can use complementary information across modalities. A large number of techniques focus on pretraining joint representation encoders via auto-encoders (Suzuki et al., 2016; Sutter et al., 2024), contrastive learning (Radford et al., 2021; Elizalde et al., 2023), and auto-regressive learning (Team et al., 2024; Aiello et al., 2024). To circumvent the need for extensive training data and computational resources, numerous methods (Huang et al., 2025; Li et al., 2025; Gr¨ oger et al., 2025) also propose to leverage pretrained single-modal encoders, such as DINOv3 (Sim´ eoni et al., 2025), Modern-BERT (Warner et al., 2025), or BEATs (Chen et al., 2022), to construct semantically aligned representations across modalities. We focus on this setting of representation alignment. One limitation of these approaches, however, is that the distribution of the joint represen-tations remains uncontrolled. The geometry of the shared space is largely determined from the source encoders and shaped by the alignment objective, without being explicitly matched to a prescribed reference distribution. Consequently, the learned representations may exhibit undesirable geometric properties, such as anisotropy, distortions, or even mode collapse. This motivates our central research question: can we construct joint latent representations that preserve semantic structure from multiple modalities while conforming to a prescribed marginal distribution? We address this question from the perspective of Gromov–Wasserstein optimal transport (GWOT) (M´ emoli, 2011). GWOT constructs a probabilistic coupling between distributions supported on distinct spaces by minimizing the discrepancy between their within-space pairwise relations. The resulting coupling therefore aligns the two distributions by preserving, as closely as possible, the relational structure of the source representations. It is therefore natural to extend the standard GWOT formulation (Peyr´ e et al., 2016) to multimodal representation learning. Such an extension should integrate two types of information. The first is the semantic structure of the observed features within each modality, which should be preserved when modality-specific knowledge is transferred to the joint representation space. The second is the set of cross-modal correspondences, which characterizes the relationships among observations from different modalities and guides their alignment in the joint space. To capture both sources of information, we construct a global affinity kernel K on the disjoint union of all modality-specific representation spaces. Consider, for example, an image–text alignment problem. Within the image modality, an image of a black dog may have high affinity with another image of a black dog. Across modalities, the same image may also have high affinity with the text “ black dog ” (see Figure 1). More generally, we propose to construct the within-modality component of K by feature similarity metrics, and the cross-modality component of K by domain knowledge, including class labels (Cristianini et al., 2001), expert knowledge (Kulis et al., 2005), or similarities derived from pretrained representations (Alvarez-Melis and Jaakkola, 2018). Building on this affinity kernel, we introduce the joint kernel entropic Gromov–Wasserstein (JK-EGW) objective, which formulates joint representation learning as an optimal transport 
+
+> 2JK-EGW for Multimodal Alignment
+
+Figure 1: A global affinity kernel K scores observation pairs within and across modalities. Each modality is coupled to a prescribed latent reference ν.problem. JK-EGW aligns the distribution of each modality with a common reference distribution in the latent space through probabilistic couplings. The objective encourages observations with high affinity to link to nearby latent representations, thereby unifying within-modality structure preservation and cross-modal alignment. In practical applications, instance-level cross-modal pairs are costly to collect and are therefore often scarce. It is thus important to characterize the finite-sample statistical error of JK-EGW. Establishing such guarantees is challenging, however, because the general GWOT objective takes the form of a nonconvex quadratic program (Scetbon et al., 2022), whose global optimization can be NP-hard (Burkard, 1984; Kravtsova, 2024). This nonconvexity complicates the statistical analysis and the optimization of empirical solutions. We address this challenge by studying a specific class of kernel GWOT problems whose affinity kernel K approximately admits a separable decomposition in terms of products of basis functions. For a finite-rank truncation of K, we show that the resulting quadratic GWOT problem can be lifted to a linear optimal transport (LOT) problem whose cost function depends on an additional set of auxiliary variables. This reformulation makes the statistical error amenable to analysis using tools developed for LOT. In particular, we establish finite-sample guarantees showing that the empirical optimal value converges to its population counterpart at the parametric rate O(n−1/2). For the full-kernel objective, the bound includes an additional truncation term that quantifies the discrepancy between the original kernel and its finite-rank approximation. Our results therefore distinguish the statistical error arising from finite sampling from the approximation error introduced by kernel truncation. Computationally, the basis-product structure naturally motivates an efficient alternating optimization algorithm for JK-EGW. We first construct a low-rank approximation of the empirical kernel matrix and use it to derive a variational lifting of the original quadratic objective. The lifted optimization problem should optimize over both the transport plan and the auxiliary variables. With fixed transport plan, the auxiliary variables admit a closed-form update. With fixed auxiliary variables, the transport-plan update reduces to 
+
+> 3Wu, Zhu, and Shi
+
+a standard entropic optimal transport (EOT) problem over discrete distributions. The latter can therefore be solved using existing scalable OT solvers, such as Sinkhorn-type algorithms (Cuturi, 2013). Therefore, we can construct an alternating minimization algorithm by iteratively update the two parameter blocks. We evaluate JK-EGW on image–text alignment tasks derived from MS–COCO (Lin et al., 2014). The results show that JK-EGW learns geometrically coherent shared representations and achieves decent performance in bidirectional image–text retrieval. In summary, our main contributions are as follows: 1. We formulate joint kernel entropic Gromov–Wasserstein optimal transport (JK-EGW) for aligning observations from multiple modalities into a shared representation space whose marginal distribution follows a prescribed reference distribution. 2. For kernels admitting a separable basis decomposition, we establish a finite-sample error bound of JK-EGW consisting of a statistical term of order O(n−1/2) and a kernel-truncation term. Our analysis introduces a new variational formulation and develops techniques for establishing the regularity of optimal transport plans under costs induced by the kernel basis. 3. Building on the variational formulation of the empirical JK-EGW problem, we develop a scalable alternating optimization algorithm. One parameter block admits a closed-form update, while the other reduces to an entropic optimal transport (EOT) problem that can be solved using standard EOT solvers. 4. We empirically evaluate JK-EGW on digit multi-feature alignment, image–text retrieval tasks to demonstrate its applicability. 
+
+1.1 Related Works Alignment of pretrained unimodal encoders. Multiple works leverage frozen pre-trained unimodal encoders and learn only a lightweight post-hoc alignment mechanism from scarce cross-modal correspondence data. Early works, such as APE (Rosenfeld et al., 2022) and ImageBind (Girdhar et al., 2023), align several modalities onto a fixed, pre-trained image–text embedding space by minimizing InfoNCE loss. Recent vision–language alignment methods further develop this idea by assessing or selecting compatible frozen encoder pairs and training simple projectors or alignment layers between their embedding spaces (Maniparambil et al., 2025; Zhang et al., 2025). More directly related to our empirical baselines, CSA (Li et al., 2025) maps frozen unimodal features into a multimodal feature space and uses a weighted similarity score. STRUCTURE (Gr¨ oger et al., 2025) improves limited-data alignment by regularizing the learned representation to preserve the multiscale neighborhood geometry of pretrained unimodal latent spaces. Together, these methods show that post-hoc alignment of frozen encoders is a practical and data-efficient alternative to training multimodal models from scratch. Our work follows a similar rationale but studies a different formulation of this aligning problem, which allows for an explicitly chosen marginal distribution on the shared latent space. Prior work suggests that latent geometry influences compositional and cross-modal generation (Girdhar et al., 2023), robustness to missing or noisy modalities (Tsai et al., 2018), downstream task performance (Jiang et al., 2023), and the emergence and impact of modality gaps (Liang et al., 2022). 
+
+> 4JK-EGW for Multimodal Alignment
+
+Structure-aware alignment via optimal transport. Optimal transport (OT) provides a distributional framework for aligning heterogeneous datasets through learned couplings. Several works have used OT to improve multimodal or cross-domain alignment by exploiting structure beyond independent instance matching. For example, hierarchical OT leverages clustered structure to improve alignment in noisy or ambiguous settings (Lee et al., 2019), while MuLOT uses self-attention for intra-modal correspondence and OT for cross-modal correspondence in resource-constrained multimodal sarcasm and humor detection (Pramanick et al., 2022). More recently, Xu et al. (2025) formulates speech–text alignment in spoken language models as a linear OT regularization between speech and transcript embeddings, using the resulting transport plan to construct a regularization loss during training. These works demonstrate the usefulness of OT for cross-domain and cross-modal correspondence learning. However, the linear OT formulations are often used to align features with the same dimensions. Gromov–Wasserstein-type OT (GWOT) (M´ emoli, 2011) can handle distributions with different dimensions as it compares distributions through pairwise relational structure rather than direct pointwise costs. GWOT has also been popular in aligning tasks, such as for words across two different languages (Alvarez-Melis and Jaakkola, 2018), and for single-cell genomics (Klein et al., 2024). Our work develops a joint kernel entropic Gromov–Wasserstein formulation that allows for the alignment across multiple distributions. 
+
+Statistical analysis for multimodal alignment and optimal transport. Recent work has begun to develop statistical theories for both contrastive multimodal representation learning and optimal-transport-based alignment. On the contrastive learning side, Oko et al. (2025) studies why contrastive pretraining can yield transferable multimodal representations and derives sample complexity guarantees for downstream multimodal learning. On the optimal transport side, parametric sample complexity bounds have been established for Sinkhorn divergences and EOT under suitable conditions. Genevay et al. (2019) established the first sample complexity bounds for Sinkhorn divergences, showing that the empirical Sinkhorn divergence converges to its population counterpart at the parametric rate n−1/2.Mena and Niles-Weed (2019) strengthened these guarantees for EOT with the squared-Euclidean cost between sub-Gaussian measures in arbitrary dimension, obtaining the same parametric n−1/2 rate but improving the ε-dependence of the constants exponentially over Genevay et al. (2019) and extending the bound to unbounded measures. Groppe and Hundrieser (2024) further showed that empirical EOT obeys a “lower complexity adaptation” principle, under which the convergence rate is governed by the lower-dimensional of the two measures. For Gromov–Wasserstein (GW) distances, Zhang et al. (2024) established duality and sample complexity results for a specific form of quadratic GW and entropic GW (EGW) in the Euclidean spaces, which allows for a parametric empirical convergence rate. Related work by Rioux et al. (2024) further develops stability and algorithmic guarantees for EGW. Our analysis is closest in spirit to the EGW theory, but aims at mapping several feature distributions to a common shared latent space under a kernelized distance, instead of in the Euclidean space. The resulting analysis requires new tools from finite-rank approximation. 
+
+1.2 Notation 
+
+We denote the standard Euclidean norm and inner product by ∥·∥ and ⟨· , ·⟩ , respectively. For matrices A and A′ of the same size, ⟨A, A ′⟩F := tr A⊤A′ denotes the Frobenius inner 
+
+> 5Wu, Zhu, and Shi
+
+product and ∥A∥F := ⟨A, A ⟩1/2 
+
+> F
+
+the Frobenius norm. The closed ball in Rd centered at the origin with radius r is denoted by Bd(r). Let X i represent the feature space for the i-th modality, and let Z be the shared latent space across different modalities. We denote their respective probability measures by μi ∈ P (X i) and ν ∈ P (Z), , where P(·) denotes the set of Borel probability measures on the corresponding space. A probability measure ρ ∈ P (Rd) is defined as β-sub-Weibull with parameter σ2 (σ ≥ 0) if R exp( ∥x∥β /2σ2)dρ (x) ≤ 2. Notably, the condition that 
+
+X ∼ ρ is 4-sub-Weibull is equivalent to ∥X∥2 being sub-Gaussian, satisfying the condition R exp( t ∥x∥2)dρ (x) ≤ 2 exp( t2σ2/2). For any p ∈ [1 , ∞) and measure ρ ∈ P (Rd), Lp(ρ) refers to the space of measurable functions f with finite norm ∥f ∥Lp(ρ) := ( R 
+
+> Rd
+
+|f |pdρ )1/p .Given a function class F equipped with metric m, we denote the ϵ-covering number by 
+
+N (F, m, ϵ ) and the bracketing number by N[ ] (F, m, ϵ ). The relation ≲x indicates inequality up to a constant factor depending solely on x. Finally, for a, b ∈ R, we use a ∨ b to denote max {a, b }.
+
+2 Joint Kernel Gromov–Wasserstein Optimal Transport 
+
+2.1 Problem formulation 
+
+We consider a multimodal alignment problem with M modalities, indexed by [ M ] := 
+
+{1, . . . , M }. For each modality i ∈ [M ], observations take values in a feature space X i and are distributed according to a probability measure μi ∈ P (X i). The feature spaces may differ across modalities. Without loss of generality, we assume our dataset consists of n
+
+observations from each modality, {x1
+
+> k
+
+, . . . , x Mk }nk=1 . To use a unified notation, we define their disjoint union X := FMi=1 X i so that each x ∈ X belongs to a unique modality-specific component. When the modality is clear from context, we suppress the modality index i.We aim to align observations from different modalities into a shared latent space Z ⊆ Rdz
+
+that represents the shared information across modalities. Importantly, we equip Z with a fixed marginal distribution ν ∈ P (Z) that can be defined by the user. ν specifies the distributional landscape of Z. The alignment between a modality i ∈ [M ] and the latent space is represented by a probabilistic coupling πi ∈ Γ( μi, ν ), where Γ( μi, ν ) denotes the set of probability measures on X i × Z with first marginal μi and second marginal ν. Naturally, the conditional distribution πi(· | x) describes how x is associated with locations in the latent space. Under the constraint of the marginal distributions of ν and μi’s, the task of multi-modal alignment transforms to finding the probabilistic couplings πi’s. Ideally, these couplings should preserve the relational structure of the observations. Since different modalities could have different dimensions, Gromov–Wasserstein optimal transport (GWOT) provides a natural framework for finding couplings that minimize an objective defined to induce alignment. Specifically, the standard quadratic GWOT aligns distributions by comparing pairwise relational structures in different spaces. One specifies relational functions cX (x, x ′) and 
+
+cZ (z, z ′) on the source and target spaces, and seeks a coupling whose paired samples minimize 
+
+> 6JK-EGW for Multimodal Alignment
+
+the relational difference in aggregate, inf 
+
+> π
+
+Z Z 
+
+cX (x, x ′) − cZ (z, z ′) 2 dπ (x, z ) dπ (x′, z ′).
+
+Despite its simplicity, quadratic GWOT may be insufficient to align heterogeneous modalities as it calculates the distances of the raw features. When observations are collected from different spaces, using distances based on raw features may fail to reflect modality level nuances. This motivates us to replace the source-space geometric relation cX and cZ with a modality-aware and task-specific relation. To specify such relational structure, we assume access to a global affinity kernel 
+
+K : X × X → R≥0 .
+
+This kernel is defined on the disjoint union X , so that a single quantity K(x, x ′) can describe both within-modality similarity when x, x ′ ∈ X i, and cross-modality similarity when x ∈ X i
+
+and x′ ∈ X j with i̸ = j. We interpret larger values of K(x, x ′) as stronger task-relevant semantic similarity. The kernel may be specified using labels, expert knowledge, pretrained representations, or other domain-specific similarity scores. The affinity score encoded by K determines how strongly pairs of observations should be encouraged to remain close after alignment. For coupled samples ( x, z ) and ( x′, z ′), we assign the pairwise latent penalty K(x, x ′)∥z − z′∥2. The penalty is large when observations with high affinity are assigned distant latent representations, and is small when either the observations have weak affinity or their latent representations are close. Therefore, minimizing the aggregate penalty encourages observations that are related under K to concentrate near one another in the shared latent space. Motivated by the kernel-weighted pairwise penalty shown above, we define our JK-EGW objective as 
+
+Sϵ({μi}Mi=1 , ν ) := inf  
+
+> πi∈Γ( μi,ν )
+> i∈[M]
+
+( MX
+
+> i,j =1
+
+Z 
+
+> Xi×Z
+
+Z  
+
+> Xj×Z
+
+K(x, x ′)∥z − z′∥2 dπ i(x, z ) dπ j (x′, z ′)+ ϵ
+
+> M
+
+X
+
+> i=1
+
+DKL 
+
+ πi μi ⊗ ν )
+
+.
+
+(1) Here, ϵ > 0 is the entropic regularization parameter, and DKL denotes the Kullback–Leibler (KL) divergence 
+
+DKL (α∥β) = 
+
+Z
+
+log 
+
+ dα dβ 
+
+
+
+dα , 
+
+where α and β are probability measures. In the first term of Equation (1), the variables x
+
+and x′ are integrated over X i and X j , respectively, through the couplings πi and πj . The ordered sum over ( i, j ) aggregates relations within and across modalities. The terms with 
+
+i = j encourage observations within the same modality to remain close in the latent space, while the terms with i̸ = j encourage cross-modality alignment. The KL term is the entropic regularization in Equation (1) that adds a strictly convex regularizing component to the GW-type objective. The problem of multi-modal alignment becomes choosing couplings 
+
+{πi}Mi=1 so that pairs of observations with large K(x, x ′) are assigned by nearby latent representations z and z′.
+
+> 7Wu, Zhu, and Shi
+
+2.2 Finite-rank kernel approximation 
+
+The objective in Equation (1) is quadratic in the unknown couplings because its first term averages a pairwise interaction over products of the form dπ i(x, z )dπ j (x′, z ′). The problem is a constrained nonconvex problem and potentially difficult to analyze. To make the problem amenable for analysis, we assume a special class of affinity kernel, which are decomposable kernels that can be approximated by finite-rank expansions (Aronszajn, 1950; Mercer, 1909; Weiße et al., 2006). The spectral representation of K separates the dependence on x and 
+
+x′, so that the pairwise interaction can be expressed through feature-latent moments of the couplings. This subsection discusses the key assumptions and the induced error of kernel truncation, preparing for the variational lifting of Equation (1) in the next subsection. To state the spectral condition, let ρ := 1
+
+> M
+
+PMi=1 μi denote the mixture distribution on the disjoint union X . We use ρ as the reference measure for the spectral analysis of K,since it aggregates the modality-specific marginals into a single probability measure on X
+
+where the kernel is defined. Throughout this paper, we assume that K is symmetric positive semidefinite, and thus admits a Mercer decomposition (Mercer, 1909) with respect to ρ,
+
+K(x, x ′) = 
+
+> ∞
+
+X
+
+> r=1
+
+λrϕ′
+
+> r
+
+(x)ϕ′
+
+> r
+
+(x′),
+
+where λr ≥ 0 and {ϕ′
+
+> r
+
+}r≥1 are orthonormal eigenfunctions in L2(ρ) of the integral operator 
+
+TK f = R 
+
+> X
+
+K(·, x ′) f (x′) dρ (x′). Such a decomposition exists under mild regularity conditions on K and ρ. For instance, it follows from Mercer’s theorem when X is compact and K
+
+is continuous. A discussion on more general domains and kernels is given by Steinwart and Scovel (2012). We use ϕr(x) := √λrϕ′
+
+> r
+
+(x) to denote the scaled eigenfunction. For a truncation rank R ∈ N, define Φ R(x) :=  ϕ1(x), . . . , ϕ R(x)⊤ ∈ RR as the vector comprised of the first R scaled eigenfunction, and 
+
+KR(x, x ′) := Φ R(x)⊤ΦR(x′) = 
+
+> R
+
+X
+
+> r=1
+
+ϕr(x)ϕr(x′)as the rank-R approximation of the kernel K.The following assumption collects the regularity conditions used in this paper to construct the finite-rank approximation and to control its truncation error. 
+
+Assumption 1 (Kernel regularity and Mercer truncation) We impose the following conditions. 1. Uniform diagonal bound: there exists κ > 0 such that K(x, x ) ≤ κ2, for all x ∈ X .
+
+Consequently, ∥ΦR(x)∥2 = KR(x, x ) ≤ K(x, x ) ≤ κ2, for all R ≥ 1, x ∈ X .
+
+2. Uniform Mercer-tail control: we define the kernel approximate residual 
+
+ER(x, x ′) := K(x, x ′) − KR(x, x ′) = X
+
+> r>R
+
+ϕr(x)ϕr(x′),
+
+and its upper bound 
+
+ηR := sup 
+
+> x∈X
+
+ER(x, x ) = sup 
+
+> x∈X
+
+X
+
+> r>R
+
+ϕr(x)2.
+
+We assume ηR → 0 as R → ∞ .
+
+> 8JK-EGW for Multimodal Alignment
+
+From the definition of ER, we can apply the Cauchy–Schwarz inequality to obtain an upper bound on |E R(x, x ′)|,
+
+|E R(x, x ′)| ≤ pER(x, x )ER(x′, x ′) ≤ ηR.
+
+The subsequent theoretical analysis in this paper depends heavily on the kernel tail properties via ηR = sup x∈X 
+
+P 
+
+> r>R
+
+λr (ϕ′
+
+> r
+
+(x)) 2. Thus, we shall first verify the two conditions in Assumption 1 for popular kernels. The next proposition shows that both conditions hold for any continuous positive semidefinite kernel on a compact domain. It also estimates the decay rates for the radial basis function (RBF) kernel. 
+
+Proposition 2 (Satisfiability and Mercer-tail rates) Let X be compact, let ρ be a fi-nite Borel measure on X with supp (ρ) = X , and let K : X × X → R be a continuous symmetric positive semidefinite kernel. Then K admits the Mercer decomposition of As-sumption 1, where the uniform diagonal bound holds with κ2 = max x∈X K(x, x ) < ∞, and 
+
+ηR → 0 as R → ∞ .In particular, the radial basis function (RBF) kernel 
+
+K(x, x ′) = exp 
+
+
+
+− ∥x − x′∥2
+
+2ℓ2
+
+
+
+, ℓ > 0,
+
+satisfies Assumption 1 on every compact domain. For the RBF kernel, K(x, x ) = 1 for every 
+
+x, so the diagonal bound holds with κ2 = 1 . More specifically, suppose X = [0 , 1] dx with ρ
+
+the uniform measure, and let K be stationary, i.e. K(x, x ′) = k(x − x′) for some function 
+
+k : X → R. Then the following hold. (a) There exists a Mercer eigensystem satisfying Assumption 1, under which, for every 
+
+R ≥ 1, ηR ≤ 2 P 
+
+> r>R
+
+λr, where {λr}r≥1 is the non-increasing rearrangement of 
+
+{λm}m∈Zdx .(b) The eigenvalues of the periodized RBF kernel K(x, x ′) = P 
+
+> w∈Zdx
+
+exp 
+
+
+
+− ∥x−x′+w∥2
+
+> 2ℓ2
+
+
+
+satisfy 
+
+λm ≲ exp( −2π2ℓ2∥m∥2), m ∈ Zdx ,
+
+and consequently ηR ≲ e−c′R2/dx for some constant c′ > 0 depending only on ℓ and dx.
+
+Proposition 2 shows that the first condition of Assumption 1 holds for every continuous positive semidefinite kernel on a compact domain with full support. As a special case, Proposition 2 also provides an upper bound on the ηR for periodized RBF kernels, which vanishes exponentially when R → ∞ . The proof of Proposition 2 is deferred to Section A.1. We consider kernels that satisfy Assumption 1 hereon. Fix a truncation rank R ∈ N. Under Assumption 1, the finite-rank term Φ R(x)⊤ΦR(x′)separates the dependence of the kernel on x and x′. We can thus introduce a rank-R
+
+> 9Wu, Zhu, and Shi
+
+JK-EGW objective by replacing K by its rank-R approximation, 
+
+SRϵ ({μi}Mi=1 , ν ) := inf  
+
+> πi∈Γ( μi,ν )
+> i∈[M]
+
+( MX
+
+> i,j =1
+
+Z 
+
+> Xi×Z
+
+Z  
+
+> Xj×Z
+
+ΦR(x)⊤ΦR(x′)∥z − z′∥2 dπ i(x, z ) dπ j (x′, z ′)+ ϵ
+
+> M
+
+X
+
+> i=1
+
+DKL 
+
+ πi μi ⊗ ν )
+
+.
+
+(2) Replacing K by its rank-R truncation should not introduce a large error, and the error it does introduce is explicitly controllable through the choice of R. Since the problems in Equa-tion (1) and Equation (2) share the same feasible set and the same entropic regularization term, their values differ only through the quadratic term, where the kernel is perturbed by the residual ER, which Assumption 1 bounds uniformly by ηR. The truncation therefore introduces an error controlled by the Mercer tail of the kernel, and the following proposition quantifies this error. 
+
+Proposition 3 (Kernel truncation error) Suppose Assumption 1 holds and ν is 4-sub-Weibull with parameter σ2. Then, for every ϵ > 0 and every R ≥ 1,
+
+Sϵ({μi}Mi=1 , ν ) − SRϵ ({μi}Mi=1 , ν ) ≲ M 2σ η R.
+
+Proposition 3 suggests that the error induced by kernel truncation error bound is dependent only on the number of modalities M , the sub-Weibull parameter σ of the marginal distribution of the latent, and the Mercer-tail quantity ηR defined in Assumption 1. Hence, the error vanishes with ηR → 0. The proof of Proposition 3 is deferred to Section A.2. 
+
+2.3 Variational lifting to entropic optimal transport 
+
+The finite-rank objective in Equation (2) presents new structures that are not apparent in the original formulation Equation (1). One key observation is that, after replacing K(x, x ′)by Φ R(x)⊤ΦR(x′), the quadratic interaction among couplings depends on each coupling only through R-dimensional feature eigenfunctions Φ. This allows the quadratic problem to be lifted into a linear optimization problem, which an EOT solver could tackle. The resulting variational representation is the main bridge between the rank-R JK-EGW objective and standard EOT tools. To introduce the lifting, we define mΦ := PMj=1 
+
+R  
+
+> Xj
+
+ΦR(x′) dμ j (x′) ∈ RR as the averaged eigenfunction. For an arbitrary matrix A ∈ RR×dz , we introduce the modality-specific cost 
+
+ciA,m Φ (x, z ) := 2 Φ R(x)⊤mΦ ∥z∥2 − 4
+
+D
+
+A, ΦR(x)z⊤E 
+
+> F
+
+, x ∈ X i, z ∈ Z .
+
+We further define a linear EOT problem with the cost defined by ciA,m Φ (x, z ), 
+
+OT iA,m Φ,ϵ (μi, ν ) := inf 
+
+> πi∈Γ( μi,ν )
+
+Z 
+
+ciA,m Φ (x, z ) dπ i(x, z ) + ϵD KL 
+
+ πi μi ⊗ ν
+
+.
+
+The following theorem presents the transformation from the quadratic regularized optimiza-tion problem to a linear regularized optimization problem with the additional optimization variable A.
+
+> 10 JK-EGW for Multimodal Alignment
+
+Theorem 4 (Variational lifting of the rank-R EGW objective) Fix ϵ > 0. Suppose Assumption 1 holds and ν is a 4-sub-Weibull distribution with parameter σ2 > 0. Then 
+
+SRϵ ({μi}Mi=1 , ν ) = inf 
+
+> A∈RR×dz
+
+(
+
+2∥A∥2 
+
+> F
+
++
+
+> M
+
+X
+
+> i=1
+
+OT iA,m Φ,ϵ (μi, ν )
+
+)
+
+. (3) 
+
+Moreover, the infimum is achieved at A∗ ∈ A M := A ∈ RR×dz : ∥A∥F ≤ M κ (2 σ2)1/4 .
+
+The proof of Theorem 4 is deferred to Section A.3. The lifted formulation introduces an auxiliary matrix A to capture the aggregate feature-latent moment, while each inner term 
+
+OT iA,m Φ,ϵ (μi, ν ) is a standard EOT problem with cost ciA,m Φ . Since only A has the quadratic terms ∥A∥2 
+
+> F
+
+, the lifted formulation separates the nonconvex quadratic interaction from the modality-wise transport problems. This lifted formulation, enabled by the decomposition of the affinity kernel, is the foundation for the statistical analysis in Section 3. In literature, the similar duality of quadratic EGW is analyzed in Zhang et al. (2024), whose auxiliary matrix linearizes the cross-covariance of raw coordinates. In contrast, our lifting linearizes the moment R ΦR(x)z⊤ dπ i of the kernel feature map against the latent coordinates. The lifted formulation is thus set by the rank R rather than by the raw feature dimension. 
+
+3 Theoretical Analysis 
+
+In almost any application of multi-modality alignment, the raw feature distribution μi’s are rarely observed directly. We have access only to a finite set of paired samples, from which we form an empirical version of the JK-EGW objective. In the data-scarce regime, we therefore are interested in how fast the empirical objective converges to its population counterpart as the number of samples n grows. This is the central question of the proposed alignment that will be studied in this section. To obtain the sample complexity guarantee of the objective Sϵ, we decompose the analysis in two stages. We first establish sample complexity bounds for the rank-truncated objective SRϵ , whose finite-dimensional representation allows the problem to be reduced to a family of EOT problems. We then combine this statistical bound with kernel truncation estimates to obtain a corresponding sample complexity guarantee for the full objective 
+
+Sϵ. The resulting parametric bounds quantify how the empirical objective approaches its population counterpart as the number of samples increases, with constants governed by the latent dimension, the truncation level, the entropic regularization parameter, and the spectral decay of the kernel. 
+
+3.1 Sample Complexity 
+
+Let x1, . . . , x M i.i.d.
+
+∼ ρ gives a dataset of {x1
+
+> k
+
+, . . . , x Mk }nk=1 , and let z1, . . . , z n i.i.d.
+
+∼ ν, indepen-dently of the modality samples. We define the empirical measures as ˆμin = 1
+
+n
+
+> n
+
+X
+
+> k=1
+
+δxik , ˆνn = 1
+
+n
+
+> n
+
+X
+
+> ℓ=1
+
+δzℓ .
+
+Throughout this subsection, we work under the Assumption 1. Recall that we assume the latent reference distribution ν is 4-sub-Weibull with parameter σ2, while no tail condition is 
+
+> 11 Wu, Zhu, and Shi
+
+imposed on the modality distributions μi. The following theorem studies both the two-sample deviation 
+
+Sϵ({ˆμin}, ˆνn) − Sϵ({μi}, ν ),
+
+where both the modality distributions and the latent reference distribution are sampled, and the one-sample deviation 
+
+Sϵ({ˆμin}, ν ) − Sϵ({μi}, ν ),
+
+which is relevant when the latent reference distribution is specified or controlled by design. 
+
+Theorem 5 (Full-kernel EGW sample complexity) Fixed ϵ > 0. Suppose Assump-tion 1 holds, ν is 4-sub-Weibull with parameter σ2, and ˆμin and ˆνn are the empirical measures from n samples, then the two-sample deviation is upper bounded by 
+
+E  Sϵ({μi}Mi=1 , ν ) − Sϵ({ˆμin}Mi=1 , ˆνn) 
+
+≲M,R,d z ,κ ϵ
+
+
+
+1 + 
+
+ σϵ
+
+
+
++
+
+ σϵ
+
+2qR,z +2 
+
++
+
+ σϵ
+
+4qR,z +4  1
+
+√n + ση R,
+
+and the one-sample deviation is upper bounded by 
+
+E  Sϵ({μi}Mi=1 , ν ) − Sϵ({ˆμin}Mi=1 , ν ) 
+
+≲M,R,d z ,κ ϵ
+
+
+
+1 + 
+
+ σϵ
+
+
+
++
+
+ σϵ
+
+4qR,z +4  1
+
+√n + ση R,
+
+where qR,z =  R∨dz
+
+> 2
+
+, and the expectation is taken over the samples. 
+
+Theorem 5 shows that, for fixed ϵ, the empirical full-kernel objective converges to its population counterpart up to a kernel truncation error of order ηR and a statistical error that decays at the parametric rate n−1/2, with constants depending on M , R, dz , and κ.The kernel truncation error is proportional to ηR, which will diminish with large rank R
+
+since ηR → 0 as R → ∞ . The full error bound separates the statistical error induced by empirical sampling from the approximation error induced by the rank-R kernel truncation. Interestingly, the error bound has no explicit dependence on the ambient input dimension of the raw feature spaces dx. The statistical error term depends on the latent dimension 
+
+dz and the truncation level R, while the kernel approximation error is governed by the spectral decay of K. Consequently, when the kernel has a rapidly decaying spectrum, the effective statistical complexity is controlled by the latent dimension and the effective kernel rank, instead of the raw dimension of the input spaces. This property makes Equation (1) amenable to align multi-modal data whose raw features are high-dimensional but structured. The n−1/2 rate is consistent with known convergence rates for EGW distances with Euclidean costs (Zhang et al., 2024), as well as related sample complexity results for EOT (Mena and Niles-Weed, 2019). The main difference is that our analysis applies to a kernelized feature-space cost, which is natural in heterogeneous multimodal settings where raw Euclidean distances across modalities are not directly comparable. 
+
+> 12
+
+JK-EGW for Multimodal Alignment 
+
+3.2 Proof Sketch 
+
+To prove Theorem 5, which is a sample complexity guarantee for the full-kernel objective Sϵ,we will need to decompose the bound into three parts. There are two terms accounting for the truncation error of replacing kernel K with its rank-R counterpart for the population distributions and empirical distributions, respectively. There is another term accounting for the statistical error of the rank-truncated objective. More specifically, we have the following triangle inequality that decompose the error into three terms: 
+
+Sϵ({μi}Mi=1 , ν ) − Sϵ({ˆμin}Mi=1 , ˆνn)
+
+≤ Sϵ({μi}Mi=1 , ν ) − SRϵ ({μi}Mi=1 , ν ) (Truncation error on population distributions) + SRϵ ({μi}Mi=1 , ν ) − SRϵ ({ˆμin}Mi=1 , ˆνn) (Statistical error on rank-R JK-EGW) + SRϵ ({ˆμin}Mi=1 , ˆνn) − Sϵ({ˆμin}Mi=1 , ˆνn) . (Truncation error on empirical distributions) The first term on the RHS is controlled by the population truncation bound in Proposition 3. It remains to control the second term, which is the rank-R JK-EGW statistical error bound, and the third term, which is a kernel truncation error evaluated at the empirical measures. The following Proposition analyzes the second term. 
+
+Proposition 6 (Rank-truncated JK-EGW sample complexity) Suppose that As-sumption 1 holds. Fix ϵ > 0. Assume that the latent reference distribution ν is 4-sub-Weibull with parameter σ2. Let ˆμin and ˆνn be the empirical measures, with samples drawn inde-pendently across modalities and from the latent reference distribution. Set qR,z =  R∨dz
+
+> 2
+
+.Then, 
+
+E  SRϵ ({μi}Mi=1 , ν ) − SRϵ ({ˆμin}Mi=1 , ˆνn)  ≲M,R,d z ,κ ϵ
+
+
+
+1 + 
+
+ σϵ
+
+
+
++
+
+ σϵ
+
+2qR,z +2 
+
++
+
+ σϵ
+
+4qR,z +4  1
+
+√n ,
+
+E  SRϵ ({μi}Mi=1 , ν ) − SRϵ ({ˆμin}Mi=1 , ν )  ≲M,R,d z ,κ ϵ
+
+
+
+1 + 
+
+ σϵ
+
+
+
++
+
+ σϵ
+
+4qR,z +4  1
+
+√n ,
+
+The proof of Proposition 6 is deferred to Section B.1. We highlight a few technical challenges. First, since the transport cost of the lifted EOT problem is defined as ciA,m Φ =2Φ R(x)⊤mΦ ∥z∥2 − 4 A, ΦR(x)z⊤ 
+
+> F
+
+, this term is dependent on the marginal distribution μ
+
+through mΦ. The empirical version of mΦ is defined as ˆ mΦ = PMj=1 
+
+R  
+
+> Xj
+
+ΦR(x′) dˆμjn(x′) = 
+
+> 1
+> n
+
+PMj=1 
+
+Pnk=1 ΦR(xjk), which results in a different EOT transport cost. Such difference is not present in the previous statistical analysis of GWOT with Euclidean distance cost (Zhang et al., 2024). To tackle the challenge, we develop an error bound on E ∥mΦ − ˆmΦ∥ through the regularity conditions on Φ R.Second, our analysis works with kernel features without adding strong assumptions on the raw feature spaces X i. Therefore, new regularity conditions of the transport plan should be established. However, Assumption 1 only assumes a uniform bound ∥ΦR(x)∥ ≤ κ on the feature map, which does not directly imply the smoothness of the Mercer eigenfunctions and or the conditions on the μi. To establish the regularity, we leverage the fact that the cost ciA,m Φ depends on x only through Φ R(x), which enables rebuilding the regularity theory behind the empirical-process argument in the feature space. Full characterizations of the 
+
+13 Wu, Zhu, and Shi 
+
+regularity are in Lemma 13, which is a core step in supporting the proof of Proposition 6. As a result of the new analysis, the regularity does not require tail or moment condition on the μi. This is the mechanism behind the effective dimension R ∨ dz in Theorem 5 and Proposition 6. In contrast, the error analysis in Zhang et al. (2024) and Mena and Niles-Weed (2019) involve constants depend on the ambient dimensions of the sample spaces, whose bounds require tail conditions on both marginals. With the statistical term controlled by Proposition 6, the remaining ingredient toward Theorem 5 is the kernel truncation error evaluated at the empirical measures. The fol-lowing corollary records the empirical analogue of the population truncation estimate in Proposition 3. 
+
+Corollary 7 (Empirical kernel truncation error) Suppose that Assumption 1 holds, and assume that ν is 4-sub-Weibull with parameter σ2. Let ˆμin and ˆνn be the empirical measures from n samples defined above. Then, for every ϵ > 0 and R ≥ 1,
+
+E  Sϵ({ˆμin}Mi=1 , ˆνn) − SRϵ ({ˆμin}Mi=1 , ˆνn)  ≲ M 2σ η R,
+
+where the expectation is taken over the samples. Consequently, since ηR → 0 by Assumption 1, the empirical truncation error vanishes in expectation as R → ∞ .
+
+Indeed, applying Proposition 3 conditionally on the samples gives 
+
+Sϵ({ˆμin}Mi=1 , ˆνn) − SRϵ ({ˆμin}Mi=1 , ˆνn) ≤ M 2ηR
+
+Z Z 
+
+> Z×Z
+
+∥z − z′∥2 dˆνn(z)dˆνn(z′).
+
+With ˆ νn = 1
+
+> n
+
+Pnℓ=1 δzℓ , we have 
+
+E
+
+Z Z 
+
+∥z − z′∥2 dˆνn(z)dˆνn(z′) = 
+
+
+
+1 − 1
+
+n
+
+
+
+E∥Z − Z′∥2 ≤ 2E∥Z∥2,
+
+where Z, Z ′ ∼ ν are independent. Since ν is 4-sub-Weibull with parameter σ2,
+
+E∥Z∥2 ≤  E∥Z∥41/2 ≲ σ. 
+
+Therefore, 
+
+E  Sϵ({ˆμin}Mi=1 , ˆνn) − SRϵ ({ˆμin}Mi=1 , ˆνn)  ≲ M 2σ η R.
+
+Recall that the kernel truncation error of the population distributions is bounded by Proposition 3. The rank-truncated statistical error is bounded by Proposition 6, and the kernel truncation error of the empirical distributions is bounded by Corollary 7. The decay rate of ηR can be determined by substituting specific kernels, as in Proposition 2. The aforementioned propositions and corollary together build up to Theorem 5. 
+
+4 Optimization for Discrete JK-EGW 
+
+Having established the closeness between Sϵ({μi}Mi=1 , ν ) and Sϵ({ˆμin}Mi=1 , ˆνn), we now focus on Sϵ({ˆμin}Mi=1 , ˆνn) and develop an algorithm to solve it. Recall that for each modality 
+
+i ∈ [M ] we have n i.i.d. samples {xik}nk=1 ⊂ X i ⊆ Rdi , yielding the empirical measure 
+
+> 14
+
+JK-EGW for Multimodal Alignment 
+
+ˆμin = 1
+
+> n
+
+Pnk=1 δxik . We further generate n latent support points {zℓ}nℓ=1 ⊂ Z by randomly identically sampling from the latent reference measure ν. The shared empirical latent measure is constructed by ˆ νn = 1
+
+> n
+
+Pnℓ=1 δzℓ . Our goal is to jointly compute the modality-wise empirical transport plans {ˆπi}Mi=1 , where each ˆ πi ∈ Γ(ˆ μin, ˆνn) couples ˆ μin to the shared ˆ νn
+
+under uniform marginals. These empirical transport plans are parametrized by n × n (scaled) doubly stochastic matrices, ˆπi ∈ Rn×n 
+
+> +
+
+, subject to ˆπi1 = 1
+
+n 1, ˆπi⊤1 = 1
+
+n 1.
+
+We define ˆ πikℓ as the mass transported from sample xik in modality i to the latent support point zℓ. The discrete version of the exact-kernel JK-EGW objective is thus: ˆSϵ
+
+ {ˆμin}Mi=1 , ˆνn
+
+ = min 
+
+> {ˆπi}Mi=1
+
+X
+
+> i,j
+
+X
+
+> k,k ′,ℓ,ℓ ′
+
+W i,j k,k ′ ˆπik,ℓ ˆπjk′,ℓ ′ ∥zℓ − zℓ′ ∥2 + ϵ
+
+> M
+
+X
+
+> i=1
+
+DKL 
+
+ ˆπi ˆμin ⊗ ˆνn
+
+
+
+subject to ˆπi1 = 1 
+
+> n
+
+1, ˆπi⊤1 = 1 
+
+> n
+
+1, i ∈ [M ].
+
+(4) In Equation (4), W i,j ∈ Rn×n is the empirical similarity matrix with its k, k ′-th entry defined by W i,j k,k ′ = K(xik, x jk′ ). We further concatenate all W i,j matrices into W ∈ RN ×N ,where N = M n . More specifically, 
+
+W =
+
+
+
+W 1,1 W 1,2 · · · W 1,M 
+
+W 2,1 W 2,2 · · · W 2,M 
+
+... ... . . . ...
+
+W M, 1 W M, 2 · · · W M,M 
+
+ ∈ RM n ×M n , W i,j k,k ′ = K(xik, x jk′ ).
+
+At the empirical level, the interaction term in Equation (4) is also quadratic in the transport plans and therefore expensive to optimize directly. We similarly employ a low-rank approximation of the block kernel matrix W , followed by similar variational lifting procedures discussed in Section 2.3. 
+
+4.1 Finite-rank Decomposition and Lifting 
+
+We first approximate the empirical kernel matrix through a Nystr¨ om-style feature factoriza-tion 
+
+W ≈ LL ⊤, L ∈ RN × ˆR, ˆR ≪ N, 
+
+that can be computed by Pivoted Cholesky using kernel evaluations of the entries of 
+
+W (Williams and Seeger, 2000; Harbrecht et al., 2012). Under the positive-semidefinite kernel assumption, the Pivoted Cholesky factorization constructs L greedily from selected ˆR
+
+pivot columns, terminating once the residual trace tr( W − LL ⊤) falls below a prescribed tolerance τ ˆR > 0, and yields a positive-semidefinite residual W − LL ⊤ ⪰ 0 at each truncation level. We define ρ ˆR := max a,b ∈[N ] Wab − (LL ⊤)ab as the ℓ∞ norm of the residual. Positive-semidefiniteness of the residual gives Wab − (LL ⊤)ab ≤ p(W − LL ⊤)aa (W − LL ⊤)bb ≤
+
+tr( W − LL ⊤) for all a, b ∈ [N ], so the returned factor L satisfies ρ ˆR ≤ τ ˆR. Because each pivot step involves only the residual diagonal and one additional column of W , computing L requires 
+
+15 Wu, Zhu, and Shi 
+
+O(N ˆR) kernel evaluations, O(N ˆR2) arithmetic operations, and O(N ˆR) memory (Harbrecht et al., 2012). This linear scaling in N makes Pivoted Cholesky well suited to large N . The calculation of L is performed only once before our optimization algorithm. We therefore denote by ˆS ˆRϵ the empirical objective obtained from Equation (4) after replacing the global block matrix W by its rank- ˆR approximation LL ⊤.ˆS ˆRϵ
+
+ {ˆμin}Mi=1 , ˆνn
+
+ = min 
+
+> {ˆπi}Mi=1
+
+X
+
+> i,j
+
+X
+
+> k,k ′,ℓ,ℓ ′
+
+(LL ⊤)i,j k,k ′ ˆπik,ℓ ˆπjk′,ℓ ′ ∥zℓ − zℓ′ ∥2 + ϵ
+
+> M
+
+X
+
+> i=1
+
+DKL 
+
+ ˆπi ˆμin ⊗ ˆνn
+
+
+
+subject to ˆπi1 = 1 
+
+> n
+
+1, ˆπi⊤1 = 1 
+
+> n
+
+1, i ∈ [M ].
+
+(5) Notice that the computational rank ˆR is conceptually distinct from the analytic Mercer truncation rank R in Section 3, where the former is used for approximating the empirical ker-nel in practice while the later is used in the theoretical analysis. The additional error caused by the Nystr¨ om-style kernel approximation is analyzed separately in later Proposition 12. We are now ready to derive the finite-dimensional lifting that would catalyze an opti-mization algorithm. For transport plans {ˆπi}Mi=1 , define the vertically stacked transport matrix ˆΠ = 
+
+
+
+ˆπ1
+
+...ˆπM
+
+ ∈ RN ×n, N = M n. 
+
+We use ˆZ ∈ Rn×dz to denote the latent embedding matrix whose ℓ-th row is z⊤ 
+
+> ℓ
+
+, and define ˆZnorm = ( ∥z1∥2, . . . , ∥zn∥2)⊤ as the row-norm vector of ˆZ. Define Ω = 1
+
+n Rowsum( LL ⊤) = 1
+
+n L(L⊤1N ) ∈ RN ,
+
+where 1N is the all-one vector in RN . The following result rewrites the quadratic low-rank empirical objective ˆS ˆRϵ as a minimization over an auxiliary matrix and M EOT subproblems. 
+
+Theorem 8 (Low-rank sample kernel EGW lifting) Fix ϵ > 0. Suppose Assump-tion 1 holds, then 
+
+ˆS ˆRϵ
+
+ {ˆμin}Mi=1 , ˆνn
+
+ = min  
+
+> ˆA∈RˆR×dz
+
+(
+
+2∥ ˆA∥2 
+
+> F
+
++
+
+> M
+
+X
+
+> i=1
+
+OT iˆCi( ˆA),ϵ (ˆ μin, ˆνn)
+
+)
+
+,
+
+where ˆCi( ˆA) ∈ Rn×n is the i-th row block of 
+
+ˆC( ˆA) = 2Ω ˆZ⊤ 
+
+> norm
+
+− 4L ˆA ˆZ⊤ ∈ RN ×n.
+
+Equivalently, ˆCi( ˆA) consists of rows (( i − 1) n + 1) : in of ˆC( ˆA). For each modality i, the EOT subproblem is 
+
+OT iˆCi( ˆA),ϵ (ˆ μin, ˆνn) = min 
+
+> ˆπi∈Γ(ˆ μin,ˆνn)
+
+n
+
+⟨ ˆCi( ˆA), ˆπi⟩ + ϵD KL 
+
+ ˆπi ˆμin ⊗ ˆνn
+
+o
+
+.
+
+Moreover, for fixed transport plans {ˆπi}Mi=1 , the minimizing auxiliary variable satisfies 
+
+ˆA = L⊤ ˆΠ ˆZ. 
+
+16 JK-EGW for Multimodal Alignment 
+
+The proof of Theorem 8 is deferred to Section C.1, which follows by applying the similar variational lifting mechanisms as in Theorem 4. Importantly, Theorem 8 suggests an alternating minimization scheme to optimize Equation (5), which proceeds in iterations. For each iteration, we first fix ˆA and optimize the transport plans with linear cost calculated by ˆC( ˆA). This subroutine decouples into M EOT problems that can be solved by off-the-shelf EOT solvers, such as the Sinkhorn algorithm (Cuturi, 2013). We then fix transport plans and optimize the auxiliary variable ˆA, which has a closed-form solution ˆA = L⊤ ˆΠ ˆZ.The algorithm proceeds by iterations until convergence. We summarize this procedure in Algorithm 1, where the purple lines execute the sub-optimization for the transport plans ˆΠand the maroon lines optimize ˆA.
+
+Algorithm 1 Alternating minimization algorithm for solving ˆS ˆRϵ
+
+Input: Finite-rank kernel factor L ∈ RN × ˆR, latent matrix ˆZ ∈ Rn×dz , initial auxiliary matrix ˆA(0) ∈ R ˆR×dz , regularization parameter ϵ > 0, tolerance τ > 0, maximum iterations Tmax 
+
+Output: Transport plan ˆΠ, auxiliary matrix ˆA, approximate objective value J 
+
+> 1:
+
+Compute ˆZnorm ← (∥z1∥2, . . . , ∥zn∥2)⊤ 
+
+> 2:
+
+Compute Ω ← 1 
+
+> n
+
+L(L⊤1N ) 
+
+> 3:
+
+Initialize J (0) ← +∞ 
+
+> 4:
+
+for t = 1 , . . . , T max do  
+
+> 5:
+
+ˆC(t) ← 2Ω ˆZ⊤ 
+
+> norm
+
+− 4L ˆA(t−1) ˆZ⊤ 
+
+> 6:
+
+for i = 1 , . . . , M do  
+
+> 7:
+
+Let ˆCi, (t) be the i-th row block of ˆC(t) 
+
+> 8:
+
+ˆπi, (t) ← Sinkhorn 
+
+ ˆCi, (t), ϵ ; 1 
+
+> n
+
+1, 1 
+
+> n
+
+1
+
+ 
+
+> 9:
+
+end for  
+
+> 10:
+
+ˆΠ(t) ←
+
+
+
+ˆπ1,(t)
+
+...ˆπM, (t)
+
+ 
+
+> 11:
+
+ˆA(t) ← L⊤ ˆΠ(t) ˆZ 
+
+> 12:
+
+J (t) ← 2∥ ˆA(t)∥2 
+
+> F
+
++
+
+D
+
+2Ω ˆZ⊤ 
+
+> norm
+
+− 4L ˆA(t) ˆZ⊤, ˆΠ(t)
+
+E
+
++ ϵ PMi=1 DKL 
+
+ ˆπi, (t) ˆμin ⊗ ˆνn
+
+ 
+
+> 13:
+
+if t > 1 and |J (t−1) −J (t)|  
+
+> 1+ |J (t−1) |
+
+< τ then  
+
+> 14:
+
+break  
+
+> 15:
+
+end if  
+
+> 16:
+
+end for  
+
+> 17:
+
+return ( ˆΠ(t), ˆA(t), J (t))Algorithm 1 implements the Sinkhorn updates (Cuturi, 2013) to solve the modality-wise EOT subproblems whose costs are determined by current auxiliary matrix ˆA. Each Sinkhorn update costs O(n2) per transport plan. The total per-iterate cost of Sinkhorn update is thus 
+
+O(M n 2). 
+
+17 Wu, Zhu, and Shi 
+
+4.2 Error Analysis 
+
+We can now relate the computable low-rank empirical objective in Equation (5) back to the population objective in Equation (1), whose error is the ultimate quantity we care about. Similar to Theorem 5, we can analyze the error bound of running Algorithm 1 to solve the surrogate objective of Eq (1). More specifically, we introduce the Theorem 9 to bound the expectation between Sϵ and ˆS ˆRϵ .
+
+Theorem 9 (End-to-end error for the computable low-rank objective) Suppose Assumption 1 holds and assume that ν is 4-sub-Weibull with parameter σ2. Assume also that the latent support points z1, . . . , z n are sampled i.i.d. from ν. Let qR,z =  R∨dz
+
+> 2
+
+. Then, for every ϵ > 0,
+
+E
+
+h
+
+Sϵ({μi}Mi=1 , ν ) − ˆS ˆRϵ ({ˆμin}Mi=1 , ˆνn)
+
+i
+
+≲M,R,d z ,κ ϵ
+
+
+
+1 + 
+
+ σϵ
+
+
+
++
+
+ σϵ
+
+2qR,z +2 
+
++
+
+ σϵ
+
+4qR,z +4  1
+
+√n
+
++ σ  2ηR + E[ρ ˆR] ,
+
+where the expectation over ρ ˆR is taken over modality samples. In particular, if the Pivoted Cholesky/Nystr¨ om approximation satisfies ρ ˆR ≤ τ ˆR almost surely, then 
+
+E
+
+h
+
+Sϵ({μi}Mi=1 , ν ) − ˆS ˆRϵ ({ˆμin}Mi=1 , ˆνn)
+
+i
+
+≲M,R,d z ,κ ϵ
+
+
+
+1 + 
+
+ σϵ
+
+
+
++
+
+ σϵ
+
+2qR,z +2 
+
++
+
+ σϵ
+
+4qR,z +4  1
+
+√n
+
++ σ  2ηR + τ ˆR
+
+ .
+
+4.3 Proof sketch 
+
+The bound in Theorem 9 can be decomposed into several components via triangle inequalities: 
+
+Sϵ({μi}Mi=1 , ν ) − ˆS ˆRϵ ({ˆμin}Mi=1 , ˆνn)
+
+≤ Sϵ({μi}Mi=1 , ν ) − SRϵ ({μi}Mi=1 , ν ) (Truncation error on population distributions) + SRϵ ({μi}Mi=1 , ν ) − SRϵ ({ˆμin}Mi=1 , ˆνn) (Statistical error on rank-R JK-EGW) + SRϵ ({ˆμin}Mi=1 , ˆνn) − ˆS ˆRϵ ({ˆμin}Mi=1 , ˆνn) . (Empirical analytic-to-computable error) Here, the first term is the population kernel truncation error bounded by Proposition 3, the second term is the rank-R statistical error bounded by Proposition 6. It remains to bound the third term, which is the empirical analytic-to-computable error. The following proposition gives a direct comparison between the analytic rank-R empirical objective and the computable rank- ˆR empirical objective (“analytic” and “computable” refer to the kernel). 
+
+Proposition 10 (Empirical analytic-to-computable kernel approximation error) 
+
+Suppose Assumption 1 holds and ν is 4-sub-Weibull with parameter σ2. Then, for every 
+
+ϵ > 0,
+
+E
+
+h
+
+SRϵ ({ˆμin}Mi=1 , ˆνn) − ˆS ˆRϵ ({ˆμin}Mi=1 , ˆνn)
+
+i
+
+≤ M 2σ(ηR + E[ρ ˆR]) ,
+
+18 JK-EGW for Multimodal Alignment 
+
+where the expectation over ρ ˆR is taken over modality samples. In particular, if ρ ˆR ≤ τ ˆR
+
+almost surely, then 
+
+E
+
+h
+
+SRϵ ({ˆμin}Mi=1 , ˆνn) − ˆS ˆRϵ ({ˆμin}Mi=1 , ˆνn)
+
+i
+
+≲ M 2σ  ηR + τ ˆR
+
+ .
+
+To prove Proposition 10, we rely on an additional layer of triangle inequality: 
+
+SRϵ ({ˆμin}Mi=1 , ˆνn) − ˆS ˆRϵ ({ˆμin}Mi=1 , ˆνn)
+
+≤ SRϵ ({ˆμin}Mi=1 , ˆνn) − ˆSϵ({ˆμin}Mi=1 , ˆνn) + ˆSϵ({ˆμin}Mi=1 , ˆνn) − ˆS ˆRϵ ({ˆμin}Mi=1 , ˆνn) ,
+
+where the first term is the discrepancy due to replacing Φ R(x)⊤ΦR(x) by W on the empirical sample pairs. More specifically, the following proposition quantifies this error in terms of the Mercer-tail quantity ηR and the empirical second moment of the latent support. 
+
+Proposition 11 (Empirical Mercer realization error) Suppose Assumption 1 holds and ν is 4-sub-Weibull with parameter σ2. Then, for every ϵ > 0,
+
+E
+
+h
+
+SRϵ ({ˆμin}Mi=1 , ˆνn) − ˆSϵ({ˆμin}Mi=1 , ˆνn)
+
+i
+
+≤ M 2σ η R.
+
+Recall that there are two distinct kernel approximation mechanisms. The first is replacing the population kernel K by the rank-R Mercer truncation Φ ⊤
+
+> R
+
+ΦR, which is bounded in Proposition 3. The other error comes from replacing the empirical realization W by the Pivoted Cholesky/Nystr¨ om factorization LL ⊤, which contributes to the second term of the triangle inequality above. More specifically, the second term is bounded by the following Proposition: 
+
+Proposition 12 (Pivoted Cholesky empirical approximation error) Suppose that 
+
+ν is 4-sub-Weibull with parameter σ2. Then, for every ϵ > 0,
+
+E
+
+h ˆSϵ({ˆμin}Mi=1 , ˆνn) − ˆS ˆRϵ ({ˆμin}Mi=1 , ˆνn)
+
+i
+
+≲ M 2σ E[ρ ˆR],
+
+where the expectation over ρ ˆR is taken over modality samples. In particular, if the Pivoted Cholesky routine returns a factor L satisfying ρ ˆR,n ≤ τ ˆR almost surely, then 
+
+E
+
+h ˆSϵ({ˆμin}Mi=1 , ˆνn) − ˆS ˆRϵ ({ˆμin}Mi=1 , ˆνn)
+
+i
+
+≲ M 2σ τ ˆR.
+
+The proofs of Proposition 11 and Proposition 12 are deferred to Section C.2 and Section C.3, respectively. 
+
+5 Numerical Results 
+
+We present the numerical analysis of the proposed JK-EGW in this section. We will first use multi-modality MNIST as a proof-of-concept experiment to illustrate the concept of multimodal alignment and the performance of JK-EGW. Then, we will validate the statistical error on a synthetic example. Finally, we implement Algorithm 1 on an image-text alignment task to investigate its performance on real multimodal datasets. 
+
+19 Wu, Zhu, and Shi 
+
+5.1 Multi-modality Numerals 
+
+The purpose of this example is to visualize how the transport plans learned by Algorithm 1 map heterogeneous feature representations into a shared latent reference. The multi-modality numerals is one UCI dataset for the multi-feature representation of handwritten numerals from 0 to 9 (Duin, 1998). For numerical digits, multiple features are constructed through several feature sets. We take two of them as the M = 2 modalities. The modality first consists of 76 Fourier coefficients of the character shapes, which describe the geometry of each digit in the frequency domain. The second consists of 64 Karhunen–Lo` eve coefficients, which represent each digit image through its projections onto principal components computed from the images. The two feature sets take values in Euclidean spaces of different dimensions, and their coordinates often does not have common interpretation. Therefore, pointwise comparisons of features are not well defined across modalities. JK-GWOT provides an alternative tool to align features from the two modalities. We construct the within-modality similarity blocks W i,i using the RBF kernels. The cross-modality similarity block W i,j is defined by label agreement. More specifically, we set W i,j k,k ′ = 1 when xik and xjk′ have the same digit label and W i,j k,k ′ = 0 otherwise. The shared latent support is sampled from a two-dimensional Gaussian reference distribution for visualization. The displayed point for sample xik is its barycentric latent embedding ˆyik = n Pnℓ=1 ˆπikℓ zℓ. We use the POT library (Flamary et al., 2021) that implements Cuturi (2013) to compute Sinkhorn updates in Algorithm 1. 
+
+Figure 2: Worked illustration of Algorithm 1 on a multi-view handwritten digits dataset. Two feature views, Fourier coefficients (FT) and Karhunen–Lo` eve coefficients (KL), are treated as two modalities and coupled to a shared two-dimensional Gaussian latent reference. Points show the barycentric latent embeddings induced by the learned transport plans and are colored by digit class. 
+
+> 20
+
+JK-EGW for Multimodal Alignment 
+
+Figure 2 illustrates the output of Algorithm 1. The resulting embeddings place samples with the same digit label in comparable regions of the latent space across the two views, illustrating how the optimized couplings encode both within-modality geometry and cross-modality affinity. 
+
+5.2 Synthetic Example 
+
+To validate the theoretical findings in Theorem 5, we construct a synthetic problem in which all distributions have finite support, so that the population objective Sϵ({μi}Mi=1 , ν )is itself finite-dimensional. In this setting, the exact Mercer feature map of K is available through eigendecomposition of its Gram matrix, and running Algorithm 1 on the population weights returns the ground-truth value up to solver tolerances. There are M = 2 modalities. The marginal distribution of each is supported on a discrete 1D set of a uniform grid of 20 points in [0 , 1]. The distributions are created from discrete mixture of Gaussian and visualized in Figure 3. The latent reference ν is the uniform distribution on a 7 × 7grid in [ −1, 1] 2. Such discrete distribution is 4-sub-Weibull. We use the RBF kernel 
+
+K(x, x ′) = γ exp  − ∥ x − x′∥2 /2ℓ2 with bandwidth ℓ = 0 .1 as the similarity kernels, where 
+
+γ = 1 for within-modality affinity and γ = 0 .6 for cross-modality affinity. K is positive semidefinite for γ ∈ [0 , 1], and K(x, x ) = 1 gives κ = 1. We implement Algorithm 1 where the optimization over transport plans is solved by log-domain Sinkhorn (Cuturi, 2013; Flamary et al., 2021). 0.0 0.2 0.4 0.6 0.8 1.0  
+
+> semantic support x
+> 0.00 0.02 0.04 0.06 0.08 0.10 0.12
+> probability mass
+> modality 1 modality 2 -1.00 1.00
+> latent coordinate 1
+> -1.00 1.00
+> latent coordinate 2
+
+Figure 3: The feature space follow two discrete mixtures of Gaussian distributions. The latent distribution is uniform on a 2D grid. 
+
+Parametric rate . For each n ∈ { 50 , 100 , 200 , 400 , 800 , 1600 }, we sample and construct empirical measures ˆ μ1
+
+> n
+
+, ˆμ2
+
+> n
+
+, and ˆ νn, independently across modalities and the latent reference, and calculate Sϵ({ˆμin}, ˆνn) and Sϵ({μi}, ν ) via Algorithm 1. Since the population distributions 
+
+μ1, μ2, and ν are also discrete, Algorithm 1 directly yields the population value Sϵ(μi, ν ). We record the two-sample error |Sϵ({ˆμin}, ˆνn) − Sϵ({μi}, ν )|. Similarly, in the one-sample regime, we calculate Sϵ({ˆμin}, ν ) using Algorithm 1 and record the statistical error |Sϵ({ˆμin}, ν ) −
+
+Sϵ({μi}, ν )|. We run both experiments over 100 Monte Carlo repetitions and plot the averaged error curves on Figure 4 ( Left ) on log–log axes with the n−1/2 reference. Both curves show trends consistent with the O(n−1/2) upper bound provided in Theorem 5. 
+
+21 Wu, Zhu, and Shi 
+
+Kernel truncation error . In addition, we explore how the choice of R affect kernel truncation error ηR thus |Sϵ − SRϵ |. We experiment with 4 different types of common kernels, including the RBF kernel K(x, x ′) = exp   − ∥ x − x′∥2 /2ℓ2, the exponential kernel K(x, x ′) = exp   − ∥ x − x′∥ /ℓ , the rational quadratic kernel K(x, x ′) =  1 + ∥x − x′∥2 /2ℓ2−1, and the periodic kernel K(x, x ′) = exp   − 2 sin 2(π ∥x − x′∥)/ℓ 2. We set a common length scale 
+
+ℓ = 0 .15 to all the kernels that approximately matches the geometry in the feature space. We still use Algorithm 1 to solve for the transport plan with the entropy regularization parameter ϵ = 0 .2. Since the μ1 and μ2 have finite support, we can obtain the exact Mercer feature map Φ by eigendecomposition of the kernel Gram matrix. Similarly, the rank-R
+
+features Φ R are formed by by retaining the top R leading eigenpairs of the kernel Gram matrix. Figure 4 ( Right ) reports the gap |Sϵ − SRϵ | against different R. Since M and σ are the same for all kernel experiments, the errors are dominated by the Mercer-tail quantity ηR.We can observe that for all kernels we experimented, the gap in transport value decreases with the increase of R, which is consistent with the theoretical prediction in Theorem 5 that smaller ηR results in smaller error between Sϵ and SRϵ . Among the 4 kernels, the smooth RBF and rational quadratic kernels reach solver precision faster, whereas the exponential and periodic kernels require larger R.26 27 28 29 210                 
+
+> sample size n
+> 10 2
+> mean absolute error  n1/2 reference
+> one-sample two-sample 010 20 30 40 50
+> truncation rank R
+> 10 15
+> 10 13
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> |S SR|
+> RBF Exponential Rational quadratic Periodic
+
+Figure 4: Left : Sample complexity of the full-kernel entropic objective. Mean absolute error of the plug-in estimator versus n (log–log), in the one-sample ( ν known) and two-sample ( ν estimated) regimes. Right : Objective truncation gap |Sϵ − SRϵ |
+
+v.s. Mercer rank R. Objective truncation gaps |Sϵ − SRϵ | for four kernels. Both curves follow the dashed n−1/2 reference. It is worth noting that in both synthetic experiments, the reported objective values are subject to optimization error from Algorithm 1, which cannot be avoided in numerical experiments. Nevertheless, we assume the optimization error is negligible compared to the statistical error in practice and use the algorithm output to validate Proposition 3 and Theorem 5. 
+
+22 JK-EGW for Multimodal Alignment 
+
+5.3 Image-text Alignment 
+
+We evaluate JK-EGW alignment on image–text alignment tasks constructed from MS– COCO (Lin et al., 2014). The experiments are designed to assess whether the proposed JK-EGW formulation learns a geometrically coherent shared latent space. 
+
+Dataset. We construct image–text subsets from the MS–COCO 2017 training split (Lin et al., 2014), pairing each image with the concatenation of its five reference captions. To obtain controlled alignment benchmarks with class-level structure, we use a class-targeted sampling strategy. We first select a set of MS–COCO object categories and then sample a balanced number of images per category. We instantiate this strategy in two configurations with different sizes of the training dataset: a 6K subset with 6000 training and 3000 test images drawn from 20 categories (300 training and 150 test images per category), and a larger 9K subset with 9000 training and 3000 test images drawn from 30 categories (300 training and 100 test images per category). Within each subset, each image is assigned to at most one target category, and the training and test splits are disjoint. 
+
+Procedure. We use MPNet (Song et al., 2020) as the frozen text encoder and DI-NOv3 (Sim´ eoni et al., 2025) as the frozen image encoder. All features are extracted once and ℓ2-normalized before alignment and evaluation. The distribution ν is instantiates as a Gaussian mixture model with 20 components. Each component follows an isotropic Gaussian, whose means are placed along mutually orthogonal directions at a fixed distance from the origin. This is an informative choice of marginal distribution which does not require the prior knowledge of of the common representation space. We set the dimension of the common representations space d = 32. Algorithm 1 returns one transport plan per modality, ˆ πtxt and ˆ πimg , coupling the training samples of each modality to the latent support matrix ˆZ. We define the per-sample latent embeddings of the training set as ˆZtxt train = ˆ πtxt ˆZ and ˆZimg train = ˆ πimg ˆZ, whose rows are, up to a uniform scaling, the barycentric latent embeddings introduced in Section 4. To extend this map out of the training set, we train a simple MLP for each modality that regresses the raw encoder features Xtrain onto the ( ℓ2-normalized) training ˆZtrain . Model selection uses a small validation split held out from the training set, based on validation retrieval recall at 1 (R@1). Test samples are used only at inference. The trained MLPs are then frozen and applied to the ℓ2-normalized test features, so each test point is embedded in the shared latent space by a learned approximation of the training transport map. 
+
+Baselines. We compare JK-EGW with three most recent baseline methods for aligning features generated by pretrained single-modality encoders. CSA (Li et al., 2025) is a closed-form canonical similarity analysis method that maps frozen unimodal features into a shared multimodal space via canonical correlation analysis. CSA+ STRUCTURE augments CSA with the similarity-based layer-selection rule and STRUCTURE regularization in Gr¨ oger et al. (2025). MLP+ STRUCTURE replaces the linear map in CSA with a trainable MLP alignment head optimized using a contrastive objective (Radford et al., 2021) with similarity-based layer selection and STRUCTURE regularization (Gr¨ oger et al., 2025). 
+
+Alignment. For MS–COCO alignment, we pool the aligned image and caption embeddings from the test split and report purity and silhouette scores using the target-category labels. Purity measures the agreement between a k-means clustering of the pooled embeddings and 
+
+> 23 Wu, Zhu, and Shi
+
+the target categories, while the silhouette score measures whether each pooled embedding lies closer to its own category than to the nearest other category under the cosine distance. They characterize how well the learned embeddings conform with the semantic structure. To evaluate cross-modal retrieval, we report recall at 1 (R@1) and recall at 5 (R@5). More specifically, retrieval is calculated based on the cosine similarity between the aligned test embeddings of the two modalities. In the image-to-text direction, each test image ranks all test caption embeddings by decreasing cosine similarity to its own embedding, and rimg →txt 
+
+> i
+
+denotes the resulting rank of the caption paired with image i. The rank rtxt →img  
+
+> j
+
+is defined symmetrically for each test caption j. For k ∈ { 1, 5}, the image-to-text recall is R@ kimg →txt = 1
+
+nev 
+
+> nev
+
+X
+
+> i=1
+
+1{rimg →txt  
+
+> i≤k}
+
+,
+
+where nev denotes the number of test pairs. The text-to-image recall R@ ktxt →img is defined analogously, and the reported value is R@ k = 12
+
+ R@ kimg →txt + R@ ktxt →img  .
+
+Table 1: Alignment and retrieval performance of JK-EGW and baselines. Dataset Model Alignment Retrieval 
+
+Purity Silhouette R@1 R@5 
+
+MS–COCO 6k CSA 0.638 -0.210 0.257 0.542 CSA+ STRUCTURE 0.654 -0.196 0.290 0.595 MLP+ STRUCTURE 0.638 -0.156 0.154 0.390 JK-EGW (Ours) 0.719 0.117 0.380 0.674 
+
+MS–COCO 9k CSA 0.673 -0.150 0.263 0.549 CSA+ STRUCTURE 0.689 -0.143 0.304 0.613 MLP+ STRUCTURE 0.638 -0.133 0.084 0.239 JK-EGW (Ours) 0.633 0.104 0.413 0.706 
+
+Table 1 reports results for JK-EGW and three baseline alignment methods on the test splits of the 6K and 9K MS–COCO subsets. JK-EGW produces the strongest alignment and retrieval results across all dimensions. It achieves the highest purity in both datasets and is the only method with positive silhouette scores, while all baselines yield negative silhouette values. These results suggest that JK-EGW learns a shared representation that produces improved retrieval performance. We further conduct an ablation study on the latent dimension d in Section E of the Appendix. Figure 5 visualizes the shared text and image representations learned by JK-EGW and the baselines on the MS–COCO 6K subset. More specifically, we use the t-SNE (Van der Maaten and Hinton, 2008) to generate 2D embedding coordinated of the shared representations. These plots visually support the claim that the distributions of the latent embeddings from different modalities are similar, while embeddings from different categories remain well separated. For JK-EGW, the embeddings of each class concentrate in a distinct contiguous region, with the text and image modalities visually showing the same arrangement of these regions. In contrast, the categories in the baseline representations are less compact.   
+
+> 24 JK-EGW for Multimodal Alignment
+> (a) JK-EGW(Ours) (b) CSA+ STRUCTURE
+> (c) CSA (d) MLP+ STRUCTURE
+
+Figure 5: Two-dimensional t-SNE embeddings of the shared representations learned by JK-EGW and the baselines on the MS–COCO 6K subset. 
+
+6 Conclusion 
+
+We propose JK-EGW problem that maps several frozen unimodal encoders into a shared latent space with a prespecified marginal distribution. Theoretically, when a finite-rank Mercer approximation of the affinity kernel exists, we can certify the statistical error of the JK-EGW problem, despite its nonconvexity. Algorithmically, we develop an alternating optimization method to solve JK-EGW. Empirically, JK-EGW learns geometrically coherent shared representations and strong bidirectional retrieval on MS–COCO. Our study also points to several natural directions for future work. First, principled strategies for selecting or adapting the reference distribution ν to the downstream tasks would be valuable. Second, our setting focuses on finite number of modalities. Certifying the behavior of JK-EGW when M is extremely large would be helpful in large-scale multi-modal alignment tasks. 
+
+Impact Statement 
+
+This paper presents work whose goal is to advance the field of Machine Learning. There are many potential societal consequences of our work, none which we feel must be specifically highlighted here. 
+
+References 
+
+Emanuele Aiello, LILI YU, Yixin Nie, Armen Aghajanyan, and Barlas Oguz. Jointly training large autoregressive multimodal models. In The Twelfth International Conference on Learning Representations , 2024. URL https://openreview.net/forum?id=5jcav5RcKw .
+
+> 25 Wu, Zhu, and Shi
+
+David Alvarez-Melis and Tommi Jaakkola. Gromov-wasserstein alignment of word embedding spaces. In Proceedings of the 2018 conference on empirical methods in natural language processing , pages 1881–1890, 2018. Nachman Aronszajn. Theory of reproducing kernels. Transactions of the American mathe-matical society , 68(3):337–404, 1950. Rainer E Burkard. Quadratic assignment problems. European Journal of Operational Research , 15(3):283–289, 1984. Sanyuan Chen, Yu Wu, Chengyi Wang, Shujie Liu, Daniel Tompkins, Zhuo Chen, and Furu Wei. Beats: Audio pre-training with acoustic tokenizers. arXiv preprint arXiv:2212.09058 ,2022. Gregory Constantine and Thomas Savits. A multivariate faa di bruno formula with applica-tions. Transactions of the American Mathematical Society , 348(2):503–520, 1996. Nello Cristianini, John Shawe-Taylor, Andre Elisseeff, and Jaz Kandola. On kernel-target alignment. Advances in neural information processing systems , 14, 2001. Marco Cuturi. Sinkhorn distances: Lightspeed computation of optimal transport. Advances in neural information processing systems , 26, 2013. Robert Duin. Multiple Features. UCI Machine Learning Repository, 1998. DOI: https://doi.org/10.24432/C5HC70. Benjamin Elizalde, Soham Deshmukh, Mahmoud Al Ismail, and Huaming Wang. Clap learning audio concepts from natural language supervision. In ICASSP 2023-2023 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 1–5. IEEE, 2023. Fartash Faghri, David J Fleet, Jamie Ryan Kiros, and Sanja Fidler. Vse++: Improving visual-semantic embeddings with hard negatives. arXiv preprint arXiv:1707.05612 , 2017. R´ emi Flamary, Nicolas Courty, Alexandre Gramfort, Mokhtar Z Alaya, Aur´ elie Boisbunon, Stanislas Chambon, Laetitia Chapel, Adrien Corenflos, Kilian Fatras, Nemo Fournier, et al. Pot: Python optimal transport. Journal of Machine Learning Research , 22(78):1–8, 2021. Andrea Frome, Greg S Corrado, Jon Shlens, Samy Bengio, Jeff Dean, Marc’Aurelio Ranzato, and Tomas Mikolov. Devise: A deep visual-semantic embedding model. Advances in neural information processing systems , 26, 2013. Aude Genevay, L´ enaic Chizat, Francis Bach, Marco Cuturi, and Gabriel Peyr´ e. Sample complexity of sinkhorn divergences. In The 22nd international conference on artificial intelligence and statistics , pages 1574–1583. PMLR, 2019. Evarist Gin´ e and Richard Nickl. Mathematical foundations of infinite-dimensional statistical models . Cambridge university press, 2021. 
+
+> 26 JK-EGW for Multimodal Alignment
+
+Rohit Girdhar, Alaaeldin El-Nouby, Zhuang Liu, Mannat Singh, Kalyan Vasudev Alwala, Armand Joulin, and Ishan Misra. Imagebind: One embedding space to bind them all. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition ,pages 15180–15190, 2023. Fabian Gr¨ oger, Shuo Wen, Huyen Le, and Maria Brbi´ c. With limited data for multimodal alignment, let the structure guide you. arXiv preprint arXiv:2506.16895 , 2025. Michel Groppe and Shayan Hundrieser. Lower complexity adaptation for empirical entropic optimal transport. Journal of Machine Learning Research , 25(344):1–55, 2024. Helmut Harbrecht, Michael Peters, and Reinhold Schneider. On the low-rank approximation by the pivoted cholesky decomposition. Applied numerical mathematics , 62(4):428–440, 2012. Zhuo Huang, Gang Niu, Bo Han, Masashi Sugiyama, and Tongliang Liu. Towards out-of-modal generalization without instance-level modal correspondence. In The Thirteenth International Conference on Learning Representations , 2025. Qian Jiang, Changyou Chen, Han Zhao, Liqun Chen, Qing Ping, Son Dinh Tran, Yi Xu, Belinda Zeng, and Trishul Chilimbi. Understanding and constructing latent modality structures in multi-modal representation learning. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 7661–7671, 2023. Andrej Karpathy and Li Fei-Fei. Deep visual-semantic alignments for generating image descriptions. In Proceedings of the IEEE conference on computer vision and pattern recognition , pages 3128–3137, 2015. Dominik Klein, Th´ eo Uscidda, Fabian Theis, and Marco Cuturi. Genot: Entropic (gromov) wasserstein flow matching with applications to single-cell genomics. Advances in Neural Information Processing Systems , 37:103897–103944, 2024. Natalia Kravtsova. The np-hardness of the gromov-wasserstein distance. arXiv preprint arXiv:2408.06525 , 2024. Brian Kulis, Sugato Basu, Inderjit Dhillon, and Raymond Mooney. Semi-supervised graph clustering: a kernel approach. In Proceedings of the 22nd international conference on machine learning , pages 457–464, 2005. John Lee, Max Dabagia, Eva Dyer, and Christopher Rozell. Hierarchical optimal transport for multimodal distribution alignment. Advances in neural information processing systems ,32, 2019. Po-han Li, Sandeep P. Chinchali, and ufuk topcu. CSA: Data-efficient mapping of unimodal features to multimodal features. In The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview.net/forum?id=6Mg7pjG7Sw .Paul Pu Liang, Yiwei Lyu, Xiang Fan, Zetian Wu, Yun Cheng, Jason Wu, Leslie Chen, Peter Wu, Michelle A Lee, Yuke Zhu, et al. Multibench: Multiscale benchmarks for multimodal 
+
+> 27 Wu, Zhu, and Shi
+
+representation learning. Advances in neural information processing systems , 2021(DB1):1, 2021. Paul Pu Liang, Amir Zadeh, and Louis-Philippe Morency. Foundations & trends in mul-timodal machine learning: Principles, challenges, and open questions. ACM computing surveys , 56(10):1–42, 2024. Victor Weixin Liang, Yuhui Zhang, Yongchan Kwon, Serena Yeung, and James Y Zou. Mind the gap: Understanding the modality gap in multi-modal contrastive representation learning. Advances in Neural Information Processing Systems , 35:17612–17625, 2022. Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Doll´ ar, and C Lawrence Zitnick. Microsoft coco: Common objects in context. In 
+
+European conference on computer vision , pages 740–755. Springer, 2014. Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. 
+
+Advances in neural information processing systems , 36:34892–34916, 2023. Mayug Maniparambil, Raiymbek Akshulakov, Yasser Abdelaziz Dahou Djilali, Sanath Narayan, Ankit Singh, and Noel E O’Connor. Harnessing frozen unimodal encoders for flexible multimodal alignment. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 29847–29857, 2025. Facundo M´ emoli. Gromov–wasserstein distances and the metric approach to object matching. 
+
+Foundations of computational mathematics , 11(4):417–487, 2011. Gonzalo Mena and Jonathan Niles-Weed. Statistical bounds for entropic optimal transport: sample complexity and the central limit theorem. Advances in neural information processing systems , 32, 2019. James Mercer. Xvi. functions of positive and negative type, and their connection the theory of integral equations. Philosophical transactions of the royal society of London. Series A, containing papers of a mathematical or physical character , 209(441-458):415–446, 1909. Luca Moschella, Valentino Maiorca, Marco Fumero, Antonio Norelli, Francesco Locatello, and Emanuele Rodol` a. Relative representations enable zero-shot latent space communication. 
+
+arXiv preprint arXiv:2209.15430 , 2022. Marcel Nutz and Johannes Wiesel. Entropic optimal transport: Convergence of potentials. 
+
+Probability Theory and Related Fields , 184(1):401–424, 2022. Kazusato Oko, Licong Lin, Yuhang Cai, and Song Mei. A statistical theory of contrastive pre-training and multimodal generative ai. arXiv preprint arXiv:2501.04641 , 2025. Gabriel Peyr´ e, Marco Cuturi, and Justin Solomon. Gromov-wasserstein averaging of kernel and distance matrices. In International conference on machine learning , pages 2664–2672. PMLR, 2016. Shraman Pramanick, Aniket Roy, and Vishal M Patel. Multimodal learning using optimal transport for sarcasm and humor detection. In Proceedings of the IEEE/CVF winter conference on applications of computer vision , pages 3930–3940, 2022. 
+
+> 28 JK-EGW for Multimodal Alignment
+
+Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In International conference on machine learning , pages 8748–8763. PmLR, 2021. Gabriel Rioux, Ziv Goldfeld, and Kengo Kato. Entropic gromov-wasserstein distances: Stability and algorithms. Journal of machine learning research , 25(363):1–52, 2024. Elan Rosenfeld, Preetum Nakkiran, Hadi Pouransari, Oncel Tuzel, and Fartash Faghri. Ape: Aligning pretrained encoders to quickly learn aligned multimodal representations. arXiv preprint arXiv:2210.03927 , 2022. Meyer Scetbon, Gabriel Peyr´ e, and Marco Cuturi. Linear-time gromov Wasserstein dis-tances using low rank couplings and costs. In Kamalika Chaudhuri, Stefanie Jegelka, Le Song, Csaba Szepesvari, Gang Niu, and Sivan Sabato, editors, Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research , pages 19347–19365. PMLR, 17–23 Jul 2022. URL 
+
+https://proceedings.mlr.press/v162/scetbon22b.html .Oriane Sim´ eoni, Huy V. Vo, Maximilian Seitzer, Federico Baldassarre, Maxime Oquab, Cijo Jose, Vasil Khalidov, Marc Szafraniec, Seungeun Yi, Micha¨ el Ramamonjisoa, Fran-cisco Massa, Daniel Haziza, Luca Wehrstedt, Jianyuan Wang, Timoth´ ee Darcet, Th´ eo Moutakanni, Leonel Sentana, Claire Roberts, Andrea Vedaldi, Jamie Tolan, John Brandt, Camille Couprie, Julien Mairal, Herv´ e J´ egou, Patrick Labatut, and Piotr Bojanowski. DINOv3, 2025. URL https://arxiv.org/abs/2508.10104 .Kaitao Song, Xu Tan, Tao Qin, Jianfeng Lu, and Tie-Yan Liu. Mpnet: Masked and permuted pre-training for language understanding. Advances in neural information processing systems , 33:16857–16867, 2020. Ingo Steinwart and Clint Scovel. Mercer’s theorem on general domains: On the interaction between measures, kernels, and rkhss. Constructive Approximation , 35(3):363–417, 2012. Thomas M. Sutter, Yang Meng, Andrea Agostini, Daphn´ e Chopard, Norbert Fortin, Julia E Vogt, Babak Shahbaba, and Stephan Mandt. Unity by diversity: Improved representation learning for multimodal VAEs. In The Thirty-eighth Annual Conference on Neural Informa-tion Processing Systems , 2024. URL https://openreview.net/forum?id=Z4R2rkPgBy .Masahiro Suzuki, Kotaro Nakayama, and Yutaka Matsuo. Joint multimodal learning with deep generative models. arXiv preprint arXiv:1611.01891 , 2016. Gemini Team, Petko Georgiev, Ving Ian Lei, Ryan Burnell, Libin Bai, Anmol Gulati, Garrett Tanzer, Damien Vincent, Zhufeng Pan, Shibo Wang, et al. Gemini 1.5: Unlocking multi-modal understanding across millions of tokens of context. arXiv preprint arXiv:2403.05530 ,2024. Yao-Hung Hubert Tsai, Paul Pu Liang, Amir Zadeh, Louis-Philippe Morency, and Rus-lan Salakhutdinov. Learning factorized multimodal representations. arXiv preprint arXiv:1806.06176 , 2018. 
+
+> 29 Wu, Zhu, and Shi
+
+Laurens Van der Maaten and Geoffrey Hinton. Visualizing data using t-sne. Journal of machine learning research , 9(11), 2008. Aad W Van Der Vaart and Jon A Wellner. Weak convergence. In Weak convergence and empirical processes: with applications to statistics , pages 16–28. Springer, 1996. Jianfeng Wang, Zhengyuan Yang, Xiaowei Hu, Linjie Li, Kevin Lin, Zhe Gan, Zicheng Liu, Ce Liu, and Lijuan Wang. Git: A generative image-to-text transformer for vision and language. arXiv preprint arXiv:2205.14100 , 2022. Benjamin Warner, Antoine Chaffin, Benjamin Clavi´ e, Orion Weller, Oskar Hallstr¨ om, Said Taghadouini, Alexis Gallagher, Raja Biswas, Faisal Ladhak, Tom Aarsen, et al. Smarter, better, faster, longer: A modern bidirectional encoder for fast, memory efficient, and long context finetuning and inference. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 2526–2547, 2025. Alexander Weiße, Gerhard Wellein, Andreas Alvermann, and Holger Fehske. The kernel polynomial method. Reviews of modern physics , 78(1):275–306, 2006. Christopher Williams and Matthias Seeger. Using the nystr¨ om method to speed up kernel machines. Advances in neural information processing systems , 13, 2000. Wenze Xu, Chun Wang, Jiazhen Yu, Sheng Chen, Liang Gao, and Weihong Deng. Optimal transport regularization for speech text alignment in spoken language models. In Asian Conference on Pattern Recognition , pages 280–294. Springer, 2025. Le Zhang, Qian Yang, and Aishwarya Agrawal. Assessing and learning alignment of unimodal vision and language models. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 14604–14614, 2025. Zhengxin Zhang, Ziv Goldfeld, Youssef Mroueh, and Bharath K Sriperumbudur. Gromov– wasserstein distances: Entropic regularization, duality and sample complexity. The Annals of Statistics , 52(4):1616–1645, 2024. Yue Zhao, Fuzhao Xue, Scott Reed, Linxi Fan, Yuke Zhu, Jan Kautz, Zhiding Yu, Philipp Kr¨ ahenb¨ uhl, and De-An Huang. Qlip: Text-aligned visual tokenization unifies auto-regressive multimodal understanding and generation. CoRR , 2025. 
+
+> 30
+
+JK-EGW for Multimodal Alignment 
+
+Appendix A. Proofs for Section 2 
+
+A.1 Proof of Proposition 2 
+
+We first prove the claims for general kernels and specialize to the RBF kernel, then prove parts (a) and (b) by computing the Mercer eigensystem of a stationary kernel on [0 , 1] dx
+
+explicitly. 
+
+General kernels on a compact domain. Under Proposition 2’s hypotheses, Mercer’s theorem provides an orthonormal basis {ϕ′
+
+> r
+
+}r≥1 of L2(ρ) consisting of eigenfunctions of the integral operator TK f := R 
+
+> X
+
+K(·, x ′)f (x′) dρ (x′), with eigenvalues λr ≥ 0, such that 
+
+K(x, x ′) = X
+
+> r≥1
+
+λr ϕ′
+
+> r
+
+(x) ϕ′
+
+> r
+
+(x′) (6) converges absolutely and uniformly on X × X , and ϕ′ 
+
+> r
+
+is continuous whenever λr > 0 (Stein-wart and Scovel, 2012). Since x 7 → K(x, x ) is continuous on the compact set X , it attains its maximum, which gives the diagonal bound with κ2 = max x K(x, x ) < ∞. The partial sums KR(x, x ) = P 
+
+> r≤R
+
+λrϕ′
+
+> r
+
+(x)2 are continuous and increase pointwise to the continuous limit K(x, x ), so by Dini’s theorem the convergence is uniform on X , that is, 
+
+ηR = sup 
+
+> x∈X
+
+ K(x, x ) − KR(x, x ) −→ 0.
+
+For the RBF kernel, and it is continuous, and positive semidefinite on every domain, because exp 
+
+
+
+− ∥x − x′∥2
+
+2ℓ2
+
+
+
+= e−∥ x∥2/(2 ℓ2) e−∥ x′∥2/(2 ℓ2) X
+
+> j≥0
+
+1
+
+j!
+
+ x⊤x′
+
+ℓ2
+
+j
+
+,
+
+where the linear kernel x⊤x′ is positive semidefinite, each power ( x⊤x′)j is then positive semidefinite by the Schur product theorem. Hence the RBF kernel satisfies Assumption 1 on every compact domain, and K(x, x ) = 1 gives κ2 = 1. Now, let X = [0 , 1] dx with ρ the uniform measure and K(x, x ′) = k(x − x′), with differences taken modulo 1. Since K is stationary, K(x, x ′) depends only on ( x − x′) mod 1, so k extends to a 1-periodic function on Rdx through k(t + w) = k(t) for w ∈ Zdx . k is even since k(t) = K(x, x ′) = K(x′, x ) = k(−t) for such a pair. Two elementary facts about arithmetic modulo 1 are used below. For m ∈ Zdx define the complex exponentials and the Fourier coefficients 
+
+φm(x) := e2πim ⊤x, λm := ˆk(m) := 
+
+Z
+
+> [0 ,1] dx
+
+k(t) e−2πim ⊤t dt, 
+
+so the family {λm}m∈Zdx in parts (a) and (b) is the family of Fourier coefficients of k.
+
+Proof of (a). We first want to verify that the predefined complex exponentials φm
+
+are eigenfunctions of TK , and the corresponding eigenvalues are the Fourier coefficients. Substituting t = ( x − x′) mod 1 at fixed x, which is a negation and translation by x for x′.Here, the negation and translation are bijections preserve the uniform measure, and 
+
+TK φm(x) = 
+
+Z
+
+> [0 ,1] dx
+
+k(x−x′) e2πim ⊤x′
+
+dx ′ =
+
+Z
+
+> [0 ,1] dx
+
+k(t) e−2πim ⊤t dt 
+
+
+
+e2πim ⊤x = ˆk(m) φm(x),
+
+31 Wu, Zhu, and Shi 
+
+so every φm is an eigenfunction of TK with eigenvalue ˆk(m). These eigenvalues are non-negative. Indeed, substituting the uniformly convergent expansion (6) and integrating termwise gives ⟨TK f, f ⟩ = P 
+
+> r
+
+λr|⟨ f, ϕ ′
+
+> r
+
+⟩| 2 ≥ 0 for every f ∈ L2(ρ), and in particular ˆk(m) = ⟨TK φm, φ m⟩ ≥ 0. They are also even in m, since the measure preserving substitu-tion t 7 → − t modulo 1 and evenness of k give ˆk(−m) = ˆk(m). Next, we want to verify the real trigonometric functions form a valid Mercer eigensystem. For m̸ = 0 the identities 
+
+√2 cos(2 πm ⊤x) = 1√2
+
+ φm(x) + φ−m(x), √2 sin(2 πm ⊤x) = 1
+
+> i√2
+
+ φm(x) − φ−m(x)
+
+describe a unitary change of basis of span {φm, φ −m}. We therefore work in these normalized cosine and sine functions, together with the constant 1. By linearity of the operator TK and ˆk(m) = ˆk(−m), every element is an eigenfunction of TK , and the constant 1 has eigenvalue 
+
+λ0. The cosine and sine pair both have eigenvalue ˆk(m) = ˆk(−m), so the eigenvalue multiset of this system is exactly {λm}m∈Zdx . This trigonometric system and the Mercer basis are two orthonormal eigenbases of the compact self adjoint operator TK , so they carry the same multiset of nonzero eigenvalues, and 
+
+X
+
+> m∈Zdx
+
+λm = X
+
+> r≥1
+
+λr =
+
+Z
+
+> [0 ,1] dx
+
+K(x, x ) dx = k(0) < ∞.
+
+In particular the non-increasing rearrangement {λr}r≥1 of {λm} in the statement of part (a) is well defined. Summability also makes the series P 
+
+> m
+
+λm e2πim ⊤(x−x′) converge absolutely and uniformly, whose sum is a continuous 1-periodic function with the same Fourier coefficients as 
+
+k, hence P 
+
+> m
+
+λm e2πim ⊤(x−x′) = k(x − x′). Splitting each exponential into real and imaginary parts, the imaginary contributions of m and −m cancel because λm = λ−m, and the identity cos( a − b) = cos a cos b + sin a sin b with a = 2 πm ⊤x and b = 2 πm ⊤x′ gives 
+
+K(x, x ′) = X
+
+> m∈Zdx
+
+λm
+
+ cos(2 πm ⊤x) cos(2 πm ⊤x′)+ sin(2 πm ⊤x) sin(2 πm ⊤x′).
+
+The summand is invariant under m 7 → − m, so each pair {m, −m} contributes twice its cosine product and twice its sine product, and each doubled product equals the product of the corresponding √2 normalized functions. With the constant term λ0 included, the right hand side is therefore P 
+
+> r≥1
+
+λr ϕ′
+
+> r
+
+(x) ϕ′
+
+> r
+
+(x′) for the real system above. Finally, since every element of the real system satisfies ϕ′
+
+> r
+
+(x)2 ≤ 2 pointwise, 
+
+ηR = sup 
+
+> x∈[0 ,1] dx
+
+X
+
+> r>R
+
+λr ϕ′
+
+> r
+
+(x)2 ≤ 2 X
+
+> r>R
+
+λr,
+
+which is exactly claim (a). 
+
+Proof of (b). We first want to calculate the exact eigenvalues of the RBF kernel. Since differences are taken modulo 1, the profile of the RBF kernel in part (b) is understood as the 1-periodic function 
+
+k(t) = X
+
+> w∈Zdx
+
+exp 
+
+
+
+− ∥t + w∥2
+
+2ℓ2
+
+
+
+.
+
+32 JK-EGW for Multimodal Alignment 
+
+The series converges uniformly by Gaussian decay, so k is continuous, even, and 1-periodic, and K(x, x ′) = k(x − x′) is a continuous symmetric stationary kernel. In particular, the eigenvalue family of part (b) is the family of Fourier coefficients λm = ˆk(m) of this k, which we now compute in closed form. The Gaussian translates have finite total integral, so Fubini’s theorem allows the series to be integrated termwise. In each term the substitution s = t + w
+
+leaves the exponential unchanged, because e−2πim ⊤t = e−2πim ⊤s e2πim ⊤w and e2πim ⊤w = 1 for w ∈ Zdx . The shifted cubes w + [0 , 1] dx partition Rdx , so the sum of the shifted integrals collapses into a single integral over Rdx ,ˆk(m) = X
+
+> w∈Zdx
+
+Z
+
+> [0 ,1] dx
+
+e−∥ t+w∥2/(2 ℓ2) e−2πim ⊤t dt 
+
+= X
+
+> w∈Zdx
+
+Z
+
+> w+[0 ,1] dx
+
+e−∥ s∥2/(2 ℓ2) e−2πim ⊤s ds 
+
+=
+
+Z
+
+> Rdx
+
+e−∥ s∥2/(2 ℓ2) e−2πim ⊤s ds. 
+
+This last integral is the Fourier transform of the Gaussian at frequency m. It factorizes over the coordinates, and in one dimension completing the square gives 
+
+Z
+
+> R
+
+e−s2/(2 ℓ2) e−2πiξs ds = e−2π2ℓ2ξ2
+
+Z
+
+> R
+
+e−(s+2 πiℓ 2ξ)2/(2 ℓ2) ds = √2π ℓ e −2π2ℓ2ξ2
+
+,
+
+where the shifted Gaussian integral equals √2π ℓ after moving the contour back to the real axis by Cauchy’s theorem. Hence 
+
+λm = ˆk(m) = (2 πℓ 2)dx/2 exp  −2π2ℓ2∥m∥2, m ∈ Zdx . (7) We finally move to calculate the specific decay rate of ηR for the RBF kernel. Write 
+
+c := 2 π2ℓ2, so λm = C0 e−c∥m∥2
+
+by (7), with C0 = (2 πℓ 2)dx/2. For T ≥ 1, the number of lattice points m ∈ Zdx with ∥m∥ ≤ T is at most (2 ⌊T ⌋ + 1) dx ≤ (3 T )dx , since such points satisfy ∥m∥∞ ≤ T and each coordinate then takes at most 2 ⌊T ⌋ + 1 integer values. Set 
+
+cdx := 3 dx and TR := ( R/c dx )1/d x . Let first R ≥ cdx , so that TR ≥ 1 and the ball of radius 
+
+TR contains at most R lattice points. Since P 
+
+> r≤R
+
+λr is the sum of the R largest values of the family {λm}, it dominates the sum of λm over any R lattice points, in particular over a set of R points containing this ball, so 
+
+X
+
+> r>R
+
+λr = X
+
+> m∈Zdx
+
+λm − X
+
+> r≤R
+
+λr ≤ X
+
+> ∥m∥>T R
+
+λm.
+
+For ∥m∥ > T R, splitting e−c∥m∥2
+
+≤ e−cT 2 
+
+> R/2
+
+e−c∥m∥2/2 yields 
+
+X
+
+> ∥m∥>T R
+
+λm ≤ C1 e−cT 2
+
+> R/2
+
+, C1 := C0
+
+X 
+
+> j∈Z
+
+e−cj 2/2dx
+
+< ∞,
+
+where the lattice sum factorizes over coordinates and each factor is finite by comparison with a geometric series. Substituting T 2 
+
+> R
+
+= ( R/c dx )2/d x and invoking part (a), 
+
+ηR ≤ 2 X
+
+> r>R
+
+λr ≤ 2C1 exp  −c′R2/d x , c′ := c
+
+2 c−2/d x 
+
+> dx
+
+= π2ℓ2
+
+9 ,
+
+33 Wu, Zhu, and Shi 
+
+for all R ≥ cdx . For 1 ≤ R < c dx , part (a) gives ηR ≤ 2 P 
+
+> m
+
+λm = 2 k(0), while exp( −c′R2/d x ) ≥ e−π2ℓ2
+
+, so the same bound holds for all R ≥ 1 after enlarging the prefactor. This proves ηR ≲ e−c′R2/dx with c′ depending only on ℓ and dx, completing the proof. 
+
+A.2 Proof of Proposition 3 
+
+The entropy terms are the same in Sϵ and SRϵ , so 
+
+|Sϵ({μi}Mi=1 , ν ) − SRϵ ({μi}Mi=1 , ν )| ≤ sup  
+
+> πi∈Γ( μi,ν )
+> i∈[M]
+> M
+
+X
+
+> i,j =1
+
+Z Z 
+
+ER(x, x ′)∥z − z′∥2 dπ i(x, z )dπ j (x′, z ′) .
+
+By Assumption 1, the residual kernel ER = K − KR is positive semidefinite and satisfies 
+
+|E R(x, x ′)| ≤ pER(x, x )ER(x′, x ′) ≤ ηR.
+
+Therefore, 
+
+|Sϵ({μi}Mi=1 , ν ) − SRϵ ({μi}Mi=1 , ν )| ≤ ηR sup  
+
+> πi∈Γ( μi,ν )
+> i∈[M]
+> M
+
+X
+
+> i,j =1
+
+Z Z 
+
+∥z − z′∥2 dπ i(x, z )dπ j (x′, z ′).
+
+Since each πi has z-marginal ν, each term in the double sum equals 
+
+Z Z 
+
+> Z×Z
+
+∥z − z′∥2 dν (z)dν (z′).
+
+so the quantity inside the supremum does not depend on the choice of the couplings. Thus 
+
+|Sϵ({μi}Mi=1 , ν ) − SRϵ ({μi}Mi=1 , ν )| ≤ M 2ηR
+
+Z Z 
+
+∥z − z′∥2 dν (z)dν (z′).
+
+Let Z, Z ′ ∼ ν be independent, then 
+
+Z Z 
+
+∥z − z′∥2 dν (z)dν (z′) = E∥Z − Z′∥2 ≤ 2E∥Z∥2.
+
+The 4-sub-Weibull assumption implies 
+
+E∥Z∥2 ≤ p2 log 2 σ
+
+and therefore Z Z 
+
+∥z − z′∥2 dν (z)dν (z′) ≲ σ, 
+
+which gives 
+
+Sϵ({μi}Mi=1 , ν ) − SRϵ ({μi}Mi=1 , ν ) ≲ M 2σ η R.
+
+34 JK-EGW for Multimodal Alignment 
+
+A.3 Proof of Theorem 4 
+
+We start from substituting rank-R approximation of K(x, x ′), Φ R(x)⊤ΦR(x′), into Equa-tion (1) and obtain: 
+
+SRϵ ({μi}, ν ) = inf  
+
+> {πi}
+
+{ 2 X
+
+> i
+
+Z
+
+ΦR(x)⊤
+
+X
+
+> j
+
+Z
+
+ΦR(x′)dμ j (x′)
+
+ ∥z∥2 dπ i(x, z ) − 2 X
+
+> i,j
+
+tr ViV ⊤
+
+> j
+
++ ϵ
+
+> M
+
+X
+
+> i=1
+
+DKL (πi ∥ μi ⊗ ν) } ,
+
+where Vi = R ΦR(x)z⊤dπ i(x, z ). Using the identity 
+
+−2 X
+
+> i
+
+Vi
+
+> 2
+> F
+
+= inf  
+
+> A
+
+2 ∥A∥2 
+
+> F
+
+− 4 X
+
+> i
+
+⟨A, V i⟩
+
+!
+
+and note that the optimum is achieved at A∗ = P 
+
+> i
+
+Vi, we have 
+
+SRϵ ({μi}, ν ) = inf 
+
+> A
+
+(
+
+2 ∥A∥2 
+
+> F
+
++ X
+
+> i
+
+OT iA,m Φ,ϵ (μi, ν )
+
+)
+
+,
+
+where the cost function ciA,m Φ (x, z ) = 2
+
+
+
+ΦR(x)⊤
+
+P
+
+> j
+
+R ΦR(x′)dμ j (x′)
+
+ 
+
+∥z∥2 −
+
+4 A, ΦR(x)z⊤ . Since A∗ = P 
+
+> i
+
+Vi,
+
+∥A∥F ≤ M κ 
+
+Z 
+
+∥z∥4 dν 
+
+1/4
+
+≤ 21/4M κ √σ. 
+
+Therefore the infimum is achieved in AM = {A : ∥A∥F ≤ 21/4M κ √σ}.
+
+35 Wu, Zhu, and Shi 
+
+Appendix B. Proofs for Section 3 
+
+B.1 Proof of Proposition 6 
+
+We will prove the two-sample case while the one-sample case is a byproduct. First, we rescale z → ϵ−1/2z so that 
+
+SRϵ ({μi}, ν ) = ϵS R 
+
+> 1
+
+({μi}, ν ϵ),
+
+where νϵ is 4-sub-Weibull with parameter σ2/ϵ 2. Similarly, 
+
+SRϵ ({ˆμin}, ˆνn) = ϵS R 
+
+> 1
+
+({ˆμin}, ˆνϵn).
+
+We set ϵ = 1 and recover the general case ϵ > 0 at the end. Let L > 0 be a radius to be specified later, and define 
+
+AL := 
+
+n
+
+A ∈ RR×dz : ∥A∥F ≤ L
+
+o
+
+.
+
+Recall that the population EOT cost is 
+
+ciA,m Φ (x, z ) = 2 Φ R(x)⊤mΦ ∥z∥2 − 4
+
+D
+
+A, ΦR(x)z⊤E 
+
+> F
+
+,
+
+where 
+
+mΦ =
+
+> M
+
+X
+
+> j=1
+
+Z 
+
+> Xj
+
+ΦR(x′) dμ j (x′).
+
+For the empirical objective, define ˆmΦ =
+
+> M
+
+X
+
+> j=1
+
+Z 
+
+> Xj
+
+ΦR(x′) dˆμjn(x′) = 1
+
+n
+
+> M
+
+X
+
+> j=1
+> n
+
+X
+
+> k=1
+
+ΦR(xjk),
+
+and ˆciA, ˆmΦ (x, z ) = 2 Φ R(x)⊤ ˆmΦ ∥z∥2 − 4
+
+D
+
+A, ΦR(x)z⊤E 
+
+> F
+
+.
+
+So similarly the empirical EOT problem with cost ˆ ciA(x, z ) is 
+
+OT iA, ˆmΦ,ϵ (ˆ μin, ˆνn) := inf 
+
+> πi∈Γ(ˆ μin,ˆνn)
+
+Z 
+
+ˆciA(x, z ) dπ i(x, z ) + ϵD KL 
+
+ πi ˆμin ⊗ ˆνn
+
+
+
+.
+
+Combined with Theorem 4 and the same lifting argument applied to the empirical objective, we have 
+
+SR 
+
+> 1
+
+({μi}, ν ) − SR 
+
+> 1
+
+({ˆμin}, ˆνn)
+
+≤
+
+> M
+
+X
+
+> i=1
+
+sup 
+
+> A∈A L
+
+OT iA,m Φ,1(μi, ν ) − OT iA, ˆmΦ,1(ˆ μin, ˆνn)
+
+≤
+
+> M
+
+X
+
+> i=1
+
+sup 
+
+> A∈A L
+
+OT iA,m Φ,1(μi, ν ) − OT iA,m Φ,1(ˆ μin, ˆνn) (8) +
+
+> M
+
+X
+
+> i=1
+
+sup 
+
+> A∈A L
+
+OT iA,m Φ,1(ˆ μin, ˆνn) − OT iA, ˆmΦ,1(ˆ μin, ˆνn) . (9) 
+
+36 JK-EGW for Multimodal Alignment 
+
+We first control the cost-difference term in Equation (9). For fixed A and fixed i, the two EOT problems have the same marginals (ˆ μin, ˆνn) and the same KL reference measure ˆμin ⊗ ˆνn. They differ only through the cost. Hence 
+
+OT iA,m Φ,1(ˆ μin, ˆνn) − OT iA, ˆmΦ,1(ˆ μin, ˆνn)
+
+≤ sup 
+
+> πi∈Γ(ˆ μin,ˆνn)
+
+Z
+
+ciA,m Φ (x, z ) − ˆciA, ˆmΦ (x, z ) dπ i(x, z )= sup 
+
+> πi∈Γ(ˆ μin,ˆνn)
+
+2
+
+Z
+
+ΦR(x)⊤(mΦ − ˆmΦ) ∥z∥2dπ i(x, z )
+
+≤ 2κ∥mΦ − ˆmΦ∥
+
+Z
+
+∥z∥2dˆνn(z),
+
+where the last inequality uses ∥ΦR(x)∥ ≤ κ. Summing over i gives 
+
+> M
+
+X
+
+> i=1
+
+sup 
+
+> A∈A L
+
+OT iA,m Φ,1(ˆ μin, ˆνn) − OT iA, ˆmΦ,1(ˆ μin, ˆνn) ≤ 2M κ ∥mΦ − ˆmΦ∥
+
+Z
+
+∥z∥2dˆνn(z). (10) Next, 
+
+E∥mΦ − ˆmΦ∥ = E
+
+> M
+
+X
+
+> j=1
+
+"
+
+1
+
+n
+
+> n
+
+X
+
+> k=1
+
+ΦR(xjk) −
+
+Z
+
+ΦR(x)dμ j (x)
+
+#
+
+≤
+
+> M
+
+X
+
+> j=1
+
+E 1
+
+n
+
+> n
+
+X
+
+> k=1
+
+
+
+ΦR(xjk) −
+
+Z
+
+ΦR(x)dμ j (x)
+
+
+
+≤ M κ 
+
+√n , (11) where the first inequality follows the triangle inequality. For the second, fix j and set 
+
+Yk := Φ R(xjk) − R ΦR(x)dμ j (x). The vectors Y1, . . . , Y n are i.i.d. and mean zero, so the cross terms E[Y ⊤ 
+
+> k
+
+Yl], k̸ = l, vanish and 
+
+E 1
+
+n
+
+> n
+
+X
+
+> k=1
+
+Yk
+
+> 2
+
+= E∥Y1∥2
+
+n = 1
+
+n
+
+
+
+E∥ΦR(xj
+
+> 1
+
+)∥2 − E ΦR(xj
+
+> 1
+
+) 2
+
+≤ κ2
+
+n ,
+
+where the last inequality uses ∥ΦR(x)∥ ≤ κ. Jensen’s inequality then gives E ∥Y1∥ ≤ 
+
+
+
+E ∥Y1∥21/2
+
+, and summing over j ∈ [M ] gives the display. We also need to specify the radius L. Define 
+
+eσ := σ ∨ inf 
+
+
+
+s > 0 : 
+
+Z
+
+exp 
+
+ ∥z∥4
+
+2s2
+
+
+
+dˆνn(z) ≤ 2
+
+
+
+,
+
+then both ν and ˆ νn are 4-sub-Weibull with parameter eσ2. We now choose 
+
+L = M κ (2 eσ2)1/4.
+
+37 Wu, Zhu, and Shi 
+
+With this choice, the population outer infimum may be restricted to AL, since eσ ≥ σ.Conditionally on the samples, the same argument as in the proof of Theorem 4 shows that the empirical outer optimizer also belongs to AL. Indeed, if the latent marginal is ν or ˆ νn,then the optimizing matrix has the form 
+
+A∗ =
+
+> M
+
+X
+
+> i=1
+
+Vi, Vi =
+
+Z
+
+ΦR(x)z⊤ dπ i(x, z ),
+
+and therefore 
+
+∥A∗∥F ≤
+
+> M
+
+X
+
+> i=1
+
+Z
+
+∥ΦR(x)∥ ∥ z∥ dπ i(x, z ) ≤ M κ 
+
+Z 
+
+∥z∥2dν (z)
+
+1/2
+
+≤ M κ (2 eσ2)1/4 = L. 
+
+Thus the choice of AL above is valid for both the population and empirical objectives. For each modality i, denote ( θi, ψ i) to be the EOT potentials for OT iA,m Φ,1(μi, ν ). For more details of EOT potentials, please refer to Nutz and Wiesel (2022). We now control the regularity of the EOT potentials for the frozen cost ciA,m Φ , uniformly over A ∈ A L.For notation simplicity, we omit the modality superscript from here for μ, θ, and ψ. More specifically, for any σ, let Fσ be the class of C∞(BR(κ)) functions θ(u), satisfying: 
+
+θ(u) ≤ 9√2M κ 2σ, 
+
+− θ(u) ≤ log 2 + M κ 2 
+
+3√2σ + 4 · 21/4σ1/2
+
++ 8 M 2κ4σ2(1 + 2 1/4σ1/2)2
+
+|Dαu θ(u)| ≤ Cα(M κ )|α| 
+
+1 + σ|α| 
+
+1 + 
+
+
+
+M κ 2(σ5/2 + σ3) + M 2κ4(σ4 + σ9/2 + σ5)
+
+|α|/2
+
+,
+
+for every multi-index α with 1 ≤ α, and some constant Cα > 0 that depends on α. Similarly, for any σ, let Gσ be the class of C∞(Rdz ) functions ψ(z) satisfying: 
+
+ψ(z) ≤ 2M κ 2 ∥z∥2 + 4 · 21/4M κ 2σ1/2 ∥z∥ + 3 √2M κ 2σ, 
+
+− ψ(z) ≤ 2M κ 2 ∥z∥2 + 4 · 21/4M κ 2σ1/2 ∥z∥ + 5 √2M κ 2σ, 
+
+|Dαz ψ(z)| ≤ Kα(M κ 2)|α|(1 + ∥z∥ + 2 1/4σ1/2)|α|,
+
+for every multi-index α and some constant Kα > 0 that depends on α. For the following analysis, we also introduce the induced x-space class: 
+
+eFiσ = f : X i → R : f (x) = θ(Φ R(x)) , θ ∈ F σ .
+
+We slightly abuse the notation and use θ both for the function on RR (an element of Fσ)and for its lift θ ◦ ΦR on Rdx (an element of ˜Fσ) when the meaning is clear from the context. The EOT dual problem for each corresponding pair of marginals is initially optimized over L1(μ) × L1(ν). The following Lemma 13 shows that, for each fixed A ∈ A L, every fixed-cost population or empirical EOT problem appearing in Equation (8) admits an optimal dual pair (θ ◦ ΦR, ψ ) ∈ eFeσ × G eσ.
+
+Consequently, restricting the corresponding dual optimization to this product class does not change the EOT value. 
+
+38 JK-EGW for Multimodal Alignment 
+
+Lemma 13 (Uniform regularity of EOT potentials) Fix a modality i and fix mΦ as defined above. Let μ ∈ P (X i). Suppose that ν is 4-sub-Weibull with parameter σ2, and fix A
+
+such that 
+
+∥A∥F ≤ M κ (2 σ2)1/4.
+
+Then there exist 
+
+θ ∈ F σ, ψ ∈ G σ,
+
+such that 
+
+(θ ◦ ΦR, ψ )
+
+is a pair of optimal EOT potentials for OT iA,m Φ,1(μ, ν ).
+
+The proof of Lemma 13 is in Section D.1. Therefore, we define H¨ older classes Fs and Gs
+
+Fs = {θ : BR(κ) → R : |θ| ≤ CM,κ , |Dαθ| ≤ CM,κ,α ∀| α| ≤ s},
+
+Gs = {ψ : Rdz → R : |ψ| ≤ KM,κ (1 + ∥·∥ 2), |Dαψ| ≤ KM,κ,α (1 + ∥·∥ s) ∀| α| ≤ s}.
+
+By Lemma 13, applied with σ = eσ, for every A ∈ A L and every population or empirical EOT problem appearing in Equation (8), there exist optimal potentials ( θ, ψ ) satisfying (1 + eσ4s)−1θ ∈ F s, (1 + eσs)−1ψ ∈ G s.
+
+The next step will be decomposing the EOT problem into suprema of empirical processes, where the above derived regularization for the potentials will be used to derive the parametric convergence rate for the empirical SR 
+
+> 1
+
+. We go back the the RHS of Eq Equation (8) and again fix a single modality. Since we work in the feature space instead of the raw X space, we need to define the induced distributions in the feature space. Suppose U = Φ R(X ), 
+
+Uk = Φ R(xk), then let μΦ = dist( U ) and ˆ μΦ,n = 1
+
+> n
+
+Pni=1 δUk . Then, (μΦ − ˆμΦ,n ) θ =
+
+Z
+
+> X
+
+θ(Φ R(x)) d(μ − ˆμn)( x).
+
+By the same dual-comparison argument as in Corollary 2 of Mena and Niles-Weed (2019), uniformly over A ∈ A L,sup 
+
+> A∈A L
+
+OT iA,m Φ,1(μ, ν ) − OT iA,m Φ,1(ˆ μn, ˆνn) (12) 
+
+≲ (1 + eσ4s) sup 
+
+> θ∈F s
+
+|(μΦ − ˆμΦ,n )θ| + (1 + eσs) sup 
+
+> ψ∈G s
+
+|(ν − ˆνn)ψ| .
+
+We will bound sup θ∈F s |(μΦ − ˆμΦ,n )θ| and sup ψ∈G s |(ν − ˆνn)ψ| in expectation and handle ˜σ. From the Eq Equation (12) we have 
+
+E
+
+
+
+(1 + ˜ σ4s) sup 
+
+> θ∈F s
+
+|(μΦ − ˆμΦ,n θ|
+
+
+
+≤
+
+s
+
+E [(1 + ˜ σ4s)2] E
+
+
+
+( sup 
+
+> θ∈F s
+
+(μΦ − ˆμΦ,n )θ)2
+
+
+
+,
+
+E
+
+"
+
+(1 + ˜ σs) sup 
+
+> ψ∈G s
+
+|(ν − ˆνn)ψ|
+
+#
+
+≤
+
+vuutE [(1 + ˜ σs)2] E
+
+"
+
+( sup 
+
+> ψ∈G s
+
+(ν − ˆνn)ψ)2
+
+#
+
+.
+
+39 Wu, Zhu, and Shi 
+
+By Theorem 3.5.1 of Gin´ e and Nickl (2021), we have 
+
+E
+
+"
+
+sup 
+
+> θ∈F s
+
+(μΦ − ˆμΦ,n )θ
+
+2#
+
+≲ 1
+
+n E
+
+Z r 
+
+> sup θ∈F s∥θ∥2
+> L2(ˆ μΦ,n )
+> 0
+
+q
+
+log 2 N (Fs, L 2(ˆ μΦ,n ), δ )dδ 
+
+
+
+> 2
+
+,
+
+(13) where N is the δ-covering number of the class Fs and observe that sup 
+
+> θ∈F s
+
+∥θ∥2 
+
+> L2(ˆ μn)
+
+≤ C2
+
+> M,κ
+
+.
+
+Next, since ∥ΦR(x)∥ ≤ κ, both μΦ and ˆ μΦ,n are supported on BR(κ). Let X 1 = BR(κ+1), then, by Theorem 2.7.1 in Van Der Vaart and Wellner (1996), with s1 = ⌈R/ 2⌉ + 1, log N (Fs1 , L 2(ˆ μn), δ ) ≤ log N (Fs1 , ∥·∥ ∞,B R(κ) , δ ) ≲R (κ + 1) Rδ−R/s 1 .
+
+Substituting back into Eq Equation (13), we have 
+
+E
+
+ sup 
+
+> θ∈F s1
+
+(μ − ˆμn)f
+
+!2 ≲R
+
+1
+
+n
+
+
+
+(κ + 1) R/ 2
+
+Z CM,κ 
+
+> 0
+
+δ−R/ 2s1 dδ 
+
+2
+
+≤ 1
+
+n (κ + 1) R C2−R/s 1
+
+> M,κ
+
+
+
+1 − R
+
+> 2s1
+
+2 .
+
+For E (sup ψ∈G s (ν − ˆνn)ψ)2, similarly we have 
+
+E
+
+ sup 
+
+> ψ∈G s
+
+(ν − ˆνn)ψ
+
+!2 ≲ 1
+
+n E
+
+Z q 
+
+> sup ψ∈G s∥ψ∥2
+> L2(ˆ νn )
+> 0
+
+plog 2 N (Gs, L 2(ˆ νn), δ )dδ 
+
+!2
+
+. (14) This case is similar to Theorem 2 of Zhang et al. (2024). First observe that sup 
+
+> ψ∈G s
+
+∥ψ∥2 
+
+> L2(ˆ νn)
+
+≤ KR,d z
+
+1
+
+n
+
+> n
+
+X
+
+> l=1
+
+(1 + ∥zl∥4) ≤ KR,d z (1 + ˜ σ2Lz )where Lz := 1
+
+> n
+
+Pnl=1 exp( ∥zl∥4 
+
+> 2˜ σ2
+
+) satisfies Lz ≤ 2 almost surely. To control the covering number, we need to partition our unbounded domain. More specifically, define Qq := [ −2q√˜σ, 2q√˜σ]dz
+
+for q ∈ N0 and partition Rdz into Iq = Qq\Qq−1. To verify the conditions of Corollary 2.7.4 of Theorem Van Der Vaart and Wellner (1996), note that the Lebesgue measure of each {z ∈ Rdz : ∥z − Iq∥ ≤ 1} is bounded by Kdz (1 + 2 qd z ˜σdz /2). Moreover, ˆ νn(Iq) = 
+
+> 1
+> n
+
+Pnl=1 1{zl∈Iq } ≤ Lz exp( −24q−5). Finally, for any q ∈ N0 and ψ ∈ G s, the restriction ψ|Iq
+
+has a Cs(Iq)-H¨ older norm bounded by Ks,d z (1 + ˜ σs/ 2)2 qs . With s2 = ⌈dz /2⌉ + 1, V = dz /s 2
+
+40 JK-EGW for Multimodal Alignment 
+
+and r = 2, we have log N (δ, Gs2 , L 2(ˆ νn)) 
+
+≤ log N[ ] (2 δ, Gs2 , L 2(ˆ νn)) 
+
+≤KR,d z δ−V LV /r z
+
+
+
+> ∞
+
+X
+
+> q=0
+
+(1 + 2 qd z ˜σdz /2)r/ (V +r) exp( −24q−5)V / (V +r) 
+
+(1 + ˜ σs2/2)2 qs 2
+
+V r/ (V +r)
+
+ 
+
+> (V+r)/r
+
+≤KR,d z δ−V LV /r z
+
+
+
+1 + ˜ σ dz +s2V
+
+> 2
+
+ ∞X
+
+> l=0
+
+exp 
+
+ (−24q−5)VV + r
+
+
+
+2 (s2V +dz )qr V +r
+
+!(V +r)/r 
+
+≤KR,d z δ− dz s2 L 
+
+> dz
+> 2s2
+> z
+
+(1 + ˜ σdz ).
+
+Substituting back to Eq Equation (14), we have 
+
+E
+
+"
+
+( sup 
+
+> ψ∈G s
+
+(ν − ˆνn)ψ)2
+
+#
+
+≲R,d z
+
+1
+
+n E
+
+Z √1+˜ σ2Lz
+
+> 0
+
+r
+
+δ dz s2 L 
+
+> dz
+> 2s2
+> z
+
+(1 + ˜ σdz )dδ 
+
+
+
+> 2
+
+
+
+≲R,d z
+
+1 + ˜ σdz
+
+n E
+
+ Ldz /4s2
+
+> z
+
+Z √1+˜ σ2Lz
+
+> 0
+
+δ−dz /2s2 dδ 
+
+!2
+
+≲R,d z
+
+1
+
+n (1 + ˜ σdz +2 ).
+
+Finally, we take s = s1 ∨ s2. It remains to bound moments of ˜ σ. Fix k ∈ N, define 
+
+τ 2 
+
+> k
+
+= σ2 ∨ kσ 2
+
+n
+
+> n
+
+X
+
+> l=1
+
+exp( ∥zl∥4 /(2 kσ 2)) 
+
+!
+
+so that ν, ˆνn are both 4-sub-Weibull with parameter τ 2 
+
+> k
+
+. By Lemma 4 of Mena and Niles-Weed (2019) and similar to Theorem 2 of Zhang et al. (2024), we have 
+
+E[˜ σ2k] ≲k σ2k.
+
+Hence, set qR,z =  R∨dz
+
+> 2
+
+, we have 
+
+E
+
+
+
+(1 + ˜ σ4s) sup 
+
+> θ∈F s
+
+|(μ − ˆμn)θ|
+
+
+
+≤
+
+s
+
+E[(1 + ˜ σ4s)2] (κ + 1) R
+
+n  1 − R
+
+> 2s
+
+2 ≲M,R,d z ,κ 
+
+1 + σ4qR,z +4 
+
+√n ,
+
+E
+
+"
+
+(1 + ˜ σs) sup 
+
+> ψ∈G s
+
+|(ν − ˆνn)ψ|
+
+#
+
+≤
+
+r
+
+E[(1 + ˜ σs)2] (1 + σdz +2 )
+
+n ≲M,R,d z ,κ 
+
+1 + σ2qR,z +2 
+
+√n .
+
+Combine with the bounds in Equation (9), we obtain the final results. 
+
+41 Wu, Zhu, and Shi 
+
+Appendix C. Proofs for Section 4 
+
+C.1 Proof of Theorem 8 
+
+The objective in Equation (4) can be rewritten in the following matrix form. min 
+
+> ˆΠ
+
+D ˆΠ⊤W ˆΠ, D ( ˆZ)
+
+E
+
+= min 
+
+> ˆΠ
+
+tr ˆΠ⊤W ˆΠD( ˆZ)subject to πi1 = 1
+
+n 1, and πi⊤1 = 1
+
+n 1 ∀i ∈ [M ]
+
+,
+
+where D( ˆZ) = diag ( ˆZ ˆZ⊤)1⊤ + 1diag ( ˆZ ˆZ⊤)⊤ − 2 ˆZ ˆZ⊤. Therefore, we have: ˆS ˆRϵ ({ˆμin}, ˆνn) = min 
+
+> ˆΠ
+
+tr ˆΠ⊤LL ⊤ ˆΠD( ˆZ) + ϵ
+
+> M
+
+X
+
+> i=1
+
+DKL (ˆ πi ∥ ˆμi ⊗ ˆν).
+
+Using the identity 
+
+− ∥ M ∥2 = inf 
+
+> A
+
+
+
+∥A∥2 − 2 ⟨A, M ⟩
+
+
+
+,
+
+we have ˆS ˆRϵ ({ˆμin}, ˆνn) = min 
+
+> ˆΠ
+
+tr ˆΠ⊤LL ⊤ ˆΠdiag ( ˆZ ˆZ⊤)1⊤ + tr ˆΠ⊤LL ⊤ ˆΠ1diag ( ˆZ ˆZ⊤)⊤−
+
+2 L⊤ ˆΠ ˆZ 2 
+
+> F
+
++ ϵ
+
+> M
+
+X
+
+> i=1
+
+DKL (ˆ πi ∥ ˆμi ⊗ ˆν)= min 
+
+> ˆΠ
+
+2
+
+ 1
+
+n LL ⊤1 ˆZ⊤
+
+> norm
+
+, ˆΠ
+
+
+
+− 2 L⊤ ˆΠ ˆZ 2 
+
+> F
+
++ ϵ
+
+> M
+
+X
+
+> i=1
+
+DKL (ˆ πi ∥ ˆμi ⊗ ˆν)= min 
+
+> ˆA
+
+2 ˆA 2 
+
+> F
+
++
+
+> M
+
+X
+
+> i=1
+
+OT iCi,ϵ (ˆ μi, ˆν).
+
+C.2 Proof of Proposition 11 
+
+E
+
+h
+
+SRϵ ({ˆμin}Mi=1 , ˆνn) − ˆSϵ({ˆμin}Mi=1 , ˆνn)
+
+i
+
+=E
+
+ X
+
+> i,j
+
+X
+
+> k,k ′,ℓ,ℓ ′
+
+
+
+KR(xik, x jk′ ) − K(xik, x jk′ )
+
+
+
+ˆπik,ℓ ˆπjk′,ℓ ′ ∥zℓ − zℓ′ ∥2
+
+
+
+≤ηR · E
+
+ X
+
+> i,j
+
+X
+
+> k,k ′,ℓ,ℓ ′
+
+ˆπik,ℓ ˆπjk′,ℓ ′ ∥zℓ − zℓ′ ∥2
+
+
+
+by Assumption 1. Now, 
+
+X
+
+> k,k ′
+
+ˆπik,ℓ ˆπjk′,ℓ ′ = X
+
+> k
+
+ˆπik,ℓ 
+
+! X
+
+> k′
+
+ˆπjk′,ℓ ′
+
+!
+
+= 1
+
+n · 1
+
+n .
+
+In addition, ν is 4-sub-Weibull with parameter σ2, so 
+
+E
+
+h
+
+SRϵ ({ˆμin}Mi=1 , ˆνn) − ˆSϵ({ˆμin}Mi=1 , ˆνn)
+
+i
+
+≤ M 2ηRσ. 
+
+42 JK-EGW for Multimodal Alignment 
+
+C.3 Proof of Proposition 12 
+
+We follow the proof in Section C.2, replacing KR(xik, x jk′ ) − K(xik, x jk′ ) by W(i,k ),(j,k ′) −
+
+(LL ⊤)(i,k ),(j,k ′), which is bounded in absolute value by ρ ˆR uniformly over the index pairs. Applied conditionally on the samples, the same argument gives 
+
+ˆSϵ({ˆμin}Mi=1 , ˆνn) − ˆS ˆRϵ ({ˆμin}Mi=1 , ˆνn) ≤ M 2ρ ˆR
+
+Z Z 
+
+> Z×Z
+
+∥z − z′∥2 dˆνn(z)dˆνn(z′).
+
+The residual ρ ˆR is a function of the modality samples {xik}, while ˆ νn is a function of the latent points {zℓ}, and the two collections are drawn independently. The expectation of the product therefore factorizes, 
+
+E
+
+
+
+ρ ˆR
+
+Z Z 
+
+∥z − z′∥2 dˆνn(z)dˆνn(z′)
+
+
+
+= E[ρ ˆR] · E
+
+Z Z 
+
+∥z − z′∥2 dˆνn(z)dˆνn(z′)
+
+
+
+.
+
+43 Wu, Zhu, and Shi 
+
+Appendix D. Proof of the Auxiliary Lemma 
+
+D.1 Proof of Lemma 13 
+
+Fix A ∈ A M , where AM = {A : ∥A∥F ≤ M κ (2 σ2)1/4}, assume the existence of optimal potentials ( θ, ψ ) ∈ L1(μ) × L1(ν). Let ( θi
+
+> 0
+
+, ψ 0) ∈ L1(μi) × L1(ν) be optimal EOT potentials for cost ciA and assume WLOG normalization, R θi
+
+> 0
+
+dμ i = R ψ0dν (z) = 12 OT iA, 1(μi, ν ). For a more detailed discussion of EOT potentials, please refer to Nutz and Wiesel (2022). Define new functions θi and ψ as 
+
+θi(x) := − log 
+
+Z
+
+eψ0(z)−ciA(x,z )dν (z),ψ(z) := − log 
+
+Z
+
+eθi
+
+> 0(x)−ciA(x,z )
+
+dμ i(x).
+
+By Jensen’s inequality, we have 
+
+θi(x) ≤
+
+Z
+
+ciA(x, z )dν (z) − 12 OT iA, 1(μi, ν ).
+
+Next, by the definition, 
+
+Z
+
+ciA(x, z )dν (z) = 2 
+
+ΦR(x)⊤
+
+X
+
+> j
+
+Z
+
+ΦR(x′)dμ j (x′)
+
+Z
+
+∥z∥2 dν (z) − 4
+
+*
+
+A, ΦR(x)
+
+Z 
+
+zdν (z)
+
+⊤+
+
+≤ 2
+
+ΦR(x)⊤
+
+X
+
+> j
+
+Z
+
+ΦR(x′)dμ j (x′)
+
+ √2σ
+
+
+
++ 4 M κ 2(2 σ2)1/4 
+
+21/4√σ
+
+
+
+≤ 6√2M κ 2σ, 
+
+with the assumption ∥ΦR(x)∥ ≤ κ.We can upper bound −OT iA, 1(μi, ν ) very similarly and obtain −OT iA, 1(μi, ν ) ≤ 6√2M κ 2σ.Together we have, 
+
+θi(x) ≤ 9√2M κ 2σ. 
+
+Similarly, we derive the upper bound for ψ(z): 
+
+Z
+
+ciA(x, z )dμ i(x) = 2 
+
+*Z
+
+ΦR(x)dμ i(x), X
+
+> j
+
+Z
+
+ΦR(x′)dμ j (x′)
+
++
+
+∥z∥2 − 4
+
+
+
+A, 
+
+Z
+
+ΦR(x)dμ i(x)z⊤
+
+
+
+≤ 2
+
+Z
+
+ΦR(x)dμ i(x) X
+
+> j
+
+Z
+
+ΦR(x′)dμ j (x′) ∥z∥2 + 4 ∥A∥F
+
+Z
+
+ΦR(x)dμ i(x) ∥z∥≤ 2M κ 2 ∥z∥2 + 4 · 21/4M κ 2σ1/2 ∥z∥ .
+
+Therefore, 
+
+ψ(z) ≤ 2M κ 2 ∥z∥2 + 4 · 21/4M κ 2σ1/2 ∥z∥ + 3 √2M κ 2σ. (15) 
+
+44 JK-EGW for Multimodal Alignment 
+
+For the lower bound, consider 
+
+−θi(x) ≤ log 
+
+Z
+
+e2M κ 2∥z∥2+4 ·21/4M κ 2σ1/2∥z∥+3 √2M κ 2σ+4 ⟨A, ΦR(x)z⊤⟩−2(ΦR(x)⊤(P  
+
+> j
+> RΦR(x′)dμ j(x′)
+
+)) ∥z∥2
+
+dν (z)
+
+≤ 3√2M κ 2σ + log 
+
+Z
+
+e4M κ 2∥z∥2+8 ·21/4M κ 2σ1/2∥z∥dν (z)
+
+≤ M κ 2 
+
+3√2σ + 4 · 21/4σ1/2
+
++ log 
+
+Z
+
+e4M κ 2∥z∥2+4 ·21/4M κ 2σ1/2∥z∥2
+
+dν (z)
+
+≤ log 2 + M κ 2 
+
+3√2σ + 4 · 21/4σ1/2
+
++ 8 M 2κ4σ2(1 + 2 1/4σ1/2)2,
+
+where we have used 2 ∥z∥ ≤ 1 + ∥z∥2 inside the exponents and R et∥z∥2
+
+dν (z) ≤ 2et2σ2/2 for a 
+
+σ2-sub-Gaussian random variable ∥z∥2. Similarly, 
+
+−ψ(z) ≤ log 
+
+Z
+
+e5√2M κ 2σ+4 ⟨A, ΦR(x)z⊤⟩−2(ΦR(x)⊤(P  
+
+> j
+> RΦR(x′)dμ j(x′)
+
+)) ∥z∥2
+
+dμ i(x)
+
+≤ 2M κ 2 ∥z∥2 + 4 · 21/4M κ 2σ1/2 ∥z∥ + 5 √2M κ 2σ. 
+
+Next, we want to bound the derivatives of θi(x). For a multi-index α, β ∈ NR 
+
+> 0
+
+where 
+
+N0 = N ∪ { 0}, let Dα denote the operator ∂|α|   
+
+> ∂α1u1,...,∂ αRuR
+
+, where |α| = PRa=1 αa and D0f = f .Since ciA only depends x through Φ R(x), write u = Φ R(x) ∈ RR and write ˜ ciA(u, z ) = 2u⊤
+
+P
+
+> j
+
+R ΦR(x′)dμ j (x′)
+
+
+
+∥z∥2 − 4 A, uz ⊤ .Applying the multivariate Faa di Bruno formula (Constantine and Savits, 1996) to 
+
+Dαu log R eψ0(z)−˜ciA(u,z )dν (z) yields a finite sum, indexed by partitions of α, of products of terms Dβu  
+
+> Reψ0(z)−˜ciA(u,z )dν (z)
+> Reψ0(z)−˜ciA(u,z )dν (z)
+
+, |β| ≤ | α|, with the number of terms depending only on 
+
+|α|. Thus, for us to establish the magnitude of derivatives bounds, it suffices to bound 
+
+Dβu
+
+R eψ0(z)−˜ciA(u,z )dν (z) . Note that Dηu˜ciA(u, z ) = 0 for |η| ≥ 2. Hence, Dβu e−˜ciA(u,z ) =
+
+e−˜ciA(u,z ) QRk=1 
+
+ −∂uk ˜ciA(u, z )βk . Observe that 
+
+∇u(−˜ciA(u, z )) ≤ 2
+
+X
+
+> j
+
+Z
+
+ΦR(x′)dμ j (x′)
+
+ ∥z∥2 − 4Az 
+
+≤ 2M κ (∥z∥2 + 2 · 21/4σ1/2 ∥z∥).
+
+Consequently, we have 
+
+Dβu
+
+Z
+
+eψ0(z)−˜ciA(u,z )dν (z) ≤
+
+Z
+
+eψ0(z)−˜ciA(u,z )
+
+> R
+
+Y
+
+> k=1
+
+∂uk (˜ ciA(u, z )) βk dν (z)
+
+≤
+
+Z
+
+eψ0(z)−˜ciA(u,z ) ∇u(˜ ciA(u, z )) |β| dν (z)
+
+≤ (2 M κ )|β|
+
+Z
+
+eψ0(z)−˜ciA(u,z )(∥z∥2 + 2 · 21/4σ1/2 ∥z∥)|β|dν (z).
+
+We proceed to bound   
+
+> Reψ0(z)−˜ciA(u,z )(∥z∥2+2 ·21/4σ1/2∥z∥)|β|dν (z)
+> Reψ0(z)−˜ciA(u,z )dν (z)
+
+by splitting the integral in the numerator into ∥z∥ < τ and ∥z∥ ≥ τ , for some constant τ to be specified later. For ∥z∥ < τ ,
+
+45 Wu, Zhu, and Shi 
+
+we have 
+
+R eψ0(z)−˜ciA(u,z )(∥z∥2 + 2 · 21/4σ1/2 ∥z∥)|β|dν (z)
+
+R eψ0(z)−˜ciA(u,z )dν (z) ≤ (τ 2 + 2 · 21/4σ1/2τ )|β|.
+
+For the region ∥z∥ ≥ τ , consider the numerator, we have 
+
+Z
+
+∥z∥≥ τ
+
+eψ0(z)−˜ciA(u,z ) ∥z∥|β| (∥z∥ + 2 5/4σ1/2)|β|dν (z)
+
+≤ e3√2M κ 2σ
+
+Z
+
+∥z∥≥ τ
+
+e4M κ 2∥z∥2+8 ·21/4M κ 2σ1/2∥z∥ ∥z∥|β| (∥z∥ + 2 5/4σ1/2)|β|dν (z)
+
+≤ e3√2M κ 2σ+4 ·21/4M κ 2σ1/2
+
+Z
+
+∥z∥≥ τ
+
+e8M κ 2(1+2 1/4σ1/2)∥z∥2
+
+dν (z)
+
+!1/2
+
+×
+
+Z
+
+∥z∥≥ τ
+
+∥z∥2|β| (∥z∥ + 2 5/4σ1/2)2|β|dν (z)
+
+!1/2
+
+≤ √2e3√2M κ 2σ+4 ·21/4M κ 2σ1/2+16 M 2κ4(1+2 1/4σ1/2)2σ2
+
+×
+
+Z
+
+∥z∥≥ τ
+
+∥z∥2|β| (∥z∥ + 2 5/4σ1/2)2|β|dν (z)
+
+!1/2
+
+,
+
+where we again have used 2 ∥z∥ ≤ 1 + ∥z∥2 and Cauchy–Schwarz inequality for the second inequality, and R et∥z∥2
+
+dν (z) ≤ 2et2σ2/2 for a σ2-sub-Gaussian random variable ∥z∥2 for the third inequality. For the remaining integral, apply Cauchy–Schwarz inequality again, we have 
+
+Z
+
+∥z∥≥ τ
+
+∥z∥2|β| (∥z∥ + 2 5/4σ1/2)2|β|dν (z)
+
+≤
+
+Z
+
+∥z∥≥ τ
+
+∥z∥4|β| dν (z)
+
+!1/2 Z
+
+∥z∥≥ τ
+
+(∥z∥ + 2 5/4σ1/2)4|β|dν (z)
+
+!1/2
+
+≤
+
+Z
+
+∥z∥≥ τ
+
+∥z∥4|β| dν (z)
+
+!1/2
+
+σ2|β|29|β|− 1
+
+Z
+
+∥z∥≥ τ
+
+1 + 
+
+ ∥z∥
+
+25/4σ1/2
+
+4|β|
+
+dν (z)
+
+!1/2
+
+,
+
+with 
+
+Z
+
+∥z∥≥ τ
+
+∥z∥4|β| dν (z) ≤ e− τ 44σ2
+
+Z
+
+e ∥z∥44σ2 ∥z∥4|β| dν (z) ≤ √2(2 σ2)|β|e− τ 44σ2
+
+p(2 |β|)! 
+
+Z
+
+∥z∥≥ τ
+
+1dν (z) ≤ e− τ 44σ2
+
+Z
+
+e ∥z∥44σ2 dν (z) ≤ √2e− τ 44σ2 .
+
+46 JK-EGW for Multimodal Alignment 
+
+Substitute back and have 
+
+Z
+
+∥z∥≥ τ
+
+∥z∥2|β| (∥z∥ + 2 5/4σ1/2)2|β|dν (z)
+
+≤e− τ 48σ2 25|β|− 14 σ2|β|((2 |β|)!) 14
+
+Z
+
+∥z∥≥ τ
+
+1dν (z) + (2 5/4σ1/2)−4|β|
+
+Z
+
+∥z∥≥ τ
+
+∥z∥4|β| dν (z)
+
+!1/2
+
+≤e− τ 44σ2 25|β|− 14 σ2|β|((2 |β|)!) 14
+
+√2 + 2 −4|β|+ 12 ((2 |β|)!) 12
+
+1/2
+
+.
+
+Finally for the numerator, 
+
+Z
+
+∥z∥≥ τ
+
+eψ0(z)−˜ciA(u,z ) ∥z∥|β| (∥z∥ + 2 5/4σ)|β|dν (z)
+
+≤ e3√2M κ 2σ+4 ·21/4M κ 2σ1/2+16 M 2κ4(1+2 1/4σ1/2)2σ2− τ 48σ2 2 52 |β|+ 38 σ|β|((2 |β|)!) 18
+
+√2 + 2 −4|β|+ 12 ((2 |β|)!) 12
+
+1/4
+
+.
+
+For the denominator, from Eq Equation (15) we have 
+
+Z
+
+eψ0(z)−˜ciA(u,z )dν (z)
+
+−1
+
+= eθi(x) ≤ e5√2M κ 2σ.
+
+Therefore, 
+
+R eψ0(z)−˜ciA(u,z )(∥z∥2 + 2 5/4σ ∥z∥)|β|dν (z)
+
+R eψ0(z)−˜ciA(u,z )dν (z)
+
+≤(τ 2 + 2 5/4σ1/2τ )|β| + 2 52 |β|+ 38 σ|β|((2 |β|)!) 18
+
+√2 + 2 −4|β|+ 12 ((2 |β|)!) 12
+
+1/4
+
+× e8√2M κ 2σ+4 ·21/4M κ 2σ1/2+16 M 2κ4(1+2 1/4σ1/2)2σ2− τ 48σ2 .
+
+Choose τ > 0 such that τ 4
+
+8σ2 ≥ 8√2M κ 2σ + 4 · 21/4M κ 2σ1/2 + 16 M 2κ4(1 + 2 1/4σ1/2)2σ2,more specifically, 
+
+τ 4 = C(M κ 2(σ5/2 + σ3) + M 2κ4(σ4 + σ9/2 + σ5)) for some constant C > 0. Substituting back and applying AM-GM inequality, we have 
+
+R eψ0(z)−˜ciA(u,z )(∥z∥2 + 2 5/4σ ∥z∥)|β|dν (z)
+
+R eψ0(z)−˜ciA(u,z )dν (z)
+
+≤Cβ
+
+
+
+M κ 2(σ5/2 + σ3) + M 2κ4(σ4 + σ9/2 + σ5)
+
+|β|/2
+
++ σ|β|
+
+
+
+thus 
+
+Dαu ˜θi(u)
+
+≤Cα(M κ )|α| 
+
+1 + σ|α| 
+
+1 + 
+
+
+
+M κ 2(σ5/2 + σ3) + M 2κ4(σ4 + σ9/2 + σ5)
+
+|α|/2
+
+.
+
+47 Wu, Zhu, and Shi 
+
+Finally, we are left to bound the derivatives of ψ(z). The set up is exact as the derivatives of θi(x) and we will slightly abuse the multi-index notations. Similarly as before, observe that 
+
+∇z (−ciA(x, z )) ≤ 4 ∥ΦR(x)∥
+
+X
+
+> j
+
+Z
+
+ΦR(x′)dμ j (x′)
+
+ ∥z∥ + 4 ∥A∥F ∥ΦR(x)∥≤ 4M κ 2(∥z∥ + 2 1/4σ1/2)and 
+
+∇2 
+
+> z
+
+(−ciA(x, z )) op ≤ 4M κ 2.
+
+Note that the derivatives vanish with orders larger than 2. Consequently, apply the Faa di Bruno formula for the numerator, 
+
+Dβz
+
+Z
+
+eθi
+
+> 0(x)−ciA(x,z )
+
+dμ i(x) ≤
+
+Z
+
+eθi 
+
+> 0(x)−ciA(x,z )
+
+X   
+
+> partitions {B1,...B ′
+> r}of βr′
+
+Y
+
+> b=1
+
+DBb 
+
+> z
+
+(−ciA(x, z ) dμ i(x)
+
+≤ (4 M κ 2)|β|(1 + ∥z∥ + 2 1/4σ1/2)|β|
+
+Z
+
+eθi
+
+> 0(x)−ciA(x,z )
+
+dμ i(x)Observing cancellations with the denominator, we conclude that 
+
+|Dαz ψ(z)| ≤ Cα(M κ 2)|α|(1 + ∥z∥ + 2 1/4σ1/2)|α|.
+
+48 JK-EGW for Multimodal Alignment 
+
+Appendix E. Additional Experiment Results 
+
+We conduct an ablation study on the latent dimension d, which is fixed to 32 in Section 5.3. We evaluate JK-EGW and all baselines at d ∈ { 32 , 48 , 64 , 128 }, keeping every other component of the experimental protocol unchanged. The purpose of the ablation is to test whether the advantage of JK-EGW over the baselines is robust to the choice of the latent dimension. Tables 2 and 3 report the results on the MS–COCO 6K and MS–COCO 9K subsets, where the rows with d = 32 coincide with Table 1. On the smaller 6K subset (Table 2), the conclusions drawn at d = 32 persist across the entire range. JK-EGW achieves the highest purity at every dimension and is the only method with positive silhouette scores, while all baselines yield negative silhouette values. It also obtains the best R@1 and R@5 scores at every dimension, with retrieval performance nearly unchanged for d ∈ { 48 , 64 , 128 } and lower at d = 32. These results suggest that JK-EGW learns a shared representation that is effective for retrieval and geometrically coherent, and that both properties are only mildly sensitive to the choice of d.On the larger 9K subset (Table 3), the retrieval gains persist. JK-EGW achieves the best R@1 and R@5 scores at every dimension and again yields consistently positive silhouette scores. The purity results are more mixed in this setting, with CSA-based baselines obtaining higher purity at several dimensions. Thus, the 9K results suggest that JK-EGW gives the strongest bidirectional retrieval performance and the most consistently separated shared geometry, while class-purity scores on the larger subset remain competitive across methods. Table 2: Alignment and retrieval performances on the MS–COCO 6k subset. Alignment Retrieval 
+
+d Model Purity Silhouette R@1 R@5 
+
+32 CSA 0.638 -0.210 0.257 0.542 CSA+ STRUCTURE 0.654 -0.196 0.290 0.595 MLP+ STRUCTURE 0.638 -0.156 0.154 0.390 JK-EGW (Ours) 0.719 0.117 0.380 0.674 
+
+48 CSA 0.634 -0.166 0.328 0.632 CSA+ STRUCTURE 0.638 -0.156 0.355 0.676 MLP+ STRUCTURE 0.633 -0.131 0.182 0.437 JK-EGW (Ours) 0.722 0.106 0.443 0.727 
+
+64 CSA 0.632 -0.140 0.359 0.666 CSA+ STRUCTURE 0.650 -0.131 0.386 0.707 MLP+ STRUCTURE 0.634 -0.118 0.199 0.467 JK-EGW (Ours) 0.713 0.086 0.450 0.725 
+
+128 CSA 0.639 -0.091 0.393 0.693 CSA+ STRUCTURE 0.649 -0.087 0.414 0.726 MLP+ STRUCTURE 0.625 -0.108 0.234 0.505 JK-EGW (Ours) 0.702 0.078 0.452 0.726 
+
+> 49 Wu, Zhu, and Shi
+
+Table 3: Alignment and retrieval performances on the MS–COCO 9k subset. Alignment Retrieval 
+
+d Model Purity Silhouette R@1 R@5 
+
+32 CSA 0.673 -0.150 0.263 0.549 CSA+ STRUCTURE 0.689 -0.143 0.304 0.613 MLP+ STRUCTURE 0.638 -0.133 0.084 0.239 JK-EGW (Ours) 0.633 0.104 0.413 0.706 
+
+48 CSA 0.687 -0.115 0.328 0.629 CSA+ STRUCTURE 0.676 -0.116 0.358 0.683 MLP+ STRUCTURE 0.636 -0.107 0.128 0.350 JK-EGW (Ours) 0.633 0.112 0.460 0.757 
+
+64 CSA 0.669 -0.100 0.374 0.680 CSA+ STRUCTURE 0.678 -0.102 0.408 0.730 MLP+ STRUCTURE 0.654 -0.096 0.180 0.455 JK-EGW (Ours) 0.629 0.092 0.507 0.785 
+
+128 CSA 0.683 -0.067 0.405 0.728 CSA+ STRUCTURE 0.699 -0.076 0.442 0.756 MLP+ STRUCTURE 0.643 -0.081 0.304 0.615 JK-EGW (Ours) 0.620 0.070 0.506 0.785

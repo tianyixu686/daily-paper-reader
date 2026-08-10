@@ -1,0 +1,943 @@
+Title: Does More Retrieved Evidence Help Visual Retrieval-Augmented Generation with Diffusion Language Models?
+
+URL Source: https://arxiv.org/pdf/2608.07006v1
+
+Published Time: Mon, 10 Aug 2026 00:42:03 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# Does More Retrieved Evidence Help Visual Retrieval-Augmented Generation with Diffusion Language Models? 
+
+## Jiankun Wang 1, Yisen Gao 2, Ziwei Zhang 1,Xingcheng Fu 3, Jiaxin Bai 4, Chen Gao 5
+
+> 1
+
+School of Computer Science and Engineering, Beihang University 
+
+> 2
+
+Department of Computer Science and Engineering, The Hong Kong University of Science and Technology 
+
+> 3
+
+School of Computer Science and Engineering, Guangxi Normal University 
+
+> 4
+
+Department of Computer Science, Hong Kong Baptist University 
+
+> 5
+
+School of Computing, National University of Singapore 
+
+Abstract 
+
+Visual retrieval-augmented generation (RAG) commonly ex-pands the retrieved evidence set to improve answer-page cov-erage, implicitly assuming that all available evidence should be passed to the generator. We show that this assumption does not hold for diffusion language models (DLMs): retriev-ing more pages increases answer-page recall, whereas uncon-ditionally passing all retrieved pages to the generator often reduces answer accuracy, primarily because of semantic con-flict. A latent-source analysis explains this mismatch through source-coherence loss in parallel denoising, where position-wise proposals can combine incompatible visual sources into unsupported answers. We further find that such interference is already visible in the first-step answer-block distribution, making it possible to assess evidence before decoding. To pre-serve retrieval coverage while limiting harmful visual expo-sure, we propose the Entropy-Based Candidate Filter (ECF), a training-free evidence-admission framework. To reduce irrel-evant content within individual candidates, ECF constructs multi-granularity evidence units; to identify beneficial ad-ditional evidence, it uses blank-controlled block confidence and retrieval rank to determine whether and which candidate should enter the final context. Across three multimodal DLMs and five visual QA benchmarks, ECF improves answer accu-racy by 2.62 percentage points on average over the strongest fixed top-k input and, with LLaDA2.0-Uni, by 2.37 percent-age points on average over the best competing training-free result for each dataset. These results show that broader re-trieval benefits visual DLM-RAG through selective evidence admission rather than unconditional evidence expansion. Code is publicly available at https://github.com/wjkuser/ECF. 
+
+## 1 Introduction 
+
+Most modern large language models generate text autoregres-sively and have achieved strong performance across question answering, reasoning and tool-use tasks (Xiao et al. 2026; Ma et al. 2025). More recently, diffusion language models (DLMs) have attracted increasing attention for their bidirec-tional conditioning and parallel decoding capabilities (Austin et al. 2021; Hoogeboom et al. 2021; Sahoo et al. 2024; Nie et al. 2025; Gao et al. 2026). Recent studies (Inclusion AI et al. 2026; You et al. 2025; Ye et al. 2026) have further 
+
+Preprint. Under review. 
+
+extended DLMs to multimodal generation, enabling visual inputs to guide the denoising process. However, many knowledge-intensive visual questions can-not be answered reliably from model parameters alone, creat-ing a need for external evidence. Retrieval-augmented gener-ation (RAG) addresses this need by conditioning generation on retrieved content (Izacard and Grave 2021; Shi et al. 2024; Asai et al. 2024), and has been extended to visual tasks (Yu et al. 2025; Li et al. 2025). Visual RAG is challenging be-cause answer-bearing evidence is often localized within a visually dense page, while each retrieved page introduces a complete visual source containing additional structured content. To compensate for imperfect retrieval, existing vi-sual RAG systems, which are predominantly built around autoregressive LLMs, often provide the generator with mul-tiple top-ranked pages to improve answer-page coverage (Yu et al. 2025; Luo et al. 2026). Recent work has improved the quality of this context through finer-grained region retrieval and generation-aware evidence selection (Li et al. 2025; Luo et al. 2026). Yet their implications for multimodal DLMs remain unclear: when several retrieved images are provided, they jointly condition all unresolved answer positions dur-ing parallel denoising. Whether an individually relevant or useful candidate remains beneficial after entering this shared masked state is not well understood. This motivates our cen-tral question: does providing more retrieved evidence actu-ally improve visual RAG with diffusion language models? 
+
+Our experiments show that more retrieved evidence does not necessarily help. To examine how fixed input size af-fects retrieval coverage and generation quality, we evalu-ate fixed top-k input with k ∈ { 1, 2, 3} using the same VisRAG-ranked candidate pools, prompts, decoding bud-gets, and answer scorer across three multimodal DLMs and five visual QA benchmarks. Figure 1 reports macro-average answer-page Recall@ k across the five benchmarks and macro-average answer accuracy across all 15 model– dataset settings: Recall increases with k, whereas accuracy decreases as more pages are provided. Figure 2(a) further shows that conflicting pages cause the largest accuracy drop across all three backends, indicating that semantic conflict, rather than the mere presence of multiple images, drives the degradation. Thus, expanding the candidate pool improves answer-page availability, but indiscriminately admitting ad-arXiv:2608.07006v1 [cs.CL] 7 Aug 2026 Recall@k Answer accuracy   
+
+> 32 38 44 50 20 22 24 26
+> 34.62 43.29 48.08 24.62 23.13 21.02
+> Top-1 Top-2 Top-3
+> Number of retrieved pages Recall@k (%) Accuracy (%)
+
+Figure 1: Answer-page Recall@ k and answer accuracy under fixed top-k input. ditional candidates can make generation less reliable. To explain this mismatch, Section 3.3 develops a restricted latent-source analysis of the first unresolved denoising state. When correct and conflicting pages support different co-herent answers, multiple unresolved positions share a latent source choice, whereas a position-wise factorized proposal does not preserve this coupling. The analysis shows that this dependence loss assigns probability to cross-source answers supported by neither page, with the unsupported mass in-creasing as conflict spans more answer positions. This iden-tifies source-coherence loss as a mechanism behind the ob-served availability–accuracy mismatch. Crucially, this fail-ure is already visible before final decoding. On naturally re-trieved ChartQA cases, conflicting pages cause the largest drop in first-step answer-block accuracy and the largest Jensen–Shannon divergence from the correct-only distribu-tion in Figure 2(b); the same condition also produces the largest final-answer degradation in Figure 2(a). This early-to-final correspondence motivates the first-step block distri-bution as a generator-native signal for candidate assessment. We therefore propose the Entropy-Based Candidate Filter (ECF ), a training-free framework that controls visual evi-dence exposure along two complementary axes. For dense documents, multi-granularity evidence construction com-bines full pages with layout-derived regions to make local-ized evidence retrievable. For generator-side admission, ECF evaluates each additional candidate in the context in which it would actually be used. Given the top-ranked evidence c1
+
+and a candidate ci, it compares the target DLM’s first-step block entropy under {c1, c i} and {c1, blank( ci)}, yielding a conditional confidence gain that controls for the structural effect of an additional visual input. Under the local condi-tions in Proposition 3, a positive gain corresponds to lower competing-source risk. Rank-prior selection then uses these gains to decide whether to expand beyond c1 and, if so, which candidate to admit. Across three multimodal DLMs and five visual QA benchmarks, ECF improves over the strongest fixed top-k input by 2.62 percentage points on average. With LLaDA2.0-Uni, it further outperforms the strongest training-free alternative by 2.37 percentage points on average. Our contributions are: 
+
+• We identify an availability–accuracy mismatch in visual Matched blank Duplicated correct Conflicting page        
+
+> (a)
+> 0510 15 20 25
+> Accuracy drop (percentage points)
+> 1.92 7.64 21.06
+> LLaDA-V
+> base 46.16%
+> 1.68 0.40 23.06
+> LLaDA2.0-Uni
+> base 75.88%
+> -0.32 0.44 14.88
+> Dream-VL
+> base 79.24%
+> (b)
+> 0.00 0.04 0.08 0.12 40 50 60 70 Correct only
+> 65.0%, 0.000 62.6%, 0.043 61.4%, 0.052 41.1%, 0.111
+> JS divergence from correct-only First-step accuracy (%)
+
+Figure 2: Effects of additional visual evidence on ChartQA. (a) Final-answer accuracy drops relative to correct-only in-put under controlled second-image interventions across three backends; correct-only accuracies are shown below the back-end names. (b) First-step answer-block accuracy and Jensen– Shannon divergence from the correct-only distribution on natural retrieval cases. DLM-RAG: broader retrieval improves answer-page cov-erage but can reduce answer accuracy. We trace this fail-ure to source-coherence loss in parallel denoising. 
+
+• We introduce ECF, which assesses additional evidence through a geometry-matched counterfactual in the tar-get DLM’s first-step answer block. Together with multi-granularity evidence construction, it decouples candidate-pool size from final-context size. 
+
+• Across five visual QA benchmarks and three multimodal DLMs, we show that selective evidence admission pro-vides more reliable gains than fixed top-k input and re-mains stable as the candidate pool expands. 
+
+## 2 Related Work 
+
+Visual RAG under imperfect evidence. Visual RAG re-trieves external evidence directly from document images, preserving layout, graphics, and textual content that may be lost in text-only pipelines (Yu et al. 2025; Li et al. 2025). Existing work has improved visual evidence quality along two directions: stronger page-level retrieval and fusion, and finer-grained retrieval of query-relevant regions. RegionRAG develops the latter direction by learning query–region align-ment, and shows that irrelevant content can arise both within an individual page and across multiple retrieved pages (Li et al. 2025). Related robustness studies likewise find that irrelevant or poorly placed context can degrade generation (Yoran et al. 2024; Yu et al. 2024; Liu et al. 2024). These studies establish evidence granularity and candidate redun-dancy as important sources of noise, but do not characterize how multiple visual sources interact once they jointly condi-tion diffusion generation. 
+
+Diffusion language models and DLM-RAG. Discrete and masked diffusion language models generate through iterative denoising (Austin et al. 2021; Hoogeboom et al. 2021; Sa-hoo et al. 2024; Nie et al. 2025; Gao et al. 2026) rather than autoregressive factorization (Gao et al. 2025; Xiong et al. 2024), and recent work extends this paradigm to multimodal generation (Inclusion AI et al. 2026; You et al. 2025; Ye et al. 2026). Because multiple positions can be updated from a shared masked state, their behavior depends on denois-ing order and on dependencies not represented by isolated position-wise marginals (Ni et al. 2026; Kang et al. 2026; Zhang et al. 2026). For DLM-RAG, SPREAD uses query relevance to guide reveal order, while SARDI updates re-trieval from tentative predictions (Yu et al. 2026; Jünger et al. 2026). These methods study how available evidence is used or refreshed during denoising, rather than which visual candidates should jointly enter the initial masked context or how incompatible sources interact within it. 
+
+Adaptive evidence selection. Adaptive RAG systems de-cide when to retrieve and which evidence to retain using re-trieval scores, generation uncertainty, self-reflection, learned verifiers, or surrogate multimodal models (Asai et al. 2024; Jiang et al. 2023; Luo et al. 2026). UOVES provides the most direct generation-aware formulation for visual evidence se-lection: it defines evidence utility as information gain on the model’s output distribution and derives a latent helpfulness objective that can be estimated by a lightweight surrogate in a training-free manner (Luo et al. 2026). This formulation moves beyond semantic relevance, but operationally ranks candidates by their individual helpfulness and retains a pre-scribed top-K subset. It does not directly address context-dependent admission—whether an additional candidate re-mains beneficial when combined with already available vi-sual evidence, or whether context expansion should be re-jected before DLM denoising. This work addresses this gap by studying evidence admission for DLMs whose unresolved answer positions share a multi-source visual context. 
+
+## 3 Why More Retrieved Evidence Can Hurt Visual DLM-RAG 
+
+3.1 Preliminaries: Masked Diffusion Generation 
+
+Unlike autoregressive models that decode from left to right, DLMs generate answers through iterative denoising (Sa-hoo et al. 2024; Nie et al. 2025; Gao et al. 2026). Let 
+
+Y t = ( Y t 
+
+> 1
+
+, . . . , Y tM ) be the answer block at step t and Ut
+
+its unresolved masked positions. Generation starts from a fully masked Y T with UT = {1, . . . , M }. Given question q,visual evidence E, and state Y t, one forward pass exposes 
+
+p(m) 
+
+> θ
+
+(y | Y t, q, E ) for every m ∈ Ut. A schedule selects 
+
+St ⊆ Ut and updates those positions from the same unre-solved state using the position-wise proposal 
+
+Qt(YSt | Y t, q, E ) = Y
+
+> m∈St
+
+p(m) 
+
+> θ
+
+(Ym | Y t, q, E ). (1) The process repeats until no masks remain. Although imple-mentations differ in their schedules and update budgets, their first forward pass exposes distributions over the prospective answer block before any answer token is committed. This multi-position lookahead enables parallel decoding, but a position-wise proposal may fail to preserve a source choice shared across unresolved positions. We analyze this first un-resolved state and suppress the fixed Y T below. 
+
+3.2 Problem Setting: Availability vs. Admission 
+
+Each example consists of a question q, a visual corpus D, and one or more reference answers. A retriever returns a ranked candidate pool Ck = ( c1, c 2, . . . , c k), from which the gen-erator receives an admitted evidence sequence E ⊆ Ck.Fixed top-k input sets E = Ck, conflating candidate avail-ability with evidence admission. Answer-page Recall@ k
+
+measures availability—whether Ck contains an annotated answer-bearing page—whereas answer accuracy measures generation quality under the admitted evidence E. We seek to preserve the coverage benefit of a larger candidate pool while limiting harmful visual exposure during denoising. 
+
+3.3 Source-Coherence Loss in Parallel Denoising 
+
+The controlled interventions in Figure 2(a) show that the degradation is driven primarily by competing visual seman-tics rather than the presence of a second visual slot. We therefore model the retrieved pages as competing sources that support different coherent answers and formalize why this conflict is especially damaging when several positions are predicted from the same unresolved denoising state. 
+
+Definition 1 (Conflict width and source coherence) . Let the correct and conflicting pages support answers a =(a1, . . . , a M ) and d = ( d1, . . . , d M ). The conflict set is 
+
+R = {m : am̸ = dm} and its width is r = |R|. The an-swers a and d are source-coherent ; the hybrid set H contains assignments that agree with them outside R but select at least one token from each source inside R, and hence are supported by neither source. We formalize this unresolved source conflict through local two-source ambiguity and an exact-marginal factorized pro-posal on a restricted source-label process; their precise defi-nitions and scope are given as Assumptions F.1 and F.2 in the Technical Supplement. At each conflict position, this process retains and renormalizes the correct- and competing-source tokens. Here ϵ ∈ (0 , 1) denotes competing-source mass in this restricted process. The key issue is that positions in R
+
+share a latent source choice, whereas the position-wise pro-posal does not. For r = 2 , the mixture supports only (a1, a 2)
+
+and (d1, d 2), but the product assigns mass 2ϵ(1 − ϵ) to the two cross-source combinations. 
+
+Theorem 1 (Source-conflict amplification) . Under Assump-tions F.1 and F.2 in the Technical Supplement, for any 
+
+0 < ϵ < 1 and r ≥ 1, the factorized proposal assigns 
+
+Q∥(a | E) = (1 − ϵ)r , Q∥(d | E) = ϵr ,Q∥(H | E) = 1 − (1 − ϵ)r − ϵr . (2) 
+
+Consequently, hybrid mass is zero for r = 1 and strictly increases with conflict width r.
+
+Thus, once several positions depend on the unresolved source, position-wise decisions can splice coherent branches and move probability mass to unsupported answers. 
+
+Corollary 2 (Excess risk from lost source coupling) . Under Assumptions F.1 and F.2 in the Technical Supplement, sup-pose the coherent branch a is the unique accepted assignment in this restricted process, and define its exact-match sampling Fixed Top-k     
+
+> E = Cₖ c₁ c₂ c₃ cₖ
+> source A conflicting B
+> Recall@k ↑
+> Parallel proposal
+> z
+> AB
+> Joint output
+> coherent A Unsupported H
+> no source support
+> Recall@k ↑ answer accuracy ↑
+
+Figure 3: Fixed top-k input can improve answer-page avail-ability while conflicting sources induce unsupported hybrid proposals.             
+
+> rLLaDA par. LLaDA seq. Qwen AR 10.0000 0.0000 0.0000 20.3017 0.1530 3.39 ×10 −7
+> 40.5842 0.2574 1.12 ×10 −8
+
+Table 1: Restricted hybrid source mass under controlled vi-sual conflict. Each cell averages 32 base templates and both page orders; the parallel–sequential effect has the same di-rection under either order. 
+
+risk as R(Q) = 1 −Q(a). Let Qcausal be an exact causal fac-torization of the same mixture, which preserves the selected source after the prefix chooses a branch. Then Rcausal = ϵ,and for every r ≥ 2,
+
+R∥ − R causal = (1 − ϵ) − (1 − ϵ)r > 0, r ≥ 2. (3) 
+
+Hence factorizing exact marginals incurs excess risk solely from losing their shared source dependence. 
+
+The causal construction is an oracle comparator that iso-lates this dependence cost, rather than a universal ranking of model families. The result explains why conflict is more damaging than a semantically empty input and motivates ad-mission before final denoising; proofs are provided in the Technical Supplement. Figure 3 summarizes the mechanism: fixed top-k input can expose parallel denoising to competing visual sources, and the factorized position-wise proposal can convert unresolved source competition into unsupported hybrid answers. 
+
+3.4 Empirical Validation and Early Observability 
+
+Controlled source-conflict validation. Table 1 evaluates the source-conflict prediction through a same-weight LLaDA comparison differing only in proposal construction. Hybrid mass is zero at r = 1 , increases with conflict width, and is consistently higher under parallel than source-conditioned sequential prediction for r ≥ 2, but remains negligible for native Qwen AR. This supports source-coherence loss as the failure channel behind harmful multi-page input. 
+
+Early observability on natural retrieval. The same fail-ure is visible before any answer token is committed. On natural ChartQA cases, a conflicting page reduces first-step answer-block accuracy from 65.0 to 41.1 and produces the largest divergence from the correct-only distribution, whereas matched-blank and duplicated-correct controls re-main substantially closer (Figure 2(b)). This ordering mirrors final-answer degradation (Figure 2(a)), showing that conflict is already expressed in the initial answer state and persists through denoising. The early-to-final correspondence moti-vates the first-step distribution as a generator-native signal for evidence admission. 
+
+## 4 Entropy-Based Candidate Filter 
+
+The analysis motivates ECF to control visual evidence expo-sure along two axes: evidence granularity and final-context composition. At evidence construction, full pages and layout-derived regions form a multi-granularity corpus spanning global and localized evidence. At admission, ECF evaluates candidates before decoding, using a geometry-matched blank to isolate their effect on prospective answer-block confidence. Given a ranked top-k pool, it expands the visual context only when supported by the DLM’s pre-denoising state. 
+
+4.1 DLM-Native Block Confidence 
+
+Because candidate influence is visible before final denoising, we evaluate uncertainty in the DLM’s prospective answer state. For an evidence set E, define the entropy of answer slot m:
+
+hm(q, E ) = − X
+
+> y
+
+p(m) 
+
+> θ
+
+(y | q, E ) log p(m) 
+
+> θ
+
+(y | q, E ). (4) We aggregate the first answer block as 
+
+H(q, E ) = 
+
+> M
+
+X
+
+> m=1
+
+αmhm(q, E ),αm = exp( −λm )
+
+PMj=1 exp( −λj ) .
+
+(5) The decay rate λ controls the emphasis on earlier answer po-sitions; we use λ = 0 .5 throughout. This block statistic uses the multi-position state implicated by Theorem 1, rather than relying on a single initial token that may encode formatting or a standard prefix. 
+
+4.2 Blank-Controlled Candidate Gain 
+
+Raw block-entropy changes mix the candidate’s semantic contribution with the structural effect of adding another visual input. ECF separates these effects with geometry-matched real and blank-reference contexts. For a top-ranked evidence unit c1 and a candidate unit ci,construct matched contexts 
+
+Ereal  
+
+> i
+
+= {c1, c i}, Eblank  
+
+> i
+
+= {c1, blank( ci)}. (6) The blank has the same dimensions as ci and preserves the resulting image-token layout while removing candidate se-mantics. We define the blank-controlled entropy gain 
+
+Gi = H(q, E blank  
+
+> i
+
+) − H(q, E real  
+
+> i
+
+). (7) The difference therefore isolates how ci changes the prospec-tive answer state relative to an equally shaped semantic null. Entropy-Based Candidate Filter (ECF) T R A I N I N G - F R E E         
+
+> semantic layout
+> TEXT TABLE FIG.
+> e v i d e n c e u n i t s full page text table figure
+> 1 page → full page + up to 3 regions
+> multi-granularity evidence construction
+> 1 VISUAL SLICING DLM-Native Block Confidence question q +evidence E
+> DLM step 1 prospective answer block
+> [MASK] [MASK] [MASK] [MASK] [MASK]
+> ...
+
+H(q, E) = Σ mαmhm(q, E)   
+
+> weighted multi-position entropy
+> Blank-Controlled Candidate Gain geometry matched · semantic contribution isolated
+> REAL
+
+{c 1, c i} DLM step 1 [MASK] [MASK] [MASK] [MASK]  
+
+> Hreal
+> BLANK
+
+{c 1, blank(c i)} DLM step 1 [MASK] [MASK] [MASK] [MASK] 
+
+> Hblank
+
+Gi = H blank − H real 
+
+> candidate-specific stabilization
+
+Gi > 0 
+
+> real evidence makes the prospective answer state more concentrated
+
+repeat for c 2, ..., c k → candidate gains G 2, ..., G k
+
+> first forward pass · no committed answer tokens
+> 2 ENTROPY COMPUTATION
+> retrieval order = asymmetric prior
+
+c1
+
+> fixed
+
+c2
+
+> G2
+
+c3
+
+> G3
+
+... 
+
+> ...
+
+ck
+
+> Gk
+
+1 Preserve c 1 
+
+> 2Expand?
+
+G2 > 0 
+
+> No → {c 1}default expansion
+
+c2  
+
+> when G 2> 0
+> 3Lower-rank replacement
+
+Gm > G j AND H1m < H 1
+
+E* = {c 1} or {c 1, c j* } final DLM answer 
+
+> 3 RANK-PRIOR SELECTION
+
+Figure 4: Overview of ECF’s three core components. Visual slicing constructs multi-granularity evidence units from full pages and layout-derived regions. Entropy computation measures prospective answer-block confidence and isolates each candidate’s semantic contribution with a geometry-matched blank. Rank-prior selection combines these signals with retrieval order to preserve the top-ranked candidate and admit at most one companion. 
+
+Alignment with source-conflict risk. The matched-context decomposition and local correct-source condition are formalized in Assumption F.3 of the Technical Supplement. 
+
+Proposition 3 (Local confidence–risk alignment) . Under Assumption F.3 in the Technical Supplement, for r ≥ 2,positive candidate gain is equivalent to reducing competing-source mass, hybrid mass, and parallel exact-match risk: 
+
+Gi > 0 ⇐⇒ ϵi < ϵ blank 
+
+⇐⇒ Φr (ϵi) < Φr (ϵblank )
+
+⇐⇒ R ∥(ϵi) < R∥(ϵblank ),
+
+(8) 
+
+where ϵi and ϵblank are the competing-source masses under the real and blank contexts, respectively, Φr (ϵ) = 1 − (1 −
+
+ϵ)r − ϵr is the hybrid mass, and R∥(ϵ) = 1 − (1 − ϵ)r is the parallel exact-match risk. 
+
+Proposition 3 gives the gain a direct operational meaning: relative to an equally shaped blank, positive gain indicates that the candidate reduces competing-source uncertainty and therefore lowers both hybrid mass and parallel sampling risk. This is why ECF uses a candidate-specific entropy difference rather than raw entropy. The alignment is deliberately local: outside the correct-source basin, low entropy may reflect a confidently wrong source, so retrieval rank supplies the complementary prior. 
+
+4.3 Rank-Prior Selection 
+
+The gain provides generator-side evidence for each candi-date, while retrieval order supplies the prior for searching the ranked pool. ECF combines both signals so that lower-ranked candidates replace the default expansion only with stronger evidence. It consumes only the ranked candidates, without retriever-specific scores, score calibration, or learned parameters, and can be paired with any visual retriever that returns an ordered list. The policy always retains c1 and admits at most one com-panion. For k ≥ 2, c2 serves as the rank-prior default and is admitted only if G2 > 0; otherwise, the policy returns 
+
+Algorithm 1 Rank-Prior Selection in ECF 
+
+Require: Question q; ranked candidate pool Ck =(c1, . . . , c k); DLM pθ ; matched-blank operator blank( ·)
+
+Ensure: Admitted evidence set E⋆
+
+1: Stage 1: Preserve the top-ranked candidate 
+
+2: if k = 1 then 
+
+3: return {c1}
+
+4: end if 
+
+5: Stage 2: Test the default rank-2 expansion 
+
+6: H1 ← H(q, {c1})
+
+7: G2 ← H(q, E blank 2 ) − H(q, E real 2 )
+
+8: if G2 ≤ 0 then 
+
+9: return {c1}
+
+10: end if 
+
+11: j ← 2
+
+12: Stage 3: Evaluate lower-ranked replacements 
+
+13: for m = 3 , . . . , k do 
+
+14: Gm ← H(q, E blank 
+
+m ) − H(q, E real 
+
+m )
+
+15: H1m ← H(q, {c1, c m})
+
+16: if Gm > G j and H1m < H 1 then 
+
+17: j ← m
+
+18: end if 
+
+19: end for 
+
+20: Stage 4: Construct the admitted evidence set 
+
+21: return {c1, c j }
+
+E⋆ = {c1}. Conditional on G2 > 0, the admissible lower-ranked replacements are 
+
+Ak = {m ∈ { 3, . . . , k } : Gm > G 2,H(q, {c1, c m}) < H (q, {c1})}.
+
+(9) The selected companion is 
+
+j⋆ = arg max 
+
+j∈{ 2}∪A k
+
+Gj , E⋆ = {c1, c j⋆ }, (10) with ties favoring the higher-ranked candidate. This con-struction treats c2 as the default expansion while requiring Method ChartQA InfoChartQA DocVQA InfoVQA TATDQA Fixed top-2 24.60 18.96 30.88 30.12 11.52 Frozen Semantic Top-2 25.88 17.16 31.64 32.80 12.16 SPREAD Top-2 26.12 18.68 33.56 32.72 12.60 SARDI Top-2 27.20 19.04 36.12 34.88 12.88 UOVES Top-2 26.84 20.00 37.16 35.92 13.76 Answer-UQ Top-1 30.72 20.68 32.92 36.08 14.08 ECF 31.12 21.16 36.72 42.60 18.96 
+
+Table 2: Answer accuracy (%) under fixed top-k input and training-free evidence-selection alternatives with LLaDA2.0-Uni. Fixed top-2 input unconditionally passes the two highest-ranked retrieved pages; ECF and the other baselines use a candidate-pool size of k = 3 and admit at most one companion.                                                                                
+
+> Model Input ChartQA InfoChartQA DocVQA InfoVQA TATDQA Avg. LLaDA2.0-Uni fixed top-1 29.96 20.44 27.32 30.20 11.60 23.90 fixed top-2 24.60 18.96 30.88 30.12 11.52 23.22 fixed top-3 21.20 16.40 30.12 27.44 12.20 21.47 ECF 31.12 21.16 36.72 42.60 18.96 30.11
+> LLaDA-V fixed top-1 22.28 17.12 22.68 26.48 9.88 19.69 fixed top-2 13.32 12.60 15.88 18.32 8.72 13.77 fixed top-3 10.04 9.00 11.36 12.92 7.40 10.14 ECF 20.48 16.28 24.44 30.84 14.04 21.22
+> Dream-VL fixed top-1 31.92 23.12 34.52 44.72 17.08 30.27 fixed top-2 33.60 25.32 38.48 47.64 17.00 32.41 fixed top-3 34.44 25.48 35.40 44.92 17.00 31.45 ECF 34.40 25.08 37.60 49.68 21.16 33.58
+
+Table 3: Answer accuracy (%) across DLM backends. ECF uses candidate-pool size k = 3 . For each dataset within a backend, the best and second-best results are shown in bold and underlined, respectively; only the best average is shown in bold. lower-ranked candidates to improve both relative gain and absolute joint confidence. Its probe cost grows linearly with 
+
+k, but each real or blank probe requires only a single first-step forward pass rather than a complete denoising trajectory. Full answer generation is performed only once with at most two admitted images. 
+
+## 5 Experiments 
+
+5.1 Experimental Setup 
+
+Benchmarks and system setup. We evaluate ECF with three multimodal DLM backends: LLaDA2.0-Uni (Inclusion AI et al. 2026), LLaDA-V (You et al. 2025), and Dream-VL (Ye et al. 2026). For retrieval, a VisRAG-style retriever (Yu et al. 2025) ranks visual evidence units for each question. We evaluate five visual QA benchmarks: ChartQA (Masry et al. 2022) and InfoChartQA (Xie et al. 2025) for charts, plus DocVQA (Mathew, Karatzas, and Jawahar 2021), In-foVQA (Mathew et al. 2022), and TATDQA (Zhu et al. 2022) for dense documents. ECF retrieves full pages and layout-derived slices from a multi-granularity corpus. 
+
+Evaluation protocol. We report answer accuracy (%) as the primary metric, using a unified relaxed matching rule for textual and numeric answers across all datasets and mod-els. For diagnostics, we also report Recall@ k for answer-page availability and answer-page usage for the presence of answer-bearing evidence in the admitted context. Further de-tails appear in the Technical Supplement. 
+
+Training-Free Alternatives. We compare ECF with five training-free alternatives under LLaDA2.0-Uni. UOVES se-lects two pages with a multimodal surrogate; Answer-UQ selects the candidate with the lowest generated-answer un-certainty; Frozen Semantic reranks with a frozen vision–text encoder; SPREAD changes reveal order using query rele-vance; and SARDI retrieves from tentative DLM predictions (Luo et al. 2026; Yu et al. 2026; Jünger et al. 2026). All methods share VisRAG retrieval, the answer budget, and the scorer; fixed top-k inputs expand evidence unconditionally. 
+
+5.2 Main Results 
+
+LLaDA2.0-Uni. Table 2 tests whether ECF’s gains merely reflect avoiding unconditional evidence expansion. ECF im-proves over matched fixed top-2 input by 6.90 percent-age points on average. More importantly, it retains a 2.37-percentage-point average margin over the strongest training-free alternative on each dataset, even though these methods already select, rerank, or adapt retrieved evidence. Thus, passing fewer pages alone does not explain the gain, sup-porting a generator-native criterion for evidence admission before denoising. 
+
+Cross-DLM validation. Table 3 evaluates the admission rule across DLM backends. ECF achieves the best accuracy Source Metric ChartQA InfoChartQA DocVQA InfoVQA TATDQA VisRAG pool Recall@1 34.08 38.16 34.04 51.08 15.76 Recall@2 41.68 46.40 43.64 62.04 22.68 Recall@3 46.00 50.08 48.36 68.08 27.88 LLaDA2.0-Uni + ECF Answer-page usage 39.60 42.28 39.20 59.36 24.32 LLaDA-V + ECF Answer-page usage 39.32 42.32 40.92 59.80 25.16 Dream-VL + ECF Answer-page usage 38.80 41.44 40.56 60.32 25.24 
+
+Table 4: Answer-page Recall@ k and answer-page usage (%).                                         
+
+> Dataset kAcc. (%) Recall@ k(%) Page use (%) ChartQA 431.52 48.64 39.84 531.80 51.20 39.92 InfoChartQA 421.20 52.64 42.40 520.96 54.80 42.08 DocVQA 436.72 49.04 39.24 537.04 51.96 39.52 InfoVQA 442.78 70.43 59.50 543.02 73.35 59.06 TATDQA 418.72 37.00 23.28 518.76 40.12 24.60
+
+Table 5: ECF with larger candidate pools. in 10 of the 15 model–dataset pairs and the highest average for all three backends. Across the 15 pairs, the same training-free rule improves accuracy by 2.62 percentage points on average over the strongest fixed top-k input, without backend-specific training or calibration. Its cross-backend behavior characterizes ECF as a reusable evidence-admission layer rather than a generator-specific optimization. 
+
+Candidate Availability and Answer-Page Usage. Table 4 separates candidate availability from evidence admitted for generation. Recall@ k grows with pool size, but Table 3 shows that admitting more pages does not correspondingly improve accuracy. Answer-page usage measures whether answer-bearing evidence survives admission, separating re-trieval coverage from effective generation context. 
+
+5.3 Analysis and Ablations 
+
+Larger candidate pools. Table 5 evaluates ECF beyond the main k = 3 candidate pool. Unlike fixed top-k in-put, whose accuracy decreases as more retrieved pages en-ter the decoding context (Figure 1), ECF remains stable as its candidate pool grows: macro accuracy is 30.11, 30.19, and 30.32 for k = 3 , 4, 5, respectively, despite diminishing marginal Recall gains. Increasing k expands only the candi-dates screened by ECF, while final decoding remains capped at two images. This decoupling makes k a flexible retrieval budget: small pools suffice when retrieval saturates early, whereas larger pools can exploit informative lower-ranked evidence from weaker retrievers or more complex datasets without the degradation of fixed top-k input. ECF thus adapts across retrieval regimes rather than relying on a fixed k.Fixed Top-1 level Gain over baseline 0510 15 20 25 30 35    
+
+> Macro accuracy (%)
+> 23.04% 26.96% (+3.92%) 27.07% (+4.03%) 32.76% (+9.72%)
+> Fixed Top-1 Sliced + Fixed Top-1 ECF w/o Slicing ECF
+
+Figure 5: Macro-average answer accuracy across DocVQA, InfoVQA, and TATDQA for the slicing and gating ablation. 
+
+Slicing and admission components. Figure 5 isolates the contributions of the two components in the complete ECF pipeline: layout-aware slicing and entropy-based candidate filtering. Each component independently improves the fixed top-1 baseline by about four percentage points, while com-bining them yields a substantially larger gain of 9.72 percent-age points. These gains reflect their complementary roles: slicing reduces unrelated content within each retrieved im-age, whereas admission limits interference across images in the final denoising context. 
+
+## 6 Conclusion 
+
+Retrieving more evidence does not guarantee better visual DLM-RAG: larger candidate pools improve answer-page availability, but admitting every candidate can reduce ac-curacy when position-wise parallel proposals lose shared visual-source dependence and assign probability to unsup-ported answers. Controlled and natural-retrieval studies lo-cate this interference in the first-step answer block, en-abling evidence assessment before decoding. ECF com-bines multi-granularity evidence construction with blank-controlled, rank-aware admission to reduce within-candidate noise and limit which candidates reach final denoising. Across five visual QA benchmarks and three multimodal DLMs, ECF averages a 2.62-percentage-point gain over the strongest fixed top-k input and remains stable as candidate pools grow. These findings recast pool size as a retrieval bud-get: broader retrieval helps when evidence is screened before denoising rather than accumulated unconditionally. References 
+
+Asai, A.; Wu, Z.; Wang, Y.; Sil, A.; and Hajishirzi, H. 2024. Self-RAG: Learning to Retrieve, Generate, and Cri-tique through Self-Reflection. In The Twelfth International Conference on Learning Representations .Austin, J.; Johnson, D. D.; Ho, J.; Tarlow, D.; and van den Berg, R. 2021. Structured Denoising Diffusion Models in Discrete State-Spaces. In Advances in Neural Information Processing Systems , volume 34, 17981–17993. Curran As-sociates, Inc. Bai, S.; Cai, Y.; Chen, R.; Chen, K.; Chen, X.; Cheng, Z.; Deng, L.; Ding, W.; Gao, C.; Ge, C.; Ge, W.; Guo, Z.; Huang, Q.; Huang, J.; Huang, F.; Hui, B.; Jiang, S.; Li, Z.; Li, M.; Li, M.; Li, K.; Lin, Z.; Lin, J.; Liu, X.; Liu, J.; Liu, C.; Liu, Y.; Liu, D.; Liu, S.; Lu, D.; Luo, R.; Lv, C.; Men, R.; Meng, L.; Ren, X.; Ren, X.; Song, S.; Sun, Y.; Tang, J.; Tu, J.; Wan, J.; Wang, P.; Wang, P.; Wang, Q.; Wang, Y.; Xie, T.; Xu, Y.; Xu, H.; Xu, J.; Yang, Z.; Yang, M.; Yang, J.; Yang, A.; Yu, B.; Zhang, F.; Zhang, H.; Zhang, X.; Zheng, B.; Zhong, H.; Zhou, J.; Zhou, F.; Zhou, J.; Zhu, Y.; and Zhu, K. 2025. Qwen3-VL Technical Report. arXiv:2511.21631. Gao, Y.; Bai, J.; Huang, Y.; Fu, X.; Sun, Q.; and Song, Y. 2026. Unifying deductive and abductive reasoning in knowl-edge graphs with masked diffusion model. In Proceedings of the ACM Web Conference 2026 , 3600–3611. Gao, Y.; Bai, J.; Zheng, T.; Sun, Q.; Zhang, Z.; Fu, X.; Li, J.; and Song, Y. 2025. Controllable logical hypothesis gen-eration for abductive reasoning in knowledge graphs. arXiv preprint arXiv:2505.20948 .Hoogeboom, E.; Nielsen, D.; Jaini, P.; Forré, P.; and Welling, M. 2021. Argmax Flows and Multinomial Diffusion: Learn-ing Categorical Distributions. In Advances in Neural Infor-mation Processing Systems , volume 34, 12454–12465. Cur-ran Associates, Inc. Inclusion AI; Bie, T.; Chen, H.; Chen, T.; Cheng, Z.; Cui, L.; Gan, K.; Huang, Z.; Lan, Z.; Li, H.; Li, J.; Lin, T.; Qin, Q.; Wang, H.; Wang, X.; Wu, H.; Xin, Y.; and Zhao, J. 2026. LLaDA2.0-Uni: Unifying Multimodal Understand-ing and Generation with Diffusion Large Language Model. arXiv:2604.20796. Izacard, G.; and Grave, E. 2021. Leveraging Passage Re-trieval with Generative Models for Open Domain Question Answering. In Proceedings of the 16th Conference of the Eu-ropean Chapter of the Association for Computational Lin-guistics: Main Volume , 874–880. Online: Association for Computational Linguistics. Jiang, Z.; Xu, F.; Gao, L.; Sun, Z.; Liu, Q.; Dwivedi-Yu, J.; Yang, Y.; Callan, J.; and Neubig, G. 2023. Active Retrieval Augmented Generation. In Proceedings of the 2023 Confer-ence on Empirical Methods in Natural Language Processing ,7969–7992. Singapore: Association for Computational Lin-guistics. Jünger, P.; Lovelace, J.; Zhao, L.; Go, D.; and Weinberger, K. Q. 2026. Self-Augmenting Retrieval for Diffusion Lan-guage Models. In Proceedings of the 43rd International Conference on Machine Learning .Kang, W.; Galim, K.; Oh, S.; Lee, M.; Zeng, Y.; Zhang, S.; Hooper, C. R. C.; Hu, Y.; Koo, H. I.; Cho, N. I.; and Lee, K. 2026. ParallelBench: Understanding the Trade-Offs of Parallel Decoding in Diffusion LLMs. In The Fourteenth International Conference on Learning Representations .Li, Y.; Lu, Z.; Liu, Z.; Sun, Y.; Liu, C.; and Xie, H. 2025. Re-gionRAG: Region-Level Retrieval-Augmented Generation for Visual Document Understanding. arXiv:2510.27261. Liu, N. F.; Lin, K.; Hewitt, J.; Paranjape, A.; Bevilacqua, M.; Petroni, F.; and Liang, P. 2024. Lost in the Middle: How Language Models Use Long Contexts. Transactions of the Association for Computational Linguistics , 12: 157–173. Luo, W.; Hu, Z.; Wang, X.; Yu, Z.; Zhang, H.; and Huang, Z. 2026. Utility-Oriented Visual Evidence Selection for Multi-modal Retrieval-Augmented Generation. In Proceedings of the 64th Annual Meeting of the Association for Computa-tional Linguistics (Volume 1: Long Papers) , 35091–35124. San Diego, California, United States: Association for Com-putational Linguistics. Ma, X.; Liu, Q.; Jiang, D.; Zhang, G.; Ma, Z.; and Chen, W. 2025. General-Reasoner: Advancing LLM Reasoning Across All Domains. In Belgrave, D.; Zhang, C.; Lin, H.; Pascanu, R.; Koniusz, P.; Ghassemi, M.; and Chen, N., eds., 
+
+Advances in Neural Information Processing Systems , vol-ume 38, 56596–56618. Curran Associates, Inc. Masry, A.; Long, D. X.; Tan, J. Q.; Joty, S.; and Hoque, E. 2022. ChartQA: A Benchmark for Question Answering about Charts with Visual and Logical Reasoning. In Findings of the Association for Computational Linguistics: ACL 2022 ,2263–2279. Dublin, Ireland: Association for Computational Linguistics. Mathew, M.; Bagal, V.; Tito, R.; Karatzas, D.; Valveny, E.; and Jawahar, C. V. 2022. InfographicVQA. In 2022 IEEE/CVF Winter Conference on Applications of Computer Vision , 2582–2591. IEEE. Mathew, M.; Karatzas, D.; and Jawahar, C. V. 2021. DocVQA: A Dataset for VQA on Document Images. In 
+
+2021 IEEE Winter Conference on Applications of Computer Vision , 2199–2208. IEEE. Ni, Z.; Wang, S.; Yue, Y.; Yu, T.; Zhao, W.; Hua, Y.; Chen, T.; Song, J.; Yu, C.; Zheng, B.; and Huang, G. 2026. The Flexibility Trap: Rethinking the Value of Arbitrary Order in Diffusion Language Models. In Proceedings of the 43rd International Conference on Machine Learning .Nie, S.; Zhu, F.; You, Z.; Zhang, X.; Ou, J.; Hu, J.; Zhou, J.; Lin, Y.; Wen, J.-R.; and Li, C. 2025. Large Language Diffusion Models. arXiv:2502.09992. Paruchuri, V.; and Team, D. 2025. Surya: A lightweight doc-ument OCR and analysis toolkit. https://github.com/datalab-to/surya. GitHub repository. Sahoo, S. S.; Arriola, M.; Schiff, Y.; Gokaslan, A.; Mar-roquin, E.; Chiu, J. T.; Rush, A.; and Kuleshov, V. 2024. Simple and Effective Masked Diffusion Language Models. In Advances in Neural Information Processing Systems , vol-ume 37, 130136–130184. Curran Associates, Inc. Shi, W.; Min, S.; Yasunaga, M.; Seo, M.; James, R.; Lewis, M.; Zettlemoyer, L.; and Yih, W.-t. 2024. REPLUG: Retrieval-Augmented Black-Box Language Models. In Pro-ceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers) ,8371–8384. Mexico City, Mexico: Association for Compu-tational Linguistics. Tschannen, M.; Gritsenko, A.; Wang, X.; Naeem, M. F.; Alabdulmohsin, I.; Parthasarathy, N.; Evans, T.; Beyer, L.; Xia, Y.; Mustafa, B.; Hénaff, O.; Harmsen, J.; Steiner, A.; and Zhai, X. 2025. SigLIP 2: Multilingual Vision-Language Encoders with Improved Semantic Understanding, Localiza-tion, and Dense Features. arXiv:2502.14786. Xiao, Q.; Shi, H.; Gao, Y.; Hu, W.; Jing, H.; Zheng, T.; Xu, B.; Zhang, Z.; Wang, W.; Li, H.; et al. 2026. SING: Synthetic Intention Graph for Scalable Active Tool Discovery in LLM Agents. arXiv preprint arXiv:2606.16591 .Xie, T.; Lin, M.; Liu, M.; Ye, Y.; Chen, C.; and Liu, S. 2025. InfoChartQA: A Benchmark for Multimodal Question Answering on Infographic Charts. arXiv:2505.19028. Xiong, J.; Liu, G.; Huang, L.; Wu, C.; Wu, T.; Mu, Y.; Yao, Y.; Shen, H.; Wan, Z.; Huang, J.; et al. 2024. Au-toregressive models in vision: A survey. arXiv preprint arXiv:2411.05902 .Ye, J.; Gong, S.; Gao, J.; Fan, J.; Wu, S.; Bi, W.; Bai, H.; Shang, L.; and Kong, L. 2026. Dream-VL & Dream-VLA: Open Vision-Language and Vision-Language-Action Models with Diffusion Language Model Backbone. arXiv:2512.22615. Yoran, O.; Wolfson, T.; Ram, O.; and Berant, J. 2024. Making Retrieval-Augmented Language Models Robust to Irrelevant Context. In The Twelfth International Conference on Learn-ing Representations .You, Z.; Nie, S.; Zhang, X.; Hu, J.; Zhou, J.; Lu, Z.; Wen, J.-R.; and Li, C. 2025. LLaDA-V: Large Language Diffusion Models with Visual Instruction Tuning. arXiv:2505.16933. Yu, C.; Wang, J.; Li, Y.; Chang, H.; Lan, G.; Sun, Q.; Li, J.; Li, J.; and Zhang, Z. 2026. Unlocking the Potentials of Retrieval-Augmented Generation for Diffusion Language Models. arXiv:2601.11342. Yu, S.; Tang, C.; Xu, B.; Cui, J.; Ran, J.; Yan, Y.; Liu, Z.; Wang, S.; Han, X.; Liu, Z.; and Sun, M. 2025. VisRAG: Vision-Based Retrieval-Augmented Generation on Multi-Modality Documents. In The Thirteenth International Con-ference on Learning Representations .Yu, W.; Zhang, H.; Pan, X.; Cao, P.; Ma, K.; Li, J.; Wang, H.; and Yu, D. 2024. Chain-of-Note: Enhancing Robustness in Retrieval-Augmented Language Models. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , 14672–14685. Miami, Florida, USA: Association for Computational Linguistics. Zhang, S.; Yu, L.; Brekelmans, R.; Tang, L.; Asif, S.; and Ver Steeg, G. 2026. Generation Order and Parallel Decod-ing in Masked Diffusion Models: An Information-Theoretic Perspective. arXiv:2602.00286. Zhu, F.; Lei, W.; Feng, F.; Wang, C.; Zhang, H.; and Chua, T.-S. 2022. Towards Complex Document Understanding by Discrete Reasoning. In Proceedings of the 30th ACM Inter-national Conference on Multimedia , 4857–4866. ACM. Appendix A: Implementation Details 
+
+Evaluation subset. To ensure a consistent evaluation scale across datasets, we randomly sample 2,500 question–answer pairs from the test split of each of the five datasets when-ever available. For each model–dataset–configuration com-bination, we report one complete evaluation run over the corresponding fixed evaluation subset. 
+
+Prompt wrapper. All models use the same task-level wrapper: 
+
+Question: <question and short-answer instruction> Answer: 
+
+Model-specific image tokens and chat templates are treated as unavoidable backend differences. 
+
+Answer length. All backends generate an eight-token short-answer region. LLaDA2.0-Uni uses its native block-denoising implementation with 32 denoising updates for the answer block. LLaDA-V and Dream-VL use their official full-answer denoising interfaces with eight update steps. The same answer length is used for entropy probing and final generation within each backend. 
+
+## Appendix B: Unified Answer Scoring 
+
+The same scorer is used across all datasets and model back-ends. Predictions and references are normalized by extract-ing the answer content, removing prefixes, suffixes, symbols, and whitespace, and converting letters to lowercase. Non-numeric answers are evaluated by exact or constrained sub-string matching, while numeric answers use exact or bounded edit-distance matching. When multiple references are avail-able, matching any reference is considered correct. 
+
+## Appendix C: Layout-Aware Visual Slicing 
+
+We apply pre-retrieval slicing to DocVQA, InfoVQA, and TATDQA. ChartQA and InfoChartQA use the original image corpus without slicing. The splitter uses the surya-ocr 
+
+layout predictor to detect document regions (Paruchuri and Team 2025). Detected boxes receive eight pixels of padding and regions smaller than 3% of the page area or with a side shorter than 96 pixels are iteratively merged with their nearest region. If more than three regions remain, the smallest regions are merged until at most three fragments remain. The fragments are ordered by their page coordinates. For each original page, the retrieval corpus contains all retained fragments together with the uncropped complete page. Consequently, one source page contributes at most four candidate images: up to three fragments and one full-page image. This construction preserves global context while allowing VisRAG and ECF to operate on finer-grained visual evidence. Relative to the standard full-image inputs reported in the main paper, the multi-granularity corpus improves every matched fixed-k setting by 1.40–9.24 percentage points. Nev-ertheless, the complete ECF pipeline remains 1.72–4.00 per-centage points higher than the strongest sliced-corpus fixed top-k result on each dataset, showing that localized candidate construction and selective admission are complementary. 
+
+## Appendix D: Answer-Page Recall and Usage Metrics 
+
+Recall@ k is successful when at least one of the top-k re-trieved candidates maps to an answer-bearing source page. For an unsliced candidate, the mapping is the candidate page itself. For a sliced candidate, every fragment stores its parent-page identifier; retrieving any fragment whose parent is an answer-bearing page is counted as successful retrieval of that page. The same parent mapping is used for ECF’s final answer-page usage metric. Thus a final evidence sequence is successful if it contains either the complete answer page or any fragment derived from that page. 
+
+## Appendix E: Detailed Candidate-Admission Analyses 
+
+Slicing and Admission Components 
+
+Table 6 reports the per-dataset results underlying the macro-average slicing and admission ablation in the main paper. The full-page comparison isolates confidence-based ad-mission, whereas the sliced-plus-full-page setting evaluates the complete pipeline. Together with Table 7, these results separate candidate granularity from evidence admission.                 
+
+> Corpus Selector DocVQA InfoVQA TATDQA Full page Fixed top-1 27.32 30.20 11.60 Full page ECF 35.52 35.08 10.60 Sliced + full page Fixed top-1 28.72 36.04 16.12 Sliced + full page ECF 36.72 42.60 18.96
+
+Table 6: Per-dataset answer accuracy (%) underlying the macro-average slicing and admission ablation in the main paper.             
+
+> Dataset Top-1 Top-2 Top-3 DocVQA 28.72 32.76 33.76 InfoVQA 36.04 38.60 36.68 TATDQA 16.12 17.16 17.24
+
+Table 7: Answer accuracy (%) of LLaDA2.0-Uni with fixed top-k input from the same sliced-plus-full-page candidate corpus used by ECF. 
+
+Rank-Prior Selection 
+
+Rank-prior selection combines retrieval order as an asym-metric prior with counterfactual entropy gain as generator-side evidence. A positive G2 shows that candidate-specific information stabilizes the top-1-conditioned answer state rel-ative to matched placeholder expansion, providing evidence that expansion is warranted. Because marginal answer-page recall decreases with retrieval rank, c2 remains the default admitted candidate. Any lower-ranked candidate must ex-ceed the current best gain and reduce joint entropy relative to top-1 before replacing that default. Table 8 compares the Policy Acc. (%) Page use (%) Rank 3 (%) ECF ( k = 2 ) 30.60 38.92 –Direct max-gain ( k = 3 ) 30.08 40.28 32.16 ECF ( k = 3 ) 31.12 39.60 11.04 
+
+Table 8: Candidate-rank policy on ChartQA with LLaDA2.0-Uni. Direct max-gain omits the rank-prior replacement rule, while ECF ( k = 2 ) isolates two-candidate admission. Page use is answer-page usage, and Rank 3 is the rank-3 selection rate. main rank-prior selection policy at k = 3 with two-candidate ECF at k = 2 and direct maximum-gain selection at k = 3 .The asymmetric policy retains the larger marginal retrieval value of rank 2 while allowing rank 3 to replace it when both the relative counterfactual gain and absolute top-1 compari-son are favorable. Compared with direct max-gain selection, it changes the selected rank on 528 examples and improves answer accuracy by 1.04 percentage points. 
+
+Blockwise Entropy Aggregation 
+
+Table 9 tests whether the entire masked answer block pro-vides a more informative confidence statistic than a first-position view.             
+
+> Confidence statistic Page use (%) Acc. (%) Admit (%) First mask entropy 38.72 29.76 50.24 Uniform block mean 38.96 30.52 49.28 Weighted block mean 38.92 30.60 48.96
+
+Table 9: First-step entropy aggregation with k = 2 on ChartQA with LLaDA2.0-Uni. Page use denotes answer-page usage, and Admit is the percentage of examples using two images. To isolate the confidence statistic from lower-rank replace-ment, all variants use k = 2 , so the only decision is whether 
+
+c2 should accompany c1. The weighted block statistic in-creases answer-page usage by 0.20 percentage points and answer accuracy by 0.84 percentage points over first-mask entropy. Although modest, the consistent improvement sup-ports using the DLM’s multi-position lookahead rather than tying admission to a single slot that may encode formatting or a standardized prefix. 
+
+Counterfactual Visual Controls 
+
+Directly comparing H(q, c 1) and H(q, c 1, c i) is not a clean evidence test because the two contexts differ in visual in-put count and model-specific image-token layout. The main method therefore uses a white image with the candidate’s di-mensions to preserve input geometry while removing visual semantics. This makes Gi a more specific estimate of whether the candidate evidence unit itself stabilizes denoising. To iso-late reference construction from lower-rank replacement, all control variants use k = 2 . Table 10 compares this choice with two alternatives that retain semantic or low-level visual content.         
+
+> Control Acc. (%) Admit (%) Patch shuffle 29.56 55.60 Unrelated real page 29.12 53.40 White blank 30.60 48.96
+
+Table 10: Counterfactual visual controls with k = 2 on ChartQA. Accuracy and admission rate are percentages. The white blank gives the highest answer accuracy and the lowest admission rate among the three controls. Unlike patch shuffling, which preserves page-specific appearance, and an unrelated real page, which introduces new semantics, it re-moves candidate semantics while preserving input geometry; ECF therefore uses it as the matched control. 
+
+Larger Candidate Pools and Rank Use 
+
+Table 11 extends the LLaDA2.0-Uni ECF setting beyond the main k = 3 candidate pool. Increasing k raises retrieval coverage, and ECF remains able to exploit the additional candidates when they provide                                                                                                
+
+> Dataset kAcc. (%) Recall@ k(%) Page use (%) Admit (%) Rank 2 (%) Rank 3 (%) Rank 4 (%) Rank 5 (%) ChartQA 431.52 48.64 39.84 48.96 31.60 9.08 8.28 –531.80 51.20 39.92 48.96 27.44 7.64 6.60 7.28 InfoChartQA 421.20 52.64 42.40 50.08 33.48 8.92 7.68 –520.96 54.80 42.08 50.08 28.12 7.88 6.44 7.64 DocVQA 436.72 49.04 39.24 47.76 30.28 8.36 9.12 –537.04 51.96 39.52 47.76 25.64 7.08 7.92 7.12 InfoVQA 442.78 70.43 59.50 52.22 33.97 9.16 9.08 –543.02 73.35 59.06 52.18 29.01 8.04 7.96 7.16 TATDQA 418.72 37.00 23.28 47.28 33.28 7.16 6.84 –518.76 40.12 24.60 47.28 29.16 6.08 5.72 6.32
+
+Table 11: LLaDA2.0-Uni ECF results with larger candidate pools. Accuracy, Recall@ k, answer-page usage, total admission rate, and selected-rank rates are percentages. Rank-use columns sum to the total admission rate up to rounding. useful confidence gains. The gains are not purely mono-tonic, because larger pools are only helpful when the re-triever places answer-bearing evidence in the added ranks and the admission mechanism can separate it from conflict-ing context. This supports treating k as a flexible candidate-availability parameter: stronger or broader retrieval can make larger pools useful, while final generation remains bounded by the admission rule. 
+
+## Appendix F: Formal Assumptions and Proofs for the Source-Conflict Analysis 
+
+Scope and Restricted Source Process 
+
+We analyze the first prospective answer-block distribution before any answer token is committed. The analysis con-cerns a restricted source process, not the DLM’s complete full-vocabulary output law or its entire iterative denoising trajectory. Fix a question q, admitted visual evidence E, and two source-coherent token sequences a = ( a1, . . . , a M ) and 
+
+d = ( d1, . . . , d M ) supported by the correct and competing visual sources. Their conflict set and conflict width are 
+
+R = {m : am̸ = dm}, r = |R|. (11) At each m ∈ R, define a source label Zm ∈ { A, D }, where 
+
+A maps to am and D maps to dm. Operationally, the con-trolled study obtains the corresponding position-wise source probabilities by restricting the model distribution to these two tokens and renormalizing. The source-coherent label vectors are Ar and Dr ; the hybrid set HR = {A, D }r \ { Ar , D r }
+
+contains vectors that select at least one token from each source. This is the same restricted source mass measured in the controlled validation. Probability assigned by the full model to tokens outside each source-token pair is intention-ally outside this local abstraction. 
+
+Assumption F.1 (Unresolved two-source ambiguity). 
+
+Before the visual source is resolved, a shared latent vari-able S ∈ { A, D } selects the correct or competing source with probabilities 1 − ϵ and ϵ, respectively. Conditioned on 
+
+S, all labels in R follow the same source, so the restricted joint law is 
+
+PR(ZR | E) = (1 − ϵ) δAr (ZR) + ϵ δ Dr (ZR),
+
+0 < ϵ < 1. (12) Here ϵ is the competing-source mass. Assumption F.1 spec-ifies only the normalized source-label process on R; it does not assert that the full-vocabulary model distribution has support only on a and d.
+
+Assumption F.2 (Exact-marginal factorized proposal). 
+
+To isolate dependence loss rather than marginal prediction error, the first prospective simultaneous proposal uses the exact marginals of Eq. (12) but factorizes them: 
+
+Q∥,R (ZR | E) = Y
+
+> m∈R
+
+PR(Zm | E). (13) Thus Q∥,R (Zm = A | E) = 1 − ϵ and Q∥,R (Zm = D |
+
+E) = ϵ at every m ∈ R. This marginally exact construction isolates dependence loss; Lemma F.1 below further shows that it is the forward-KL-optimal product approximation. It models the restricted source-label projection of the prospec-tive block exposed by the first forward pass; it is not identified with the full-vocabulary block or the final distribution pro-duced by an arbitrary multi-step denoising schedule. To match the compact notation in the main paper, within this local model we write 
+
+Q∥(a | E) := Q∥,R (Ar | E),Q∥(d | E) := Q∥,R (Dr | E),Q∥(H | E) := Q∥,R (HR | E).
+
+(14) The probabilities in the main paper’s theorem and corollary therefore refer to this restricted source process, not to uncon-ditional full-vocabulary sequence probability. 
+
+Theorem 1: Source-Conflict Amplification 
+
+Theorem 1. Under Assumptions F.1 and F.2, for any 0 <ϵ < 1 and r ≥ 1,
+
+Q∥,R (Ar | E) = (1 − ϵ)r ,Q∥,R (Dr | E) = ϵr ,Q∥,R (HR | E) = 1 − (1 − ϵ)r − ϵr .
+
+(15) Consequently, hybrid mass is zero for r = 1 and, for fixed ϵ,strictly increases with conflict width r.
+
+Proof. Assumption F.2 independently selects A with prob-ability 1 − ϵ and D with probability ϵ at each of the r source-dependent positions. The all-A and all-D events therefore have probabilities (1 − ϵ)r and ϵr . Every other one of the 
+
+2r − 2 label vectors belongs to HR, which proves Eq. (15). Let Φr (ϵ) = 1 − (1 − ϵ)r − ϵr . Holding ϵ fixed, 
+
+Φr+1 (ϵ) − Φr (ϵ) = ϵ(1 − ϵ)r + (1 − ϵ)ϵr > 0. (16) This also gives Φ1(ϵ) = 0 and proves the stated dose effect. 
+
+Partial simultaneous updates. For an update set B ⊆{1, . . . , M } drawn from an unresolved state that still satisfies Assumption F.1, let b = |B ∩ R| and define the marginal proposal on the labels updated together as 
+
+Q∥,B ∩R(ZB∩R | E) = Y
+
+> m∈B∩R
+
+PR(Zm | E). (17) For b ≥ 1, let HB∩R contain the assignments that use both source labels; for b = 0 , set HB∩R = ∅. Then 
+
+Q∥,B ∩R(HB∩R | E) = 
+
+0, b = 0 ,
+
+1 − (1 − ϵ)b − ϵb, b ≥ 1.
+
+(18) Equation (18) is zero for b ≤ 1 and positive for b ≥ 2.It is a local statement about one unresolved simultaneous proposal. Across several denoising steps, the source posterior and the learned conditionals can change after each update, so Theorem 1 alone does not determine the final decoded-answer distribution. 
+
+Dependence Loss Under the Best Factorized Approximation 
+
+Let h2(ϵ) = −(1 − ϵ) log(1 − ϵ) − ϵ log ϵ be binary entropy, with 0 log 0 = 0 .Lemma F.1 (Forward-KL optimal product proposal). 
+
+For any product distribution QR(ZR) = Q 
+
+> m∈R
+
+qm(Zm)
+
+such that qm is positive on the support of PR,m ,
+
+KL( PR∥QR) = KL PR
+
+Y
+
+> m∈R
+
+PR,m 
+
+!
+
++ X
+
+> m∈R
+
+KL( PR,m ∥qm),
+
+(19) where PR,m is the mth marginal of PR. Hence the product of exact marginals in Assumption F.2 minimizes forward KL over all product distributions. Under Assumption F.1, its irreducible gap is 
+
+KL( PR∥Q∥,R ) = ( r − 1) h2(ϵ). (20) 
+
+Proof. Using QR = Q 
+
+> m
+
+qm and adding and subtracting P 
+
+> m
+
+log PR,m (Zm) inside the expectation under PR gives 
+
+KL( PR∥QR) = EPR
+
+
+
+log PR(ZR)
+
+Q 
+
+> m
+
+PR,m (Zm)
+
+
+
+(21) 
+
++ X
+
+> m∈R
+
+EPR,m 
+
+
+
+log PR,m (Zm)
+
+qm(Zm)
+
+
+
+(22) 
+
+= KL PR
+
+Y
+
+> m
+
+PR,m 
+
+!
+
+(23) 
+
++ X
+
+> m∈R
+
+KL( PR,m ∥qm), (24) which proves Eq. (19). Nonnegativity of each marginal KL term establishes optimality of the exact-marginal prod-uct. If some qm vanishes on the support of PR,m , then 
+
+KL( PR∥QR) = + ∞; hence the same conclusion holds for the product distributions excluded by the finite-KL premise above. Because 0 < ϵ < 1, all marginal probabilities are pos-itive and equality is possible only when every qm = PR,m ,so the minimizer is unique. Under Assumption F.1, PR has probabilities 1−ϵ and ϵ on Ar and Dr , whereas Q∥,R assigns those vectors (1 − ϵ)r and ϵr . Therefore 
+
+KL( PR∥Q∥,R ) = (1 − ϵ) log 1 − ϵ
+
+(1 − ϵ)r + ϵ log ϵϵr (25) 
+
+= ( r − 1) h2(ϵ). (26) Equivalently, this gap is the total correlation P 
+
+> m∈R
+
+H(Zm) − H(ZR) = rh 2(ϵ) − h2(ϵ).
+
+Corollary 2: Excess Risk from Lost Source Coupling 
+
+Corollary 2. Under Assumptions F.1 and F.2, let Ar be the unique accepted source-label assignment, representing answer a within this restricted abstraction, and define its sampling risk as R(Q) = 1 − Q(Ar ). Let Qcausal ,R be the exact chain factorization of PR. Then Rcausal = ϵ and, for every r ≥ 2,
+
+R∥ − R causal = (1 − ϵ) − (1 − ϵ)r > 0. (27) 
+
+Proof. The exact causal chain Qcausal ,R (ZR) =Q 
+
+> j
+
+PR(Zmj | Zm<j ) equals the joint law PR for any or-dering (m1, . . . , m r ). Its first sampled label selects A or D
+
+with probabilities 1 − ϵ and ϵ; under Eq. (12), that label identifies the latent source and every subsequent conditional follows the same branch with probability one. The causal chain therefore assigns mass only to Ar and Dr , and its exact-match risk is ϵ. By Theorem 1, the parallel proposal is correct with probability (1 − ϵ)r , so its risk is 1 − (1 − ϵ)r .Subtraction proves Eq. (27). 
+
+Weak-conflict regime. For fixed r and ϵ → 0,
+
+R∥ = 1 − (1 − ϵ)r = rϵ + O(ϵ2), Rcausal = ϵ. (28) Thus the leading parallel risk is r times the causal risk, while the excess risk is (r − 1) ϵ + O(ϵ2). This statement concerns sampling from the idealized restricted proposals; final greedy or iterative answer accuracy requires empirical validation. 
+
+Heterogeneous Position-Wise Uncertainty 
+
+The equal-ϵ model provides closed forms, but the combi-natorial hybrid mechanism does not require equal source preference at every position. 
+
+Proposition F.2 (Heterogeneous factorized proposal). 
+
+Suppose a factorized proposal selects the correct-source la-bel at position j with probability pj ∈ (0 , 1) . Over r ≥ 1
+
+source-dependent positions, its hybrid mass is 
+
+Φ( p1, . . . , p r ) = 1 −
+
+> r
+
+Y
+
+> j=1
+
+pj −
+
+> r
+
+Y
+
+> j=1
+
+(1 − pj ). (29) Adding another unresolved position with pr+1 ∈ (0 , 1) 
+
+strictly increases this mass while the existing p1, . . . , p r are held fixed. 
+
+Proof. Only the all-A and all-D assignments are source-coherent, with masses Q 
+
+> j
+
+pj and Q 
+
+> j
+
+(1 − pj ), proving Eq. (29). Let Ar = Qrj=1 pj and Dr = Qrj=1 (1 − pj ).Then Φ( p1, . . . , p r+1 ) − Φ( p1, . . . , p r )= Ar (1 − pr+1 ) + Dr pr+1 > 0. (30) When the pj differ, this proposition is a proposal-level ro-bustness extension; such marginals need not arise from the single shared Bernoulli source in Assumption F.1. 
+
+Matched-Context Confidence–Risk Alignment 
+
+At answer slot m, define the method’s first-step statistic 
+
+hm(q, E ) = − X
+
+> y
+
+p(m) 
+
+> θ
+
+(y | q, E ) log p(m) 
+
+> θ
+
+(y | q, E ). (31) The block statistic is 
+
+H(q, E ) = 
+
+> M
+
+X
+
+> m=1
+
+αmhm(q, E ), (32) where the positive weights sum to one. For the matched real and blank contexts Ereal  
+
+> i
+
+= {c1, c i} and Eblank  
+
+> i
+
+=
+
+{c1, blank( ci)}, define 
+
+Gi = H(q, E blank  
+
+> i
+
+) − H(q, E real  
+
+> i
+
+). (33) Geometry matching controls the image-slot layout, but by itself does not imply that all non-source uncertainty is iden-tical. The following assumption states the additional local conditions required for exact alignment. For a context whose restricted process satisfies Assump-tion F.1, define its weighted restricted-label entropy and its residual relative to the actual full-vocabulary block entropy as 
+
+Hsrc  
+
+> R
+
+(E) := X
+
+> m∈R
+
+αmHPR,m (Zm)= ARh2(ϵE ),CE := H(q, E ) − Hsrc  
+
+> R
+
+(E),AR := X
+
+> m∈R
+
+αm > 0.
+
+(34) The quantity CE is a defined residual; no additive decompo-sition of the full-vocabulary entropy is claimed without an additional condition relating the two matched contexts. 
+
+Assumption F.3 (Matched local source basin). The real and matched-blank contexts share the same source-token pairs, conflict set R, and weights αm. In each context, the restricted source process and its exact-marginal proposal sat-isfy Assumptions F.1 and F.2 with context-specific mass ϵE ,including the continuous degenerate extension at ϵE = 0 .Their block entropies decompose as 
+
+H(q, E ) = C + ARh2(ϵE ), (35) because the residuals defined in Eq. (34) satisfy CEreal  
+
+> i
+
+=
+
+CEblank  
+
+> i
+
+=: C. Here ϵi := ϵEreal  
+
+> i
+
+and ϵblank := ϵEblank  
+
+> i
+
+both belong to [0 , 12 ]. Thus the correct source is weakly dominant and, within this local scalar decomposition, the block-entropy difference depends only on the context-specific competing-source mass. Equality of the two residuals is an explicit local condition, not a consequence of Assumption F.1 or blank geometry. 
+
+Proposition 3: Local Confidence–Risk Alignment 
+
+Proposition 3. Under Assumption F.3, for r ≥ 2, positive candidate gain is equivalent to reducing competing-source mass, first-step hybrid mass, and first-step factorized exact-match sampling risk: 
+
+Gi > 0 ⇐⇒ ϵi < ϵ blank 
+
+⇐⇒ Φr (ϵi) < Φr (ϵblank )
+
+⇐⇒ R ∥(ϵi) < R∥(ϵblank ),
+
+(36) where Φr (ϵ) = 1 − (1 − ϵ)r − ϵr and R∥(ϵ) = 1 − (1 − ϵ)r .
+
+Proof. By Eq. (35), 
+
+Gi = AR [h2(ϵblank ) − h2(ϵi)] . (37) Because AR > 0 and h2 is strictly increasing on [0 , 12 ],
+
+Gi > 0 if and only if ϵi < ϵ blank . For r ≥ 2,
+
+ddϵ Φr (ϵ) = r (1 − ϵ)r−1 − ϵr−1 ,ddϵ R∥(ϵ) = r(1 − ϵ)r−1 > 0.
+
+(38) The first derivative is positive on [0 , 12 ) and vanishes only at the right endpoint, so Φr is strictly increasing on the full interval [0 , 12 ]. The stated equivalences follow. 
+
+Approximate matched-context guarantee. Retain F.3’s shared source-token pairs, conflict set, weights, restricted process, and correct-source basin, but relax exact residual equality. Suppose for some δ ≥ 0 that 
+
+H(q, E ) = CE + ARh2(ϵE ), |Cblank − Ci| ≤ δ. (39) where Ci := CEreal  
+
+> i
+
+and Cblank := CEblank  
+
+> i
+
+. Then 
+
+|Gi − AR [h2(ϵblank ) − h2(ϵi)] | ≤ δ. (40) Consequently, Gi > δ is sufficient for ϵi < ϵ blank and hence for lower first-step hybrid mass and sampling risk. Con-versely, a reduction in competing-source mass guarantees 
+
+Gi > 0 whenever its ideal entropy decrease AR[h2(ϵblank )−
+
+h2(ϵi)] exceeds δ. The implemented zero threshold is there-fore exactly certified by Proposition 3 only within the matched basin; outside it, the gain remains an empirically validated surrogate rather than a universal correctness cer-tificate. 
+
+## Appendix G: Controlled-Study Details 
+
+Synthetic source-conflict validation. The confirmatory study uses 32 independent base templates. Each correct page describes the target unit and supports answer a, while a layout-matched hard negative describes another unit and sup-ports d. Conflict slots are added in a nested seeded order for 
+
+r ∈ { 1, 2, 4}, and both correct–distractor and distractor– correct page orders are retained. At each conflicting posi-tion, probability is renormalized over the correct-source and conflicting-source tokens; the reported quantity is therefore restricted source mass rather than full-vocabulary sequence probability. Inference uses 10,000 base-template bootstrap resamples, treating conflict width, order, and model con-struction as repeated conditions within each template. All 576 expected rows ( 32 base templates × 3 conflict widths × 2 page orders × 3 model constructions) were present with unique keys, no inference error occurred, the maximum mass-sum error was 1.11 × 10 −16 , and the largest absolute r = 1 hybrid mass was 5.55 × 10 −17 . The parallel-minus-sequential effect was positive for 31 of 32 templates with paired dz = 1 .62 .
+
+Free-generation validation of cross-source hybrids. 
+
+Both models answered all 36 single-page conditions coher-ently for each source. Qwen produced a coherent correct answer in all 72 two-page conditions. Native greedy LLaDA produced a literal cross-source hybrid in 11 of 48 conditions with r ≥ 2. First-step restricted hybrid mass was higher for realized hybrids than for other outputs (0.735 vs. 0.393) and yielded an exploratory AUROC of 0.801. A block-size-one LLaDA schedule also produced 11 hybrids, indicating that changing commit order alone did not remove source conflict already present in the masked conditionals. 
+
+Natural-page order breakdown. Table 13 reports the order-specific values underlying the semantic-conflict aver-ages in the main paper. Model Method ChartQA InfoChartQA DocVQA InfoVQA TATDQA LLaDA2.0-Uni Fixed top-2 24.60 18.96 30.88 30.12 11.52 Frozen Semantic Top-2 25.88 17.16 31.64 32.80 12.16 SPREAD Top-2 26.12 18.68 33.56 32.72 12.60 SARDI Top-2 27.20 19.04 36.12 34.88 12.88 UOVES Top-2 26.84 20.00 37.16 35.92 13.76 Answer-UQ Top-1 30.72 20.68 32.92 36.08 14.08 ECF 31.12 21.16 36.72 42.60 18.96                                                                       
+
+> LLaDA-V Fixed top-2 13.32 12.60 15.88 18.32 8.72 Frozen Semantic Top-2 13.68 13.20 16.40 18.52 8.72 SPREAD Top-2 13.84 12.24 16.00 16.84 8.88 SARDI Top-2 12.88 11.08 15.56 17.92 8.00 UOVES Top-2 12.60 11.88 14.84 17.92 8.92 Answer-UQ Top-1 20.36 15.88 21.04 26.16 10.56 ECF 20.48 16.28 24.44 30.84 14.04
+> Dream-VL Fixed top-2 33.60 25.32 38.48 47.64 17.00 Frozen Semantic Top-2 32.52 22.60 34.96 44.68 16.60 SPREAD Top-2 32.68 24.24 36.72 46.04 17.00 SARDI Top-2 34.40 24.60 39.32 49.28 16.80 UOVES Top-2 34.60 25.32 39.32 49.32 18.16 Answer-UQ Top-1 32.52 24.56 37.16 48.36 17.32 ECF 34.40 25.08 37.60 49.68 21.16
+
+Table 12: Answer accuracy (%) across three DLM backends. Within each backend and dataset, bold and underlined denote the best and second-best values; ties share formatting. All methods use a candidate pool of k = 3 , except fixed top-2.              
+
+> Condition LLaDA2.0 LLaDA-V Dream-VL Qwen AR Correct only 75.88 46.16 79.24 77.88 Correct + wrong 44.92 16.68 62.68 61.08 Wrong + correct 60.72 33.52 66.04 63.04
+
+Table 13: Order-specific controlled answer accuracy (%) on ChartQA across three DLMs and an autoregressive baseline. 
+
+## Appendix H: Training-Free Baseline Details 
+
+UOVES. Qwen3-VL-2B-Instruct (Bai et al. 2025) judges each of the three candidates independently with a binary helpfulness prompt. The raw first-token True logit ranks candidates, and the top two are passed to the target DLM (Luo et al. 2026). 
+
+Answer-UQ. The target DLM generates once from each candidate separately. For each committed answer position, we compute full-vocabulary entropy at its commit step, av-erage across valid answer positions, and return the answer with minimum mean entropy. 
+
+Frozen Semantic. SigLIP2 SO400M (Tschannen et al. 2025) independently encodes the question and each candi-date. The two candidates with the highest normalized cosine similarity are passed to the generator. 
+
+SPREAD. The VisRAG top two remain fixed. At each de-noising update, answer-position hidden states are ranked by cosine relevance to a pooled query representation, and the native reveal budget commits the most relevant positions first (Yu et al. 2026). 
+
+SARDI. Generation starts from the VisRAG top two. At each update, tentative answer tokens are appended to the question, VisRAG retrieves a new top-two context, and com-mitted answer tokens are transferred into the rebuilt multi-modal state (Jünger et al. 2026). UOVES, Answer-UQ, and Frozen Semantic follow com-parator logic released with UOVES; SPREAD and SARDI are visual adaptations of text DLM-RAG methods. All meth-ods use the same eight-token answer region and unified scorer as ECF. 
+
+## Appendix I: Complete Training-Free Baseline Comparison 
+
+Table 12 extends the main paper’s LLaDA2.0-Uni compar-ison to all three DLM backends under the same evaluation protocol. Across the complete comparison, ECF achieves the best accuracy in 11 of the 15 model–dataset settings, including all five settings with LLaDA-V. It also remains strongest on InfoVQA and TATDQA with Dream-VL, while UOVES performs best or ties for best on the other three Dream-VL settings. 
+
+## Appendix J: Efficiency 
+
+Table 14 reports end-to-end latency measured on a single NVIDIA H200 GPU. ECF adds first-step probe forward passes before final generation. For candidate-pool size k, the worst case computes 
+
+H(q, c 1), real and control entropies for c2, . . . , c k, and one final generation pass; probe cost therefore grows linearly with 
+
+k. The implementation caches visual embeddings when the Backend top-1 top-2 top-3 ECF LLaDA2.0-Uni 2.35 3.17 3.73 3.63 LLaDA-V 4.70 8.35 16.86 8.01 Dream-VL 3.72 12.16 10.80 7.59 
+
+Table 14: End-to-end inference latency in seconds per ques-tion. ECF uses k = 3 .backend exposes reusable states, but different DLMs provide different cache interfaces. Relative to fixed multi-image inference, ECF is close to top-2 latency on LLaDA2.0-Uni (3.63 vs. 3.17 seconds) and is faster than top-2 on LLaDA-V and Dream-VL (8.01 vs. 8.35 and 7.59 vs. 12.16 seconds). It is also faster than fixed top-3 inference on all three backends. Together with the main accuracy results, these measurements show that ECF makes more effective use of the retrieved candidate pool: it converts additional candidate availability into higher answer accuracy while keeping inference cost comparable to or below fixed multi-image input.
