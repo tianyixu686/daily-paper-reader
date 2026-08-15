@@ -1,0 +1,672 @@
+Title: Evidence-RL: Towards Evidence-intensive Visual Reasoning
+
+URL Source: https://arxiv.org/pdf/2608.08021v1
+
+Published Time: Tue, 11 Aug 2026 00:33:28 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# Evidence-RL: Towards Evidence-intensive Visual Reasoning 
+
+Haojie Huang 1,2,* Xinlei Yu 1,* Chengming Xu 3,* Zhangquan Chen 4 Cheng Yang 5
+
+Qingdong He 5 Yu Yang 2 Jiangning Zhang 2 Xiaobin Hu 1,† 
+
+greatesthhj@zju.edu.cn ben0xiaobin0hu1@nus.edu.sg 
+
+> 1
+
+National University of Singapore 2Zhejiang University 
+
+> 3
+
+Fudan University 4Tsinghua University 5Tencent  
+
+> *Equal contribution. †Corresponding author.
+
+## Abstract 
+
+Vision-Language Models (VLMs) should answer from concrete image evidence rather than language priors, dataset shortcuts, or irrelevant visual context. Exist-ing perception-aware post-training methods encourage image use through global perturbations or attention proxies, but they do not test whether a sampled answer causally depends on the local evidence that supports it. We propose Counterfac-tual Evidence Disentanglement (CED), a training-time evidence audit for VLM grounding. For each response, CED neutralizes an object-centric Evidence Region and compares the resulting support drop against matched non-evidence Regions. We combine this signal with answer correctness inside GRPO, rewarding correct answers that rely on the evidence path rather than shortcut or nuisance paths. CED uses weak object-level proposals, requires no question-specific evidence annota-tions, and adds no inference-time overhead. Across nine public benchmarks and four backbones, CED outperforms prior RL-based post-training methods, with targeted analyses verifying its object-centric signal. 
+
+## 1 Introduction 
+
+Vision-Language Models (VLMs) are increasingly used as general-purpose visual reasoners [Bai et al., 2025b,a, Wang et al., 2025b, Li et al., 2024], but correct-looking answers need not be visually grounded. A model may answer a counting or spatial question by inspecting the relevant evidence, or by relying on language priors, dataset regularities, and scene-level common sense, a failure pattern documented in hallucination, counting, spatial, and shortcut-reasoning evaluations [Li et al., 2023, Paiss et al., 2023, Wang et al., 2024, Guan et al., 2024, Rahmanzadehgervi et al., 2024, Yin et al., 2026]. Post-training can amplify either behavior depending on what the training signal can observe. Recent perception-aware methods attempt to reintroduce the image into the post-training loop. PAPO [Wang et al., 2025d] compares model behavior under the original image and a corrupted image, while VPPO [Huang et al., 2025] uses attention-derived visual dependency to adjust the training signal. These methods are important because they move beyond text-only supervision. However, they still target coarse visual dependence as a weaker visual anchor rather than causal evidence dependence . In general, the image is not a single cause. It contains the target evidence that supports the answer, irrelevant context, visually salient distractors, and artifacts introduced by masking, zeroing, or noise. A global image perturbation can show that the model is sensitive to the image, but it cannot tell whether the current answer specifically depends on the local evidence that would falsify it if removed. Attention-based dependency is also an internal routing proxy, not a direct test of whether the answer is supported by the relevant evidence. 
+
+> Preprint. arXiv:2608.08021v1 [cs.CV] 8 Aug 2026 How many eyeglass temple arms are visible?
+> Query
+> Standard view Counterfactual view
+> Pretrained model
+
+The glasses have two arms.    
+
+> The glasses have two arms. Standard Counterfactual
+> Evidence-RL
+> fine-tuning
+> One in the left,one in the right.Two The right arm was removed!Only one!
+> shortcut support evidence support Answer
+> Image Input Question
+> Target visual evidence
+> one visible temple arm
+> Language / world priors
+> glasses usually have two arms
+> Irrelevant context
+> desk, pencils, sketch nuisance support
+> Task Setup Model Behavior Path Decomposition
+
+Figure 1: Left: Task setup with a counting query over two views of the same scene. Upper right: Apretrained VLM gives the same prior-based answer for both views; E VIDENCE -RL inspects the visual evidence and adjusts its answer when the scene changes. Lower right: Causal path decomposition: a candidate answer can be supported by the target visual evidence, by irrelevant context, or by language priors, which motivates CED to test whether the response depends specifically on the evidence path. The path decomposition in Figure 1 causally formalizes this interference, following the structural-causal view that interventions should isolate the path being tested [Pearl, 2009]. A candidate answer can be produced by language and world priors, by irrelevant visual context or distractors, or by the target evidence that actually supports the answer. The shortcut problem arises because these paths meet at the same observed output: the same correct answer may be caused by the evidence path or by a non-evidence path. This suggests a more general requirement for grounded VLM post-training. Instead of asking only whether the model uses the image, we should ask whether the answer depends on the particular visual evidence that supports it, while discounting nuisance sensitivity to other regions and to the intervention itself. Without an image-conditional probe, a training signal computed on the model’s text output alone cannot distinguish answers that traverse the target-evidence path from those that traverse a shortcut path; we make this consequence precise as evidence-closed self-evolution in Section 5 where grounding becomes formally unidentifiable. Based on this causal view, we propose Counterfactual Evidence Disentanglement (CED), a novel post-training framework that trains VLMs to rely on evidence-specific counterfactual dependence rather than coarse image sensitivity. The core idea is to turn the causal graph into a training-time counterfactual test: for each sampled response, CED asks whether the model’s support for that response decreases more when the object-centric Evidence Region is neutralized than when matched non-evidence Regions are neutralized. A response is therefore favored only when its correctness is tied to the evidence path, rather than preserved through language priors, irrelevant context, or generic sensitivity to visual perturbations. We implement this test by intervening on visual tokens with mean replacement, which removes region-specific information while preserving the local feature baseline, making the intervention a structured local removal of evidence rather than zeroing, random noise, or global corruption. The resulting evidence signal is combined with answer correctness inside GRPO [Shao et al., 2024], encouraging correct answers that are causally grounded in the image without requiring question-specific region annotations or adding inference-time overhead. We evaluate CED on public VLM benchmarks spanning VQA, hallucination detection, counting, spatial reasoning, and perception-heavy visual reasoning, in which CED outperforms prior RL-based post-training methods, with clear gains on evaluations that require resisting language priors and grounding answers in visual evidence. Targeted analyses confirm that CED captures evidence-specific dependence, that mean replacement provides a cleaner counterfactual intervention than 2common alternatives, and that the signal follows plausible target evidence rather than arbitrary regions. Throughout the paper we use CED for the counterfactual evidence diagnostic itself (the reward signal) and E VIDENCE -RL for the full post-training pipeline that combines CED with GRPO (Section 3). Our contributions can be summarized as follows: • We articulate the gap between coarse visual dependence and counterfactual evidence de-pendence , and formalize visual grounding as a structural causal graph in which the same observed answer can arise from the target-evidence path or from shortcut and nuisance paths. We further characterize why text-only self-evolution can remain evidence-closed. • We propose CED, a counterfactual evidence audit that tests whether a candidate answer depends on a proposed Evidence Region relative to matched non-evidence Regions. The audit is defined on the causal graph rather than tied to a specific evidence type; we instantiate it for spatial-region evidence and outline how the same recipe extends to attribute-level and relational evidence by varying the intervention. • We integrate CED into GRPO and validate it through signal diagnostics, controlled ablations (correctness-only, matched baselines, intervention type, proposal robustness), and nine public benchmarks across four backbones. The results show that targeting counterfactual evidence dependence transfers across backbones, recovers gains on perception-heavy benchmarks, and adds no inference-time overhead. 
+
+## 2 Related Work 
+
+VLM reasoning. Vision-language models built on instruction-tuned LLM backbones [Li et al., 2024, Bai et al., 2025b,a, Wang et al., 2025b] have evolved from task-specific perception systems into general-purpose multimodal reasoners, supporting visual QA, counting, spatial reasoning, diagrammatic reasoning, and scientific problem solving [Paiss et al., 2023, Wang et al., 2024, Lu et al., 2022, 2023, Yue et al., 2024]. This progress also exposes a persistent gap between answer correctness and visual grounding: a model can produce a plausible answer without relying on the evidence that should justify it. Benchmarks such as HallusionBench [Guan et al., 2024], VLMsAreBlind [Rahmanzadehgervi et al., 2024], and FREAK [Yin et al., 2026] make this failure measurable through hallucination, shortcut reasoning, and fine-grained visual errors. We address this issue from the post-training perspective, aiming to construct a reward signal that favors answers whose likelihood depends on the relevant visual evidence. 
+
+Post-training VLMs. Reinforcement learning has become a central post-training mechanism for improving reasoning, from PPO-style optimization [Schulman et al., 2017, Shao et al., 2024] to verifiable-reward and self-evolution recipes [Guo et al., 2025, Acikgoz et al., 2026]. Recent VLM methods, including VLM-R1 [Shen et al., 2025], ViCrit [Wang et al., 2025c], Perception-R1 [Xiao et al., 2025], SophiaVL-R1 [Fan et al., 2025], and VAPO [Yue et al., 2025], bring this paradigm to multimodal reasoning. The key difficulty is that visual tasks lack cheap per-sample verifiers analogous to code execution or arithmetic checking. Text-only judges can score the plausibility of an answer or rationale, but cannot tell whether the answer was caused by the image. Grounding-oriented RL therefore requires rewards that can observe visual evidence, rather than only the generated text. 
+
+Grounded Rewards. Existing attempts move in this direction but remain limited. Image-conditional rewards compare rollouts under original and perturbed images [Wang et al., 2025d, Huang et al., 2025, Du et al., 2026], yet global perturbations do not test whether the decisive region supports the answer. Process-level and self-evolving rewards [Fan et al., 2025, Zhang et al., 2025b, Acikgoz et al., 2026, Zhao et al., 2026] audit the reasoning trace, but this audit is still text-closed and can reward language-prior shortcuts that produce consistent explanations; we formalize this as 
+
+evidence-closed self-evolution in Section 5. Counterfactual visual interventions expose grounding failures at inference time [Leng et al., 2024, Liu et al., 2025, Li et al., 2025a, Wu et al., 2026], but usu-ally do not update the model. More broadly, our intervention design is related to perturbation-based visual explanations [Zeiler and Fergus, 2014, Fong and Vedaldi, 2017, Petsiuk et al., 2018], while using the resulting score as a training reward rather than as a post-hoc explanation. Closest training-time methods require region annotations in reasoning traces [Sun et al., 2026], process/checklist supervision [Li et al., 2026, Zhang et al., 2025a, Wang et al., 2025a, Qin et al., 2025], or adversarial text/preference pairs [Chen et al., 2025, Yang et al., 2026]. In contrast, CED brings region-level 3Policy Model 
+
+> Non-evidence Sensitivity Evidence Grounded Non-evidence Dependent
+> Prior Supported
+> Visual Input
+> How many beds are in the image?
+> Query
+> . . .
+> Reference Model
+> Counterfactual Evidence Disentanglement (CED)
+> . . . . . .
+> Evidence / Non-evidence Area
+> Log-likelihood Drop Shift
+> Replaced Visual Input
+> high low
+> high high
+> low high
+> low low
+> Group Advantege
+> Evidence-based Reward
+
+Figure 2: Overview of E VIDENCE -RL during post-training. A policy samples candidate answers, and CED scores each answer by applying the same feature-space intervention to the proposed Evidence Region and to matched non-evidence Regions. The contrastive support drop yields an evidence margin, which is combined with correctness to form the GRPO reward. The counterfactual audit is used only during training; inference uses the trained VLM normally. counterfactual intervention into RL as a reward signal, using off-the-shelf object proposals instead of question-specific region annotations. Section A.3 provides a detailed comparison. 
+
+## 3 Method 
+
+Figure 2 summarizes E VIDENCE -RL as a training-time pipeline: sample a candidate answer, contrast the proposed Evidence Region with matched non-evidence Regions, intervene in feature space, compute an answer-conditioned evidence margin, and use the resulting reward in GRPO. We now define the counterfactual probe and its integration into post-training. 
+
+3.1 CED: Counterfactual Evidence Margin 
+
+Correctness alone leaves open whether an answer is supported by the image or by language priors. We therefore use “grounding” in a narrow sense: an answer is grounded when its support depends on a specific locus of visual evidence. CED turns this evidence sensitivity into a training signal complementary to answer correctness. Given image I, question q, and candidate answer y, we identify an Evidence Region Ωev hypothesized to contain answer-relevant evidence and K non-evidence Regions {Ωnon  
+
+> k
+
+}Kk=1 . For a region Ω, we intervene after spatial merging by replacing its visual tokens with the mean μT of neighboring tokens: 
+
+˜hi =
+
+μT if i ∈ T (Ω) ,
+
+hi otherwise , (1) where T (Ω) maps a spatial region to visual-token indices. Feature-space mean replacement removes region-specific information while keeping the local representation manifold largely intact, reducing artifacts compared with zeroing or noise injection. We evaluate these alternatives in Section 4.3.3 and give a mechanistic account in Section A.5. The evidence sensitivity of y to region Ω is defined as the counterfactual log-likelihood drop: 
+
+s(Ω) = log πθ (y | I, q ) − log πθ (y | ˜I\Ω, q ). (2) 4If the model can support y without inspecting Ω, then s(Ω) remains close to zero. To obtain a bounded and contrastive score, we compare the evidence-region sensitivity with reference-region sensitivities: 
+
+m(I, q, y ) = tanh 
+
+ s(Ω ev ) − μ(snon )
+
+σ(snon ) + ϵ
+
+
+
+, (3) where snon = {s(Ω non  
+
+> k
+
+)}Kk=1 , and μ(snon ) and σ(snon ) are the mean and standard deviation over non-evidence Regions. A positive margin indicates that the candidate answer depends more on the proposed Evidence Region than on area-matched non-evidence Regions. 
+
+Non-evidence Regions as a local null. Non-evidence Regions are not treated as annotated negatives. They define a sample-local null distribution for how much the candidate answer changes under the same feature-space intervention applied to regions that are area-matched and spatially separated from the proposed Evidence Region. Thus, if a response is sensitive mainly to generic masking artifacts or irrelevant visual context, the Evidence and non-evidence interventions should induce comparable support drops. A high margin is obtained only when the Evidence Region produces a larger drop than this non-evidence distribution. In implementation, the K non-evidence Regions jointly estimate this baseline rather than forming one-to-one evidence–non-evidence pairs. 
+
+Response-conditioned local interventions. CED is designed to isolate the target-evidence path in Figure 1. It scores the sampled answer y itself, measuring the likelihood drop of that response rather than a distribution-level shift. It also intervenes locally, targeting the region that should carry the relevant evidence instead of perturbing the whole image. Finally, the intervention is applied in feature space after spatial merging, which preserves the representation outside the intervened region and reduces pixel-level encoder artifacts. These choices make the score answer-specific, evidence-localized, and less confounded by intervention noise. 
+
+Weakly-supervised evidence proposals. The Evidence Region Ωev is a weak spatial proposal resolved from dataset metadata, using object-level COCO annotations [Lin et al., 2014] in our experiments. Such boxes provide spatial priors: the same object box may or may not contain evidence depending on the question. Reference Regions are sampled to match the intervention scale while avoiding the proposed Evidence Region. CED resolves this proposal ambiguity by comparing the counterfactual sensitivity of Ωev against matched Reference Regions, so the evidence signal is determined by model behavior which are expected to transfer to various downstream tasks. Proposal-layer reliability is evaluated in Section 4.3.3. 
+
+3.2 EVIDENCE -RL: CED-Guided GRPO 
+
+Having defined the evidence margin m, we integrate it into GRPO as a correctness-anchored reward. The resulting pipeline, including CED reward shaping and binary-action routing, is denoted by EVIDENCE -RL. 
+
+Correctness-anchored reward. The training reward is: 
+
+Rtrain = Rans · g(m) + εtie m, g(m) = 12
+
+
+
+1 + tanh 
+
+ mτg
+
+ 
+
+, (4) where τg =0 .20 , εtie =0 .10 , and Rans is the answer-correctness score defined in Appendix A.1. When the answer is correct, g(m) favors responses with stronger Evidence Region support. When the answer is wrong and Rans → 0, the evidence term becomes a bounded tiebreaker, with |εtie m| ≤ εtie .Thus, after within-group normalization Ai = ( Rtrain ,i − μ)/σ , correctness remains the dominant gradient driver, while CED ranks equally correct rollouts by evidence support. 
+
+## 4 Experiments 
+
+The experiments are designed to validate four properties of our method:(1)the counterfactual reward provides a usable evidence-dependence signal;(2)RL with this signal improves benchmark perfor-mance against matched-backbone baselines;(3)the gains transfer across backbones,;(4)the signal remains stable under intervention and proposal perturbations. Unless explicitly stated, ours denotes the Answer-CED variant. The main head-to-head comparison uses Qwen2.5-VL-7B [Bai et al., 5Table 1: Signal-validation statistics on counting and presence tasks. 
+
+Task Non-constant raw reward Zero variance Mean reward std Same answer, different reward Mean negation Counting 99.5% 24.0% 0.1299 90.0% 0.003 Presence 21.1% 79.0% 0.0497 5.0% 0.777 
+
+Table 2: Nine-benchmark evaluation using Qwen2.5-VL-7B as the base model for Ours. Backbone, baseline, and benchmark sources are cited in the setup paragraph. Best bold ; second-best underlined. Each ∆ row reports absolute gain over the corresponding base.                                                                                                                                                                                                
+
+> Grounding General Reasoning Model CountBench SpatialEval Hallusion VLMs AreBlind FREAK MathVista MMBench MMMU ScienceQA Avg
+> VLM backbones
+> LLaVA-v1.6-7B 55.60 23.60 51.00 28.23 9.50 22.80 71.30 29.00 57.20 38.69 InternVL3.5-8B 86.90 24.00 69.60 54.92 12.80 51.90 83.40 50.80 89.90 58.25 Qwen2.5-VL-3B 70.71 53.94 65.37 42.46 11.14 52.10 80.40 50.29 74.93 55.70 Qwen2.5-VL-7B 81.82 59.21 68.64 46.44 12.18 63.10 84.73 50.63 83.98 61.19
+> RL-based methods
+> VAPO-Thinker-7B 86.90 60.80 71.20 48.62 13.10 51.10 81.80 44.60 82.30 60.05
+> ∆+5 .10 +1 .59 +2 .60 +2 .18 +0 .92 −12 .00 −2.90 −6.00 −1.70 −1.14
+> VPPO-7B 85.90 61.80 68.20 49.35 12.70 67.90 84.90 52.10 88.40 63.47
+> ∆+4 .10 +2 .59 −0.40 +2 .91 +0 .52 +4 .80 +0 .20 +1 .50 +4 .40 +2 .28
+> Perception-R1-7B 84.90 59.70 66.70 45.22 12.20 67.10 81.70 48.10 82.30 60.88
+> ∆+3 .10 +0 .49 −1.90 −1.22 +0 .02 +4 .00 −3.00 −2.50 −1.70 −0.31
+> PAPO-G-H 90.90 64.80 69.50 47.92 12.80 69.40 82.80 50.50 85.60 63.80
+> ∆+9 .10 +5 .59 +0 .90 +1 .48 +0 .62 +6 .30 −1.90 −0.10 +1 .60 +2 .61
+> VLM-R1 74.80 56.40 66.60 44.15 11.00 60.30 79.90 48.60 73.60 57.26
+> ∆vs. Qwen2.5-VL-3B +4 .10 +2 .50 +1 .20 +1 .69 −0.14 +8 .20 −0.50 −1.70 −1.30 +1 .56
+> SophiaVL-R1 82.83 61.38 66.87 47.09 24.18 66.30 87.41 52.18 87.64 63.99
+> ∆+1 .01 +2 .17 −1.77 +0 .65 +12 .00 +3 .20 +2 .68 +1 .55 +3 .66 +2 .80
+> Ours 88.89 63.34 70.08 54.02 26.40 69.40 87.53 57.47 87.08 67.13
+> ∆+7 .07 +4 .13 +1 .44 +7 .58 +14 .22 +6 .30 +2 .80 +6 .84 +3 .10 +5 .94
+
+2025b] as the base model for ours; cross-backbone validation further covers Qwen2.5-VL-3B/7B [Bai et al., 2025b], Qwen3-VL-8B [Bai et al., 2025a], and Qwen3.5-9B [Team, 2026]. For reference, the backbone rows also include LLaVA-v1.6-7B [Li et al., 2024] and InternVL3.5-8B [Wang et al., 2025b]. Matched baselines include recent RL-based VLM post-training methods [Yue et al., 2025, Huang et al., 2025, Xiao et al., 2025, Wang et al., 2025d, Shen et al., 2025, Fan et al., 2025]. Signal-validation diagnostics use Qwen3-VL-8B-Instruct as a frozen probe. Evaluation covers nine public benchmarks spanning grounding, faithfulness, and general reasoning: CountBench [Paiss et al., 2023], SpatialEval [Wang et al., 2024], HallusionBench [Guan et al., 2024], VLMsAreBlind [Rahmanzade-hgervi et al., 2024], FREAK [Yin et al., 2026], MathVista [Lu et al., 2023], MMBench [Liu et al., 2024], MMMU [Yue et al., 2024], and ScienceQA [Lu et al., 2022], with no overlap between training images and evaluation benchmarks. 
+
+4.1 Validating the Evidence-Dependence Signal 
+
+We first check whether the reward separates evidence dependence from correctness-only. On counting tasks, 99.5% of groups have non-constant rewards and 90.0% contain same-answer trajectories with different rewards, showing that the signal preserves within-group discrimination beyond answer-string matching. Presence tasks show higher zero variance, consistent with their two-action yes/no structure discussed in Section 3.2. Cross-model validation and blindfold tests are reported in Appendix A.4. 
+
+4.2 Main Results on Nine Benchmarks 
+
+Table 2 compares ours with VLM backbones and RL-based baselines on nine benchmarks. Bench-marks are grouped into Grounding and General Reasoning . Each ∆ reports the absolute gain over the corresponding base model, which is Qwen2.5-VL-7B unless the row label specifies another base. Ours obtains the highest average score and the largest mean improvement in the matched-backbone comparison. It is also the only RL method with non-negative ∆ on all nine benchmarks. The largest gains appear on perception-heavy benchmarks, including VLMsAreBlind, FREAK, and MMMU, while MathVista, MMBench, and ScienceQA remain positive. This pattern supports the intended role of the reward: increasing reliance on visual evidence without sacrificing general transfer. 6Table 3: Controlled comparison on Qwen3.5-9B with matched data, router, and compute. ∆ is the mean gain over the frozen base; ∆CED is Answer-CED minus correctness-only.                                                                     
+
+> Grounding General Reasoning Method CountBench SpatialEval Hallusion VLMs AreBlind FREAK MathVista MMBench MMMU ScienceQA Avg ∆
+> λ=0 (corr.-only) 89.90 40.45 57.93 72.90 18.73 73.40 79.44 36.00 82.24 61.22 −1.24
+> VPPO (retrained) 86.87 38.32 58.37 72.97 19.07 72.50 79.62 37.33 81.09 60.68 −1.78
+> PAPO (retrained) †86.87 8.59 58.46 69.96 19.40 14.00 44.87 33.22 34.24 41.07 −21 .39
+> Answer-CED 93.90 54.35 78.10 73.10 23.12 83.75 88.58 75.67 93.61 73.80 +11 .34
+> ∆CED +4 .00 +13 .90 +20 .17 +0 .20 +4 .39 +10 .35 +9 .14 +39 .67 +11 .37 +12 .58 –
+> †PAPO’s global-perturbation KL reward induces repetitive reasoning loops on Qwen3.5-9B (25% repeated-segment rate, 58% budget exhaustion at 24k tokens).
+
+1 234
+
+Visual input I 
+
+## How many wheels? 
+
+Query q 
+
+“A sedan normally has four wheels.”   
+
+> ×1
+
+1 front + 2 rear + 1 spare → 4    
+
+> ×2×1
+
+## CED R = g(m) · Rans 
+
+g(m) = 0.18 
+
+R = 0.11 
+
+g(m) = 1.00 
+
+R = 0.78 
+
+Prior Evidence 
+
+## 7× reward gap 
+
+Prior Rollout Evidence Rollout 
+
+Figure 3: A case showing why correctness-only reward is insufficient. Two rollouts from the same GRPO group both answer “4” correctly, but the CED gate g(m) creates a 7× reward gap between a prior-based rollout ( g(m)=0 .18 , R=0 .11 ) and an evidence-grounded rollout ( g(m)=1 .00 , R=0 .78 ), enabling GRPO to select the grounded trajectory. 
+
+4.3 Ablations and Diagnostics 
+
+Having established the aggregate gains, we now diagnose their source. We first isolate the CED contribution under strictly controlled conditions (Section 4.3.1), then examine cross-backbone gen-eralization and the Answer-vs-CoT design choice (Section 4.3.2), and finally stress-test the reward signal against proposal and intervention perturbations (Section 4.3.3). 
+
+4.3.1 Isolating the CED Contribution Is the CED reward necessary? Table 3 compares correctness-only, retrained VPPO, retrained PAPO, and Answer-CED under matched conditions: the same Qwen3.5-9B backbone, 15,314-sample training set, router, 2,000-step schedule, and LoRA configuration. Without CED, the same data and compute do not produce transferable improvements. Correctness-only and VPPO produce gains on several grounding benchmarks but substantial negative transfer to general reasoning, yielding net-negative average deltas. PAPO becomes unstable under its global-perturbation KL objective, with 25% repeated-segment rate and 58% budget exhaustion at 24k tokens. Answer-CED improves all nine benchmarks over correctness-only ( +12 .58 average) and exceeds matched VPPO by +13 .12 .CED uniquely converts the same data and compute into transferable improvements by restoring evidence-specific within-group discrimination among equally correct rollouts. Figure 3 illustrates this mechanism. Two rollouts from the same GRPO group both answer “4” correctly: one relies on the prior sedan = 2+2 without inspecting the image, while the other detects the unusual wheel configuration ( 1 front +2 rear +1 spare) through visual evidence. Correctness-only reward produces no ranking signal while the CED gate g(m) multiplies Rans by the evidence margin, creating a 7× reward gap that GRPO uses to select the grounded trajectory. 
+
+4.3.2 Generalization and Variant Analysis Does CED transfer across backbones? We apply the same recipe to four from two model families. Table 4 reports frozen-base scores, ours, and per-benchmark gains. Our method yields positive mean improvement on every backbone and non-negative gains on all 36 benchmark–backbone cells. 7Table 4: Cross-backbone validation of Ours. Each block reports the frozen base, Ours, and absolute 
+
+∆ against that block’s base. The Qwen3.5-9B block additionally reports 3-seed mean ±std, with its mean ∆ in the last column.                                                                                                                                     
+
+> Grounding General Reasoning Model CountBench SpatialEval Hallusion VLMs AreBlind FREAK MathVista MMBench MMMU ScienceQA Avg. ∆
+> Backbone: Qwen2.5-VL-3B
+> Qwen2.5-VL-3B 70.71 53.94 65.37 42.46 11.14 52.10 80.40 50.29 74.93 –
+> Ours 70.71 55.56 67.40 49.51 25.51 60.40 82.55 50.57 80.43 –
+> ∆+0 .00 +1 .62 +2 .03 +7 .05 +14 .37 +8 .30 +2 .15 +0 .28 +5 .50 +4 .59
+> Backbone: Qwen2.5-VL-7B
+> Qwen2.5-VL-7B 81.82 59.21 68.64 46.44 12.18 63.10 84.73 50.63 83.98 –
+> Ours 88.89 63.34 70.08 54.02 26.40 69.40 87.53 57.47 87.08 –
+> ∆+7 .07 +4 .13 +1 .44 +7 .58 +14 .22 +6 .30 +2 .80 +6 .84 +3 .10 +5 .94
+> Backbone: Qwen3-VL-8B-Instruct
+> Qwen3-VL-8B 94.90 65.26 72.86 67.01 28.85 67.54 89.15 57.82 91.99 –
+> Ours 95.92 67.75 74.30 68.88 31.18 68.04 89.58 58.85 92.82 –
+> ∆+1 .02 +2 .49 +1 .44 +1 .87 +2 .33 +0 .50 +0 .43 +1 .03 +0 .83 +1 .33
+> Backbone: Qwen3.5-9B
+> Qwen3.5-9B 80.80 52.73 47.20 46.44 9.95 80.00 88.03 66.21 90.78 –
+> Ours 93.90 54.35 78.10 73.10 23.12 83.75 88.58 75.67 93.61 –
+> ∆+13 .10 +1 .62 +30 .90 +26 .66 +13 .17 +3 .75 +0 .55 +9 .46 +2 .83 +11 .34
+> Ours (3 seeds) 93.60
+> ±0.48
+> 56.04
+> ±0.27
+> 78.35
+> ±0.21
+> 73.37
+> ±0.17
+> 23.11
+> ±0.40
+> 84.40
+> ±0.50
+> 89.87
+> ±0.04
+> 75.39
+> ±0.22
+> 94.46
+> ±0.13 +11 .83
+
+Table 5: Answer vs. CoT variants on Qwen3.5-9B; Avg. ∆ is the mean gain over the base.                                
+
+> Grounding General Reasoning Variant CountBench SpatialEval Hallusion VLMs AreBlind FREAK MathVista MMBench MMMU ScienceQA Avg. ∆
+> Answer 93.90 54.35 78.10 73.10 23.12 83.75 88.58 75.67 93.61 +11 .34
+> CoT 92.90 53.80 78.10 69.09 30.35 81.88 88.53 68.23 94.66 +10 .60
+
+Which CED variant should be used: Answer or CoT? The default Answer variant directly rewards image-to-answer dependence. To isolate the effect of where the counterfactual margin is applied, Table 5 compares Answer and CoT variants on the same Qwen3.5-9B base. Answer obtains a slightly higher mean gain with stronger general transfer on downstream tasks like MMMU even though CoT obtains larger reward. This discrepancy reflects a structural mismatch between dense per-token rewards and GRPO’s group-relative optimization. CoT-CED averages evidence margins over the full reasoning trace, and because trace length is policy-controlled, the model can raise the per-token average by truncating low-margin connective tokens rather than by strengthening visual grounding which is a reward-hacking pathway also documented in the process-reward literature Guo et al. [2025], Shao et al. [2024]. Tables A.13–A.14 confirm this collapse: CoT-CED’s mean chain shrinks to 3.6 tokens on counting, degenerating to object-cue shorthand. Answer-CED avoids this by scoring only the final-answer span, a fixed-length outcome interface that eliminates the chain-length degree of freedom. Full length and generation diagnostics are in Appendix A.11. Figure 4 shows why the default remains Answer-CED despite CoT-CED’s stronger training-side signal. CoT-CED reaches higher reward and a denser positive margin during training, but this margin advantage does not yield stronger average transfer in Table 5. The likely failure mode is that CoT-CED can raise a per-token margin by shortening the chain around visually salient object cues, whereas Answer-CED applies the counterfactual directly to the final answer. We therefore use Answer-CED as the default variant; additional length and generation diagnostics are in Section A.11. 
+
+4.3.3 Reward Signal Robustness Is the reward signal robust to proposal quality? Figure 5 evaluates whether CED’s signal depends on proposal relevance or simply on masking magnitude. Panel (a) compares the original COCO-based proposal with a random object box as Ωev across seven task types. The evidence margin drops from ¯m=0 .268 (COCO) to ¯m=0 .015 (random box), and the relevant-beats-random rate drops from 0.636 to 0.487 (chance level). Panel (b) shows IoU-graded degradation on the count-exclusion diagnostic: ¯m decreases monotonically from 0.501 at high IoU to 0.219 at low IoU, approaching the random floor at 0.147 . Scale and shift perturbations are reported in Section A.7. These results confirm two properties: CED does not reward masking magnitude, and the COCO-based proposal, despite being a weak spatial prior without question-specific annotation, provides sufficient evidence localization for a discriminative signal. 8(a) Training reward (b) Training correctness 
+
+Figure 4: Training dynamics for Answer-CED and CoT-CED on Qwen3.5-9B. CoT-CED produces larger training-side rewards, but the downstream comparison in Table 5 favors Answer-CED on average; we therefore use Answer-CED as the default variant. action state attr conjunc. cooccur bait count excl. fine-grained occlu-sion spatial chain Macro          
+
+> 0.0 0.1 0.2 0.3 0.4 0.5
+> Mean evidence margin ̄ m
+> 0.268 0.015
+> (a) Proposal source ablation (n= 1,400 , 200/type)
+> COCO proposal Random object box
+> [0.7, 1.0] [0.5, 0.7) [0.3, 0.5) [0.0, 0.3)
+> IoU with original proposal
+> 0.0 0.1 0.2 0.3 0.4 0.5 0.6
+> Mean evidence margin ̄ m(b) IoU-graded degradation (n= 41 , count-excl.)
+> Random region (0.15) Original proposal (0.39)
+
+Figure 5: CED probe robustness under proposal perturbation. (a) Replacing the COCO proposal with a random object box as Ωev collapses the evidence margin to near zero across all seven task types, confirming that the signal tracks proposal relevance rather than masking magnitude. (b) IoU-graded degradation on the count-exclusion diagnostic: ¯m decreases monotonically as spatial overlap with the original proposal drops, approaching the random-region floor at lowest IoU. 
+
+Which intervention type produces the strongest discrimination? Within local interventions, mean replacement gives the strongest discrimination, followed by zero replacement and Gaussian-noise replacement (AUC 0.669 > 0.641 > 0.629 averaged across keying modes). Global random masking performs below chance, with an above-baseline rate of 0.490 , showing that ours depends on structured local counterfactuals rather than corruption magnitude alone. With the frozen pre-RL checkpoint, the Evidence Region signal is 1.534 , compared with 0.520 for shifted regions, 0.319 
+
+for wrong-category regions, and 0.566 for random regions, consistent with the proposal-robustness results in Section 4.3.3. Full perturbation results and mechanistic analysis are in Section A.5. 
+
+## 5 Discussion 
+
+Visual evidence over language priors on FREAK. The FREAK gains make the same mechanism visible at the trajectory level. The representative cases in Figure 6 contain images whose visual evidence contradicts a common language prior. PAPO and LLaVA-v1.6-7B follow the prior-consistent answer, whereas the CED-trained model recovers the image-grounded answer. Thus, the qualitative rollouts instantiate the rerouting predicted by Figure 1: answers that would otherwise be driven by shortcut priors are redirected toward visual evidence. The selected cases are typical members of this failure regime rather than engineered edge cases. 
+
+Behavior in the absence of visual evidence. Blank-image ScienceQA items provide the comple-mentary test. In examples whose image is only a blank 448 ×448 placeholder, such as “What is the mass of a cement truck?” with options 20 tons / 20 pounds / 20 ounces, the frozen base selects the prior-consistent answer and is scored correct, while CED responds “Cannot determine from image” and is scored incorrect. This is precisely the downstream tasks’ behavior targeted by the reward: when no answer is grounded in image evidence, the model should avoid substituting language priors. This also explains part of the modest ScienceQA gains in Table 4: CED improves the visual-reasoning portion as in other benchmarks, while the blank-image subset rewards the prior-following behavior that CED suppresses. The net effect remains positive on every backbone. 9FREAK-548                     
+
+> Q: point or tail?
+> GT: tail
+> Other: point/point/head
+> ours: tail
+> FREAK-1683
+> Q: rolling-pin handles?
+> GT: 1
+> Other: 2/2/2
+> ours: 1
+> FREAK-1694
+> Q: toothbrush rows?
+> GT: 1
+> Other: 3/2/3
+> ours: 1
+> FREAK-1713
+> Q: eyeglass arms?
+> GT: 1
+> Other: 2/2/2
+> ours: 1
+> FREAK-1751
+> Q: rickshaw tires?
+> GT: 3
+> Other: 2/2/2
+> ours: 3
+
+Figure 6: Five prior-conflict FREAK cases. Each card reports the ground truth, the outputs of PAPO, LLaVA-v1.6-7B, and the Qwen2.5-VL-7B base model in that order, and the output of ours. The non-CED models follow a plausible object prior, whereas ours follows the local visual evidence. 
+
+No text-only degradation. A potential concern is that rewarding evidence dependence may harm general text reasoning. We evaluate the Qwen3.5-9B Answer-CED checkpoint on eight text-only benchmarks (ARC-Easy, ARC-Challenge, OpenBookQA, CommonsenseQA, WinoGrande, PIQA, BoolQ, TruthfulQA-MC2) spanning commonsense, science, and factual reasoning. The mean accuracy change is −0.27 pp, with no single benchmark dropping more than 1.5 pp. CED improves visual grounding without degrading the language backbone. 
+
+Evidence-closed text-only self-evolution. The following analysis makes this intuition precise: an image-conditional signal is structurally necessary to distinguish grounded from shortcut trajectories. In VLM RL, model-judged or self-evolving audits often collapse back to text because the cheap verifiable targets used in LLM self-evolution, such as executable code or checkable arithmetic, have no per-sample-cheap visual analogue. Let St be the reward, It the image, ˆYt the answer, and 
+
+Gt ∈ { 0, 1} the latent grounding indicator. This conditional independence is a direct consequence of the path structure in Figure 1: the evidence path and the shortcut path both terminate at the answer node, so a reward that observes only the answer cannot determine which upstream path produced it.A text-only reward satisfies St ⊥⊥ It | ( ˆYt, Q t), and therefore I(St; Gt | ˆYt, Q t) = 0 : two trajectories that reach the same correct answer through grounding versus a language-prior shortcut induce identical reward distributions. We call this regime evidence-closed self-evolution . As long as the audit observes only text, judge capacity, annealing, or trustworthiness reweighting cannot resolve the ambiguity, since the limitation comes from the conditional independence structure. CED breaks this closure by injecting an image-conditional signal. The evidence margin m(I, q, y ) in Equation (3) cannot be computed from ( ˆYt, Q t) alone, and the strict inequality H(Gt | B t, A t) < H (Gt | B t)
+
+formalizes the empirical fact that CED reorders trajectories that correctness rewards cannot. The formal argument is developed in Section A.12. This yields a unified diagnosis of recent self-evolving multimodal RL pipelines: stable shortcut correction depends less on judge capacity than on whether the reward can observe the visual evidence path. 
+
+## 6 Conclusion 
+
+We introduced E VIDENCE -RL, a post-training framework for VLMs built around CED, a counter-factual evidence diagnostic motivated by a causal view of visual grounding. CED moves beyond rewarding answer correctness alone by asking whether a sampled response depends on the Evidence Region causally. With spatial-region interventions, this diagnostic can be directly integrated into GRPO as an evidence-aware reward, producing grounded reasoning behavior with no additional inference cost. Across four backbones and nine benchmarks, E VIDENCE -RL consistently improves performance, with the largest gains on benchmarks where shortcut behavior is most exposed. Post-training should reward correct answers for depending on the visual evidence relevant to the question, rather than for matching the answer distribution alone. Though our experiments use object-centric interventions, gains generalize to various downstream tasks: the CED signal supervises the reasoning process and instills faithful evidence dependence, the capability most absent from current VLMs. Achieving high accuracy without depending on the relevant evidence is not visual reasoning; making that dependence a prioritized training objective is what evidence-intensive reasoning requires. 10 References 
+
+Emre Can Acikgoz, Cheng Qian, Jonas Hübotter, Heng Ji, Dilek Hakkani-Tür, and Gokhan Tur. Tool-r0: Self-evolving llm agents for tool-learning from zero data. arXiv preprint arXiv:2602.21320 ,2026. Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, et al. Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 , 2025a. Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, Jiabo Ye, Xi Zhang, Tianbao Xie, Zesen Cheng, Hang Zhang, Zhibo Yang, Haiyang Xu, and Junyang Lin. Qwen2.5-vl technical report. arXiv preprint arXiv:2502.13923 , 2025b. Cong Chen, Mingyu Liu, Chenchen Jing, Yizhou Zhou, Fengyun Rao, Hao Chen, Bo Zhang, and Chunhua Shen. Perturbollava: Reducing multimodal hallucinations with perturbative visual training. arXiv preprint arXiv:2503.06486 , 2025. Yuetian Du, Yucheng Wang, Rongyu Zhang, Zhijie Xu, Boyu Yang, Ming Kong, Jie Liu, and Qiang Zhu. Linking perception, confidence and accuracy in mllms. arXiv preprint arXiv:2603.12149 ,2026. Kaixuan Fan, Kaituo Feng, Haoming Lyu, Dongzhan Zhou, and Xiangyu Yue. Sophiavl-r1: Reinforc-ing mllms reasoning with thinking reward. arXiv preprint arXiv:2505.17018 , 2025. Ruth C. Fong and Andrea Vedaldi. Interpretable explanations of black boxes by meaningful perturba-tion. In IEEE International Conference on Computer Vision , pages 3449–3457, 2017. Tianrui Guan, Fuxiao Liu, Xiyang Wu, Ruiqi Xian, Zongxia Li, Xiaoyu Liu, Xijun Wang, Lichang Chen, Furong Huang, Yaser Yacoob, et al. Hallusionbench: an advanced diagnostic suite for entan-gled language hallucination and visual illusion in large vision-language models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 14375–14385, 2024. Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang, Shirong Ma, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948 , 2025. Siyuan Huang, Xiaoye Qu, Yafu Li, Yun Luo, Zefeng He, Daizong Liu, and Yu Cheng. Spotlight on token perception for multimodal reinforcement learning. arXiv preprint arXiv:2510.09285 , 2025. Sicong Leng, Hang Zhang, Guanzheng Chen, Xin Li, Shijian Lu, Chunyan Miao, and Lidong Bing. Mitigating object hallucinations in large vision-language models through visual contrastive decod-ing. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition ,pages 13872–13882, 2024. Feng Li, Renrui Zhang, Hao Zhang, Yuanhan Zhang, Bo Li, Wei Li, Zejun Ma, and Chunyuan Li. Llava-next-interleave: Tackling multi-image, video, and 3d in large multimodal models. arXiv preprint arXiv:2407.07895 , 2024. Shawn Li, Jiashu Qu, Yuxiao Zhou, Yuehan Qin, Tiankai Yang, and Yue Zhao. Treble counterfactual vlms: A causal approach to hallucination. arXiv preprint arXiv:2503.06169 , 2025a. Yantao Li, Qiang Hui, Chenyang Yan, Kanzhi Cheng, Fang Zhao, Chao Tan, Huanling Gao, Jianbing Zhang, Kai Wang, Xinyu Dai, et al. Palmr: Towards faithful visual reasoning via multimodal process alignment. arXiv preprint arXiv:2603.06652 , 2026. Yifan Li, Yifan Du, Kun Zhou, Jinpeng Wang, Xin Zhao, and Ji-Rong Wen. Evaluating object hallucination in large vision-language models. In Proceedings of the 2023 conference on empirical methods in natural language processing , pages 292–305, 2023. Zongxia Li, Wenhao Yu, Chengsong Huang, Rui Liu, Zhenwen Liang, Fuxiao Liu, Jingxi Che, Dian Yu, Jordan Boyd-Graber, Haitao Mi, et al. Self-rewarding vision-language model via reasoning decomposition. arXiv preprint arXiv:2508.19652 , 2025b. 11 Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollár, and C Lawrence Zitnick. Microsoft coco: Common objects in context. In European conference on computer vision , pages 740–755. Springer, 2014. Sheng Liu, Haotian Ye, and James Zou. Reducing hallucinations in large vision-language models via latent space steering. In The Thirteenth International Conference on Learning Representations ,2025. Yuan Liu, Haodong Duan, Yuanhan Zhang, Bo Li, Songyang Zhang, Wangbo Zhao, Yike Yuan, Jiaqi Wang, Conghui He, Ziwei Liu, et al. Mmbench: Is your multi-modal model an all-around player? In European conference on computer vision , pages 216–233. Springer, 2024. Pan Lu, Swaroop Mishra, Tanglin Xia, Liang Qiu, Kai-Wei Chang, Song-Chun Zhu, Oyvind Tafjord, Peter Clark, and Ashwin Kalyan. Learn to explain: Multimodal reasoning via thought chains for science question answering. Advances in neural information processing systems , 35:2507–2521, 2022. Pan Lu, Hritik Bansal, Tony Xia, Jiacheng Liu, Chunyuan Li, Hannaneh Hajishirzi, Hao Cheng, Kai-Wei Chang, Michel Galley, and Jianfeng Gao. Mathvista: Evaluating mathematical reasoning of foundation models in visual contexts. arXiv preprint arXiv:2310.02255 , 2023. Roni Paiss, Ariel Ephrat, Omer Tov, Shiran Zada, Inbar Mosseri, Michal Irani, and Tali Dekel. Teaching clip to count to ten. In Proceedings of the IEEE/CVF international conference on computer vision , pages 3170–3180, 2023. Judea Pearl. Causality: Models, Reasoning, and Inference . Cambridge University Press, 2 edition, 2009. Vitali Petsiuk, Abir Das, and Kate Saenko. RISE: Randomized input sampling for explanation of black-box models. In British Machine Vision Conference , 2018. Yiming Qin, Bomin Wei, Jiaxin Ge, Konstantinos Kallidromitis, Stephanie Fu, Trevor Darrell, and XuDong Wang. Chain-of-visual-thought: Teaching vlms to see and think better with continuous visual tokens. arXiv preprint arXiv:2511.19418 , 2025. Pooyan Rahmanzadehgervi, Logan Bolton, Mohammad Reza Taesiri, and Anh Totti Nguyen. Vision language models are blind: Failing to translate detailed visual features into words. arXiv preprint arXiv:2407.06581 , 2024. John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, et al. Deepseekmath: Pushing the limits of mathemat-ical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. Haozhan Shen, Peng Liu, Jingcheng Li, Chunxin Fang, Yibo Ma, Jiajia Liao, Qiaoli Shen, Zilun Zhang, Kangjia Zhao, Qianqian Zhang, et al. Vlm-r1: A stable and generalizable r1-style large vision-language model. arXiv preprint arXiv:2504.07615 , 2025. Wenfang Sun, Hao Chen, Yingjun Du, Yefeng Zheng, and Cees GM Snoek. Regionreasoner: Region-grounded multi-round visual reasoning. arXiv preprint arXiv:2602.03733 , 2026. Qwen Team. Qwen3.5: Accelerating productivity with native multimodal agents, February 2026. URL https://qwen.ai/blog?id=qwen3.5 .Jiacong Wang, Zijian Kang, Haochen Wang, Haiyong Jiang, Jiawen Li, Bohong Wu, Ya Wang, Jiao Ran, Xiao Liang, Chao Feng, et al. Vgr: Visual grounded reasoning. arXiv preprint arXiv:2506.11991 , 2025a. Jiayu Wang, Yifei Ming, Zhenmei Shi, Vibhav Vineet, Xin Wang, Yixuan Li, and Neel Joshi. Is a picture worth a thousand words? delving into spatial reasoning for vision language models. 
+
+Advances in Neural Information Processing Systems , 37:75392–75421, 2024. 12 Weiyun Wang, Zhangwei Gao, Lixin Gu, Hengjun Pu, Long Cui, Xingguang Wei, Zhaoyang Liu, Linglin Jing, Shenglong Ye, Jie Shao, et al. Internvl3. 5: Advancing open-source multimodal models in versatility, reasoning, and efficiency. arXiv preprint arXiv:2508.18265 , 2025b. Xiyao Wang, Zhengyuan Yang, Chao Feng, Yongyuan Liang, Yuhang Zhou, Xiaoyu Liu, Ziyi Zang, Ming Li, Chung-Ching Lin, Kevin Lin, et al. Vicrit: A verifiable reinforcement learning proxy task for visual perception in vlms. arXiv preprint arXiv:2506.10128 , 2025c. Zhenhailong Wang, Xuehang Guo, Sofia Stoica, Haiyang Xu, Hongru Wang, Hyeonjeong Ha, Xiusi Chen, Yangyi Chen, Ming Yan, Fei Huang, et al. Perception-aware policy optimization for multimodal reasoning. arXiv preprint arXiv:2507.06448 , 2025d. Jialin Wu, Wei Shi, Han Shen, Peigui Qi, Kunsheng Tang, Zhicong Huang, Binghao Wang, and Zhou Yang. Revis: Sparse latent steering to mitigate object hallucination in large vision-language models. arXiv preprint arXiv:2602.11824 , 2026. Tong Xiao, Xin Xu, Zhenya Huang, Hongyu Gao, Quan Liu, Qi Liu, and Enhong Chen. Perception-r1: Advancing multimodal reasoning capabilities of mllms via visual perception reward. arXiv preprint arXiv:2506.07218 , 2025. Yilin Yang, Zhenghui Guo, Yuke Wang, Omprakash Gnawali, Sheng Di, and Chengming Zhang. Hii-dpo: Eliminate hallucination via accurate hallucination-inducing counterfactual images. arXiv preprint arXiv:2602.10425 , 2026. Zhihan Yin, Jianxin Liang, Yueqian Wang, Yifeng Yao, Huishuai Zhang, and Dongyan Zhao. Freak: A fine-grained hallucination evaluation benchmark for advanced mllms. arXiv preprint arXiv:2603.19765 , 2026. Xiang Yue, Yuansheng Ni, Kai Zhang, Tianyu Zheng, Ruoqi Liu, Ge Zhang, Samuel Stevens, Dongfu Jiang, Weiming Ren, Yuxuan Sun, et al. Mmmu: A massive multi-discipline multimodal understanding and reasoning benchmark for expert agi. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 9556–9567, 2024. Yu Yue, Yufeng Yuan, Qiying Yu, Xiaochen Zuo, Ruofei Zhu, Wenyuan Xu, Jiaze Chen, Chengyi Wang, TianTian Fan, Zhengyin Du, et al. Vapo: Efficient and reliable reinforcement learning for advanced reasoning tasks. arXiv preprint arXiv:2504.05118 , 2025. Matthew D. Zeiler and Rob Fergus. Visualizing and understanding convolutional networks. In 
+
+European Conference on Computer Vision , pages 818–833. Springer, 2014. Chi Zhang, Haibo Qiu, Qiming Zhang, Yufei Xu, Zhixiong Zeng, Siqi Yang, Peng Shi, Lin Ma, and Jing Zhang. Perceptual-evidence anchored reinforced learning for multimodal reasoning. arXiv preprint arXiv:2511.18437 , 2025a. Juntian Zhang, Song Jin, Chuanqi Cheng, Yuhan Liu, Yankai Lin, Xun Zhang, Yufei Zhang, Fei Jiang, Guojun Yin, Wei Lin, et al. Viper: Empowering the self-evolution of visual perception abilities in vision-language model. arXiv preprint arXiv:2510.24285 , 2025b. Rosie Zhao, Anshul Shah, Xiaoyu Zhu, Xinke Deng, Zhongyu Jiang, Yang Yang, Joerg Liebelt, and Arnab Mondal. On robustness and chain-of-thought consistency of rl-finetuned vlms. arXiv preprint arXiv:2602.12506 , 2026. 13 Table A.1: Complete hyperparameter listing. “Paper notation” gives the corresponding symbol in the main text when applicable. 
+
+Category Parameter Value Paper notation 
+
+RL & optimization 
+
+Learning rate lr 1 × 10 −5 —KL penalty coefficient kl_coeff 0.01 —GRPO group size group_size 32 —Training steps n_steps 2,000 —Trainable layers n_trainable_layers 4 (last) —Precision dtype bfloat16 —
+
+Generation & sampling 
+
+Temperature temperature 1.0 —Top-p top_p 0.95 —Max new tokens (evidence) max_new_tokens 32 —Max response tokens (full) max_response_tokens 64 —Prompt format short_evidence_v1 — —
+
+Reward function (Equation (4) )
+
+Response reward weight alpha_resp 0.70 see note †
+
+Answer reward weight alpha_ans 0.30 see note †
+
+Response logprob temp. tau_resp 0.20 —Answer logprob temp. tau_ans 1.00 —Gate temperature tau_resp (shared) 0.20 τg
+
+Gate baseline at m=0 (derived) 0.50 g(0) 
+
+Evidence tie-breaker evidence_eps 0.10 εtie 
+
+Additive evidence weight evidence_eps (shared) 0.10 λ
+
+Reward clipping [min, max] [−1.25 , 1.00] —Format penalty — −0.75 —
+
+Data & evaluation 
+
+Rerank candidates rerank_num_candidates 6 —non-evidence Regions per sample K 3 K            
+
+> †In Equation (4), Rans is a composite: Rans =alpha_ans ·answer_score +alpha_resp ·response_score, where each score is computed from log probabilities scaled by its temperature.
+
+## A Supplementary Experiments and Implementation Details 
+
+A.1 Reproducibility Details Dataset split and task-family distribution. The training data are derived from COCO val2017 [Lin et al., 2014] after quality filtering and format normalization. This yields 21,758 raw samples, split into train (17,502 valid), validation (2,352 valid), and probe (1,904 valid) subsets. After RL-specific filtering, 15,314 samples are loaded for online training. The loaded training set contains three task families: attribute (6,562), counting (2,188), and spatial (6,564). Training images are drawn from COCO val2017 [Lin et al., 2014]. CountBench [Paiss et al., 2023], SpatialEval [Wang et al., 2024], and MathVista [Lu et al., 2023] use independently sourced evaluation images and share no image-level overlap with the training set; the remaining benchmarks are cited in Section 4 and likewise contain no COCO val2017 images. 
+
+Training configuration. Training uses balanced_no_replacement sampling for uniform cover-age across task families, GRPO group size 32 , and 2,000 optimization steps. The trainable part of the model is restricted to the last four layers. Full training and reward hyperparameters are listed in Table A.1. 
+
+Broader impacts. CED is a training-time diagnostic and reward component for improving visual grounding in VLMs. It does not directly interact with end users or generate user-facing content. Improved grounding may reduce shortcut-driven errors in safety-relevant visual reasoning tasks. The 14 Table A.2: Methodological comparison with perception-aware VLM RL methods. The Causal audit 
+
+column indicates whether the method tests causal evidence dependence for a candidate answer. 
+
+Method Signal source Granularity Causal audit Stage 
+
+PAPO [Wang et al., 2025d] Global mask KL Global No Training VPPO [Huang et al., 2025] Attention weights Token-level No Training Vision-SR1 † Text self-verification Description-level No Training PaLMR ‡ LLM-as-Judge Trajectory-level No Training SophiaVL-R1 [Fan et al., 2025] Thinking-reward RM Trajectory-level No Training PEARL § Perception checklist Sample-level No Training VAPO ¶ Trajectory anchoring Token-level No Training VLM-R1 * Self-verification Response-level No Training Perception-R1 †† Proxy localization Region-level a No Training CED (Ours) Counterfactual intervention Region-level Yes Training      
+
+> †Li et al. [2025b]; ‡Li et al. [2026]; §Zhang et al. [2025a]; ¶Yue et al. [2025]; *Shen et al. [2025]; †† Xiao et al. [2025].
+> aPerception-R1 reaches region-level granularity through proxy localization and requires additional supervision.
+
+main risk is that counterfactual probing can also reveal model vulnerabilities, although CED exposes only a scalar evidence margin rather than a detailed attack surface. 
+
+A.2 Intervention Implementation Details Replacement strategies. We evaluate three replacement strategies: mean replacement (default), 
+
+zero replacement , and Gaussian-noise replacement . All interventions are applied to the last-layer vision-encoder output after spatial merging. Mean replacement substitutes Evidence Region visual tokens with the mean of neighboring visual tokens outside T (Ω) ; zero replacement sets selected tokens to 0; Gaussian-noise replacement substitutes zero-mean Gaussian samples. 
+
+Spatial-merge-aware token mapping. Modern vision encoders apply a 2×2 spatial merge before feeding visual tokens to the LLM. Given merge dimensions (sw, s h) = (2 , 2) , an original grid coordinate (gx, g y ) maps to the merged-token index 
+
+(gy // s h) × wmerged + ( gx // s w).
+
+For non-evidence Region construction, the mapping module supports Chebyshev-distance ring expansion on the merged feature map. 
+
+Proposal construction pipeline. Positive proposals are sourced from COCO instance annota-tions [Lin et al., 2014]. They are object-level bounding boxes, not question-specific region annotations. The Evidence Region Ωev is resolved from sample metadata using the priority proposal_bbox >
+
+target_bbox > argument_bbox > metadata.bbox > center-box fallback. non-evidence Regions 
+
+{Ωnon  
+
+> k
+
+} are sampled as area-matched random boxes with IoU ≤ 0.05 to Ωev . If box sampling fails, random visual-token subsets of matching size are used as fallback. Quality diagnostics filter proposals with extreme area fractions or insufficient token coverage before training. 
+
+A.3 Comparison with Perception-Aware RL Methods 
+
+Table A.2 compares CED with representative perception-aware VLM RL methods. The key distinc-tion is whether the training signal tests candidate-answer dependence on local visual evidence, rather than coarse image dependence or text-only consistency. 
+
+A.4 Additional Evidence-Signal Diagnostics Relevant-vs-random intervention. On a held-out set of 500 samples per task family, we compare Evidence Region sensitivity s(Ω ev ) with mean non-evidence Region sensitivity μ(snon ). On counting tasks, the Evidence Region elicits higher sensitivity in 63.4% of samples, with mean Evidence Region 
+
+s = 2 .566 versus mean non-evidence Region s = 0 .638 . On presence tasks, the rate drops to 55.0%, with mean Evidence Region s = 1 .082 versus mean non-evidence Region s = 0 .302 . This supports the regime separation used by the routing rule in Section 3.2. 15 Table A.3: Cross-model evidence sensitivity validation ( N =50 per task per model).                
+
+> Model Task Relevant >Random rate Mean margin
+> InternVL3.5-8B Counting 0.68 0.0070 Presence 0.62 0.0737 LLaVA-v1.6-7B Counting 0.78 0.0074 Presence 0.60 0.1625
+
+Table A.4: Blindfold test results ( N =500 per task family).                  
+
+> Condition Task Rel. >Rand. rate Mean Delta
+> Normal Counting 0.634 +1 .928
+> Normal Presence 0.550 +0 .780
+> Blindfold Counting 0.404 −0.114
+> Blindfold Presence 0.448 +0 .070
+
+Cross-model validation. We also validate the signal on InternVL3.5-8B [Wang et al., 2025b] and LLaVA-v1.6-Mistral-7B [Li et al., 2024] using pixel-level intervention. Table A.3 shows that counting tasks maintain higher relevant-vs-random rates across both models, while presence tasks remain weaker. 
+
+Blindfold test. After replacing the image with a blank input, the relevant-vs-random rate drops to 0.404 on counting and 0.448 on presence, both below the 0.50 chance level. Mean delta collapses from +1 .928 / + 0 .780 to −0.114 / + 0 .070 , confirming that the signal originates from real image content. 
+
+A.5 Intervention-Type Ablations Why mean replacement reduces intervention artifacts. The perturbation ablation shows that mean replacement gives the strongest discrimination within the local intervention family: AUC 0.669 
+
+for mean replacement, compared with 0.641 for zero replacement and 0.629 for Gaussian-noise replacement. This ordering follows from the role of the replacement as a structural baseline. Write the Evidence Region token representation as 
+
+hT = bT + eT , (5) where bT is a context-consistent baseline component and eT is the answer-relevant evidence compo-nent. The ideal counterfactual removes eT while preserving bT . Replacement strategies differ in how much they perturb this baseline: 
+
+hmean  
+
+> T
+
+= μT = bT + δT , hzero  
+
+> T
+
+= 0, hnoise  
+
+> T
+
+= bT + ξT . (6) Let F be the downstream logit assigned to the candidate answer and JT its local Jacobian with respect to hT . A first-order expansion gives 
+
+∆F mean ≈ JT (δT − eT ), ∆F zero ≈ − JT (bT + eT ), ∆F noise ≈ JT (ξT − eT ). (7) All three contain the desired signal term −JT eT . Mean replacement adds only the neighborhood-offset artifact JT δT , zero replacement adds the systematic baseline-removal artifact −JT bT , and Gaussian replacement adds sample-specific noise. Since context mixing makes the neighborhood offset smaller than the full baseline norm at the intervention layer, mean replacement preserves the non-evidence part of the representation more faithfully. 
+
+AUC ablation and global masking. Table A.5 reports the local perturbation-family ablation. Global masking performs worse: it does not support stable answer-conditioned discrimination, with above-baseline rate 0.490 below chance. Local counterfactual intervention retains discriminative utility with AUC 0.620 .
+
+A.6 Reward Hyperparameter Sensitivity 
+
+Tables A.7 and A.8 show that the default reward hyperparameters lie in stable regions. Across 
+
+λ ∈ [0 .05 , 0.20] , the non-constant reward rate remains 96–100%. For τg , values around 0.15–0.30 yield balanced selection behavior; we use τg = 0 .20 by default. 16 Table A.5: Perturbation-family ablation within the local intervention family, evaluated by logits-JS AUC.             
+
+> Key mode Mean repl. Zero repl. Gaussian-noise repl.
+> prompt_last 0.6780 0.6602 0.6299 answer_first 0.6592 0.6215 0.6273 Average 0.6686 0.6409 0.6286
+
+Table A.6: Gaussian-noise profile under prompt_last . Stability drops under logits_only .         
+
+> Config Fixed metric Best metric Best paired AUC
+> logits24 0.6299 0.6299 0.7108 logits_only 0.5753 0.5920 0.6407
+
+Table A.7: Evidence weight ( λ) sensitivity. λ = 0 .00 is correctness-only.                   
+
+> λNon-const. rate Reward std Zero-var. rate 0.00 100% 0.0528 0% 0.05 100% 0.0508 0%
+> 0.10 96% 0.0597 4%
+> 0.15 100% 0.0415 4% 0.20 100% 0.0491 0%
+
+Table A.8: Gate temperature ( τg ) sensitivity.                
+
+> τgNon-const. rate Reward std Zero-var. rate 0.10 100% 0.0568 4%
+> 0.20 96% 0.0597 4%
+> 0.30 96% 0.0469 4% 0.50 100% 0.0378 0%
+
+A.7 Proposal Robustness to Spatial Perturbations 
+
+This experiment tests whether the CED probe remains useful when the target proposal is imperfect. It is orthogonal to Section A.5: that subsection varies the intervention type while holding the region fixed; here we hold the intervention type fixed as mean replacement and vary the region. 
+
+Protocol. Starting from the true Evidence Region box of each sample, we generate perturbed proposals and re-run the full CED pipeline with K=3 non-evidence Regions. We test three per-turbation axes: IoU stratification with the original box, scale changes around the box center, and translations by a fixed fraction of the image short side. A random region baseline gives the expected floor without spatial targeting. We report mean evidence margin ¯m, evidence-non-evidence gap 
+
+∆ = μ(sev ) − μ(snon ), and evidence-beats-random rate Pr( sev > s rand ). All numbers use the Qwen3.5-9B CoT-CED checkpoint on n=41 count-exclusion samples. 
+
+Interpreting the results. IoU gives the cleanest trend: ¯m and ∆ both decrease as overlap with the original proposal drops. The lowest IoU bin approaches the random floor, indicating that CED does not merely reward masking magnitude. Scale and shift perturbations do not show systematic degradation within the tested ranges. Their evidence-reference gaps stay well above the random baseline, suggesting that moderate detector imprecision is a second-order effect for this diagnostic. All measurements here are probe diagnostics rather than downstream accuracy estimates. 
+
+A.8 Shared-Candidate Baselines and Reward Diagnostics Unified-condition protocol. Recent perception-aware methods differ in backbone and data. We therefore separate checkpoint transfer from signal design by evaluating lightweight method variants under a shared-candidate protocol with the same backbone, candidate pool, and benchmark manifest. 17 Table A.9: Proposal-perturbation results on count-exclusion ( n=41 ). Higher values indicate stronger evidence dependence; the random row gives the floor without spatial targeting. 
+
+Axis Condition ¯m ∆ Rel. rate 
+
+IoU stratification 
+
+[0 .7, 1.0] 0.501 2.032 0.732 
+
+[0 .5, 0.7) 0.379 1.282 0.683 
+
+[0 .3, 0.5) 0.341 1.386 0.683 
+
+[0 .0, 0.3) 0.219 0.555 0.561 Scale 
+
+0.50 × 0.377 1.113 0.732 
+
+0.75 × 0.481 1.750 0.732 
+
+1.25 × 0.433 2.230 0.683 
+
+1.50 × 0.295 2.003 0.634 
+
+2.00 × 0.382 1.880 0.707 Shift 
+
+5% 0.304 1.602 0.634 
+
+10% 0.428 1.457 0.707 
+
+20% 0.532 1.899 0.732 
+
+original proposal (reference) 0.386 1.852 0.683 
+
+random region (floor) 0.147 0.277 0.537 0.7 1.0 0.5 0.7 0.3 0.5 0.0 0.3          
+
+> IoU with original proposal 0.0 0.1 0.2 0.3 0.4 0.5 0.6 mean evidence margin  m
+> (a) IoU-graded degradation
+> random region (0.15) original proposal (0.39)
+> 0.5× 0.75× 1× 1.25× 1.5× 2× scale factor on proposal 0.0 0.1 0.2 0.3 0.4 0.5 0.6
+> (b) Scale robustness
+> random region (0.15) original ±1 SE scaled proposal
+> 0% 5% 10% 20% translation (% of image size) 0.0 0.1 0.2 0.3 0.4 0.5 0.6
+> (c) Shift robustness
+> random region (0.15) original ±1 SE shifted proposal
+> CED probe robustness under proposal perturbation ( n= 41, count-exclusion, CoT-CED checkpoint)
+
+Figure A.1: CED probe robustness under proposal perturbation on the count-exclusion diagnostic. (a) Mean evidence margin ¯m across IoU bins, with the random-region baseline as a grey dashed reference. (b,c) ¯m under scale and translation perturbations, with the original ±1 SE band in red. Error bars are ±1 SE. Table A.10: Unified-condition baseline comparison on the offline rerank dataset ( N =1 ,353 ). 
+
+Method Reward mean Signal strength Signal-corr 
+
+Vanilla GRPO −0.149 N/A N/A PAPO-Lite −0.156 KL = 0 .024 0.034 
+
+CED (Ours) +0 .448 Margin = −0.007 Selective 
+
+Shared-candidate comparison. Table A.11 reports Lite versions of representative methods on the counting shared-candidate slice. The key readout is not final accuracy alone, which is saturated on this slice, but whether the reward can produce non-constant within-group signal and flip candidate preference beyond log-probability ranking. 
+
+Within-group variance telemetry. Correctness-only has within-group zero-variance rate 0.949, non-constant rate 0.051, and same-answer-different-reward discrimination 0.0. Additive and ours reduce the zero-variance rate to 0.035 and restore the non-constant rate to 0.965. Ours gives slightly higher discrimination, 0.555 versus 0.535. Re-scoring the pre-RL checkpoint gives a yes/no shortcut bias gap of 0.077 for Correctness-only, 0.075 for Additive, and 0.015 for ours. The intervention area-reward Pearson correlation is 0.080, ruling out area-driven reward hacking. Reward-length correlations are consistent across methods: −0.226 , −0.222 , and −0.230 .18 Table A.11: Unified-condition method comparison on the counting shared-candidate slice: 94 samples with at least two distinct candidates.                                    
+
+> Method Acc. Strong inf. rnc ↑flip ↑
+> LogProb 94.7 75.0 ––Correctness-only 97.9 100.0 12.8 4.3
+> CED (Ours) 97.9 100.0 100.0 76.6
+> Perception-R1-Lite 97.9 100.0 13.8 5.3 VLM-R1-Lite ∗94.7 75.0 0.0 0.0 VPPO-Lite ∗94.7 75.0 0.0 0.0 PAPO-Lite ∗94.7 75.0 0.0 0.0
+> ∗No reward-based reranking recovered; falls back to log probability.
+
+A.9 Reward Discrimination and Failure Modes 
+
+The same-answer-different-reward statistic in Table 1 is visualized in Figure A.2. Rollouts with the same final answer receive different rewards once the evidence margin enters the signal, reflecting differences in the visual evidence each rollout uses. Under Correctness-only, evidence-intensive tasks exhibit low within-group discrimination, with non-constant raw reward rate rnc ≈ 0.05 and zero-variance rate ≈ 0.95 . Additive and Routed rewards restore discrimination, with rnc ≈ 0.97 and zero-variance rate ≈ 0.04 . On the presence probe, all formulations remain limited by the binary-task variance bound, supporting the routing of presence tasks to the audit pathway. 
+
+A.10 Scope and Extensions of the Evidence Interface Behavioral target. CED is designed to reward a model behavior: a candidate answer should be supported by the visual evidence that justifies it. In the causal view of grounding, this means that the model’s support for an answer should decrease more under intervention on the target-evidence path than under matched interventions on non-evidence paths. This requirement is not specific to bounding boxes or object regions. 
+
+Region-level instantiation. In this paper, we instantiate the audit with object-centric region inter-ventions because regions provide a scalable interface for constructing Evidence Regions and matched non-evidence Regions without question-specific evidence annotations. This choice aligns with the benchmark families studied in our experiments, including counting, spatial reasoning, hallucination detection, and object-centric visual reasoning, where many failures arise when the model answers from language priors, scene context, or salient distractors rather than the relevant local evidence. 
+
+Beyond object boxes. In the causal graph of Figure 1, CED rewards a path-level property: the answer should depend more on the target-evidence path than on shortcut or nuisance paths. Object-region interventions query this property by probing one spatial locus of the evidence path without question-specific evidence annotations, making the audit scalable to open-ended VQA training. The behavioral target itself is defined on the graph structure, not on the intervention format. Richer evidence interfaces such as attribute-preserving interventions, multi-region proposals, or text-span units query the same path at finer granularity or for different evidence types; they refine how the evidence path is probed, not what behavior is rewarded. 
+
+A.11 Answer-CED vs. CoT-CED Details 
+
+The two variants differ in where the evidence sensitivity is computed: CoT-CED applies the coun-terfactual to the full reasoning trace, while Answer-CED applies it only to the final answer. Both variants are trained for 2,000 steps on Qwen3.5-9B with LoRA ( r=16 , α=32 ). The main paper reports the training trajectories in Figure 4; here, Table A.12 summarizes the final training state and Tables A.13 and A.14 provide the behavior-level diagnostics. CoT-CED achieves higher training reward (Table A.12, Figure 4), yet transfers worse on average (Table 5). This reflects a structural mismatch between dense per-token rewards and GRPO’s group-relative optimization. CoT-CED averages evidence rewards over the full reasoning trace, and because 19 Figure A.2: Qualitative examples of same-answer-different-reward under the CED method. All rollouts share the same answer, while CED produces reward spans of 0.50–0.67 according to visual evidence quality. Table A.12: CoT-CED vs. Answer-CED: training-end summary over 2,000 steps.       
+
+> Metric CoT-CED Answer-CED
+> Mean training reward +0 .259 −0.009
+> Final training correctness 43 .4% 34 .2%
+
+trace length is policy-controlled, the model can raise the per-token average by truncating low-reward tokens rather than by improving visual grounding. Tables A.13–A.14 confirm this collapse: CoT-CED’s mean chain shrinks to 3.6 tokens on counting (vs. 49.3 for Answer-CED), degenerating to object-cue shorthand. This parallels the process-reward hacking reported by Guo et al. [2025], who abandon dense process rewards in favor of outcome-level signals for the same reason. Answer-CED removes this degree of freedom by scoring only the final-answer span, a fixed-length interface whose reward cannot be manipulated through generation length. 20 Counting Attribute Spatial Existence (Binary)        
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Zero-Variance Fallback
+> 0.09 0.03 0.05 0.91 0.76 0.97 1.00 0.90 0.05 0.04 0.03 0.90
+> Evidence-Intensive Tasks (Signal Preserved) Binary Tasks (Collapsed)
+> Pre-RL Correctness-only CED (Ours)
+
+Figure A.3: Within-group zero-variance rate across task families. Evidence-intensive tasks show a large reduction from correctness-only reward to our reward; binary-dominated groups remain near high zero-variance because of their two-action structure. 
+
+Figure A.4: Failure cases on presence tasks: identical negation answers with identical rewards yield zero within-group variance. 
+
+A.12 Formalizing Evidence-Closed Self-Evolution 
+
+This appendix provides the complete formalization of the evidence-closed self-evolution regime introduced in Section 5. 
+
+Notation. Let Ot = ( It, Q t) denote the image-question pair, ˆYt the prediction, Vt = ν(It) the task-relevant visual evidence, Gt ∈ { 0, 1} the grounding indicator, and St the endogenous reward. 21 Table A.13: End-of-training CoT behavior on held-out prompts. CoT-CED collapses toward an object-cue answer format, while Answer-CED preserves natural multi-sentence reasoning. 
+
+Metric Benchmark CoT-CED Answer-CED 
+
+Mean CoT length (tokens) Counting 3.6 49 .3
+
+Median CoT length (tokens) Counting 3 47 
+
+p90 CoT length (tokens) Counting 6 78 
+
+Mean CoT length (tokens) HallusionBench 3.8 82 .1
+
+Median CoT length (tokens) HallusionBench 3 61 
+
+p90 CoT length (tokens) HallusionBench 6 173 
+
+Image-referential opener rate Counting 1.0% 79 .8% 
+
+Image-referential opener rate HallusionBench 5.2% 64 .2% 
+
+Unique-token ratio Counting 99 .1% 75 .8% 
+
+Unique-token ratio HallusionBench 96 .8% 68 .1% 
+
+Table A.14: Representative side-by-side generations. Both variants produce the correct final answer, but CoT-CED reduces the chain to an object cue, while Answer-CED keeps an explicit visual check.     
+
+> Prompt CoT-CED Answer-CED
+> How many beds are there in the image?
+> The beds / 2 Got it, let’s look at the image. There’s a loft bed with a lower bed. The upper bunk is one, the lower bed is another. So that’s two beds.
+> How many weights are there in the image?
+> The weights / Two Got it, let’s look at the image. The man is holding two dumbbells, one in each hand. There’s one in the left hand and one in the right hand. So that’s two weights.
+
+Definition 1 (Evidence-closed self-evolution) . A training step is evidence-closed if its signal T cl  
+
+> t
+
+is measurable with respect to Bt = σ(Ft, I t, Q t, ˆYt, S t).
+
+Lemma 1 (Endogenous reward bottleneck) . If St ⊥⊥ It | ( ˆYt, Q t, Ft), then I(St; Vt | ˆYt, Q t, Ft) = 0.Proof. Since Vt = ν(It), the conditional independence implies St ⊥⊥ Vt | ( ˆYt, Q t, Ft), which gives the result. 
+
+Proposition 1 (No incremental grounding information) . If T cl  
+
+> t
+
+is evidence-closed, then I(T cl  
+
+> t
+
+; Gt |Bt) = 0 .Proof. T cl  
+
+> t
+
+is Bt-measurable, so conditioning on Bt leaves no remaining uncertainty in T cl  
+
+> t
+
+that can carry additional information about Gt.
+
+Proposition 2 (Closed-loop reward does not identify grounding) . If two predictors induce the same distribution over (It, Q t, ˆYt, S t) but differ in grounding, then any objective of the form J(h) = 
+
+Eh[ϕ(It, Q t, ˆYt, S t)] cannot distinguish them. Proof. The objective depends only on the joint distribution of (It, Q t, ˆYt, S t). If two predictors have the same joint distribution over these variables, they have the same value of J(h) regardless of their grounding behavior. 
+
+Assumption 1 (Audit informativeness) . On evidence-intensive tasks, I(At; Gt | B t) > 0, where At
+
+denotes the evidence audit signal. 
+
+Proposition 3 (Information increment from evidence auditing) . Under Assumption 1, H(Gt |Bt, A t) < H (Gt | B t).Proof. By the definition of conditional mutual information, I(At; Gt | B t) = H(Gt | B t) −
+
+H(Gt | B t, A t). The assumption makes the left-hand side strictly positive, giving the stated strict inequality. 22

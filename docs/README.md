@@ -6,81 +6,86 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-10
-- 运行时间：2026-08-10 21:28:05 UTC
+- 最新运行日期：2026-08-15
+- 运行时间：2026-08-15 19:38:56 UTC
 - 运行状态：成功
-- 本次总论文数：19
-- 精读区：7
+- 本次总论文数：22
+- 精读区：10
 - 速读区：12
 
 ### 今日简报（AI）
-今日共读19篇论文，精读7篇、速读12篇，聚焦AI前沿热点。
-
-最值得关注：1.58-bit量化突破推理模型后训练瓶颈，以及基于最优传输的多模态对齐新方法。
-
-下一步可深入探索量化与多模态融合的交叉应用，兼顾效率与性能。
-- 详情：[/202608/10/README](/202608/10/README)
+今日精读10篇、速读12篇共22篇，核心聚焦多模态检索与语言保持方向。最值得关注的是《MRBench》为人体运动-文本检索提供全面基准，《NeuPAT》实现微调中语言能力保持。建议优先精读这两篇9分论文，再结合速读中的自检式视频推理方法拓展视角。
+- 详情：[/202608/15/README](/202608/15/README)
 
 ### 精读区论文标签
-1. [Attend to Your Own Thoughts: Breaking the Barrier for Post-Training Quantization of Reasoning LLMs through the Lens of 1.58-Bit Quantization](/202608/10/2608.01078v1-attend-to-your-own-thoughts-breaking-the-barrier-for-post-training-quantization-of-reasoning-llms-through-the-lens-of-158-bit-quantization)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：面向推理大语言模型的训练后量化
-2. [Multimodal Alignment Through Joint Kernel Entropic Gromov--Wasserstein Optimal Transport](/202608/10/2608.04234v1-multimodal-alignment-through-joint-kernel-entropic-gromov--wasserstein-optimal-transport)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：在共享表示空间中进行多模态对齐
-3. [Does More Retrieved Evidence Help Visual Retrieval-Augmented Generation with Diffusion Language Models?](/202608/10/2608.07006v1-does-more-retrieved-evidence-help-visual-retrieval-augmented-generation-with-diffusion-language-models)  
+1. [MRBench: A Comprehensive Benchmark for Human Motion-Text Retrieval](/202608/15/2608.07993v1-mrbench-a-comprehensive-benchmark-for-human-motion-text-retrieval)  
    标签：评分：9.0/10、query:mr
-   evidence：面向扩散语言模型的视觉检索增强生成证据数量分析
-4. [Toward Fine-Grained Forgetting:Attribute Unlearning for Multimodal Large Language Models](/202608/10/2608.01008v1-toward-fine-grained-forgettingattribute-unlearning-for-multimodal-large-language-models)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：将属性级去学习作为多模态大模型的后训练编辑任务
-5. [Distill What the Student Can See: Fisher-Projected On-Policy Distillation for Vision-Language Models](/202608/10/2608.01263v1-distill-what-the-student-can-see-fisher-projected-on-policy-distillation-for-vision-language-models)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：面向视觉语言模型的在策略蒸馏与Fisher投影
-6. [DocMemo: Dynamic Evidence Discovery via Probabilistic Memory-Guided Retrieval for Multi-Modal Document Understanding](/202608/10/2608.07067v1-docmemo-dynamic-evidence-discovery-via-probabilistic-memory-guided-retrieval-for-multi-modal-document-understanding)  
-   标签：评分：8.0/10、query:mr
-   evidence：多模态文档理解中的动态证据检索与推理框架
-7. [Why Knowing Both Hops Is Not Enough: Understanding Two-Hop Generalization in Language Models](/202608/10/2608.07261v1-why-knowing-both-hops-is-not-enough-understanding-two-hop-generalization-in-language-models)  
-   标签：评分：8.0/10、query:mr
-   evidence：研究语言模型两跳多跳推理的内部机制与泛化
+   evidence：人体运动与文本的跨模态检索基准
+2. [NeuPAT: Neuron-aware Plasticity Allocation Tuning for Language-Preserving MLLMs](/202608/15/2608.08107v1-neupat-neuron-aware-plasticity-allocation-tuning-for-language-preserving-mllms)  
+   标签：评分：9.0/10、query:post-multi
+   evidence：多模态指令调整中的神经元级可塑性分配
+3. [REVEAL: A Rubric-Guided Agent for Explicit Evidence Sufficiency Verificationin Long-Video Question Answering](/202608/15/2608.08612v1-reveal-a-rubric-guided-agent-for-explicit-evidence-sufficiency-verificationin-long-video-question-answering)  
+   标签：评分：9.0/10、query:mr
+   evidence：长视频问答中的多模态RAG与多模态知识图谱推理
+4. [Integrated Multimodal AI System for Retrieval-Augmented Reasoning, Object Sensing, and Damage Analysis](/202608/15/2608.08935v1-integrated-multimodal-ai-system-for-retrieval-augmented-reasoning-object-sensing-and-damage-analysis)  
+   标签：评分：9.0/10、query:mr
+   evidence：融合知识图谱变体的多模态检索增强生成系统
+5. [Rethinking Text-Based Image Retrieval in Specific Domain](/202608/15/2608.10524v1-rethinking-text-based-image-retrieval-in-specific-domain)  
+   标签：评分：9.0/10、query:mr
+   evidence：面向特定领域的多匹配文本图像检索基准与方法
+6. [DistilVDR: A Compact End-to-End Visual Document Retriever via Dual-Student Distillation](/202608/15/2608.10636v1-distilvdr-a-compact-end-to-end-visual-document-retriever-via-dual-student-distillation)  
+   标签：评分：9.0/10、query:mr
+   evidence：文本查询与图像文档的跨模态视觉文档检索
+7. [Reference-Free Post-Training of Open Large Language Models for Multilingual Machine Translation](/202608/15/2608.10812v1-reference-free-post-training-of-open-large-language-models-for-multilingual-machine-translation)  
+   标签：评分：9.0/10、query:post-multi
+   evidence：基于GRPO的无参照LLM后训练用于多语言翻译
+8. [MultiModal Code-Switching: Interleaving Visual Objects into Language for Explicit Object-Level Alignment](/202608/15/2608.11167v1-multimodal-code-switching-interleaving-visual-objects-into-language-for-explicit-object-level-alignment)  
+   标签：评分：9.0/10、query:post-multi
+   evidence：面向多模态大模型的预训练范式，通过对象级对齐增强视觉-语言训练
+9. [Can Frontier LLMs Match Natively Multimodal Embeddings? A Comparison on Hard-Negative Text-to-Image Retrieval](/202608/15/2608.11343v1-can-frontier-llms-match-natively-multimodal-embeddings-a-comparison-on-hard-negative-text-to-image-retrieval)  
+   标签：评分：9.0/10、query:mr
+   evidence：在困难负样本文本-图像检索任务上直接比较原生多模态嵌入与LLM
+10. [Generative Universal Multimodal Retrieval with Dual-role Identifiers](/202608/15/2608.12987v1-generative-universal-multimodal-retrieval-with-dual-role-identifiers)  
+   标签：评分：9.0/10、query:mr
+   evidence：面向文本、图像及混合图文条目的指令感知生成式多模态检索
 
 ### 速读区论文标签
-1. [PRISM: Priority-aware Rubric Internalization via Structured Multimodal Data Synthesis](/202608/10/2608.05249v2-prism-priority-aware-rubric-internalization-via-structured-multimodal-data-synthesis)  
+1. [Counterfactual Benchmarking and Training for Factuality Consistency and Order-Robust Grounded Reasoning in LLMs over Heterogeneous Knowledge](/202608/15/2608.07838v1-counterfactual-benchmarking-and-training-for-factuality-consistency-and-order-robust-grounded-reasoning-in-llms-over-heterogeneous-knowledge)  
+   标签：评分：8.0/10、query:mr
+   evidence：在表格、文本和知识图谱上的多跳推理
+2. [SCOUT: Self-Checking and Recovery-Aware Tool-Thought Agents for Ultra-Long Egocentric Video Reasoning](/202608/15/2608.07959v1-scout-self-checking-and-recovery-aware-tool-thought-agents-for-ultra-long-egocentric-video-reasoning)  
+   标签：评分：8.0/10、query:mr
+   evidence：面向超长视频的多模态多步推理，通过工具调用的外部信息检索与自检查机制
+3. [Evidence-RL: Towards Evidence-intensive Visual Reasoning](/202608/15/2608.08021v1-evidence-rl-towards-evidence-intensive-visual-reasoning)  
    标签：评分：8.0/10、query:post-multi
-   evidence：多模态指令微调，基于合成规则数据的训练
-2. [ChronoVision: Temporal Reasoning via Latent State Reconstruction](/202608/10/2608.05631v1-chronovision-temporal-reasoning-via-latent-state-reconstruction)  
+   evidence：基于强化学习的视觉语言模型后训练，促进基于证据的视觉推理
+4. [ZOMP: Zeroth-Order Multi-Modal Prompt Tuning for Vision-Language Models](/202608/15/2608.08060v1-zomp-zeroth-order-multi-modal-prompt-tuning-for-vision-language-models)  
    标签：评分：8.0/10、query:post-multi
-   evidence：多模态大模型多步时序推理与后训练强化学习
-3. [Stockmark-Nemotron-3-Nano-Omni-JapanDocReader: Structured Document Parsing via Capability Injection and Forgetting Control](/202608/10/2608.06758v1-stockmark-nemotron-3-nano-omni-japandocreader-structured-document-parsing-via-capability-injection-and-forgetting-control)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：在多模态大模型上研究解析优先SFT与RL等后训练方法，与后训练技术直接相关
-4. [Understanding and Overcoming Cross-modal Fusion Bias in Multimodal Anomaly Detection From A Fisher Information Perspective](/202608/10/2608.00986v1-understanding-and-overcoming-cross-modal-fusion-bias-in-multimodal-anomaly-detection-from-a-fisher-information-perspective)  
+   evidence：面向视觉语言模型的零阶多模态提示微调
+5. [Generative Embedding Benchmark: How Much Information Survives in a Dense Embedding?](/202608/15/2608.06972v1-generative-embedding-benchmark-how-much-information-survives-in-a-dense-embedding)  
+   标签：评分：7.0/10、query:mr
+   evidence：评估密集嵌入中生成信息存留的基准，解码器仅凭冻结嵌入与问题文本作答
+6. [KGCache: Amortized Subgraph Retrieval for KG Reasoning with LLMs](/202608/15/2608.07954v1-kgcache-amortized-subgraph-retrieval-for-kg-reasoning-with-llms)  
+   标签：评分：7.0/10、query:mr
+   evidence：面向LLM知识图谱推理的摊销子图检索缓存
+7. [GRASP: Granularity-Aware Region Alignment and Semantic Prototype Learning for Fine-Grained Cross-Modal Understanding in Drone Views](/202608/15/2608.09270v1-grasp-granularity-aware-region-alignment-and-semantic-prototype-learning-for-fine-grained-cross-modal-understanding-in-drone-views)  
+   标签：评分：7.0/10、query:mr
+   evidence：细粒度跨模态对齐与原型学习
+8. [Hyperbolic Multimodal Continual Learning](/202608/15/2608.09572v1-hyperbolic-multimodal-continual-learning)  
    标签：评分：7.0/10、query:post-multi
-   evidence：多模态学习方法，缓解跨模态融合偏差
-5. [MoEGen: Mixture-of-Experts for Instance-Adaptive LoRA Generation](/202608/10/2608.03275v1-moegen-mixture-of-experts-for-instance-adaptive-lora-generation)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：参数高效微调属于大模型后训练技术
-6. [SlimVLM: Sensitivity-aware Dynamic Structured Pruning with Adaptive Visual Token Selection for Efficient Vision-Language Models](/202608/10/2608.03580v1-slimvlm-sensitivity-aware-dynamic-structured-pruning-with-adaptive-visual-token-selection-for-efficient-vision-language-models)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：面向高效视觉语言模型的结构化剪枝
-7. [iStructTab: Structured Feature Sequencing for Multimodal Learning of Image and Tabular Data](/202608/10/2608.04348v1-istructtab-structured-feature-sequencing-for-multimodal-learning-of-image-and-tabular-data)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：基于结构化特征序列的图像与表格多模态学习
-8. [A Model Merging Approach for Continual MLLM Unlearning](/202608/10/2608.04548v1-a-model-merging-approach-for-continual-mllm-unlearning)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：面向多模态大模型的持续反学习后训练方法
-9. [Balancing Efficiency and Efficacy: Training-Free Attention-Guided Switching Between Explicit and Latent Thoughts for MLLMs](/202608/10/2608.03450v1-balancing-efficiency-and-efficacy-training-free-attention-guided-switching-between-explicit-and-latent-thoughts-for-mllms)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：为多模态大模型提出免训练的显式/隐式思考切换方法
-10. [Modality Agreement- and Conflict-Aware Prototype Hypergraph Learning for Multimodal Intent Understanding](/202608/10/2608.04054v1-modality-agreement--and-conflict-aware-prototype-hypergraph-learning-for-multimodal-intent-understanding)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：利用原型超图学习建模多模态一致与冲突关系
-11. [Rhetorical-Role-Aware Retrieval-Augmented Generation for Legal Question Answering over Indian Supreme Court Judgments](/202608/10/2608.06828v1-rhetorical-role-aware-retrieval-augmented-generation-for-legal-question-answering-over-indian-supreme-court-judgments)  
+   evidence：基于双曲几何的多模态持续学习
+9. [Exact Adaptive Hybrid Retrieval Without Fixed Top-L Cutoffs](/202608/15/2608.07152v1-exact-adaptive-hybrid-retrieval-without-fixed-top-l-cutoffs)  
    标签：评分：6.0/10、query:mr
-   evidence：面向法律问答的检索增强生成框架，含修辞分块与融合检索
-12. [CoinRAG: Contextualized Information Nugget KV Cache Reuse for Long-Context RAG](/202608/10/2608.07458v1-coinrag-contextualized-information-nugget-kv-cache-reuse-for-long-context-rag)  
+   evidence：面向RAG系统的自适应混合检索
+10. [Ground-Truth Neighborhood Regularization for Reinforcement Learning Post-Training of Time Series Foundation Models](/202608/15/2608.08010v1-ground-truth-neighborhood-regularization-for-reinforcement-learning-post-training-of-time-series-foundation-models)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：面向基础模型的强化学习后训练正则化，可迁移至大语言模型后训练
+11. [SAGE: SLO-Aware Adaptive Retrieval for Production RAG Systems](/202608/15/2608.08237v1-sage-slo-aware-adaptive-retrieval-for-production-rag-systems)  
    标签：评分：6.0/10、query:mr
-   evidence：面向长上下文RAG的KV缓存复用优化
+   evidence：面向生产RAG系统的自适应检索策略，可迁移至多模态RAG
+12. [Learning Deep Modality-Shared Self-Expressiveness for Image Clustering with Textual Information](/202608/15/2608.08418v1-learning-deep-modality-shared-self-expressiveness-for-image-clustering-with-textual-information)  
+   标签：评分：6.0/10、query:mr
+   evidence：面向图文跨模态表示对齐的聚类方法，可用于跨模态检索
 
 
 <div class="dpr-home-promo-card">

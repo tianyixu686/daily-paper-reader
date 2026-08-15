@@ -1,0 +1,1061 @@
+Title: Generative Universal Multimodal Retrieval with Dual-role Identifiers
+
+URL Source: https://arxiv.org/pdf/2608.12987v1
+
+Published Time: Fri, 14 Aug 2026 00:54:31 GMT
+
+Number of Pages: 34
+
+Markdown Content:
+# Generative Universal Multimodal Retrieval with Dual-role Identifiers 
+
+KAIPENG LI, Independent Researcher, Japan 
+
+HAITAO YU ∗, Institute of Library, Information and Media Science, University of Tsukuba, Japan 
+
+XUANCHEN ZHOU, College of Knowledge and Library Sciences, University of Tsukuba, Japan Generative information retrieval (GIR) has emerged as a compelling alternative to the conventional index-retrieve-then-rank retrieval pipeline by training a generator to produce the identifiers of relevant items directly. Despite its promise, a number of open challenges still remain. First, constrained left-to-right decoding is vulnerable to prefix-level errors and local optima. Second, most prior GIR research remains largely unimodal, leaving instruction-aware retrieval across text, image, and mixed image-text items underexplored. Third, although discrete identifier–based GIR offers higher efficiency, its retrieval accuracy still lags behind that of the cutting-edge dense-vector-based retrieval methods. Motivated by these challenges, we propose DrIG ,a novel Generative framework for universal multimodal retrieval featuring Dual-role Identifiers, which supports diverse retrieval tasks across multiple modalities and domains. Each candidate is assigned a single residual-quantized identifier that serves two complementary roles. In its sequential role , the identifier is decoded autoregressively, where the first token explicitly models modality and the remaining tokens capture progressively finer semantics. In its set-based role , the same tokens are reinterpreted as an unordered set to provide a prefix-independent relevance prior, which guides constrained beam search and alleviates local-optimum errors. To further compensate for the information loss introduced by discretization, we incorporate a hybrid retrieval strategy that reranks the top generative candidates based on dense-vector-based similarity. Extensive experiments 1 on the M-BEIR benchmark and the text-to-image evaluation datasets (Flickr30K and MSCOCO) show that: (1) DrIG consistently outperforms state-of-the-art generative multimodal retrieval baselines across diverse retrieval tasks. The hybrid reranking successfully combines the strengths of two paradigms and yields a favorable efficiency-effectiveness trade-off relative to strong dense baselines. (2) Comprehensive ablation and scaling analyses show that the base LMM, beam size, reranking depth, and fusion strategy significantly affect retrieval performance, providing practical guidance for future generative multimodal retrieval systems. 
+
+1 Introduction 
+
+Nowadays, information retrieval (IR) systems play a crucial role in bridging the ever-expanding World Wide Web (WWW) with diverse user information needs, supporting activities that range from fact finding and media search to decision making and knowledge access. Classical IR methods (including lexical matching, learning-to-rank, and modern dense retrieval) have substantially advanced retrieval effectiveness over the past decades [2, 21, 44, 54, 57]. Nevertheless, most of the prior methods boil down to the multi-stage index-retrieve-then-rank paradigm [44], suffering from objective inconsistency across stages. Motivated by the recent success of large language models (LLMs), generative information retrieval (GIR) has emerged as a promising alternative [1, 31, 61]. Instead of exhaustively scoring all candidates, GIR first maps each candidate to a discrete identifier and then trains a generator to produce the identifiers of relevant items directly. This formulation shifts retrieval from similarity search in a large candidate space to conditional generation in a compact discrete space. Towards effective GIR, many methods have been proposed. Based on the  
+
+> ∗Corresponding author.
+> 1The code will be released. Authors’ Contact Information: Kaipeng Li, Independent Researcher, Tsukuba, Ibaraki, Japan, keeey.kk@gmail.com; Haitao Yu, Institute of Library, Information and Media Science, University of Tsukuba, Tsukuba, Ibaraki, Japan, yuhaitao@ slis.tsukuba.ac.jp; Xuanchen Zhou, College of Knowledge and Library Sciences, University of Tsukuba, Tsukuba, Japan, s2313451@u.tsukuba.ac.jp. arXiv:2608.12987v1 [cs.IR] 13 Aug 2026 2Li et al.
+
+modalities involved, we can categorize relevant studies into three groups: (1) generative unimodal retrieval (GUR), which focuses on retrieval within a single modality, such as [1, 7, 8, 22, 34, 35, 42, 43, 47, 48, 55, 58–61, 64, 65, 68, 71, 76, 78]; (2) generative cross-modal retrieval (GCMR), which addresses retrieval across two distinct modalities, such as [15, 27, 32, 49]; and (3) generative universal multimodal retrieval (GUMR), which enables retrieval across multiple modalities within a unified framework, such as [23, 36, 66]. A closer look at the previous studies on GIR shows that most prior studies focus on GUR, while GCMR and GUMR remain relatively underexplored. In particular, multimodal retrieval has rapidly evolved from conventional image-text matching to more general universal multimodal retrieval ,where a query may contain text, images, or both, and the target can likewise belong to different modalities and domains [3, 66]. This setting is particularly appealing because it provides a unified formulation for a wide range of tasks, including text-to-image retrieval, image-to-text retrieval, multimodal question answering retrieval, and multimodal evidence retrieval. Recent retrieval methods based on large multimodal models (LMMs) have demonstrated strong representation capacity in such settings [36, 40]. Yet these methods still inherit the core limitations of dense retrieval: they require a candidate pool to be represented and searched in continuous space, and their computational cost scales with the retrieval corpus. Applying GIR to universal multimodal retrieval is therefore attractive, but it introduces a set of nontrivial challenges. First, most generative retrievers decode identifiers from left to right with constrained beam search. This makes the retrieval result highly sensitive to early prefix decisions: once the prefix of a relevant candidate is pruned, the candidate becomes irrecoverable, even if it is globally relevant. Second, multimodal retrieval requires the model to represent modality distinctions and fine-grained semantics simultaneously. A naive identifier design may fail to encode both aspects effectively. Third, discrete identifiers inevitably compress continuous embeddings, which improves efficiency but also discards information that is often crucial for fine-grained ranking. As a result, generative multimodal retrievers typically still lag behind strong dense baselines in effectiveness. In this work, we address these challenges with a simple but powerful idea: the same discrete identifier can serve two complementary roles . On the one hand, it acts as an ordered token sequence that can be generated autoregressively. On the other hand, the same tokens can be reinterpreted as an unordered set that supports order-invariant relevance estimation. Building on this idea, we propose DrIG, a generative framework for universal multimodal retrieval with dual-role identifiers. DrIG first learns instruction-aware multimodal embeddings using an LMM and contrastive fine-tuning. It then converts candidate embeddings into residual-quantized identifiers whose first token explicitly captures modality while later tokens encode progressively finer semantics. During inference, sequential decoding scores and order-invariant global relevance priors are combined to guide constrained beam search, reducing the risk that relevant candidates are discarded due to locally suboptimal prefixes. To further narrow the effectiveness gap between generative and dense retrieval, DrIG also incorporates a hybrid retrieval strategy . The generative retriever first produces a compact top-𝑘 candidate list efficiently; the top-𝑘 results are then reranked by continuous similarities in the original embedding space. This design preserves the scalability advantage of generative retrieval while recovering fine-grained distinctions that may be lost during quantization. In addition, we introduce query augmentation through query–target interpolation and a discriminative ranking objective for decoder training, which together improve robustness and ranking consistency. To summarize, the main contributions of this paper can be listed as follows: Generative Universal Multimodal Retrieval with Dual-role Identifiers 3
+
+• We propose DrIG , a novel generative framework for universal multimodal retrieval that assigns each candidate a single residual-quantized identifier and reuses it in two comple-mentary roles: a sequential role for autoregressive generation and a set-based role for prefix-independent relevance estimation. 
+
+• We introduce dual-guided constrained decoding that combines prefix-valid constrained beam search with an order-invariant global relevance prior, thereby mitigating the local-optimum problem of left-to-right identifier generation. We further integrate DrIG with dense top-k reranking and systematically analyze the resulting effectiveness–efficiency trade-off. 
+
+• We provide ablations and diagnostic analyses on codebook design, beam size, prior weight, reranking depth, decoder backbone, and key training objectives, providing practical insights into the design of generative multimodal retrieval systems. The remainder of this paper is organized as follows. Section 2 reviews prior work on multimodal retrieval and recent advances in GIR. Section 3 introduces the problem formulation of GUMR. Section 4 presents the proposed DrIG framework, including instruction-aware multimodal repre-sentation learning, dual-role identifier construction, dual-guided constrained decoding, decoder training objectives, and hybrid reranking. Section 5 describes the experimental setup and reports the main results on M-BEIR, together with additional text-to-image retrieval experiments on Flickr30K and MSCOCO. We further provide component ablations, visualization analyses, effectiveness– efficiency comparisons, hyperparameter studies, and qualitative case studies. Finally, Section 6 concludes the paper and discusses future research directions. 
+
+2 Related Work 
+
+In this section, we first review non-generative multimodal retrieval methods, including shared-embedding approaches, cross-modal interaction models, and recent LMM-based methods. Due to space constraints, we refer the reader to the work [4] for a detailed overview. Then we describe recent advances in GIR and position our work with respect to closely related methods. 
+
+2.1 Non-generative Multimodal Retrieval 
+
+Early multimodal retrieval studies mainly focused on image–text matching. A large body of work learns shared embedding spaces where images and texts can be compared directly, while another line of research introduces cross-modal interaction mechanisms to improve matching quality. Representative approaches include convolutional architectures, metric-learning objectives, cross-attention models, and Transformer-based matching networks [13, 26, 29, 45]. These methods are often instantiated in one of three architectural families. Two-tower models encode different modalities separately and compare them with a lightweight similarity function, making them scalable for large candidate pools [6, 50, 77]. Fusion-based or two-leg models introduce cross-modal interaction to improve matching quality, although usually at a higher computational cost [56, 70]. 
+
+One-tower models instead attempt to unify multimodal encoding within a single backbone [17, 62]. More recently, multimodal retrieval has been extended from fixed image–text matching to uni-versal multimodal retrieval, where queries and candidates may be text, images, or image–text pairs, and the retrieval intent is specified by natural-language instructions. UniIR/M-BEIR [66] provides a benchmark covering diverse retrieval tasks, modalities, and domains. Meanwhile, LMMs have been adapted for retrieval by leveraging their stronger language understanding and multimodal reason-ing capacity. Examples include instruction-aware retrieval assistants and universal multimodal embedding models [20, 36, 40, 66]. VLM2Vec [20] converts vision–language models into general-purpose multimodal embedders through contrastive training on massive multimodal embedding tasks. MM-Embed [36] fine-tunes multimodal LLMs as universal multimodal retrievers and further 4 Li et al. 
+
+shows that MLLM-based rerankers can improve retrieval results for complex multimodal queries. LamRA [40] adapts LMMs through language-only pretraining and multimodal instruction tuning, enabling both retrieval and reranking across heterogeneous multimodal tasks. These non-generative embedding-based retrieval methods provide powerful representations. However, they still fundamentally rely on dense candidate scoring, approximate nearest-neighbor search, or expensive ranking over candidate lists. Our work complements this line of research by using LMMs to obtain strong multimodal representations, but it departs from continuous search at inference time through generative identifier decoding. 
+
+2.2 Generative Information Retrieval 
+
+In this section, we introduce representative studies on GIR and then clarify how DrIG differs from closely related methods. We refer the reader to the work [31] for a detailed survey on GIR. 
+
+2.2.1 Generative Unimodal Retrieval. Generative unimodal retrieval has been most extensively studied in text and document retrieval, where the goal is to retrieve textual documents by generating their identifiers. Representative early methods, such as DSI [61], NCI [64], and autoregressive search engines [1], demonstrate the feasibility of using sequence models as differentiable or generative indexes. Subsequent studies [1, 7, 8, 22, 34, 35, 42, 43, 47, 48, 55, 58–61, 64, 65, 68, 71–73, 76, 78] have improved this paradigm from several perspectives, including identifier design, training objectives, decoding strategies, scalability, and adaptation to dynamic corpora. A central challenge in generative retrieval is how to construct identifiers that are both easy for a sequence model to generate and sufficiently discriminative for retrieval. Existing work has explored semantic strings, learned document tokens, interpretable identifiers, multi-view identifiers, and tree-structured identifiers [34, 56, 59, 66]. Recent studies on document identifier learning further emphasize that effective identifiers should be descriptive, discriminative, and aligned with rele-vance signals [34, 55, 58, 65]. Another line of work focuses on improving the training and decoding objectives of generative retrievers. LTRGR [35] introduces a learning-to-rank objective to reduce the mismatch between token-level generation and document-level ranking. DiffusionRet [48] com-bines diffusion modeling with constrained decoding. RIPOR [71] proposes prefix-oriented ranking optimization and relevance-based identifier initialization, showing that prefix-level supervision is important for scalable generative retrieval. More recent studies investigate direct document relevance optimization [43], the limitations of constrained autoregressive decoding [68], and the behavior of generative retrievers under dynamic corpora [7, 22, 76]. The aforementioned studies reveal a common limitation of purely left-to-right identifier gener-ation: a relevant item can be irreversibly discarded once its prefix is pruned during constrained decoding. To cope with this challenge, TSGen [74] replaces purely sequential document identifiers with term sets and uses permutation-invariant decoding to reduce false-pruning errors caused by left-to-right generation. PAG [72] creates the set-based DocIDs under the bag-of-words assump-tion and sequential DocIDs based on the relevance-based document representations to support simultaneous and autoregressive decodings, respectively. Inspired these two studies, DrIG designs identifiers with two complementary roles: an ordered sequence to facilitate Trie-constrained au-toregressive generation, and a prefix-independent set-based representation for global relevance guidance. Furthermore, DrIG targets a more heterogeneous setting. Rather than designing identi-fiers only for unimodal text retrieval, DrIG constructs modality-aware residual-quantized identifiers for text, image, and image–text candidates. 
+
+2.2.2 Generative Cross-modal Retrieval. GCMR extends GIR beyond text-only retrieval, most com-monly to text-to-image retrieval. Compared with unimodal document retrieval, this setting intro-duces additional challenges because the model must bridge modality gaps while still generating valid Generative Universal Multimodal Retrieval with Dual-role Identifiers 5
+
+candidate identifiers. Recent methods have explored different ways to represent visual candidates as discrete identifiers and train multimodal generators to retrieve them [10, 27, 30, 32, 33, 49, 75]. GRACE [33] assigns identifier strings to images and trains a multimodal language model to mem-orize and retrieve images by generating their identifiers. IRGen [75] recasts image retrieval as a sequence-to-sequence generative modeling problem. TIGeR [49] explores the connection between text-to-image generation and retrieval, using large multimodal models to unify the two tasks. AVG [32] formulates text-to-image retrieval as autoregressive token-to-visual-token generation. CART [10] proposes a coarse-to-fine generative cross-modal retrieval framework that combines clustering and residual vector quantization to construct multimodal identifiers. ComGTIR [30] further introduces dual identifiers and hybrid retrieval strategies for generative text-image retrieval, using a sequential identifier and an order-invariant identifier to mitigate local-optimum errors during constrained beam search. These methods demonstrate that generative retrieval can be successfully extended from text-only retrieval to cross-modal scenarios. However, most existing GCMR methods are designed for task-specific retrieval, especially text-to-image retrieval, where the query modality and target modality are predefined. DrIG differs from this line of work in both problem setting and identifier design. First, DrIG targets universal multimodal retrieval, where queries and candidates may be text, image, or image–text pairs, and the target modality must be inferred from the instruction. Second, DrIG does not maintain separate identifier spaces for sequential generation and global matching. Instead, it assigns each candidate a single residual-quantized identifier and reuses the same code tokens as both an ordered sequence and a prefix-independent set-based relevance representation. 
+
+2.2.3 Generative Universal Multimodal Retrieval. GUMR is an emerging direction that aims to support retrieval across heterogeneous query and candidate modalities within a unified generative framework. This setting is more challenging than conventional text-to-image retrieval because the model must jointly infer semantic relevance, target modality, and task intent from the input instruction. Wei et al. [66] establish an important benchmark for universal multimodal retrieval by assembling diverse datasets across multiple tasks, modalities, and domains. However, they mainly focus on dense vector-based retrieval rather than generative identifier decoding. The closest prior work to DrIG is GENIUS [23], which proposes a generative framework for universal multimodal search. GENIUS introduces modality-decoupled semantic quantization to transform multimodal candidates into discrete identifiers and uses query augmentation to improve generalization across diverse query forms. Despite its effectiveness, GENIUS still primarily relies on sequential identifier generation. As a result, it remains vulnerable to prefix-level pruning errors during constrained beam search. Once the prefix of a relevant candidate is discarded, the candidate cannot be recovered in subsequent decoding steps. DrIG addresses this limitation by introducing dual-role identifiers for generative universal multimodal retrieval. This design preserves the validity and efficiency of constrained generative retrieval while reducing the risk of local-optimum errors caused by early prefix pruning. 
+
+3 Preliminaries 
+
+In universal multimodal retrieval [66], a query is formulated as a pair b𝑞 = (𝑞 con , 𝑞 inst ), where 𝑞 con 
+
+denotes the query content and 𝑞 inst is a natural-language instruction. The query content may be text 𝑞 𝑡 , image 𝑞 𝑖 , or a multimodal pair (𝑞 𝑖 , 𝑞 𝑡 ). The instruction specifies the retrieval objective, including the desired target modality and the application domain. A candidate item b𝑐 can likewise be text 𝑐 𝑡 , image 𝑐 𝑖 , or an image–text pair (𝑐 𝑖 , 𝑐 𝑡 ). Under this formulation, a single retrieval model can support diverse tasks such as text-to-image, image-to-text, multimodal-to-text, and multimodal-to-multimodal retrieval in a unified manner. 6 Li et al. 
+
+In generative universal multimodal retrieval (GUMR), a retrieval system typically contains two key components: a converter and a generative retriever . The converter maps each candidate to a discrete identifier m = [𝑚 1, . . . , 𝑚 𝐿 ], where 𝑚 𝑖 is the 𝑖 -th token and 𝐿 is the identifier length. The generative retriever is then trained to generate the identifiers of relevant candidates conditioned on the input query. Different frameworks for GUMR can be constructed by varying the converter design, adopting different token selection strategies during the autoregressive generation process, and devising alternative loss functions for optimization. 
+
+4 The Proposed Framework 
+
+> Fig. 1. An overview of the proposed DrIG framework.
+
+Figure 1 provides an overview of DrIG, which includes four core stages. (a) LMM-oriented representation for encoding queries and candidates into an instruction-aware shared embedding space. (b) Constructing dual-role identifiers for converting candidate embeddings into residual-quantized codes that support both sequential generation and set-based relevance estimation. (c) The training process for learning the autoregressive decoder with generative and discriminative Generative Universal Multimodal Retrieval with Dual-role Identifiers 7
+
+objectives. (d) The inference process for retrieving candidates via dual-guided Trie-constrained beam search and optional dense reranking. We elaborate these stages in Sections 4.1–4.3. 
+
+4.1 Initial Representation in a Shared Embedding Space 
+
+To cope with the diverse retrieval tasks in universal multimodal retrieval (as shown in Table 1), we first employ a large multimodal model (LMM) to obtain the initial dense representations of retrieval queries and candidate items by encoding them into a shared embedding space. Then a two-stage fine-tuning strategy is deployed to further improve the capability of the selected LMM for embedding multimodal items in retrieval tasks. The rationale behind this design is twofold. First, benefiting from interleaved vision–language training, LMMs are able to represent multimodal information according to their meanings with prompt. Second, compared with methods that rely on separate encoders for different modalities (e.g., CLIP), LMMs possess stronger language understanding and reasoning capabilities. Consequently, this design not only facilitates similarity estimation between query content and candidate items across different modalities, but also enables accurate comprehension of the search instruction. 
+
+4.1.1 LMM-oriented Representation. Inspired by the explicit one-word limitation (EOL) strategy proposed in [18, 19], we explicitly instruct the adopted LMM to represent multimodal inputs using one word. Following the work by Liu et al. [40], we append a task-specific summarization prompt to the input as follows: (1) for image-only inputs, the prompt is set to: <image> Summarize the above image in one word: <emb> ; (2) for text-only inputs, the prompt is set to: <text> Summarize the above sentence in one word: <emb> ; and (3) for a mixed image-text input, the prompt is set to: <image><text> Summarize the above image and sentence in one word: <emb> . In these prompts, 
+
+<image> and <text> denote placeholders for the input image and sentence, respectively. Finally, we extract the last hidden state immediately preceding the <emb> token as the embedding vector of the input. 
+
+4.1.2 Fine-tuning for Improved Representation. As demonstrated in prior studies [24, 36, 40], most pretrained LMMs are primarily optimized for generative tasks, such as next-token prediction. In contrast, retrieval tasks require distinguishing relevant items from non-relevant ones. Consequently, directly employing an LMM to embed multimodal items for retrieval often leads to inferior perfor-mance. After an in-depth comparison of three closely related studies [24, 36, 40], we finally follow the two-stage fine-tuning strategy proposed in [40] to further improve the capability of the selected LMM for embedding multimodal items in retrieval tasks. In the first stage, the LMM is adapted for text-to-text retrieval using a natural language inference dataset [12]. In the second stage, we further fine-tune the model on a range of multimodal retrieval tasks based on the M-BEIR dataset (details are provided in Section 5.1.1). Across both stages, the training objective is contrastive learning with the InfoNCE loss [46]. Due to space limitations, please refer to Section 3.2 of [40] for detailed descriptions of the training procedure. 
+
+4.2 Constructing Dual-role Identifiers 
+
+The dense representations of queries and candidate items are continuous and high-dimensional, making them incompatible with autoregressive generation. To bridge this gap, prior generative information retrieval methods convert such representations into discrete identifiers. However, existing approaches typically treat identifiers purely as ordered token sequences, which introduces a critical limitation: the left-to-right generation process may bias the model toward local optima and restrict its ability to capture global similarity. To address this issue, we propose to construct 
+
+dual-role identifiers , which enable complementary interpretations of discrete tokens. Specifically, each identifier simultaneously serves (i) as a sequential representation for autoregressive generation, 8 Li et al. 
+
+preserving structural and semantic dependencies, and (ii) as a set-based representation for order-invariant matching, mitigating the limitations of sequential decoding. Based on this design, we construct discrete identifiers for both queries and candidate items through a three-step process, as detailed in the following subsections. 
+
+4.2.1 Sequential Role: Identifier Construction for Autoregressive Generation. We denote a dense representation vector in the shared embedding space described above as z∗, and its corresponding identifier as m := (𝑚 1, . . . , 𝑚 𝐿 ). When necessary, we use subscripts such as z∗ 
+
+> b𝑞
+
+and z∗ 
+
+> b𝑐
+
+to distinguish the embeddings of a search query and a candidate item, respectively. Inspired by Kim et al. [23], the identifier m is particularly designed such that the first token 𝑚 1 captures modality distinctions, whereas the remaining tokens (𝑚 2, . . . , 𝑚 𝐿 ) progressively encode increasingly fine-grained semantic information. Under the sequential role for autoregressive generation, we adopt a two-stage design for identifier construction. In the first stage, we introduce a lightweight residual MLP module (the Adapter block in Figure 1(b)) to refine the initial dense representation z∗ and facilitate the generation of an effective first token 𝑚 1. Specifically, this module is designed as: 
+
+z = z∗ + MLP (z∗), (1) where MLP (·) denotes a learnable multi-layer perceptron, and z denotes the refined representation vector. In the second stage, we deploy the residual quantization (RQ) [25, 52] to convert the refined representation z into a sequential identifier. Let E = {E1, . . . , E𝑖 , . . . , E𝐿 } denote the set of code-books, and E𝑖 = e𝑖 𝑘 ∈ R𝑑 | 𝑘 = 1, . . . , |E𝑖 | represent the 𝑖 -th codebook, where e𝑖 𝑘 is the 𝑘 -th code embedding in E𝑖 , and |E𝑖 | is the codebook size. For the first codebook E1, we set its size as |E1 | = 3, corresponding to images, text, and image-text pairs. We initialize the initial residual vector as 
+
+r0 = z and perform quantization recursively with 𝐿 steps. At the 𝑖 -th step, we search for the nearest neighbor in the 𝑖 -th codebook E𝑖 as follows: 
+
+𝑘 ∗ 
+
+> 𝑖
+
+= arg min    
+
+> 1≤𝑘 ≤ | E𝑖 |
+
+r𝑖 −1 − e𝑖 𝑘  
+
+> 2
+
+, (2) where 𝑘 ∗ 
+
+> 𝑖
+
+denotes the selected index at the 𝑖 -th step. Then the residual vector is updated as r𝑖 =
+
+r𝑖 −1 − e𝑖 𝑘 ∗
+
+> 𝑖
+
+.Finally, the refined representation vector z is approximated by summing the selected code embeddings across all quantization codebooks, yielding the quantized vector bz = Í𝐿 𝑖 =1 e𝑖 𝑘 ∗
+
+> 𝑖
+
+. A key property of residual quantization is that the code embedding selected at each level represents the residual information specific to that level, thus the information is progressively separated across quantization levels. To ensure the quantization quality, our training objective incorporates three types of loss functions that are computed over the same mini-batch of query–candidate pairs, denoted as 
+
+𝐵 𝑠𝑟 = {( z𝑖 
+
+> b𝑞
+
+, z𝑖  
+
+> b𝑐
+
+)| 1 ≤ 𝑖 ≤ | 𝐵 𝑠𝑟 |} , where (z𝑖 
+
+> b𝑞
+
+, z𝑖  
+
+> b𝑐
+
+) denotes the 𝑖 -th pair, and |𝐵 𝑠𝑟 | denotes the correspond-ing batch size. The first is the residual quantization loss defined in Equation-3, 
+
+Lrq = 12|𝐵 𝑠𝑟 |∑︁ z∈𝐵 𝑠𝑟 
+
+> 𝐿
+
+∑︁ 
+
+> 𝑖 =1
+
+r𝑖 −1 − sg 
+
+
+
+e𝑖 𝑘 ∗
+
+> 𝑖
+
+ 2
+
+, (3) Here, omitting the subscripts of z indicates that z may represent either a search query or a candidate item. This also explains why 2 |𝐵 𝑠𝑟 | is used as the denominator when computing the mean value. This loss encourages each residual vector to align with its assigned code embedding so that the quantization error is progressively reduced across quantization levels, where sg (·) denotes the Generative Universal Multimodal Retrieval with Dual-role Identifiers 9
+
+stop-gradient operator, preventing gradients from directly updating the code embeddings. Instead, the code embeddings are updated via an exponential moving average (EMA) [53] over training steps to ensure stable updates. The second loss function is the contrastive loss defined in Equation-4, 
+
+Lcl sr = − 1
+
+|𝐵 𝑠𝑟 | 
+
+> |𝐵 𝑠𝑟 |
+
+∑︁ 
+
+> 𝑖 =1
+
+log exp 
+
+
+
+cos (z𝑖 
+
+> b𝑞
+
+, z𝑖  
+
+> b𝑐
+
+)/ 𝜏 
+
+Í|𝐵 𝑠𝑟 | 
+
+> 𝑗 =1
+
+exp 
+
+
+
+cos (z𝑖 
+
+> b𝑞
+
+, z 𝑗  
+
+> b𝑐
+
+)/ 𝜏 
+
+ , (4) For the 𝑖 -th query z𝑖  
+
+> b𝑞
+
+in the mini-batch, we view z𝑖  
+
+> b𝑐
+
+as the positive candidate, whereas the candidates paired with the remaining queries are treated as in-batch negative candidates. Since the query is guided by an instruction that specifies the desired target type, the pre-quantization embedding space should be structured so that each query is aligned with targets consistent with both its semantics and retrieval intent. This loss function encourages matched query–target pairs to be close in the embedding space while pushing apart mismatched candidates, thereby inducing modality-level grouping and semantic alignment within each group. The third loss function is the MSE loss defined in Equation-5, 
+
+Lmse = 1
+
+|𝐵 𝑠𝑟 | 
+
+> |𝐵 𝑠𝑟 |
+
+∑︁ 
+
+> 𝑖 =1
+
+bz𝑖  
+
+> b𝑞
+
+− bz𝑖  
+
+> b𝑐
+> 22
+
+, (5) where bz𝑖  
+
+> b𝑞
+
+and bz𝑖  
+
+> b𝑐
+
+denote the quantized representations obtained from z𝑖  
+
+> b𝑞
+
+and z𝑖  
+
+> b𝑐
+
+, respectively. This loss function further preserves pairwise consistency after quantization by keeping the quantized query representation close to its matched target candidate representation. Finally, the overall objective for optimizing the identifier’s sequential role is formulated by combining the above three loss functions as 
+
+Lsr = Lcl sr + 𝛽 1Lrq + 𝛽 2Lmse , (6) Empirically, Lcl sr is typically on the order of 10 −1, while Lrq and Lmse are on the order of 10 −2. To well balance their contributions, we introduce the weighting coefficients 𝛽 1 and 𝛽 2.
+
+4.2.2 Set-based Role: Identifier Construction for Order-invariant Matching. Under the set-based role for order-invariant matching, we aim to mitigate the limitations introduced by prefix-dependent autoregressive decoding. While the sequential identifier m enables token-by-token generation, inference in generative retrieval typically relies on constrained beam search, where identifiers are expanded based on prefix-level likelihoods. Consequently, once the prefix of a relevant identifier is pruned at an early decoding step, the corresponding target becomes irrecoverable. This prefix-sensitive behavior often leads to local optima, particularly when multiple candidates share similar prefixes. To address this issue, a key desideratum is to provide a global, prefix-independent relevance signal. Rather than introducing a separate identifier space, we reinterpret the sequential identifier m =
+
+[𝑚 1, . . . , 𝑚 𝐿 ] as an unordered set. This set-based reinterpretation discards positional information while preserving the underlying semantic tokens, thereby enabling order-invariant matching. To operationalize identifiers under the set-based role, we adopt a two-step design. Noting that identifiers consist of discrete code tokens selected from RQ codebooks, the first step aims to map the query representation into the same token space, thereby facilitating direct token-level relevance estimation. Specifically, given a query embedding zb𝑞 , we refine it via an MLP module as ˜ zb𝑞 = MLP oi (z∗ 
+
+> b𝑞
+
+). Based on the refined representation, we compute a token-level score 10 Li et al. 
+
+vector as 
+
+sb𝑞 = log  1 + ReLU ( ˜zb𝑞 ¯E⊤) ∈ R𝑉 𝑇 , (7) where ¯ E ∈ R𝑉 𝑇 ×𝑑 denotes the fixed global codebook embedding table, constructed by aggregating code embeddings from all frozen RQ codebooks in E, and 𝑉 𝑇 is the size of the resulting code-token vocabulary. In particular, we interpret each dimension of sb𝑞 as a relevance indicator measuring how well the semantic content encoded by the corresponding code token aligns with the query. Given this vocabulary-wise score vector and a candidate identifier m = {𝑚 1, . . . , 𝑚 𝐿 }, the second step computes an order-invariant relevance score by aggregating the token-level scores associated with the tokens in m:
+
+𝑠 oi (zb𝑞 , m) =
+
+> 𝐿
+
+∑︁ 
+
+> 𝑙 =1
+
+sb𝑞 [𝜓 (𝑙, 𝑚 𝑙 )] , (8) where the level-specific mapping function 𝜓 (𝑙, 𝑚 𝑙 ) = 𝑚 𝑙 + Í𝑙 −1 
+
+> 𝑖 =1
+
+|E𝑖 | maps the level-wise token index 𝑚 𝑙 to its global vocabulary index, and [ · ] denotes the corresponding indexing operation. Finally, this formulation yields a set-level relevance score between the query and the candidate that is invariant to token order and independent of the decoding prefix. To optimize the identifier’s set-based role for order-invariant matching, we adopt two loss functions computed over a mini-batch of query-candidate pairs, denoted as 𝐵 oi = {( z𝑖 
+
+> b𝑞
+
+, z𝑖  
+
+> b𝑐
+
+) | 1 ≤
+
+𝑖 ≤ | 𝐵 oi |} , where |𝐵 oi | denotes the corresponding batch size. The first loss function is a contrastive objective, 
+
+Lcl oi = − 1
+
+|𝐵 oi | 
+
+> |𝐵 oi |
+
+∑︁ 
+
+> 𝑖 =1
+
+log exp 
+
+
+
+𝑠 oi (z𝑖 
+
+> b𝑞
+
+, m𝑖 )/ 𝜏 
+
+Í|𝐵 oi | 
+
+> 𝑗 =1
+
+exp 
+
+
+
+𝑠 oi (z𝑖 
+
+> b𝑞
+
+, m𝑗 )/ 𝜏 
+
+ . (9) Analogous to Equation-4, the key difference lies in replacing the query–candidate relevance score with the order-invariant score defined in Equation-8. The second loss function is based on the margin ranking loss. To enhance discrimination against hard negatives, we identify the most challenging in-batch negative for each query according to dense vector-based cosine similarity: 𝑗 − 
+
+> 𝑖
+
+= arg max 𝑗 ≠𝑖 cos (z𝑖 
+
+> b𝑞
+
+, z 𝑗  
+
+> b𝑐
+
+). The corresponding identifier m𝑗 −
+
+> 𝑖
+
+is used as the hard negative for the 𝑖 -th query. Then a fixed margin 𝜌 is enforced between the positive and hard-negative scores: 
+
+Lrank oi = 1
+
+|𝐵 oi | 
+
+> |𝐵 oi |
+
+∑︁ 
+
+> 𝑖 =1
+
+max 
+
+
+
+0, 𝜌 −  𝑠 oi (z𝑖 
+
+> b𝑞
+
+, m𝑖 ) − 𝑠 oi (z𝑖 
+
+> b𝑞
+
+, m𝑗 − 
+
+> 𝑖
+
+)
+
+. (10) Finally, the overall objective for optimizing the identifier’s set-based role is defined as the combina-tion of the two losses: Loi = Lcl oi + L rank oi . Unlike the losses in the sequential role, the two objectives in the set-based role are empirically of comparable magnitude, and we therefore assign them equal importance. 
+
+4.3 Generative Retrieval with Dual-role Identifiers 
+
+To fully exploit the complementary properties of dual-role identifiers, we use them in two ways: the sequential role supports autoregressive decoding, while the set-based role provides a global relevance prior during search. We first describe how the two roles are combined at inference time, and then introduce the corresponding training objectives. Generative Universal Multimodal Retrieval with Dual-role Identifiers 11 
+
+4.3.1 Inference Process. During inference, we exploit the two complementary roles of the same identifier to guide the generation process. Specifically, the sequential role provides fine-grained and order-sensitive token predictions through autoregressive decoding, while the set-based role provides a global, prefix-independent relevance prior. By combining sequential decoding scores with order-invariant global relevance signals, our method alleviates the local-optimum issue in constrained beam search. To condition the decoder on the query representation, we employ a lightweight projector that maps the query embedding into 𝑁 prefix embeddings: 
+
+P(zb𝑞 ) = Reshape 
+
+
+
+MLP (zb𝑞 )
+
+
+
+∈ R𝑁 ×𝑑 ′
+
+, (11) where 𝑑 ′ denotes the hidden dimension of the decoder. Based on these prefix embeddings, decoding proceeds over the sequential identifier space using constrained beam search. More specifically, we build a Trie (prefix tree) from the sequential identifiers of all candidates and use it to constrain generation. A newly expanded prefix is considered valid only if it matches at least one candidate identifier prefix. We express this constraint by the validation function 
+
+𝛿 (t≤𝑖 ) =
+
+(
+
+0, if [𝑡 1, . . . , 𝑡 𝑖 ] is a valid prefix ,
+
+−∞ , otherwise , (12) where t≤𝑖 = [𝑡 1, . . . , 𝑡 𝑖 ] denotes the prefix after expanding the current token. With the prefix constraint in place, we describe how the sequential decoding score is computed at each step. Given the query embedding zb𝑞 and the current prefix t<𝑖 , the decoder produces the hidden state for the 𝑖 -th decoding step as 
+
+h𝑖 = Decoder (P(zb𝑞 ), t<𝑖 ) ∈ R𝑑 ′
+
+. (13) Let Edec  
+
+> 𝑖
+
+∈ R𝑉 𝑖 ×𝑑 ′
+
+denote the output embedding table for code tokens at the 𝑖 -th identifier level, where 𝑉 𝑖 is the corresponding vocabulary size. To preserve the semantics encoded in the quantized space, we initialize the embeddings using the corresponding RQ codebook vectors projected into the decoder embedding space. The unnormalized autoregressive score for token 𝑡 𝑖 is then Edec  
+
+> 𝑖
+
+[𝑡 𝑖 ] · h𝑖 ,and the full sequential decoding score for a generated identifier t = [𝑡 1, . . . , 𝑡 𝐿 ] is 
+
+𝜂 (t; zb𝑞 ) =
+
+> 𝐿
+
+∑︁ 
+
+> 𝑖 =1
+
+Edec  
+
+> 𝑖
+
+[𝑡 𝑖 ] · h𝑖 , (14) which accumulates order-sensitive evidence along the autoregressive decoding path. To incorporate the set-based role, we further introduce a global relevance prior derived from the order-invariant scoring function 𝑠 oi (· , ·) defined in Section 4.2.2. For a partial prefix t≤𝑖 , we consider all candidate identifiers whose sequential forms share this prefix and compute 
+
+𝜙 (t≤𝑖 ; zb𝑞 ) = max 
+
+> m∈ C t≤𝑖
+
+𝑠 oi (zb𝑞 , m), (15) where Ct≤𝑖 denotes the set of candidate identifiers whose sequential forms share the prefix t≤𝑖 . Each identifier in this set is evaluated by 𝑠 oi under its set-based interpretation. Thus, 𝜙 (t≤𝑖 ; zb𝑞 ) provides the strongest global relevance signal among candidates reachable from the current prefix. We then combine the prefix validity constraint, the sequential decoding score, and the set-based global prior into a unified expansion score: 
+
+𝑓 (t≤𝑖 ; zb𝑞 ) = 𝛿 (t≤𝑖 ) + 𝜂 (t<𝑖 ; zb𝑞 ) + Edec  
+
+> 𝑖
+
+[𝑡 𝑖 ] · h𝑖 + 𝜆𝜙 (t≤𝑖 ; zb𝑞 ). (16) Here, 𝜆 is a weighting hyperparameter that balances the contribution of the set-based global prior against the sequential decoding score. Each term in Equation-16 serves a distinct but complementary 12 Li et al. 
+
+purpose. The validation score 𝛿 (t≤𝑖 ) ensures that the newly expanded prefix remains consistent with at least one valid candidate identifier. The sequential component 𝜂 (t<𝑖 ; zb𝑞 ) + Edec  
+
+> 𝑖
+
+[𝑡 𝑖 ] · h𝑖 
+
+provides fine-grained, order-sensitive token-level evidence from the autoregressive decoder, but may still be vulnerable to local optima caused by early pruning. In contrast, the set-based prior 
+
+𝜙 (t≤𝑖 ; zb𝑞 ) supplies a global relevance signal that is independent of the local decoding likelihood. By combining the two roles of the same identifier in this way, the decoder can maintain both local generation fidelity and global retrieval awareness throughout the search process. 
+
+4.3.2 Query Augmentation via Interpolation. In multimodal generative retrieval, the limited repre-sentation capacity of discrete identifiers compared with continuous embeddings poses a challenge for model generalization, especially when training data is limited. To alleviate this issue, we in-troduce a query augmentation strategy based on query–target interpolation in the continuous embedding space. Concretely, we construct an augmented query embedding by interpolating the query representation zb𝑞 and the representation of its paired target zb𝑐 :
+
+z′ 
+
+> b𝑞
+
+= 𝜇 · zb𝑞 + ( 1 − 𝜇 ) · zb𝑐 , (17) where 𝜇 is randomly sampled from a Beta distribution, i.e., 𝜇 ∼ Beta (𝛼, 𝛼 ). This strategy generates diverse augmented queries while preserving semantic relevance to the target, thereby improving robustness to query variation. 
+
+4.3.3 Generative Training Objective. During training, the decoder is conditioned on the augmented query embedding through the projector P(z′ 
+
+> b𝑞
+
+). The generative loss is defined as the token-level cross-entropy over the target sequential identifier of the paired candidate: 
+
+LGR 
+
+
+
+P(z′ 
+
+> b𝑞
+
+), mb𝑐 
+
+
+
+= −
+
+> 𝐿
+
+∑︁ 
+
+> 𝑘 =1
+
+log 𝑝 
+
+
+
+𝑚 b𝑐 𝑘 | P(z′ 
+
+> b𝑞
+
+), 𝑚 b𝑐 
+
+> <𝑘
+
+
+
+. (18) This objective encourages the decoder to generate the target identifier sequence conditioned on the augmented query, thereby learning a robust mapping from continuous query semantics to discrete retrieval identifiers. 
+
+4.3.4 Discriminative Training Objective. While generative learning focuses on predicting one correct identifier sequence, retrieval ultimately requires ranking candidates according to relevance. To reduce this discrepancy, we introduce a discriminative ranking objective that encourages the decoder to assign higher sequence-level scores to relevant target candidates than to hard negatives. Similar to the hard-negative selection used in the set-based role, we construct the discriminative objective over a mini-batch of query–candidate pairs, denoted as 𝐵 dec = {( z𝑖 
+
+> b𝑞
+
+, z𝑖  
+
+> b𝑐
+
+, m𝑖  
+
+> b𝑐
+
+) | 1 ≤ 𝑖 ≤|𝐵 dec |} , where m𝑖  
+
+> b𝑐
+
+is the sequential identifier of the paired target candidate. For each query 𝑖 , we retain m𝑖  
+
+> b𝑐
+
+as the positive identifier and select the most similar non-matching candidate in the batch according to cosine similarity, i.e., 𝑗 − 
+
+> 𝑖
+
+= arg max 𝑗 ≠𝑖 cos (z𝑖 
+
+> b𝑞
+
+, z 𝑗  
+
+> b𝑐
+
+). The sequential identifier of the selected candidate, m 𝑗 − 
+
+> 𝑖
+> b𝑐
+
+, is then treated as the hard negative for query 𝑖 . To compare candidates, we score each candidate sequential identifier under teacher forcing by averaging the token-level log-likelihoods assigned by the decoder. Given a candidate sequential identifier m = (𝑚 1, . . . , 𝑚 𝐿 ),we define its sequence-level score as 
+
+𝑠 seq (P(z′ 𝑖  
+
+> b𝑞
+
+), m) = 1
+
+𝐿 
+
+> 𝐿
+
+∑︁ 
+
+> 𝑘 =1
+
+log 𝑝 
+
+
+
+𝑚 𝑘 | P(z′ 𝑖  
+
+> b𝑞
+
+), 𝑚 <𝑘 
+
+
+
+. (19) Generative Universal Multimodal Retrieval with Dual-role Identifiers 13 
+
+Based on this scoring function, the positive and negative sequence-level scores are obtained as 
+
+𝑠 + 
+
+> 𝑖
+
+= 𝑠 seq (P(z′ 𝑖  
+
+> b𝑞
+
+), m𝑖  
+
+> b𝑐
+
+) and 𝑠 − 
+
+> 𝑖
+
+= 𝑠 seq (P(z′ 𝑖  
+
+> b𝑞
+
+), m 𝑗 − 
+
+> 𝑖
+> b𝑐
+
+), respectively. We adopt an adaptive margin derived from the teacher similarity signal in the original embedding space: 
+
+M𝑖 = max 
+
+
+
+0,  cos (z𝑖 
+
+> b𝑞
+
+, z𝑖  
+
+> b𝑐
+
+) − cos (z𝑖 
+
+> b𝑞
+
+, z 𝑗 − 
+
+> 𝑖
+> b𝑐
+
+) · 𝛾 
+
+
+
+, (20) where 𝛾 controls the scale of the margin. This design yields a softer constraint when the positive and negative candidates are semantically close, and a stronger one when they are well separated in the teacher embedding space. We then optimize a smooth pairwise ranking loss: 
+
+Lrank = 1
+
+|𝐵 dec | 
+
+> |𝐵 dec |
+
+∑︁ 
+
+> 𝑖 =1
+
+log  1 + exp  M𝑖 − ( 𝑠 + 
+
+> 𝑖
+
+− 𝑠 − 
+
+> 𝑖
+
+) . (21) The final decoder objective combines the generative loss and the discriminative ranking loss as Ldecoder = LGR + L rank . Here, LGR provides token-level supervision for generating the correct identifier sequence, while Lrank further encourages the decoder to assign higher sequence-level likelihood to relevant identifiers than to hard negatives. Compared with using only the generative loss, this combined objective better aligns autoregressive identifier generation with the retrieval objective, where semantically similar distractors should be ranked below the paired target. 
+
+4.4 Hybrid Retrieval Strategies 
+
+A closer examination of the previous steps in Sections 4.2 and 4.3 reveals that discrete quantization is a crucial component of generative retrieval, which inevitably incurs information loss due to the approximation of continuous embeddings by finite codebooks. Although residual quantization preserves a coarse-to-fine semantic structure and enables efficient identifier generation, subtle distinctions between highly similar candidates may not be fully captured in the discrete space. To mitigate this limitation, we adopt a hybrid retrieval strategy that combines generative retrieval with dense vector-based reranking. Specifically, we first perform generative retrieval under dual guidance to obtain a ranked list of candidate identifiers and select the top-𝑘 candidates. These candidates are then reranked using the cosine similarity between the query embedding z𝑞 and candidate embeddings z𝑐 .From a computational perspective, generative retrieval avoids exhaustive similarity computation over the entire candidate pool, whose complexity would be O(|C| 𝑑 ) for dense retrieval, where |C| 
+
+denotes the number of candidates and 𝑑 the embedding dimension. Instead, the decoder explores only valid identifier prefixes via constrained beam search, significantly reducing the effective search space. The additional reranking stage operates only on the top-𝑘 candidates, incurring a cost of 
+
+O( 𝑘𝑑 ) with 𝑘 ≪ |C| , making the overhead negligible in practice. This hybrid design therefore preserves the scalability advantage of generative retrieval while compensating for quantization-induced information loss through continuous fine-grained scoring. 
+
+5 Experiments 
+
+In this work, we investigate the following research questions: (1) RQ1 : How does DrIG perform compared to existing dense vector-based approaches and generative retrieval methods in the context of universal multimodal retrieval? (2) RQ2 : To what extent can DrIG generalize to standard text-to-image retrieval benchmarks under both zero-shot and in-domain training settings? (3) RQ3 :How does each key component of DrIG contribute to its overall retrieval performance? (4) RQ4 :How does DrIG balance retrieval effectiveness and inference efficiency relative to baseline dense vector-based and generative retrieval methods? Beyond these primary research questions, we 14 Li et al. 
+
+Table 1. An overview of M-BEIR. The columns refer to the task-specific retrieval setup, the constituent datasets, the involved domains, the number of queries across the Train/Validation/Test splits (#Query), the average number of relevant items per query (#Rel./Query), and the total number of candidate items (#Candid.).                                                                                                                                                                                    
+
+> Task Dataset Domain #Query #Rel./Query #Candid. Train Val. Test Train Val. Test
+> 1. 𝑞 𝑡 →𝑐 𝑖 VisualNews [38] News 99K 20K 20K 1.0 1.0 1.0 542K MSCOCO [37] Misc. 100K 24.8K 24.8K 1.0 1.0 1.0 5K Fashion200K [14] Fashion 15K 1.7K 1.7K 3.3 3.1 2.8 201K 2. 𝑞 𝑡 →𝑐 𝑡 WebQA [5] Wiki 16K 1.7K 2.4K 2.0 2.0 2.0 544K 3. 𝑞 𝑡 → ( 𝑐 𝑖 , 𝑐 𝑡 )EDIS [39] News 26K 3.2K 3.2K 2.6 2.6 2.6 1M WebQA [5] Wiki 17K 1.7K 2.5K 1.4 1.4 1.4 403K 4. 𝑞 𝑖 →𝑐 𝑡 VisualNews [38] News 100K 20K 20K 1.0 1.0 1.0 537K MSCOCO [37] Misc. 113K 5K 5K 5.0 5.0 5.0 25K Fashion200K [14] Fashion 15K 4.8K 4.8K 1.0 1.0 1.0 61K 5. 𝑞 𝑖 →𝑐 𝑖 NIGHTS [11] Misc. 16K 2K 2K 1.0 1.0 1.0 40K 6. (𝑞 𝑖 , 𝑞 𝑡 ) → 𝑐 𝑡 OVEN [16] Wiki 150K 50K 50K 8.5 10.0 9.9 676K InfoSeek [9] Wiki 141K 11K 11K 6.8 6.7 6.5 611K 7. (𝑞 𝑖 , 𝑞 𝑡 ) → 𝑐 𝑖 FashionIQ [67] Fashion 16K 2K 6K 1.0 1.0 1.0 74K CIRR [41] Misc. 26K 2K 4K 1.0 1.0 1.0 21K 8. (𝑞 𝑖 , 𝑞 𝑡 ) → ( 𝑐 𝑖 , 𝑐 𝑡 )OVEN [16] Wiki 157K 14.7K 14.7K 17.8 17.5 17.7 335K InfoSeek [9] Wiki 143K 17.6K 17.6K 9.1 7.5 7.5 481K
+> M-BEIR [66] 4 domains 1.1M 182K 190K 6.5 5.9 5.7 5.6M
+
+further analyze the impact of key hyperparameters and conduct qualitative case studies to better understand the behaviors and capabilities of DrIG. 
+
+5.1 Experimental Setting 
+
+5.1.1 Datasets. To evaluate universal multimodal retrieval, we adopt the widely recognized M-BEIR benchmark [66]. M-BEIR integrates 10 datasets across 4 domains and encompasses 8 retrieval task types, where both queries and candidates can be text, images, or image-text pairs. Table 1 summarizes the key statistics of these datasets, including task type, source, domain, query splits, average relevant candidates per query, and total candidate pool size. We refer readers to the original paper [66] for detailed descriptions of the constituent datasets and their preprocessing procedures. Following previous studies [40, 66], our evaluation on M-BEIR is conducted under two distinct settings: (i) local-pool retrieval , where each query is searched only against the candidate pool of its corresponding dataset; and (ii) global-pool retrieval , where candidates from all datasets are combined into a single unified pool. In addition, we include Flickr30K [69] and MSCOCO (the latter being a subset of M-BEIR) to facilitate additional comparisons with representative generative text-to-image retrieval methods. 
+
+5.1.2 Evaluation Metric. We evaluate retrieval effectiveness using query-level mean Recall@K. Recall@K = 1
+
+|Q| ∑︁ 𝑞 ∈ Q 
+
+I  TopK (𝑞 ) ∩ G 𝑞 ≠ ∅ , (22) where Q denotes the query set, G𝑞 is the set of ground-truth candidate items for query 𝑞 , and TopK (𝑞 ) denotes the set of top-𝐾 retrieved candidate items. I(·) is the indicator function. Since Generative Universal Multimodal Retrieval with Dual-role Identifiers 15                                           
+
+> Table 2. The key hyperparameters and implementation settings.
+> Parameter Value Parameter Value
+> Random seed 2026 Modality codebook size 3
+> Identifier Construction
+> Codebook vocabulary size {256 ,1024 ,2048 ,4096 }RQ levels {4,6,8}
+> Training epochs / batch size 20 / 2000 Learning rate 1×10 −4
+> Set-based and Sequential Roles
+> Set-based epochs / batch size 10 / 512 Set-based learning rate 2×10 −4
+> Sequential epochs / batch size 30 / 256 Sequential learning rate 1×10 −4
+> Warmup steps 500
+> Evaluation
+> Beam size {1,5,10 ,20 ,30 ,40 ,50 }Guidance scale 𝜆 {0.0,0.1, . . . , 1.0}
+
+a query may have multiple relevant candidates, we define a successful retrieval as the presence of at least one relevant candidate within the top-𝐾 retrieved items. Following prior studies, we evaluate the performance in terms of Recall@1, Recall@5, and Recall@10. Due to space constraints, Recall@k is abbreviated as R@k in some tables. 
+
+5.1.3 Implementation Details. Following LamRA [40], we adopt Qwen2-VL [63] as the multimodal encoder to produce 3584-dimensional embeddings for both queries and candidates. The generative retriever uses T5-small [51] as the autoregressive decoder. For identifier construction, we use modality-aware residual quantization. The default setting prepends a first-level modality codebook of size 3 to distinguish image, text, and image–text candidates, followed by residual codebooks for semantic encoding. The codebooks are initialized by k-means and updated with EMA [53] during training. DrIG is trained in three stages: (i) RQ-based identifier construction using Equation-6; (ii) set-based role optimization for global, prefix-independent relevance guidance; and (iii) sequential identifier generation by training the prefix projector and T5 decoder. The RQ module is trained for 20 epochs using AdamW with batch size 2000, learning rate 1 × 10 −4, weight decay 0.01, loss weights 
+
+𝛽 1 = 𝛽 2 = 100 .0, and contrastive temperature 𝜏 = 0.01. The set-based module is a two-layer MLP with hidden size 4096 and is trained for 10 epochs using AdamW with batch size 512, learning rate 2×10 −4, weight decay 1 ×10 −4, margin 𝜌 = 0.1, and temperature 𝜏 = 0.01. The sequential generation stage uses AdamW with batch size 256, learning rate 1 × 10 −4, weight decay 1 × 10 −4, 500 warmup steps, maximum gradient norm 1.0, and query interpolation coefficient 𝛼 = 2.0. During inference, we perform Trie-constrained beam search over valid candidate identifiers. Unless otherwise specified, the beam size and guidance scale are set to 50 and 1.0, respectively. The generated top-𝑘 candidates can be further reranked using dense vector-based similarity. All experiments are conducted with mixed precision and distributed data parallel training on four NVIDIA A100 40GB GPUs. The main hyperparameters are summarized in Table 2. 
+
+5.1.4 Baseline Methods. In this work, we compare our method against two distinct groups of baselines. The first group consists of dense vector-based methods , including CLIP [50], BLIP [28], their respective variants proposed in [66] (CLIP-SF, CLIP-FF, BLIP-SF, and BLIP-FF), and LamRA [40]. Notably, LamRA represents the current state-of-the-art approach. The second group comprises 
+
+generative retrieval methods . For universal multimodal retrieval, we consider GENIUS [23] as the current state-of-the-art approach. By GENIUS-C, we denote the variant of GENIUS augmented with 16 Li et al. 
+
+CLIP-SF-based reranking. For text-to-image retrieval, representative methods include GRACE [33], IRGen [75], AVG [32], and ComGTIR-D [30], with ComGTIR-D serving as the current state-of-the-art. We evaluate three variants of our proposed model: (1) DrIG: The base generative retriever without additional reranking. (2) DrIG-C and DrIG-LT: Two extensions of DrIG that rerank the top candidates using CLIP-SF and LamRA embeddings, respectively. 
+
+5.2 Main Comparison on M-BEIR (RQ1) 
+
+Table 3 summarizes the main comparison results on M-BEIR under the two evaluation settings introduced in Section 5.1.1: local-pool retrieval and global-pool retrieval. Overall, DrIG consistently improves over the generative baseline GENIUS in both settings, increasing the average score from 29.5 to 38.0 in local-pool retrieval and from 28.6 to 36.4 in global-pool retrieval. When combined with dense vector-based reranking, DrIG-C and DrIG-LT further improve the results, showing that generative candidate generation and dense vector-based reranking provide complementary signals. In the following subsections, we analyze these results in detail. 
+
+5.2.1 Local-pool retrieval. Table 3(a) reports the results under the local-pool setting. Compared with the generative baseline GENIUS, DrIG achieves consistent improvements across all retrieval tasks, increasing the average score from 29.5 to 38.0, corresponding to a relative gain of 28.8%. The gains are particularly pronounced on knowledge-intensive and compositional tasks, such as InfoSeek in Task 6, where the score increases from 11.4 to 25.0, and CIRR in Task 7, where the score increases from 21.8 to 33.7. These results suggest that the proposed dual-role identifier is effective for heterogeneous multimodal retrieval. Specifically, the sequential role preserves the autoregressive generation process, while the set-based role introduces a global, prefix-independent relevance signal that helps constrained beam search retain candidates that are semantically compatible with the full query. Dense vector-based reranking further improves performance, indicating that generative retrieval and dense vector-based retrieval provide complementary signals. Specifically, DrIG-C and DrIG-LT raise the average score to 48.7 and 50.4, respectively, outperforming both DrIG and GENIUS-C. This supports a natural two-stage interpretation in which the generative retriever efficiently produces a compact candidate set, and the dense vector-based reranker refines the final order using continuous, fine-grained semantic similarity. Nevertheless, a clear gap remains between the best DrIG variant and the strongest LMM-based reranker LamRA, especially on text-centric knowledge retrieval. For example, on WebQA in Task 2 ( 𝑞 𝑡 → 𝑐 𝑡 ), DrIG-LT achieves 65.9, whereas LamRA reaches 96.7. This indicates that discretizing dense representations into short identifier sequences may lose information that is important for long, knowledge-dense text matching, and that reranking can mitigate but not fully eliminate this limitation. 
+
+5.2.2 Global-pool retrieval. Table 3(b) reports the results under the global-pool setting. Compared with the local-pool setting, this setting is more challenging because all candidates are searched within a unified pool, requiring the model to infer the target modality, domain, and retrieval intent from the instruction. Under this more demanding setting, DrIG again consistently outperforms the generative baseline GENIUS across all retrieval tasks, improving the average score from 28.6 to 36.4, with a relative gain of 27.3%. Large improvements are observed on knowledge-intensive and multimodal tasks, such as InfoSeek in Task 6, where the score increases from 9.9 to 22.2, and InfoSeek in Task 8, where the score increases from 12.4 to 25.3. These results indicate that the dual-role identifier remains effective even when the retrieval space contains heterogeneous candidates from different datasets, domains, and modalities. The transition from local-pool to global-pool retrieval causes only a moderate decrease for DrIG, from 38.0 to 36.4 on average. A similar trend Generative Universal Multimodal Retrieval with Dual-role Identifiers 17 
+
+Table 3. The comparison with state-of-the-art (SOTA) methods under two evaluation settings: local-pool retrieval and global-pool retrieval. Bold values indicate the best performance among all methods, and underlined values indicate the best performance within each respective retrieval strategy. Δ% denotes the relative improvement over the corresponding generative baseline. 
+
+Retrieval Strategy Dense Vector-based Retrieval LMM-based Reranking Generative Retrieval Generative Retrieval + Dense Vector-based Reranking #Parameters 428M 447M 7B 7B 30M 30M – – –
+
+Task Dataset Metric CLIP-SF BLIP-FF LamRA-ret LamRA GENIUS DrIG (Δ%) GENIUS-C DrIG-C (Δ%) DrIG-LT (Δ%) 
+
+(a) Local-pool Retrieval Setting 
+
+1: 𝑞 𝑡 → 𝑐 𝑖 
+
+VisualNews R@5 42.4 22.8 41.6 48.0 17.7 22.1 (+24.9) 26.1 33.8 (+29.5) 33.8 (+29.5) 
+
+MSCOCO R@5 80.6 79.4 81.5 85.2 61.3 70.2 (+14.5) 66.0 78.8 (+19.4) 79.6 (+20.6) 
+
+Fashion200K R@10 17.9 26.1 28.5 32.9 12.2 15.9 (+30.3) 15.0 19.3 (+28.7) 22.3 (+48.7) 
+
+2: 𝑞 𝑡 → 𝑐 𝑡 WebQA R@5 84.0 79.1 86.0 96.7 32.6 45.3 (+39.0) 43.1 64.7 (+50.1) 65.9 (+52.9) 
+
+3: 𝑞 𝑡 
+
+→ ( 𝑐 𝑖 , 𝑐 𝑡 )
+
+EDIS R@5 53.6 49.8 62.4 75.8 35.7 38.7 (+8.4) 43.3 50.4 (+16.4) 56.1 (+29.6) 
+
+WebQA R@5 78.2 78.0 81.2 87.7 47.3 57.6 (+21.8) 57.9 69.7 (+20.4) 70.7 (+22.1) 
+
+4: 𝑞 𝑖 → 𝑐 𝑡 
+
+VisualNews R@5 42.5 23.0 39.6 48.6 17.9 21.5 (+20.1) 25.5 33.7 (+32.2) 32.7 (+28.2) 
+
+MSCOCO R@5 91.7 90.7 90.6 92.3 82.2 84.6 (+2.9) 89.9 92.0 (+2.3) 90.0 (+0.1) 
+
+Fashion200K R@10 18.1 28.5 30.4 36.1 12.1 16.7 (+38.0) 16.7 20.1 (+20.4) 24.7 (+47.9) 
+
+5: 𝑞 𝑖 → 𝑐 𝑖 NIGHTS R@5 31.0 31.7 32.1 33.5 9.5 17.7 (+86.3) 30.0 31.7 (+5.7) 32.0 (+6.7) 
+
+6: (𝑞 𝑖 , 𝑞 𝑡 )→ 𝑐 𝑡 
+
+OVEN R@5 45.8 42.6 54.1 59.2 35.3 42.2 (+19.5) 38.4 51.1 (+33.1) 51.0 (+32.8) 
+
+InfoSeek R@5 27.2 23.2 52.1 64.1 11.4 25.0 (+119.3) 19.8 35.0 (+76.8) 44.1 (+122.7) 
+
+7: (𝑞 𝑖 , 𝑞 𝑡 )→ 𝑐 𝑖 
+
+FashionIQ R@10 24.7 29.1 33.1 37.8 12.9 19.5 (+51.2) 18.3 24.0 (+31.1) 26.5 (+44.8) 
+
+CIRR R@5 44.6 50.5 53.1 63.3 21.8 33.7 (+54.6) 37.3 45.3 (+21.4) 49.0 (+31.4) 
+
+8: (𝑞 𝑖 , 𝑞 𝑡 )→ ( 𝑐 𝑖 , 𝑐 𝑡 )
+
+OVEN R@5 68.7 56.4 76.2 79.2 32.6 48.7 (+49.4) 35.1 63.1 (+79.8) 63.2 (+80.1) 
+
+InfoSeek R@5 48.7 30.3 63.3 78.3 13.2 26.8 (+103.0) 26.2 47.2 (+80.2) 50.7 (+93.5) 
+
+– Average – 51.3 47.9 58.1 63.7 29.5 38.0 (+28.8) 37.6 48.7 (+29.5) 50.4 (+34.0) 
+
+(b) Global-pool Retrieval Setting 
+
+1: 𝑞 𝑡 → 𝑐 𝑖 
+
+VisualNews R@5 42.1 22.3 41.3 46.9 17.7 22.0 (+24.3) 26.1 33.8 (+29.5) 33.8 (+29.5) 
+
+MSCOCO R@5 71.3 65.2 75.3 78.0 49.9 59.2 (+18.6) 62.8 70.6 (+12.4) 71.1 (+13.2) 
+
+Fashion200K R@10 17.9 26.0 28.5 32.5 12.2 15.8 (+29.5) 14.2 19.3 (+35.9) 22.3 (+57.0) 
+
+2: 𝑞 𝑡 → 𝑐 𝑡 WebQA R@5 83.4 78.4 85.8 96.5 31.7 44.3 (+39.7) 43.0 64.3 (+49.5) 65.1 (+51.4) 
+
+3: 𝑞 𝑡 
+
+→ ( 𝑐 𝑖 , 𝑐 𝑡 )
+
+EDIS R@5 52.7 49.2 62.3 74.4 35.4 38.4 (+8.5) 43.1 49.8 (+15.5) 56.0 (+29.9) 
+
+WebQA R@5 77.2 77.0 81.0 87.1 47.0 56.8 (+20.9) 57.5 68.5 (+19.1) 70.0 (+21.7) 
+
+4: 𝑞 𝑖 → 𝑐 𝑡 
+
+VisualNews R@5 38.7 21.0 39.3 47.6 17.7 21.1 (+19.2) 25.4 33.5 (+31.9) 32.4 (+27.6) 
+
+MSCOCO R@5 91.3 89.7 90.4 92.4 81.5 84.5 (+3.7) 89.9 91.9 (+2.2) 90.0 (+0.1) 
+
+Fashion200K R@10 18.0 27.2 30.4 36.6 11.7 18.0 (+53.8) 16.7 20.2 (+21.0) 24.5 (+46.7) 
+
+5: 𝑞 𝑖 → 𝑐 𝑖 NIGHTS R@5 30.9 31.6 32.1 34.2 9.5 17.7 (+86.3) 30.0 31.4 (+4.7) 31.8 (+6.0) 
+
+6: (𝑞 𝑖 , 𝑞 𝑡 )→ 𝑐 𝑡 
+
+OVEN R@5 39.5 39.4 48.4 54.0 34.0 40.4 (+18.8) 37.8 46.3 (+22.5) 47.1 (+24.6) 
+
+InfoSeek R@5 22.1 19.7 48.7 58.7 9.9 22.2 (+124.2) 17.7 31.3 (+76.8) 40.3 (+127.7) 
+
+7: (𝑞 𝑖 , 𝑞 𝑡 )→ 𝑐 𝑖 
+
+FashionIQ R@10 24.4 28.8 33.1 37.4 12.8 19.1 (+49.2) 18.2 23.7 (+30.2) 26.3 (+44.5) 
+
+CIRR R@5 43.1 48.1 50.5 59.7 21.1 31.0 (+46.9) 36.6 43.5 (+18.9) 45.4 (+24.0) 
+
+8: (𝑞 𝑖 , 𝑞 𝑡 )→ ( 𝑐 𝑖 , 𝑐 𝑡 )
+
+OVEN R@5 59.7 55.8 70.0 72.6 36.8 47.0 (+27.7) 46.4 63.0 (+35.8) 63.7 (+37.3) 
+
+InfoSeek R@5 44.1 26.1 60.0 74.0 12.4 25.3 (+104.0) 25.3 44.4 (+75.5) 47.8 (+88.9) 
+
+– Average – 48.6 45.7 56.3 61.4 28.6 36.4 (+27.3) 37.8 47.1 (+24.6) 48.9 (+29.4) 
+
+is observed for strong dense vector-based baselines, such as CLIP-SF, which decreases from 51.3 to 48.6, and LamRA-ret, which decreases from 58.1 to 56.3. This suggests that DrIG is reasonably 18 Li et al. 
+
+Table 4. The comparison of generative retrieval methods on text-to-image retrieval benchmarks. The best and second-best results for each metric are shown in bold and underlined, respectively. † indicates zero-shot performance, highlighting the ability of the model to generalize without task-specific fine-tuning.                                                                               
+
+> Method Training Data Recall@1 Recall@5 Recall@10 Flickr30K
+> GRACE [33] Flickr30K 37.4 59.5 66.2 IRGen [75] Flickr30K 49.0 68.9 72.5 AVG [32] Flickr30K 40.8 75.1 84.2 ComGTIR-D [30] Flickr30K 42.6 75.7 85.3 ComGTIR-DH clip [30] Flickr30K 68.4 86.3 90.7
+> DrIG M-BEIR 59.0 †83.1 †88.2 †
+> DrIG-LT M-BEIR 75.8 †90.0 †91.6 †
+> DrIG Flickr30K 65.8 88.4 92.8
+> DrIG-LT Flickr30K 76.9 92.5 94.8 MSCOCO
+> GRACE [33] MSCOCO 16.7 39.2 50.3 IRGen [75] MSCOCO 29.6 50.7 56.3 AVG [32] MSCOCO 19.3 45.7 59.7 ComGTIR-D [30] MSCOCO 20.6 46.7 61.0 ComGTIR-DH clip [30] MSCOCO 45.2 64.2 72.4
+> DrIG M-BEIR 41.8 70.2 79.4
+> DrIG-LT M-BEIR 56.1 79.6 86.0
+> DrIG MSCOCO 43.4 71.3 80.5
+> DrIG-LT MSCOCO 56.3 80.1 86.7
+
+robust to candidate-pool expansion. One possible explanation is that the modality-aware identifier and instruction-conditioned decoding process help constrain the search toward target-compatible candidate regions, while the set-based global prior provides an additional relevance signal for distinguishing candidates beyond local prefix likelihoods. Dense vector-based reranking remains beneficial in the global-pool setting. DrIG-C and DrIG-LT further improve the average score to 47.1 and 48.9, respectively, clearly outperforming GENIUS-C and surpassing BLIP-FF. Notably, DrIG-LT also becomes competitive with CLIP-SF, showing that generative candidate generation combined with dense reranking can provide a favorable balance between retrieval effectiveness and scalability. Nevertheless, DrIG-LT still lags behind LamRA-ret and LamRA, whose average scores are 56.3 and 61.4, respectively. This gap indicates that although dual-role identifiers improve generative retrieval substantially, discretization still loses fine-grained semantic information, especially for tasks that require precise textual or knowledge-intensive matching. Overall, the global-pool results confirm the main findings from the local-pool setting: DrIG provides a stronger generative retriever than GENIUS, and hybrid reranking further narrows the effectiveness gap between generative and dense retrieval paradigms. 
+
+5.3 Text-to-image Generative Retrieval (RQ2) 
+
+Table 4 compares DrIG with representative generative retrieval methods on Flickr30K and MSCOCO, two widely adopted benchmarks for text-to-image retrieval. These experiments complement the M-BEIR evaluation by examining whether the proposed generative retrieval framework remains effective in the conventional text-to-image setting. For Flickr30K, we evaluate both cross-benchmark Generative Universal Multimodal Retrieval with Dual-role Identifiers 19 
+
+transfer, where DrIG is trained on M-BEIR and directly tested on Flickr30K without Flickr30K-specific fine-tuning, and in-domain training on Flickr30K. For MSCOCO, since it is already included in M-BEIR, the M-BEIR-trained results should be interpreted as the performance of the universal model on a standard text-to-image benchmark rather than as a strict zero-shot evaluation. On Flickr30K, the M-BEIR-trained DrIG achieves strong zero-shot performance, reaching 59.0/83.1/ 88.2 in terms of Recall@1/Recall@5/Recall@10, respectively. This already outperforms several in-domain generative baselines, including GRACE, IRGen, AVG, and ComGTIR-D, indicating that instruction-conditioned training on heterogeneous M-BEIR tasks yields transferable visual-semantic identifiers. When combined with LamRA-based reranking, DrIG-LT further improves to 75.8/90.0/91.6, surpassing the strongest prior hybrid baseline, ComGTIR-DH clip . After in-domain training on Flickr30K, DrIG and DrIG-LT further improve to 65.8/88.4/92.8 and 76.9/92.5/94.8, respectively, showing that task-specific fine-tuning can still provide additional benefits on top of the universal retrieval training. On MSCOCO, DrIG trained on M-BEIR obtains 41.8/70.2/79.4 in terms of Recall@1/Recall@5/ Recall@10, respectively. Although its Recall@1 is slightly lower than ComGTIR-DH clip , it achieves higher Recall@5 and Recall@10 than all non-reranked and hybrid generative baselines. With LamRA-based reranking, DrIG-LT reaches 56.1/79.6/86.0, clearly outperforming existing generative retrieval methods across all three metrics. In-domain training on MSCOCO brings further but relatively modest gains, improving DrIG to 43.4/71.3/80.5 and DrIG-LT to 56.3/80.1/86.7. This suggests that the universal M-BEIR training already provides a strong foundation for MSCOCO-style text-to-image retrieval, while in-domain fine-tuning mainly refines dataset-specific matching patterns. The effect of reranking is also consistent across the two benchmarks. For example, under M-BEIR training, LamRA-based reranking improves DrIG by 16.8 Recall@1 points on Flickr30K and by 14.3 Recall@1 points on MSCOCO. The gains at Recall@10 are smaller, suggesting that the generative retriever often includes relevant candidates within the generated top-ranked set, while the dense reranker is particularly useful for promoting the most semantically matched image to the top positions. Overall, these results show that DrIG is not limited to the heterogeneous M-BEIR setting. It also serves as an effective generative candidate generator for standard text-to-image retrieval, and its combination with dense vector-based reranking yields strong performance under both transfer and in-domain evaluation settings. 
+
+5.4 Component Ablation and Representation Analysis (RQ3) 
+
+We next analyze how different components of DrIG contribute to retrieval effectiveness. All ablations are conducted on the base DrIG model without dense vector-based reranking, so that the effect of each component can be isolated within the generative retrieval framework. We evaluate representative tasks from M-BEIR, including text-to-image retrieval, image-to-text retrieval, text-to-text retrieval, text-to-multimodal retrieval, multimodal-to-image retrieval, and image-to-image retrieval. 
+
+5.4.1 Component Ablation. Table 5 reports the ablation results. We consider the following variants: (1) w/o Set-based Role removes the set-based interpretation of the identifier, so inference relies only on sequential identifier generation under constrained beam search. (2) w/o Trie removes the prefix-tree constraint, allowing the decoder to generate identifiers without prefix-level validity checking. (3) w/o Trie & Set-based removes both the structural validity constraint and the set-based global relevance prior. (4) w/o Query Augmentation disables the query–target interpolation strategy used for decoder training. (5) w/o Lrank removes the discriminative ranking objective in Equation-21, leaving only the generative sequence prediction objective. (6) w/o Lcl sr removes the contrastive 20 Li et al. 
+
+loss in Equation-4 during identifier construction. (7) Finally, w/o Modality removes the dedicated first-level modality codebook and uses only semantic residual codebooks for quantization. 
+
+Table 5. The impact of different components in DrIG. The best and second-best results for each metric are shown in bold and underlined, respectively.                                                                                                                                                                       
+
+> MSCOCO WebQA CIRR NIGHTS
+> 𝑞 𝑡 →𝑐 𝑖 𝑞 𝑖 →𝑐 𝑡 𝑞 𝑡 →𝑐 𝑡 𝑞 𝑡 → ( 𝑐 𝑖 , 𝑐 𝑡 )(𝑞 𝑖 , 𝑞 𝑡 ) → 𝑐 𝑖 𝑞 𝑖 →𝑐 𝑖
+> Component R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 Full 41.8 70.2 79.4 57.8 84.6 91.6 20.6 45.2 55.9 30.9 57.6 67.3 14.4 33.7 45.2 3.1 17.7 34.8 w/o Set-based Role 40.8 68.6 77.9 56.9 83.2 91.5 19.7 43.7 52.8 29.5 55.7 65.0 12.5 32.2 43.3 2.9 16.0 33.3 w/o Trie 20.6 21.6 21.6 50.7 60.2 60.5 18.9 29.8 30.3 27.9 41.2 43.1 10.7 14.6 14.9 2.9 14.0 19.8 w/o Trie & Set-based Role 0.1 0.1 0.1 1.0 1.0 1.0 0.3 0.4 0.4 3.6 4.6 4.6 0.1 0.1 0.1 0.9 1.9 2.7 w/o Query augmentation 37.1 66.8 77.7 43.9 72.9 83.3 14.9 36.9 49.5 27.4 52.2 63.7 11.0 28.8 40.1 2.8 15.0 29.6 w/o Lrank in Equation-21 40.3 67.8 77.3 56.5 83.1 90.8 20.1 43.4 52.0 29.7 55.4 65.3 12.9 31.9 42.7 3.2 15.8 32.9 w/o Lcl sr in Equation-4 0.5 1.9 3.2 0.5 2.5 3.9 0.0 0.0 0.1 0.0 0.2 0.3 0.0 0.1 0.4 0.0 0.3 0.4 w/o Modality 40.6 68.6 78.1 57.3 84.3 91.2 19.7 42.3 52.3 28.3 54.4 65.8 13.7 33.4 44.9 3.7 19.1 35.2
+
+The most important observation is that contrastive learning before quantization is essential for constructing a usable discrete retrieval space. Removing Lcl sr causes performance to collapse across almost all tasks. For example, MSCOCO text-to-image Recall@1 drops from 41.8 to 0.5, MSCOCO image-to-text Recall@1 drops from 57.8 to 0.5, and WebQA text-to-text Recall@1 drops from 20.6 to 0.0. This indicates that residual quantization alone is insufficient for retrieval-oriented identifier construction. The pre-quantization embedding space must first be organized according to semantic relevance and retrieval intent. Otherwise, the resulting identifiers cannot reliably preserve query–candidate matching relationships. The Trie constraint is another critical component. When the Trie is removed, the decoder is no longer restricted to valid candidate identifiers, leading to large drops in top-𝐾 retrieval performance. For instance, MSCOCO text-to-image Recall@10 decreases from 79.4 to 21.6, and CIRR Recall@10 decreases from 45.2 to 14.9. The degradation becomes even more severe when both the Trie constraint and the set-based role are removed, where most metrics approach zero. These results show that valid-prefix control and global relevance guidance are complementary. The Trie ensures that generated sequences correspond to existing candidates, while the set-based role helps rank valid prefixes using query-level relevance information beyond local token likelihoods. The set-based role itself provides consistent but more moderate gains. Removing it reduces MSCOCO text-to-image Recall@1 from 41.8 to 40.8, WebQA text-to-multimodal Recall@5 from 57.6 to 55.7, CIRR Recall@5 from 33.7 to 32.2, and NIGHTS Recall@5 from 17.7 to 16.0. These improvements are smaller than those brought by contrastive identifier learning or Trie-constrained decoding, but they are systematic across the evaluated tasks. This supports our motivation that prefix-independent relevance guidance can alleviate the local-optimum risk of purely sequential decoding, especially when multiple valid candidates share similar prefixes. Query augmentation also contributes substantially to decoder robustness. Without interpolation-based augmentation, performance drops on all evaluated tasks, with especially large decreases on MSCOCO image-to-text retrieval and WebQA text-to-text retrieval. For example, MSCOCO image-to-text Recall@1 decreases from 57.8 to 43.9, and WebQA text-to-text Recall@1 decreases from 20.6 to 14.9. This suggests that query–target interpolation helps the decoder learn a smoother mapping from continuous query embeddings to discrete candidate identifiers, improving generalization to diverse query formulations. The discriminative ranking loss Lrank further improves the alignment between autoregres-sive generation and retrieval ranking. Removing it generally lowers top-𝐾 performance, such as MSCOCO text-to-image Recall@5 from 70.2 to 67.8 and WebQA text-to-multimodal Recall@5 from Generative Universal Multimodal Retrieval with Dual-role Identifiers 21 (a) w/o cl sr in Eq. 6 (b) w/ cl sr in Eq. 6   
+
+> Text Image Text-Image Pairs
+> Fig. 2. The t-SNE visualizations of multimodal code representations with and without the contrastive loss
+> Lcl sr . Colors indicate different modalities, including text, image, and image–text pairs.
+
+57.6 to 55.4. The gains are not uniformly large, and NIGHTS Recall@1 slightly increases from 3.1 to 3.2 without this loss. This indicates that Lrank is mainly helpful for improving ranking consistency across most tasks, while its effect can be task-dependent when the absolute Recall@1 is very low or the candidates are visually fine-grained. The modality codebook is also generally beneficial, particularly for heterogeneous retrieval tasks. Removing the first-level modality token reduces performance on most text, image, and multimodal retrieval settings. For example, WebQA text-to-text Recall@5 decreases from 45.2 to 42.3, and WebQA text-to-multimodal Recall@5 decreases from 57.6 to 54.4. However, the effect is not universal. On NIGHTS image-to-image retrieval, removing the modality codebook slightly improves Recall@1/Recall@5/Recall@10 from 3.1/17.7/34.8 to 3.7/19.1/35.2. A possible explanation is that NIGHTS contains only image candidates, so an explicit modality token provides less discriminative benefit and may slightly reduce the capacity available for fine-grained visual similarity. Overall, the modality codebook is useful for universal multimodal retrieval, but its benefit depends on the degree of modality heterogeneity in the candidate pool. In summary, the ablation results show that DrIG depends on several complementary components. Contrastive identifier learning and Trie-constrained decoding are indispensable for building a valid and retrieval-oriented generative index. The set-based role provides additional prefix-independent relevance guidance, query augmentation improves decoder robustness, the ranking loss better aligns generation with retrieval, and the modality codebook helps organize heterogeneous candidate types. Together, these components enable DrIG to construct reliable dual-role identifiers for generative universal multimodal retrieval. 
+
+5.4.2 Visualization Analysis. Figure 2 visualizes the learned code representations with and without the contrastive loss 𝐿 cl sr . Without this contrastive objective, the representations still exhibit partial modality-related structure, but the clusters are scattered and overlap substantially, especially between text and image–text candidates. After introducing 𝐿 cl sr , the representations become more compact and more clearly separated across text, image, and image–text modalities. This visualization provides qualitative evidence for the role of contrastive learning in identifier construction. By aligning matched query–candidate pairs and separating mismatched candidates before quantization, Lcl sr encourages the residual quantizer to assign identifiers in a more semanti-cally and modality-aware manner. This observation is consistent with the ablation results in Table 5, where removing Lcl sr leads to severe performance degradation. Therefore, the contrastive objective 22 Li et al. 
+
+is not merely an auxiliary training signal. It is a key prerequisite for learning discrete identifiers that preserve retrieval-relevant structure. 
+
+5.5 Effectiveness–Efficiency Trade-off (RQ4) 
+
+Figure 3 compares representative retrieval methods from both efficiency and effectiveness perspec-tives. Figure 3a reports the online throughput, measured in queries per second (QPS), as the image candidate pool increases from 5K to 300K on a single A100 GPU. Under this evaluation setting, generative retrieval methods exhibit substantially more stable throughput than dense retrieval baselines. GENIUS and DrIG maintain nearly flat QPS curves as the candidate pool grows, because their main online cost comes from autoregressive decoding over a fixed-length identifier space rather than scoring every candidate in the pool. DrIG-C, which adds dense vector-based reranking over a fixed-size generated candidate set, also preserves this favorable scaling trend. In contrast, dense retrieval baselines such as CLIP-SF, BLIP-FF, and LamRA-ret show decreasing throughput as the candidate pool becomes larger, since their retrieval process requires similarity computation over an expanding set of candidate embeddings in this implementation. LamRA has the lowest throughput, reflecting the additional cost of LMM-based reranking. Efficiency alone, however, is insufficient for evaluating retrieval systems. Figure 3b therefore compares retrieval effectiveness across different task types. DrIG consistently improves over GENIUS while retaining the scalability advantage of generative retrieval. For example, in the global-pool setting, DrIG improves the 𝑞 𝑡 → 𝑐 𝑡 task from 31.7 to 44.3 and the averaged multimodal-to-multimodal task (𝑞 𝑖 , 𝑞 𝑡 ) → ( 𝑐 𝑖 , 𝑐 𝑡 ) from 24.6 to 36.2. These gains indicate that the proposed dual-role identifiers improve the quality of generated candidates without sacrificing the efficient decoding behavior of generative retrieval. Hybrid reranking provides a further operating point in the effectiveness–efficiency trade-off. Compared with pure DrIG, DrIG-LT substantially improves effectiveness by using dense vector-based reranking to refine the generated candidate list, raising the average global-pool score from 36.4 to 48.9. This confirms that generative retrieval and dense vector-based reranking play complementary roles. The generator efficiently narrows the search space to a compact set of candidates, while the reranker performs fine-grained semantic matching within this set. Nevertheless, the strongest dense and LMM-based methods, such as LamRA-ret and LamRA, still achieve higher absolute effectiveness, indicating that discretization can lose information that is useful for fine-grained ranking. Overall, DrIG offers a favorable trade-off. It is substantially more effective than prior generative retrieval methods while preserving their scalability, and its hybrid variants allow users to exchange additional reranking cost for improved accuracy. 
+
+5.6 Design and Hyperparameter Sensitivity Analysis 
+
+Beyond the main research questions, we further analyze how key design choices and hyperparame-ters affect DrIG. Unless otherwise specified, the analyses are conducted with the base DrIG model under the local-pool setting. We focus on five factors: residual-quantization codebook configuration, beam size, reranking depth, decoder backbone, and the weight of the set-based global prior. 
+
+5.6.1 Codebook Configuration. Table 6 reports the effect of different residual-quantization config-urations by varying the number of quantization levels 𝐿 and the semantic codebook vocabulary size 𝐾 . The first-level modality codebook is kept fixed, while the remaining codebooks are used to encode semantic residuals. Overall, increasing the quantization depth brings the most consistent improvement. For example, when 𝐾 = 4096, increasing 𝐿 from 4 to 8 improves MSCOCO text-to-image Recall@1 from 32.3 to 41.8 and WebQA text-to-text Recall@1 from 7.3 to 20.6. This indicates that longer identifiers provide more capacity for capturing fine-grained multimodal semantics. Generative Universal Multimodal Retrieval with Dual-role Identifiers 23 
+
+0 50 100 150 200 250 300 0510 15 20 25    
+
+> Image set size (K) Queries per second CLIP SF GENIUS LamRA-Ret BLIP FF
+> LamRA DrIG DrIG-C
+
+(a) The efficiency under varying candidate-pool sizes. (qi, qt) ci            
+
+> qtct
+> qtci
+> (qi,qt)(ci,ct)
+> qt(ci,ct)
+> (qi,qt)ct
+> qict
+> qici
+> CLIP-SF GENIUS GENIUS-C DrIG DrIG-LT LamRA-Ret
+
+(b) The retrieval effectiveness across M-BEIR task types. Fig. 3. The effectiveness–efficiency comparison across representative retrieval methods. Table 6. The ablation study on codebook configurations (Levels 𝐿 × Vocab 𝐾 ). QPS denotes the average number of queries processed per second across all tasks. Bold values indicate the best performance for each metric. 
+
+MSCOCO WebQA CIRR NIGHTS QPS 
+
+𝑞 𝑡 → 𝑐 𝑖 𝑞 𝑖 → 𝑐 𝑡 𝑞 𝑡 → 𝑐 𝑡 𝑞 𝑡 → ( 𝑐 𝑖 , 𝑐 𝑡 ) (𝑞 𝑖 , 𝑞 𝑡 ) → 𝑐 𝑖 𝑞 𝑖 → 𝑐 𝑖 Ave. 
+
+𝐿 × 𝐾 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 (/s) 4 × 4096 32.3 61.3 73.1 49.4 79.0 88.2 7.3 20.9 31.0 14.3 36.1 48.4 9.0 24.7 34.8 3.1 14.8 26.0 63.3 6 × 4096 38.4 66.6 77.0 54.8 82.8 90.5 15.7 35.9 46.0 24.9 53.7 64.0 11.7 31.1 42.3 3.1 16.7 32.1 47.0 8 × 4096 41.8 70.2 79.4 57.8 84.6 91.6 20.6 45.2 55.9 30.9 57.6 67.3 14.4 33.7 45.2 3.1 17.7 34.8 37.6 4 × 2048 30.5 59.3 71.1 45.9 76.5 86.5 6.7 20.0 30.0 12.9 32.9 44.8 8.1 24.1 34.3 3.6 15.0 27.7 63.8 
+
+6 × 2048 36.5 65.8 76.4 53.2 82.3 90.3 14.1 33.8 44.8 23.6 49.3 60.4 11.9 30.0 41.2 3.9 16.4 31.4 47.4 8 × 2048 41.0 69.4 79.0 56.5 84.1 91.3 20.0 43.3 52.8 29.9 55.8 67.8 13.7 33.8 45.2 3.9 18.1 33.4 37.8 4 × 1024 28.3 56.9 68.8 42.1 74.2 85.3 6.0 17.4 25.9 10.7 29.0 39.2 7.7 21.7 31.3 2.6 14.6 27.3 36.7 6 × 1024 35.6 64.8 75.5 51.8 80.5 89.2 15.1 32.8 42.9 22.0 47.5 58.8 10.8 28.8 40.1 3.1 15.7 31.9 27.6 8 × 1024 39.8 68.4 78.3 55.5 83.4 90.7 19.3 42.6 51.2 27.7 55.5 66.6 12.5 31.8 43.8 3.0 17.4 34.0 37.9 4 × 256 22.6 49.3 62.4 35.1 65.1 78.1 3.0 10.7 14.9 5.1 14.1 21.1 5.0 15.6 23.8 2.1 9.7 18.7 39.1 6 × 256 31.7 60.4 71.9 47.4 77.4 87.0 8.6 25.8 35.2 15.4 36.9 47.9 7.9 24.3 34.8 3.0 16.4 29.9 48.5 8 × 256 36.1 65.1 75.4 52.7 80.7 89.3 15.4 36.1 45.6 22.7 47.5 59.4 11.0 28.8 39.4 3.4 17.6 31.5 26.3 
+
+Increasing the vocabulary size also tends to improve retrieval effectiveness, especially when the identifier is sufficiently deep. For instance, under 𝐿 = 8, the configuration 8 × 4096 achieves the best performance on most MSCOCO and WebQA metrics. However, the benefit of a larger vocabulary is not uniform across all tasks. On visually fine-grained datasets such as CIRR and NIGHTS, 8 ×2048 performs slightly better on several metrics, including CIRR Recall@5 and NIGHTS Recall@1/Recall@5. This suggests that an excessively large codebook is not always optimal. For tasks with many visually similar candidates, a moderately sized vocabulary may provide useful regularization. The efficiency trend is also task- and implementation-dependent. Increasing the number of quan-tization levels generally reduces throughput because the decoder must generate longer identifiers. For example, with 𝐾 = 4096, QPS decreases from 63.3 for 4 ×4096 to 37.6 for 8 ×4096. In contrast, the 24 Li et al. 
+
+Table 7. The comprehensive beam size ablation on decoding settings. QPS represents the average queries per second across all tasks. Bold values indicate the best performance for each metric.                                                                                                                                                                
+
+> MSCOCO WebQA CIRR NIGHTS QPS
+> 𝑞 𝑡 →𝑐 𝑖 𝑞 𝑖 →𝑐 𝑡 𝑞 𝑡 →𝑐 𝑡 𝑞 𝑡 → ( 𝑐 𝑖 , 𝑐 𝑡 )(𝑞 𝑖 , 𝑞 𝑡 ) → 𝑐 𝑖 𝑞 𝑖 →𝑐 𝑖 Ave.
+> Beam R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 (/s) 125.1 25.1 25.1 43.4 43.5 43.5 8.1 8.2 8.2 14.9 15.9 15.9 8.1 8.2 8.2 3.1 3.3 3.3 972.6 538.9 57.6 57.6 57.2 79.8 80.1 17.2 30.9 31.0 26.5 43.4 44.6 13.5 26.9 27.2 3.4 17.3 18.9 275.2 10 40.8 65.0 70.3 57.6 83.1 89.2 19.7 38.1 43.0 29.4 51.0 58.0 13.8 31.2 39.3 3.2 17.8 32.8 162.8 20 41.5 68.4 76.7 57.8 84.1 91.0 20.4 42.8 50.6 30.5 55.2 63.5 14.4 32.8 43.2 3.2 18.0 34.5 87.9 30 41.7 69.5 78.4 57.9 84.6 91.4 20.6 44.3 53.5 30.8 56.7 66.0 14.5 33.2 44.6 3.1 17.7 34.4 61.3 40 41.8 69.9 79.1 57.8 84.7 91.6 20.6 45.3 55.2 30.9 57.1 66.6 14.6 33.4 44.7 3.1 17.7 34.9 46.6 50 41.8 70.2 79.4 57.8 84.6 91.6 20.6 45.2 55.9 30.9 57.6 67.3 14.4 33.7 45.2 3.1 17.7 34.8 37.6
+
+effect of vocabulary size on QPS is less monotonic, since Trie-constrained decoding only expands valid prefixes rather than all tokens in the vocabulary. Therefore, codebook design introduces a trade-off between identifier expressiveness and inference efficiency. We use 8 × 4096 as the default setting because it provides the strongest and most stable overall effectiveness while maintaining acceptable retrieval throughput. 
+
+5.6.2 Beam Size. Table 7 studies the effect of beam size during Trie-constrained decoding. Increas-ing the beam size mainly improves candidate coverage by allowing the decoder to explore more valid identifier paths. The improvement is especially large when moving from greedy decoding to moderate beam search. For example, MSCOCO text-to-image Recall@10 increases from 25.1 with beam size 1 to 70.3 with beam size 10, showing that greedy decoding is highly vulnerable to early prefix-level decisions. The performance gain becomes smaller as the beam size continues to increase. Most metrics improve rapidly from beam size 1 to 20 and then gradually saturate between 30 and 50. This pattern suggests that a moderate beam is already sufficient to preserve most relevant candidate paths, while a very large beam mainly refines the top-ranked candidate set. The improvement is not strictly monotonic for every metric. For instance, NIGHTS obtains its best Recall@1 at beam size 5, and several Recall@1 values fluctuate slightly at larger beam sizes. This is expected because a larger beam improves coverage but does not necessarily improve the final top-1 ranking, especially on visually fine-grained tasks with many similar candidates. Beam size also has a substantial impact on inference efficiency. QPS decreases from 972.6 with beam size 1 to 37.6 with beam size 50. Thus, beam size controls a direct effectiveness–efficiency trade-off. We set the default beam size to 50 in the main experiments to maximize retrieval effectiveness, while beam sizes 20 or 30 provide a practical alternative when lower latency is required. 
+
+5.6.3 Reranking Depth. Figure 4 analyzes the effect of reranking depth 𝑘 for the hybrid variants DrIG-C and DrIG-LT. Here, 𝑘 denotes the number of generated candidates passed to the dense vector-based reranker. The results show that reranking is most beneficial when 𝑘 increases from a very small value to a moderate range. This is because the reranker can only refine the order of candidates that have already been generated by DrIG. When 𝑘 is too small, the generated candidate set may not contain enough relevant or near-relevant candidates for reranking to be effective. This pattern is especially clear on visually challenging tasks. For example, on NIGHTS, DrIG-LT obtains a large improvement in Recall@5 when 𝑘 increases from 3 to 10, indicating that a small reranking pool is insufficient for image-to-image retrieval, where many candidates are visually similar. After the main relevant candidates are included, further increasing 𝑘 leads to diminishing returns. Similar saturation trends can be observed on MSCOCO, WebQA, and CIRR. Across most Generative Universal Multimodal Retrieval with Dual-role Identifiers 25 3 10 20 30 40 50 The cutoff value of k
+
+> 0.56 0.64 0.72 0.80 Recall@5
+
+(a) MSCOCO ( qt → ci)      
+
+> 310 20 30 40 50 The cutoff value of k
+> 0.72 0.80 0.88 0.96 Recall@5
+
+(b) MSCOCO ( qi → ct)      
+
+> 310 20 30 40 50 The cutoff value of k
+> 0.3 0.4 0.5 0.6 0.7 Recall@5
+
+(c) WebQA ( qt → ct)      
+
+> 310 20 30 40 50 The cutoff value of k
+> 0.4 0.5 0.6 0.7 Recall@5
+
+(d) WebQA ( qt → ( ci, ct))      
+
+> 310 20 30 40 50 The cutoff value of k
+> 0.2 0.3 0.4 0.5 Recall@5
+
+(e) CIRR ( (qi, qt) → ci)      
+
+> 310 20 30 40 50 The cutoff value of k
+> 0.15 0.30 0.45 Recall@5
+
+(f) NIGHTS ( qi → ci)
+
+> DrIG-LT - Recall@1 DrIG-C - Recall@1 DrIG-LT - Recall@5 DrIG-C - Recall@5 DrIG-LT - Recall@10 DrIG-C - Recall@10
+
+Fig. 4. The comprehensive ablation study of reranking depth 𝑘 across different datasets. Recall is reported for 
+
+𝑘 ∈ { 3, 5, . . . , 50 }, highlighting the impact of retrieval-rerank trade-offs in representative tasks. Table 8. The ablation results of model backbone combinations. Bold values indicate the best performance for each metric. 
+
+MSCOCO WebQA CIRR NIGHTS 
+
+𝑞 𝑡 → 𝑐 𝑖 𝑞 𝑖 → 𝑐 𝑡 𝑞 𝑡 → 𝑐 𝑡 𝑞 𝑡 → ( 𝑐 𝑖 , 𝑐 𝑡 ) (𝑞 𝑖 , 𝑞 𝑡 ) → 𝑐 𝑖 𝑞 𝑖 → 𝑐 𝑖 
+
+Model # Params R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 T5-small 30M 41.8 70.2 79.5 57.8 84.6 91.6 20.7 45.3 56.0 30.9 57.6 67.3 14.4 33.7 45.2 3.1 17.7 34.8 
+
+T5-base 110M 42.5 70.6 80.0 58.4 85.3 91.8 23.2 47.1 57.6 32.1 58.2 68.6 11.4 30.5 42.2 2.3 14.1 31.1 T5-large 400M 42.1 70.4 79.9 58.5 84.8 92.0 24.1 47.7 57.3 32.1 58.6 68.4 10.4 27.2 39.2 1.7 11.4 27.6 
+
+tasks, DrIG-LT outperforms DrIG-C, showing that LamRA-based embeddings provide stronger fine-grained reranking signals than CLIP-SF embeddings. These results confirm the complementary roles of generative retrieval and dense vector-based reranking. The generative retriever efficiently narrows the search space, while the reranker improves the final ordering within the generated candidate set. In the main experiments, we use 𝑘 = 50 to maximize effectiveness. For efficiency-sensitive applications, however, moderate values such as 
+
+𝑘 = 20 or 𝑘 = 30 can provide a better trade-off between accuracy and reranking cost. 
+
+5.6.4 Decoder Backbone. Table 8 compares different T5 decoder backbones while keeping the multimodal encoder and identifier construction procedure unchanged. Increasing the decoder size brings moderate gains on several text-centric or knowledge-intensive tasks. For example, T5-large improves WebQA text-to-text Recall@1 from 20.7 to 24.1, and T5-base slightly improves MSCOCO text-to-image Recall@1 from 41.8 to 42.5. These results suggest that a larger decoder can better model semantic and textual patterns during identifier generation. However, larger decoders do not 26 Li et al. 0.0 0.2 0.4 0.6 0.8 1.0 Prior Weight 0.690 0.695 0.700 Recall@5                                      
+
+> (a) MSCOCO ( qt→ci)
+> 0.0 0.2 0.4 0.6 0.8 1.0 Prior Weight 0.832 0.836 0.840 0.844 Recall@5
+> (b) MSCOCO ( qi→ct)
+> 0.0 0.2 0.4 0.6 0.8 1.0 Prior Weight 0.438 0.444 0.450 0.456 Recall@5
+> (c) WebQA ( qt→ct)
+> 0.0 0.2 0.4 0.6 0.8 1.0 Prior Weight 0.558 0.564 0.570 0.576 Recall@5
+> (d) WebQA ( qt→ ( ci,ct))
+> 0.0 0.2 0.4 0.6 0.8 1.0 Prior Weight 0.160 0.165 0.170 0.175 Recall@5
+> (e) CIRR ( (qi,qt) → ci)
+> 0.0 0.2 0.4 0.6 0.8 1.0 Prior Weight 0.324 0.328 0.332 0.336 Recall@5
+> (f) NIGHTS ( qi→ci)
+
+Fig. 5. The effect of the global prior weight 𝜆 on Recall@5. 
+
+improve all tasks. On visually grounded and compositional retrieval tasks, T5-small is more stable. For example, on CIRR, T5-small achieves 14.4/33.7/45.2 in Recall@1/Recall@5/Recall@10, whereas T5-large drops to 10.4/27.2/39.2. A similar trend appears on NIGHTS image-to-image retrieval. This indicates that simply increasing decoder capacity is not always beneficial for generative multimodal retrieval. For tasks that depend heavily on fine-grained visual similarity, the bottleneck may lie more in identifier construction and visual-semantic discretization than in the language modeling capacity of the decoder. Considering both retrieval effectiveness and model efficiency, we use T5-small as the default de-coder backbone. It has only 30M parameters and provides the most balanced cross-task performance, making it suitable for scalable generative retrieval. 
+
+5.6.5 Global Prior Weight 𝜆 . Figure 5 studies the effect of the global prior weight 𝜆 in Equation-16. This parameter controls the contribution of the set-based global relevance prior during Trie-constrained beam search. When 𝜆 = 0, inference relies only on the sequential decoding score and the Trie constraint. When 𝜆 > 0, the decoder additionally uses the prefix-independent relevance signal derived from the set-based role of the identifier. The results show that introducing the global prior consistently improves Recall@5 over 𝜆 = 0on most tasks. For MSCOCO text-to-image, WebQA text-to-multimodal retrieval, NIGHTS image-to-image retrieval, and CIRR composed image retrieval, performance generally increases as 𝜆 
+
+becomes larger. This confirms that the set-based role provides useful global guidance beyond local autoregressive likelihoods. By scoring candidates reachable from a prefix using the full query representation, the global prior helps the decoder retain semantically promising branches that may otherwise be pruned early. The optimal value of 𝜆 is task-dependent. For example, text-centric retrieval can exhibit small fluctuations when the prior weight becomes large, suggesting that the set-based prior and sequential decoder score may have different calibration behaviors across Generative Universal Multimodal Retrieval with Dual-role Identifiers 27 
+
+> Fig. 6. The qualitative case studies of DrIG.
+
+modalities and tasks. Nevertheless, 𝜆 = 1.0 provides strong and stable performance across most evaluated settings. We therefore use 𝜆 = 1.0 as the default value in the main experiments, while noting that task-specific tuning may yield further improvements in specialized retrieval scenarios. 
+
+5.7 Qualitative Case Studies 
+
+Figure 6 presents three representative cases that illustrate how DrIG behaves during dual-guided decoding and hybrid reranking. The red path denotes the identifier sequence selected during beam search, while the green result denotes the ground-truth candidate. Together, these examples show three typical outcomes: direct success by dual-guided generation, correction by dense vector-based reranking, and a remaining hard case involving fine-grained multimodal evidence matching. In the first case, DrIG retrieves the ground-truth image at rank 1 during beam search. The generated identifier follows the correct branch, and the candidate branch ending with token 173 receives an additional set-based relevance contribution. This example demonstrates the benefit of the dual-role identifier when the sequential decoding score and the set-based global prior are aligned. The autoregressive decoder provides a valid and semantically plausible identifier path, while the set-based role further strengthens the globally relevant branch, allowing the correct candidate to remain preferred over competing prefixes. The second case shows an error made by beam search that is corrected by reranking. During generation, the ground-truth text candidate remains in the top-ranked candidate list, but it is placed behind a competing branch because its combined decoding score is still lower. Specifically, although the correct branch ending with token 139 receives an additional set-based relevance contribution, it does not surpass the competing branch ending with token 140 during the generative stage. However, because the correct candidate is preserved within the generated top-𝑘 set, dense vector-based reranking can compare candidates in the continuous representation space and promote the ground-truth result to rank 1. This case supports the motivation of the hybrid retrieval strategy: generative retrieval provides an efficient candidate-generation mechanism, while dense reranking compensates for residual ranking errors caused by discrete identifier decoding. The third case highlights a remaining limitation. DrIG correctly infers the target modality as an image–text pair and retrieves candidates that are visually related to the query image. However, the task requires simultaneous alignment between visual evidence and fine-grained textual information. Although the retrieved candidates are visually similar railway-station examples, the model fails 28 Li et al. 
+
+to distinguish the correct textual evidence, such as the specific answer about the opening year. The ground-truth branch associated with token 189 receives an additional set-based relevance contribution, but it still does not dominate the competing branch associated with token 187. Moreover, dense vector-based reranking is unable to move the ground-truth candidate to the top position, suggesting that both the discrete identifier and the dense reranker struggle when the distinction depends on subtle multimodal evidence. Overall, the case studies provide qualitative support for the proposed design. The dual-role identifier can guide beam search toward globally relevant candidates and reduce prefix-level decoding errors, while hybrid reranking can further correct cases where the ground-truth candidate is generated but not ranked first. At the same time, the failure case indicates that DrIG still has difficulty with retrieval scenarios requiring precise joint reasoning over visual content and textual evidence. Improving fine-grained multimodal grounding and strengthening reranking for image– text candidates remain important directions for future work. 
+
+6 Conclusion and Future Work 
+
+In this paper, we proposed DrIG, a generative framework for universal multimodal retrieval with dual-role identifiers. The key idea is to assign each candidate a single residual-quantized identifier and reuse it in two complementary ways. In its sequential role, the identifier is generated autore-gressively under a Trie constraint, enabling efficient retrieval over a discrete candidate space. In its set-based role, the same identifier tokens provide a prefix-independent global relevance prior, which helps guide constrained beam search beyond local token-level likelihoods. By combining these two roles during inference, DrIG reduces the risk that relevant candidates are discarded because of early prefix-level pruning. To address the information loss introduced by discrete quantization, we further introduced a hybrid retrieval strategy. DrIG first generates a compact list of candidate identifiers and then optionally reranks the corresponding candidates using continuous embedding similarity. This design allows the generative retriever to preserve its scalability advantage while using dense representations to recover fine-grained semantic distinctions that may be weakened during quantization. In addition, query augmentation through query–target interpolation and a discriminative ranking objective further improve the robustness and retrieval-awareness of decoder training. Experiments on M-BEIR demonstrate that DrIG consistently outperforms the generative universal multimodal retrieval baseline GENIUS under both local-pool and global-pool settings. Additional text-to-image experiments on Flickr30K and MSCOCO further show that DrIG is effective beyond the heterogeneous M-BEIR benchmark. The ablation studies confirm the importance of contrastive identifier learning, Trie-constrained decoding, query augmentation, the set-based relevance prior, the ranking objective, and modality-aware quantization. The efficiency and sensitivity analyses further show how codebook configuration, beam size, reranking depth, decoder backbone, and prior weight affect the effectiveness–efficiency trade-off. Overall, these results suggest that dual-role identifiers provide a promising direction for scalable generative multimodal retrieval, especially when combined with lightweight dense vector-based reranking. Several directions remain for future work. First, although DrIG substantially improves generative retrieval effectiveness, a gap remains between hybrid generative retrieval and the strongest dense or LMM-based retrievers on some knowledge-intensive and text-centric tasks. Developing more expressive identifiers, better score calibration mechanisms, or stronger reranking strategies may further reduce this gap. Second, the current framework follows a staged training pipeline in which representation learning, identifier construction, set-based scoring, and decoder training are optimized separately. A more tightly coupled or end-to-end optimization strategy could further align discrete identifier learning with the final retrieval objective. Third, generative retrieval systems must Generative Universal Multimodal Retrieval with Dual-role Identifiers 29 
+
+support dynamic candidate collections in practical applications. Future work should investigate how DrIG can efficiently handle candidate insertion, deletion, and identifier updates without expensive retraining. Finally, it would be valuable to evaluate DrIG in larger and more diverse multimodal retrieval scenarios, such as web-scale image–text retrieval, video retrieval, and retrieval-augmented multimodal generation. 
+
+References 
+
+[1] Michele Bevilacqua, Giuseppe Ottaviano, Patrick Lewis, Scott Yih, Sebastian Riedel, and Fabio Petroni. 2022. Autore-gressive search engines: Generating substrings as document identifiers. Advances in Neural Information Processing Systems 35 (2022), 31668–31683. [2] Christopher Burges, Robert Ragno, and Quoc Le. 2006. Learning to rank with nonsmooth cost functions. Advances in neural information processing systems 19 (2006). [3] Hanqun Cao, Cheng Tan, Zhangyang Gao, Yilun Xu, Guangyong Chen, Pheng-Ann Heng, and Stan Z Li. 2024. A survey on generative diffusion models. IEEE transactions on knowledge and data engineering 36, 7 (2024), 2814–2830. [4] Min Cao, Shiping Li, Juntao Li, Liqiang Nie, and Min Zhang. 2022. Image-text Retrieval: A Survey on Recent Research and Development. In Proceedings of the Thirty-First International Joint Conference on Artificial Intelligence, IJCAI-22 .International Joint Conferences on Artificial Intelligence Organization, 5410–5417. Survey Track. [5] Yingshan Chang, Mridu Narang, Hisami Suzuki, Guihong Cao, Jianfeng Gao, and Yonatan Bisk. 2022. Webqa: Multihop and multimodal qa. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition . 16495–16504. [6] Jiacheng Chen, Hexiang Hu, Hao Wu, Yuning Jiang, and Changhu Wang. 2021. Learning the best pooling strategy for visual semantic embedding. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition .15789–15798. [7] Jiangui Chen, Ruqing Zhang, Jiafeng Guo, Maarten de Rijke, Wei Chen, Yixing Fan, and Xueqi Cheng. 2023. Continual learning for generative retrieval over dynamic corpora. In Proceedings of the 32nd ACM international conference on information and knowledge management . 306–315. [8] Xiaoyang Chen, Yanjiang Liu, Ben He, Le Sun, and Yingfei Sun. 2023. Understanding Differential Search Index for Text Retrieval. In Findings of the Association for Computational Linguistics: ACL 2023 . Association for Computational Linguistics, Toronto, Canada, 10701–10717. [9] Yang Chen, Hexiang Hu, Yi Luan, Haitian Sun, Soravit Changpinyo, Alan Ritter, and Ming-Wei Chang. 2023. Can pre-trained vision and language models answer visual information-seeking questions?. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing . 14948–14968. [10] Minghui Fang, Shengpeng Ji, Jialong Zuo, Hai Huang, Yan Xia, Jieming Zhu, Xize Cheng, Xiaoda Yang, Wenrui Liu, Gang Wang, Zhenhua Dong, and Zhou Zhao. 2025. CART: A Generative Cross-Modal Retrieval Framework With Coarse-To-Fine Semantic Modeling. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics . doi:10.18653/v1/2025.acl-long.735 [11] Stephanie Fu, Netanel Tamir, Shobhita Sundaram, Lucy Chai, Richard Zhang, Tali Dekel, and Phillip Isola. 2023. DreamSim: Learning New Dimensions of Human Visual Similarity using Synthetic Data. arXiv:2306.09344 [cs.CV] https://arxiv.org/abs/2306.09344 [12] Tianyu Gao, Xingcheng Yao, and Danqi Chen. 2021. SimCSE: Simple Contrastive Learning of Sentence Embeddings. In Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing , Marie-Francine Moens, Xuanjing Huang, Lucia Specia, and Scott Wen-tau Yih (Eds.). Association for Computational Linguistics, Online and Punta Cana, Dominican Republic, 6894–6910. doi:10.18653/v1/2021.emnlp-main.552 [13] Yunchao Gong, Liwei Wang, Micah Hodosh, Julia Hockenmaier, and Svetlana Lazebnik. 2014. Improving image-sentence embeddings using large weakly annotated photo collections. In Computer Vision–ECCV 2014: 13th European Conference, Zurich, Switzerland, September 6-12, 2014, Proceedings, Part IV 13 . Springer, 529–545. [14] Xintong Han, Zuxuan Wu, Phoenix X Huang, Xiao Zhang, Menglong Zhu, Yuan Li, Yang Zhao, and Larry S Davis. 2017. Automatic spatially-aware fashion concept discovery. In Proceedings of the IEEE international conference on computer vision . 1463–1471. [15] Mariya Hendriksen, Shuo Zhang, Ridho Reinanda, Mohamed Yahya, Edgar Meij, and Maarten de Rijke. 2025. Benchmark Granularity and Model Robustness for Image-Text Retrieval: A Reproducibility Study. In Proceedings of the 48th International ACM SIGIR Conference on Research and Development in Information Retrieval . 3183–3193. [16] Hexiang Hu, Yi Luan, Yang Chen, Urvashi Khandelwal, Mandar Joshi, Kenton Lee, Kristina Toutanova, and Ming-Wei Chang. 2023. Open-domain visual entity recognition: Towards recognizing millions of wikipedia entities. In Proceedings of the IEEE/CVF International Conference on Computer Vision . 12065–12075. [17] Jiho Jang, Chaerin Kong, Donghyeon Jeon, Seonhoon Kim, and Nojun Kwak. 2023. Unifying vision-language repre-sentation space with single-tower transformer. In Proceedings of the AAAI conference on artificial intelligence , Vol. 37. 30 Li et al. 
+
+980–988. [18] Ting Jiang, Shaohan Huang, Zhongzhi Luan, Deqing Wang, and Fuzhen Zhuang. 2024. Scaling sentence embeddings with large language models. In Findings of the association for computational linguistics: EMNLP 2024 . 3182–3196. [19] Ting Jiang, Minghui Song, Zihan Zhang, Haizhen Huang, Weiwei Deng, Feng Sun, Qi Zhang, Deqing Wang, and Fuzhen Zhuang. 2024. E5-v: Universal embeddings with multimodal large language models. arXiv preprint arXiv:2407.12580 
+
+(2024). [20] Ziyan Jiang, Rui Meng, Xinyi Yang, Semih Yavuz, Yingbo Zhou, and Wenhu Chen. 2025. VLM2Vec: Training Vision-Language Models for Massive Multimodal Embedding Tasks. In The Thirteenth International Conference on Learning Representations .[21] Omar Khattab and Matei Zaharia. 2020. Colbert: Efficient and effective passage search via contextualized late interaction over bert. In Proceedings of the 43rd International ACM SIGIR conference on research and development in Information Retrieval . 39–48. [22] Chaeeun Kim, Soyoung Yoon, Hyunji Lee, Joel Jang, Sohee Yang, and Minjoon Seo. 2024. Exploring the Practicality of Generative Retrieval on Dynamic Corpora. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing . Association for Computational Linguistics, 13616–13633. [23] Sungyeon Kim, Xinliang Zhu, Xiaofan Lin, Muhammet Bastan, Douglas Gray, and Suha Kwak. 2025. GENIUS: A generative framework for universal multimodal search. In Proceedings of the Computer Vision and Pattern Recognition Conference . 19659–19669. [24] Chankyu Lee, Rajarshi Roy, Mengyao Xu, Jonathan Raiman, Mohammad Shoeybi, Bryan Catanzaro, and Wei Ping. 2025. NV-Embed: Improved Techniques for Training LLMs as Generalist Embedding Models. In International Conference on Learning Representations , Y. Yue, A. Garg, N. Peng, F. Sha, and R. Yu (Eds.), Vol. 2025. 79310–79333. https: //proceedings.iclr.cc/paper_files/paper/2025/file/c4bf73386022473a652a18941e9ea6f8-Paper-Conference.pdf [25] Doyup Lee, Chiheon Kim, Saehoon Kim, Minsu Cho, and Wook-Shin Han. 2022. Autoregressive image generation using residual quantization. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition .11523–11532. [26] Kuang-Huei Lee, Xi Chen, Gang Hua, Houdong Hu, and Xiaodong He. 2018. Stacked cross attention for image-text matching. In Proceedings of the European conference on computer vision (ECCV) . 201–216. [27] Haoxuan Li, Yi Bin, Yunshan Ma, Guoqing Wang, Yang Yang, See-Kiong Ng, and Tat-Seng Chua. 2025. SemCORE: A Semantic-Enhanced Generative Cross-Modal Retrieval Framework with MLLMs. arXiv preprint arXiv:2504.13172 
+
+(2025). [28] Junnan Li, Dongxu Li, Caiming Xiong, and Steven Hoi. 2022. Blip: Bootstrapping language-image pre-training for unified vision-language understanding and generation. In International conference on machine learning . PMLR, 12888–12900. [29] Junnan Li, Ramprasaath Selvaraju, Akhilesh Gotmare, Shafiq Joty, Caiming Xiong, and Steven Chu Hong Hoi. 2021. Align before fuse: Vision and language representation learning with momentum distillation. Advances in neural information processing systems 34 (2021), 9694–9705. [30] Kaipeng Li, Haitao Yu, Yubo Fang, and Chao Lei. 2025. A Combination-based Framework for Generative Text-image Retrieval: Dual Identifiers and Hybrid Retrieval Strategies. In Proceedings of the 2025 Annual International ACM SIGIR Conference on Research and Development in Information Retrieval in the Asia Pacific Region (China) (SIGIR-AP 2025) .Association for Computing Machinery, New York, NY, USA, 281–291. doi:10.1145/3767695.3769474 [31] Xiaoxi Li, Jiajie Jin, Yujia Zhou, Yuyao Zhang, Peitian Zhang, Yutao Zhu, and Zhicheng Dou. 2025. From matching to generation: A survey on generative information retrieval. ACM Transactions on Information Systems 43, 3 (2025), 1–62. [32] Yongqi Li, Hongru Cai, Wenjie Wang, Leigang Qu, Yinwei Wei, Wenjie Li, Liqiang Nie, and Tat-Seng Chua. 2025. Revolutionizing text-to-image retrieval as autoregressive token-to-voken generation. In Proceedings of the 48th International ACM SIGIR Conference on Research and Development in Information Retrieval . 813–822. [33] Yongqi Li, Wenjie Wang, Leigang Qu, Liqiang Nie, Wenjie Li, and Tat-Seng Chua. 2024. Generative cross-modal retrieval: Memorizing images in multimodal language models for retrieval and beyond. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) . 11851–11861. [34] Yongqi Li, Nan Yang, Liang Wang, Furu Wei, and Wenjie Li. 2023. Multiview identifiers enhanced generative retrieval. In Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) .6636–6648. [35] Yongqi Li, Nan Yang, Liang Wang, Furu Wei, and Wenjie Li. 2024. Learning to rank in generative retrieval. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 38. 8716–8723. [36] Sheng-Chieh Lin, Chankyu Lee, Mohammad Shoeybi, Jimmy Lin, Bryan Catanzaro, and Wei Ping. 2025. Mm-embed: Universal multimodal retrieval with multimodal llms. The Thirteenth International Conference on Learning Representations (2025). Generative Universal Multimodal Retrieval with Dual-role Identifiers 31 
+
+[37] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollár, and C Lawrence Zitnick. 2014. Microsoft coco: Common objects in context. In European conference on computer vision . Springer, 740–755. [38] Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Ordonez. 2021. Visual news: Benchmark and challenges in news image captioning. In Proceedings of the 2021 conference on empirical methods in natural language processing . 6761–6771. [39] Siqi Liu, Weixi Feng, Tsu-Jui Fu, Wenhu Chen, and William Wang. 2023. Edis: Entity-driven image search over multimodal web content. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing .4877–4894. [40] Yikun Liu, Yajie Zhang, Jiayin Cai, Xiaolong Jiang, Yao Hu, Jiangchao Yao, Yanfeng Wang, and Weidi Xie. 2025. Lamra: Large multimodal model as your advanced retrieval assistant. In Proceedings of the Computer Vision and Pattern Recognition Conference . 4015–4025. [41] Zheyuan Liu, Cristian Rodriguez-Opazo, Damien Teney, and Stephen Gould. 2021. Image retrieval on real-life images with pre-trained vision-and-language models. In Proceedings of the IEEE/CVF international conference on computer vision . 2125–2134. [42] Sanket Vaibhav Mehta, Jai Gupta, Yi Tay, Mostafa Dehghani, Vinh Q Tran, Jinfeng Rao, Marc Najork, Emma Strubell, and Donald Metzler. 2023. Dsi++: Updating transformer memory with new documents. In Proceedings of the 2023 conference on empirical methods in natural language processing . 8198–8213. [43] Kidist Amde Mekonnen, Yubao Tang, and Maarten de Rijke. 2025. Lightweight and Direct Document Relevance Optimization for Generative Information Retrieval. In Proceedings of the 48th International ACM SIGIR Conference on Research and Development in Information Retrieval . 1327–1338. [44] Donald Metzler, Yi Tay, Dara Bahri, and Marc Najork. 2021. Rethinking search: making domain experts out of dilettantes. In Acm sigir forum , Vol. 55. ACM New York, NY, USA, 1–27. [45] Hyeonseob Nam, Jung-Woo Ha, and Jeonghee Kim. 2017. Dual attention networks for multimodal reasoning and matching. In Proceedings of the IEEE conference on computer vision and pattern recognition . 299–307. [46] Aaron van den Oord, Yazhe Li, and Oriol Vinyals. 2018. Representation learning with contrastive predictive coding. 
+
+arXiv preprint arXiv:1807.03748 (2018). [47] Ronak Pradeep, Kai Hui, Jai Gupta, Adam Lelkes, Honglei Zhuang, Jimmy Lin, Donald Metzler, and Vinh Tran. 2023. How Does Generative Retrieval Scale to Millions of Passages?. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing . Association for Computational Linguistics, Singapore, 1305–1321. [48] Shanbao Qiao, Xuebing Liu, and Seung-Hoon Na. 2023. DiffusionRet: Diffusion-Enhanced Generative Retriever using Constrained Decoding. In Findings of the Association for Computational Linguistics: EMNLP 2023 . 9515–9529. [49] Leigang Qu, Haochuan Li, Tan Wang, Wenjie Wang, Yongqi Li, Liqiang Nie, and Tat-Seng Chua. 2025. Tiger: Unifying text-to-image generation and retrieval with large multimodal models. In The Thirteenth International Conference on Learning Representations .[50] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. 2021. Learning transferable visual models from natural language supervision. In International conference on machine learning . PmLR, 8748–8763. [51] Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael Matena, Yanqi Zhou, Wei Li, and Peter J Liu. 2020. Exploring the limits of transfer learning with a unified text-to-text transformer. Journal of machine learning research 21, 140 (2020), 1–67. [52] Shashank Rajput, Nikhil Mehta, Anima Singh, Raghunandan Hulikal Keshavan, Trung Vu, Lukasz Heldt, Lichan Hong, Yi Tay, Vinh Tran, Jonah Samost, et al. 2023. Recommender systems with generative retrieval. Advances in Neural Information Processing Systems 36 (2023), 10299–10315. [53] Ali Razavi, Aaron Van den Oord, and Oriol Vinyals. 2019. Generating diverse high-fidelity images with vq-vae-2. 
+
+Advances in neural information processing systems 32 (2019). [54] Stephen Edward Robertson, Steve Walker, Susan Jones, Micheline M Hancock-Beaulieu, Mike Gatford, et al. 1994. Okapi at TREC. (1994). [55] Zihua Si, Zhongxiang Sun, Jiale Chen, Guozhang Chen, Xiaoxue Zang, Kai Zheng, Yang Song, Xiao Zhang, Jun Xu, and Kun Gai. 2024. Generative Retrieval with Semantic Tree-Structured Identifiers and Contrastive Learning. In Proceedings of the 2024 Annual International ACM SIGIR Conference on Research and Development in Information Retrieval in the Asia Pacific Region . 154–163. [56] Amanpreet Singh, Ronghang Hu, Vedanuj Goswami, Guillaume Couairon, Wojciech Galuba, Marcus Rohrbach, and Douwe Kiela. 2022. Flava: A foundational language and vision alignment model. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition . 15638–15650. [57] Karen Sparck Jones. 1972. A statistical interpretation of term specificity and its application in retrieval. Journal of documentation 28, 1 (1972), 11–21. 32 Li et al. 
+
+[58] Weiwei Sun, Lingyong Yan, Zheng Chen, Shuaiqiang Wang, Haichao Zhu, Pengjie Ren, Zhumin Chen, Dawei Yin, Maarten Rijke, and Zhaochun Ren. 2023. Learning to tokenize for generative retrieval. Advances in Neural Information Processing Systems 36 (2023), 46345–46361. [59] Yubao Tang, Ruqing Zhang, Jiafeng Guo, Maarten de Rijke, Shihao Liu, Shuaiqiang Wang, Dawei Yin, and Xueqi Cheng. 2025. Generative Retrieval for Book Search. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V.1 (KDD ’25) . Association for Computing Machinery, 2606–2617. [60] Yubao Tang, Ruqing Zhang, Jiafeng Guo, Maarten Rijke, Wei Chen, and Xueqi Cheng. 2024. Generative retrieval meets multi-graded relevance. Advances in Neural Information Processing Systems 37 (2024), 72790–72817. [61] Yi Tay, Vinh Tran, Mostafa Dehghani, Jianmo Ni, Dara Bahri, Harsh Mehta, Zhen Qin, Kai Hui, Zhe Zhao, Jai Gupta, et al. 2022. Transformer memory as a differentiable search index. Advances in Neural Information Processing Systems 
+
+35 (2022), 21831–21843. [62] Michael Tschannen, Basil Mustafa, and Neil Houlsby. 2023. Clippo: Image-and-language understanding from pixels only. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition . 11006–11017. [63] Peng Wang, Shuai Bai, Sinan Tan, Shijie Wang, Zhihao Fan, Jinze Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, et al. 2024. Qwen2-vl: Enhancing vision-language model’s perception of the world at any resolution. arXiv preprint arXiv:2409.12191 (2024). [64] Yujing Wang, Yingyan Hou, Haonan Wang, Ziming Miao, Shibin Wu, Qi Chen, Yuqing Xia, Chengmin Chi, Guoshuai Zhao, Zheng Liu, et al. 2022. A neural corpus indexer for document retrieval. Advances in Neural Information Processing Systems 35 (2022), 25600–25614. [65] Zihan Wang, Yujia Zhou, Yiteng Tu, and Zhicheng Dou. 2023. Novo: Learnable and interpretable document identifiers for model-based ir. In Proceedings of the 32nd ACM International Conference on Information and Knowledge Management .2656–2665. [66] Cong Wei, Yang Chen, Haonan Chen, Hexiang Hu, Ge Zhang, Jie Fu, Alan Ritter, and Wenhu Chen. 2024. Uniir: Training and benchmarking universal multimodal information retrievers. In European Conference on Computer Vision .Springer, 387–404. [67] Hui Wu, Yupeng Gao, Xiaoxiao Guo, Ziad Al-Halah, Steven Rennie, Kristen Grauman, and Rogerio Feris. 2021. Fashion iq: A new dataset towards retrieving images by natural language feedback. In Proceedings of the IEEE/CVF Conference on computer vision and pattern recognition . 11307–11317. [68] Shiguang Wu, Zhaochun Ren, Xin Xin, Jiyuan Yang, Mengqi Zhang, Zhumin Chen, Maarten de Rijke, and Pengjie Ren. 2025. Constrained Auto-Regressive Decoding Constrains Generative Retrieval. In Proceedings of the 48th International ACM SIGIR Conference on Research and Development in Information Retrieval . 2429–2440. [69] Peter Young, Alice Lai, Micah Hodosh, and Julia Hockenmaier. 2014. From image descriptions to visual denotations: New similarity metrics for semantic inference over event descriptions. Transactions of the association for computational linguistics 2 (2014), 67–78. [70] Jiahui Yu, Zirui Wang, Vijay Vasudevan, Legg Yeung, Mojtaba Seyedhosseini, and Yonghui Wu. 2022. CoCa: Contrastive Captioners are Image-Text Foundation Models. Transactions on Machine Learning Research (2022). https://openreview. net/forum?id=Ee277P3AYC [71] Hansi Zeng, Chen Luo, Bowen Jin, Sheikh Muhammad Sarwar, Tianxin Wei, and Hamed Zamani. 2024. Scalable and effective generative information retrieval. In Proceedings of the ACM Web Conference 2024 . 1441–1452. [72] Hansi Zeng, Chen Luo, and Hamed Zamani. 2024. Planning ahead in generative retrieval: Guiding autoregressive generation through simultaneous decoding. In Proceedings of the 47th International ACM SIGIR Conference on Research and Development in Information Retrieval . 469–480. [73] Fuwei Zhang, Xiaoyu Liu, Xinyu Jia, Yingfei Zhang, Shuai Zhang, Xiang Li, Fuzhen Zhuang, Wei Lin, and Zhao Zhang. 2025. Multi-level Relevance Document Identifier Learning for Generative Retrieval. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics . 10066–10080. doi:10.18653/v1/2025.acl-long.497 [74] Peitian Zhang, Zheng Liu, Yujia Zhou, Zhicheng Dou, Fangchao Liu, and Zhao Cao. 2024. Generative Retrieval via Term Set Generation. In Proceedings of the 47th International ACM SIGIR Conference on Research and Development in Information Retrieval . doi:10.1145/3626772.3657797 [75] Yidan Zhang, Ting Zhang, Dong Chen, Yujing Wang, Qi Chen, Xing Xie, Hao Sun, Weiwei Deng, Qi Zhang, Fan Yang, et al. 2024. Irgen: Generative modeling for image retrieval. In European Conference on Computer Vision . Springer, 21–41. [76] Zhen Zhang, Xinyu Ma, Weiwei Sun, Pengjie Ren, Zhumin Chen, Shuaiqiang Wang, Dawei Yin, Maarten de Rijke, and Zhaochun Ren. 2025. Replication and exploration of generative retrieval over dynamic corpora. In Proceedings of the 48th International ACM SIGIR Conference on Research and Development in Information Retrieval . 3325–3334. [77] Zhedong Zheng, Liang Zheng, Michael Garrett, Yi Yang, Mingliang Xu, and Yi-Dong Shen. 2020. Dual-path convolu-tional image-text embeddings with instance loss. ACM Transactions on Multimedia Computing, Communications, and Applications (TOMM) 16, 2 (2020), 1–23. Generative Universal Multimodal Retrieval with Dual-role Identifiers 33 
+
+[78] Shengyao Zhuang, Houxing Ren, Linjun Shou, Jian Pei, Ming Gong, Guido Zuccon, and Daxin Jiang. 2023. Bridging the gap between indexing and retrieval for differentiable search index with query generation. Proceedings of the First Workshop on Generative Information Retrieval (Gen-IR 2023) (2023). 34 Li et al. 
+
+Appendix A M-BEIR Instructions 
+
+This section shows the natural-language instructions used for each retrieval task type over M-BEIR. These instructions specify the retrieval intent and target modality, allowing a unified model to handle heterogeneous query–candidate formats, such as text, image, and image–text pairs. Table 9 summarizes the instruction templates used in our experiments. 
+
+Table 9. Summary of the M-BEIR instructions. 
+
+Task Dataset Instruction 
+
+𝑞 𝑡 → 𝑐 𝑖 
+
+VisualNews Identify the news-related image in line with the described event. Display an image that best captures the following caption from the news. Based on the caption, provide the most fitting image for the news story. I want you to retrieve an image of this news caption. MSCOCO Find me an everyday image that matches the given caption. Identify the image showcasing the described everyday scene. I want to retrieve an image of this daily life description. Show me an image that best captures the following common scene description. Fashion200K Based on the following fashion description, retrieve the best matching image. Match the provided description to the correct fashion item photo. Identify the fashion image that aligns with the described product. You need to identify the image that corresponds to the fashion product description provided. 
+
+𝑞 𝑡 → 𝑐 𝑡 WebQA Retrieve passages from Wikipedia that provide answers to the following question. You have to find a Wikipedia paragraph that provides the answer to the question. I want to find an answer to the question. Can you find some snippets that provide evidence from Wikipedia? I’m looking for a Wikipedia snippet that answers this question. 
+
+𝑞 𝑡 → ( 𝑐 𝑖 , 𝑐 𝑡 )
+
+EDIS Find a news image and its caption that match the provided caption. Identify the news photo and its caption for the given caption. Can you pair the provided caption with the right image and its caption? I’m looking for an image and its caption that aligns with the provided caption. WebQA Find a Wikipedia image and its description that answers the given question. Provide me with an image and its description from Wikipedia to answer the given question. I want to know the answer to the given question. Please find the related Wikipedia image and its description for me. You need to retrieve an evidence image with its description from Wikipedia to address the given question. 
+
+𝑞 𝑖 → 𝑐 𝑡 
+
+VisualNews Find a caption for the news in the given photo. Based on the shown image, retrieve an appropriate news caption. Provide a news-related caption for the displayed image. I want to know the caption for this news image. MSCOCO Find an image caption describing the following everyday image. Retrieve the caption for the displayed day-to-day image. Can you find a caption talking about this daily life image? I want to locate the caption that best describes this everyday scene image. Fashion200K Find a product description for the fashion item in the image. Based on the displayed image, retrieve the corresponding fashion description. Can you retrieve the description for the fashion item in the image? I want to find a matching description for the fashion item in this image. 
+
+𝑞 𝑖 → 𝑐 𝑖 NIGHTS Find a day-to-day image that looks similar to the provided image. Which everyday image is the most similar to the reference image? Find a daily life image that is identical to the given one. You need to identify the common scene image that aligns most with this reference image. 
+
+(𝑞 𝑖 , 𝑞 𝑡 ) → 𝑐 𝑡 
+
+OVEN Retrieve a Wikipedia paragraph that provides an answer to the given query about the image. Determine the Wikipedia snippet that identifies the visual entity in the image. I want to find a paragraph from Wikipedia that answers my question about this image. You have to find a Wikipedia segment that identifies this image’s subject. InfoSeek Retrieve a Wikipedia paragraph that provides an answer to the given query about the image. Determine the Wikipedia snippet that matches the question of this image. I want to find a paragraph from Wikipedia that answers my question about this image. You have to find a Wikipedia segment that answers the question about the displayed image. 
+
+(𝑞 𝑖 , 𝑞 𝑡 ) → 𝑐 𝑖 
+
+FashionIQ Find a fashion image that aligns with the reference image and style note. With the reference image and modification instructions, find the described fashion look. Given the reference image and design hint, identify the matching fashion image. I’m looking for a similar fashion product image with the described style changes. CIRR Retrieve a day-to-day image that aligns with the modification instructions of the provided image. Pull up a common scene image like this one, but with the modifications I asked for. Can you help me find a daily image that meets the modification from the given image? I’m looking for a similar everyday image with the described changes. 
+
+(𝑞 𝑖 , 𝑞 𝑡 ) → ( 𝑐 𝑖 , 𝑐 𝑡 )
+
+OVEN Retrieve a Wikipedia image-description pair that provides evidence for the question of this image. Determine the Wikipedia image-snippet pair that clarifies the entity in this picture. I want to find an image and subject description from Wikipedia that answers my question about this image. I want to know the subject in the photo. Can you provide the relevant Wikipedia section and image? InfoSeek Retrieve a Wikipedia image-description pair that provides evidence for the question of this image. Determine the Wikipedia image-snippet pair that matches my question about this image. I want to find an image and subject description from Wikipedia that answers my question about this image. I want to address the query about this picture. Please pull up a relevant Wikipedia section and image.

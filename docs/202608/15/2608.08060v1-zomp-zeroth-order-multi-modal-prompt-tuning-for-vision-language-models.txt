@@ -1,0 +1,565 @@
+Title: ZOMP: Zeroth-Order Multi-Modal Prompt Tuning for Vision-Language Models
+
+URL Source: https://arxiv.org/pdf/2608.08060v1
+
+Published Time: Tue, 11 Aug 2026 00:36:41 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# ZOMP: Zeroth-Order Multi-Modal Prompt Tuning for Vision-Language Models 
+
+Sajjad Ghiasvand 1 Yifan Yang 2 Mahnoosh Alizadeh 1 Ramtin Pedarsani 1
+
+Electrical and Computer Engineering Department, UC Santa Barbara 1
+
+Computer Science Department, UC Santa Barbara 2
+
+{sajjad,yifanyang,alizadeh,ramtin}@ucsb.edu 
+
+Abstract 
+
+Fine-tuning vision-language models such as CLIP typically requires backpropagation (BP) through the full model, which is infeasible when only forward-pass access is available, as is common for memory-constrained edge devices and proprietary model deployments. Prior BP-free, zeroth-order prompt-tuning methods avoid this requirement but often tune prompts in a single modality or optimize over a search space large enough that convergence requires thousands of forward passes, which is impractical under realistic query budgets. We propose ZOMP (Zeroth-Order Multimodal Prompt tun-ing), a query-efficient, fully forward-only method that tunes deep prompts in both the vision and text branches of a frozen CLIP model using simultaneous perturbation stochastic ap-proximation. ZOMP combines three ingredients: a cross-modal low-rank reparameterization that ties the two branches through a shared factor and keeps the effective search di-mensionality small, a gradient-correction momentum term that stabilizes the noisy zeroth-order estimate, and a budget-indexed rank schedule that unlocks capacity as the query bud-get is spent. Across 13 vision-language benchmarks under a matched 5,000-query budget, ZOMP consistently outperforms prior BP-free prompt-tuning methods in both few-shot accu-racy and query efficiency, and it generalizes better across base-to-new, cross-dataset transfer, and out-of-distribution settings. Our results show that jointly exploiting multimodality and low-rank structure is an effective route to practical, query-efficient BP-free prompt tuning. 
+
+Introduction 
+
+Large vision-language models such as CLIP (Radford et al. 2021) learn a joint image-text embedding space from web-scale supervision and transfer remarkably well to down-stream recognition in a zero-shot manner, including to do-mains far from the natural-image data they were pretrained on (Khezresmaeilzadeh et al. 2025a,b). Adapting them to a specific task still yields substantial gains, and prompt tun-ing (Zhou et al. 2022b,a) has become the default way to do so. Instead of updating the backbone, a small set of learnable context vectors is optimized while the pretrained encoders stay frozen, which has proven effective across classifica-tion (Zhou et al. 2022b,a), detection (Du et al. 2022; Zhao et al. 2022), and segmentation (Xu et al. 2022; Li et al. 2023). The strongest variants of this recipe prompt both the image and text encoders, at multiple transformer layers, rather than the text side alone (Khattak et al. 2023). These deep multi-modal prompts give the optimizer far more points of lever-age over the model’s representations than a single shallow prompt, and the gain in accuracy is consistent. The advan-tage of adapting both branches is not particular to prompting: multimodal adapters show the same pattern under gradient-based training (Ghiasvand, Alizadeh, and Pedarsani 2026). All of this assumes access to gradients through the back-bone, and that assumption fails in two settings that are be-coming the norm rather than the exception. On memory-constrained edge and wearable devices the backward com-putation graph itself will not fit (Tekin et al. 2024; Covi et al. 2021), and commercial vision-language models served only through an inference API never expose their weights at all. In both cases prompt tuning must be driven by input-output behavior alone, using only forward passes. This constraint has motivated a growing line of backpropagation-free (BP-free) prompt tuning methods, which replace the gradient with an estimate formed by eval-uating the loss at randomly perturbed points, using either evolutionary strategies (Yu et al. 2023; Sun et al. 2022b,a) or zeroth-order (ZO) stochastic gradient descent (Ghadimi and Lan 2013; Oh et al. 2023; Park et al. 2025). ZO is the more query-efficient of the two, since a single simultaneous-perturbation estimate costs only two forward passes regard-less of dimensionality. That same estimate, however, has vari-ance that grows with dimensionality, so a larger prompt is not free the way it is under backpropagation; it must be paid for in optimization stability, and under a realistic query budget that bill comes due quickly. ZIP (Park et al. 2025), the strongest prior BP-free method, addresses this by reparameterizing its prompt in a low-rank subspace and clipping the resulting gra-dient estimate, and it is effective precisely because it keeps the optimized space small. It keeps that space small, however, by giving some-thing up. Examined at the level of what each prior BP-free method actually perturbs, none reaches the deep, dual-encoder regime that makes prompting powerful under back-propagation. BAR (Tsai, Chen, and Ho 2020) and Black-VIP (Oh et al. 2023) reprogram only the input image, ZIP tunes a single shallow prompt in the text encoder alone, and BPT-VLM (Yu et al. 2023) reaches both modalities but only at one injection point per encoder, not at depth. This is less an oversight than a consequence of the same variance argu-arXiv:2608.08060v1 [cs.CV] 8 Aug 2026 ment each method is built around, since a deep prompt in both encoders multiplies the trainable dimensionality by the number of layers and modalities, exactly the direction none of them can afford to move in. The result is a real ceiling, and the accuracy that deep multimodal prompting is known to unlock under backpropagation has so far been unavailable once backpropagation is taken away. We close this gap with ZOMP (Zeroth-Order Multimodal 
+
+Prompt tuning). Rather than trading expressiveness for a tractable search space, ZOMP restructures the deep multi-modal prompt itself. A cross-modal low-rank factorization ties the vision and text prompt at each layer to a shared factor, which couples the two encoders so that a single update moves both coherently and exposes the rank as a knob. A budget-indexed schedule then turns this knob, searching a small rank-1 subspace first and widening it only once the optimizer has a direction worth expanding, while gradient-correction momentum stabilizes the noisy SPSA estimate throughout. These two mechanisms are complementary rather than re-dundant, since the low-rank early phase gives momentum a low-noise direction to build before the space widens, and momentum is what lets that direction survive the widen-ing. Across 13 vision-language benchmarks spanning few-shot classification, base-to-new generalization, cross-dataset transfer, and out-of-distribution evaluation, ZOMP outper-forms ZIP and every other BP-free baseline under an identical query budget. Our contributions are as follows: (1) We close the gap left by prior BP-free methods, all of which stay shallow or single-modality, with ZOMP’s cross-modal low-rank prompt factor-ization, which makes deep multimodal prompting tractable under zeroth-order optimization by exposing the rank as a knob that a budget-indexed schedule grows over training, widening the search from a small subspace to the full space. 
+
+(2) We introduce a budget-indexed progressive rank schedule and pair it with gradient-correction momentum, and show, through a controlled component ablation, that the two mech-anisms are individually insufficient and only effective to-gether. (3) We demonstrate state-of-the-art few-shot accuracy and query efficiency against ZIP and other BP-free baselines across 13 vision-language benchmarks, with consistent gains in base-to-new generalization, cross-dataset transfer, and out-of-distribution robustness. 
+
+Preliminaries 
+
+Contrastive Vision-Language Pretraining. CLIP (Radford et al. 2021) consists of an image encoder f (· ; θf ) and a text encoder g(· ; θg ) trained jointly to align the two modal-ities in a shared d-dimensional embedding space. To en-code an image X, the model splits it into M patch em-beddings, prepends a class token, and passes the result-ing sequence ˜X = {ecls , e1, · · · , eM } through f to ob-tain the visual embedding ˜f ∈ Rd. Class names are con-verted to text features by inserting them into a manual tem-plate (e.g., “a photo of a {class}”): the tokenized sequence 
+
+˜Yk = {tSOS , t1, · · · , tNt , c k, tEOS } of Nt template word tokens for class k is mapped by g to ˜gk ∈ Rd. Classification over C categories then reduces to retrieving the text feature closest to the image feature: 
+
+p(y = k | X) = exp( sim (˜ gk, ˜f )/τ )
+
+PCi=1 exp( sim (˜ gi, ˜f )/τ ) , (1) with sim (·, ·) the cosine similarity and τ a temperature pa-rameter. Because no task-specific training is involved, this zero-shot pipeline serves as the starting point that prompt tuning seeks to improve. 
+
+Prompt Tuning. Rather than relying on a hand-written template, CoOp and its variants (Zhou et al. 2022b,a) learn the context directly: a sequence of T trainable vectors Pt
+
+replaces the template’s word embeddings in the text input, and these vectors are fitted to the downstream task by mini-mizing the classification loss while every CLIP weight stays frozen. Since only the prompt embeddings are updated, the approach adapts the model with a tiny parameter footprint and a handful of labeled examples per class. 
+
+Multimodal Deep Prompting. Restricting prompts to the text branch leaves the image pathway fixed. Independent Vision-Language Prompting (IVLP) (Khattak et al. 2023) therefore inserts trainable prompts into both encoders: vi-sual prompts Pv are concatenated with the patch tokens, and textual prompts Pt with the word embeddings. In the deep variant, fresh prompt vectors are injected at each of the first 
+
+L transformer layers of both encoders, giving the trainable set P = {P (l) 
+
+> v
+
+, P (l) 
+
+> t
+
+}Ll=1 , learned by minimizing the cross-entropy between the prompted image-text similarity scores and the labels: 
+
+arg min 
+
+> P
+
+E(X,y )∼D L sim ( ˜fp, ˜gp), y , (2) where ˜fp and ˜gp denote the features produced from the prompted inputs. Prompting both branches at depth is markedly more expressive than text-only prompting, but the price is a trainable dimension that scales with the number of layers and modalities. With gradient access this cost is negligible; without it, as we review next, dimensionality be-comes the dominant obstacle, and reconciling deep multi-modal prompting with gradient-free training is precisely the problem ZOMP takes on. 
+
+Zeroth-Order Optimization. In BP-free settings, only the loss value of a forward pass is observable, so training must rely on derivative-free gradient estimates. Collect the trainable parameters into θ ∈ RD and write L(θ; B) for the mini-batch loss. Simultaneous perturbation stochastic ap-proximation (SPSA) (Spall 1992, 1997) forms an estimate by evaluating the loss at symmetric random offsets of the current iterate: 
+
+ˆ∇L (θ; B) = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+L(θ + czi; B) − L (θ − czi; B)2c z−1 
+
+> i
+
+,
+
+(3) where each perturbation zi ∈ RD is sampled from a zero-mean distribution with finite inverse moments, (·)−1
+
+is applied element-wise, c > 0 sets the perturbation ra-dius, and N counts the perturbation directions averaged per step. In practice, following Park et al. (2025); Oh et al. (2023), each coordinate of zi is drawn independently Algorithm 1: ZOMP Require: frozen CLIP {f, g }; data D; depth L, tokens T ,rank r; query budget Q; SPSA constants (a, c, o, α, γ ),probes N ; momentum β; rank schedule {(qj , r j )}Jj=1  
+
+> 1:
+
+U (l) ∼ N (0 , σ 2), V (l) 
+
+> v
+
+← 0, V (l) 
+
+> t
+
+← 0 for all l 
+
+> 2:
+
+θ ← { U (l), V (l) 
+
+> v
+
+, V (l) 
+
+> t
+
+}Ll=1 ; m ← 0; k ← 1; q ← 0 
+
+> 3:
+
+while q < Q do  
+
+> 4:
+
+sample mini-batch Bk ∼ D ; ck ← c/k γ ; ηk ←
+
+a/ (o + k)α 
+
+> 5:
+
+M ← mask of rank components {1, . . . , r j } for the smallest j with q/Q ≤ qj 
+
+> 6:
+
+ˆg ← 0 
+
+> 7:
+
+for i = 1 to N do  
+
+> 8:
+
+sample segmented-uniform zi; zi ← M ⊙ zi 
+
+> 9:
+
+ˆg += L(θ+ck zi;Bk )−L (θ−ck zi;Bk )2ck N z−1 
+
+> i
+
+; q += 2  
+
+> 10:
+
+end for  
+
+> 11:
+
+m ← βm + ˆ g ▷ SPSA-GC momentum  
+
+> 12:
+
+θ ← θ − ηk (ˆ g + βm); k += 1  
+
+> 13:
+
+end while  
+
+> 14:
+
+Inference: build prompts via Eq. (4), predict ˆy =arg max k sim ( ˜fp, ˜gp,k )
+
+and uniformly from [−1, − 12 ] ∪ [ 12 , 1] , so that |zi,j | ≥ 12
+
+keeps z−1 
+
+> i
+
+bounded and the finite-inverse-moment condi-tion holds. One estimate therefore consumes 2N forward passes, which is the natural unit of cost under a query bud-get. Training proceeds by descending along the estimate, 
+
+θt+1 = θt − ηt ˆ∇L (θt; Bt) (Ghadimi and Lan 2013), option-ally stabilized with the Nesterov-style correction of SPSA-GC (Oh et al. 2023). This recipe powers recent BP-free prompt tuning of vision-language models (Tsai, Chen, and Ho 2020; Oh et al. 2023; Yu et al. 2023; Park et al. 2025), yet its Achilles’ heel is well documented: the estimator’s variance grows with D, and convergence degrades accordingly (Spall 1992; Ghadimi and Lan 2013). Applying it naively to the parameter-heavy prompts of the previous paragraph would exhaust any realistic query budget, which motivates the low-rank multimodal design at the core of ZOMP. 
+
+Proposed Algorithm 
+
+We propose ZOMP (Zeroth-Order Multimodal Prompt tuning), which makes deep vision-language prompting vi-able without backpropagation. The design follows directly from the tension identified in the Preliminaries: multimodal deep prompts are the most expressive prompting scheme, but their dimensionality is a severe liability for zeroth-order optimization. ZOMP resolves this with (i) a cross-modal low-rank parameterization that shrinks and structures the search space, and (ii) a stabilized SPSA procedure whose effective dimensionality is scheduled over the query budget. 
+
+Cross-Modal Low-Rank Prompt Parameterization 
+
+ZOMP keeps the IVLP prompt placement of Eq. (2), with trainable tokens injected into the first L layers of both en-coders, but never optimizes the prompt matrices directly. We adopt the cross-modal low-rank prompting of MMLoP (Ghi-asvand et al. 2026), itself building on the factorized form of LoRA (Hu et al. 2021): each layer’s prompts are generated as the product of a small shared factor and a modality-specific factor, 
+
+P (l) 
+
+> v
+
+= U (l)V (l) 
+
+> v
+
+, P (l) 
+
+> t
+
+= U (l)V (l) 
+
+> t
+
+, (4) with U (l) ∈ RT ×r common to both modalities and modality-specific factors V (l) 
+
+> v
+
+∈ Rr×dv , V (l) 
+
+> t
+
+∈ Rr×dt , where r is the rank, dv and dt are the token dimensions of the vision and text encoders (distinct from the shared output dimension d), and both modalities use the same token count T . The trainable vector θ collects {U (l), V (l) 
+
+> v
+
+, V (l) 
+
+> t
+
+}Ll=1 , giving r(T +dv +dt)
+
+variables per layer and D = L r (T + dv + dt) in total. The factorization gives ZOMP two things a plain deep prompt does not. First, it turns the rank into a handle the op-timizer can grab. Component k occupies its own coordinates of θ (column k of every U (l) and row k of every V (l)), dis-joint from the coordinates of every other component, so the rank schedule of the next subsection can perturb the first few components and hold the rest frozen just by masking, and the subspace actually searched starts small and grows over train-ing. Second, the shared factor U (l) ties the two modalities together. A single perturbation of U (l) displaces the vision and text prompts coherently, so the scarce query signal spent estimating its gradient is amortized across both encoders, and the two prompt sets are constrained to a common token-weighting pattern rather than drifting apart, a property we ablate in the Empirical Results. Initialization matters more under a query budget than un-der backpropagation, because early queries wasted recover-ing from a bad starting point are never recouped. We therefore initialize every V factor to zero and every U (l) with small Gaussian noise, so that P (l) = U (l)V (l) = 0 at step zero and the model starts exactly at zero-shot CLIP: the first query already measures a sensible model, and no budget is spent undoing a random perturbation of the pretrained behavior. 
+
+Stabilized ZO with Progressive Rank Expansion 
+
+Gradient estimation and momentum. ZOMP estimates gradients with the two-sided SPSA form of Eq. (3), using segmented-uniform perturbation directions and the standard decaying gain sequences ck = c/k γ and ηk = a/ (o + k)α,matching the protocol of Park et al. (2025) so that all meth-ods meter queries identically (every perturbed forward pass counts once against the budget). Raw SPSA steps are noisy; to keep successive updates from canceling each other, we smooth them with the gradient-correction momentum of SPSA-GC (Oh et al. 2023): 
+
+mk = β mk−1 + ˆ∇L (θk; Bk),θk+1 = θk − ηk
+
+  ˆ∇L (θk; Bk) + β mk
+
+, (5) a Nesterov-style correction that averages the estimate along the recent trajectory while still reacting to the newest mea-surement. We found the intrinsic-dimensional clipping of Park et al. (2025) unnecessary once momentum and the pa-rameterization below are in place, and omit it in our default configuration. Table 1: Few-shot performance on 13 datasets (16-shot, 5,000 queries; mean ±std over 3 seeds, all methods reproduced under an identical protocol). Best and second-best per column; Manual Prompt is zero-shot.                                                                                     
+
+> Method Caltech101 OxfordPets Flowers102 Food101 FGVCAircraft SUN397 DTD SVHN EuroSAT Resisc45 CLEVR UCF101 ImageNet
+> Average
+> Manual Prompt 93.2 89.1 70.8 85.9 24.8 62.6 44.1 19.2 48.4 57.2 15.2 67.5 66.7 57.3 BAR 91.8 ±0.2 87.8 ±0.1 69.9 ±0.3 83.7 ±0.1 21.7 ±0.2 60.8 ±0.1 40.0 ±0.1 19.7 ±0.7 61.6 ±0.2 49.9 ±0.4 16.0 ±0.1 64.0 ±0.1 63.5 ±0.2 56.2 ±0.2
+> BlackVIP 92.5 ±0.1 88.4 ±0.3 69.4 ±0.7 84.0 ±0.1 23.6 ±0.2 61.9 ±0.3 43.1 ±0.2 30.2 ±3.4 54.7 ±5.1 57.1 ±0.4 29.5 ±3.0 66.4 ±0.2 64.6 ±0.3 58.9 ±0.7
+> BPTVLM 89.1 ±0.6 89.6 ±0.7 66.9 ±2.7 84.0 ±0.4 24.0 ±1.7 53.5 ±2.1 44.7 ±1.4 33.0 ±0.9 61.1 ±5.0 59.9 ±1.5 19.9 ±5.6 63.6 ±1.2 58.7 ±1.2 57.5 ±0.8
+> ZIP 93.1 ±0.8 91.9 ±0.4 69.3 ±1.2 86.1 ±0.3 26.0 ±0.4 62.2 ±0.8 47.8 ±2.3 43.3 ±2.4 64.6 ±3.5 65.5 ±0.5 24.8 ±3.0 67.9 ±1.2 65.8 ±1.5 62.2 ±0.3
+> ZOMP 94.8 ±0.3 93.0 ±0.2 76.5 ±1.3 87.0 ±0.1 28.2 ±0.5 68.4 ±0.7 56.4 ±1.3 51.4 ±6.1 80.5 ±1.8 73.5 ±0.6 35.1 ±2.4 73.6 ±1.5 68.6 ±0.2 68.2 ±0.4
+
+Budget-indexed rank expansion. Even with the factor-ization of Eq. (4), perturbing all r rank components from the first step is wasteful. Zeroth-order convergence slows as the number of perturbed dimensions grows, with the error after Q queries scaling as pD/Q in the dimension 
+
+D (Ghadimi and Lan 2013), so a smaller active search space makes faster progress on the same query budget. And be-cause a low-rank prompt is dominated by its leading com-ponent, that smaller space is also where most of the useful signal lies. ZOMP therefore searches coarse-to-fine, optimiz-ing the dominant direction first and unlocking the rest later. Let 0 < q 1 < · · · < q J = 1 be budget fractions with associ-ated ranks r1 < · · · < r J = r. While the consumed fraction of the query budget lies below qj , perturbations are masked to the first rj rank components. The masked perturbation is zero on the inactive components, and the element-wise in-verse z−1 
+
+> i
+
+in Eq. (3) is taken over the active components and set to zero elsewhere, so the gradient estimate vanishes on the inactive components and they stay frozen at initialization. Because every V factor is zero-initialized, each unlock is function-preserving: newly activated components contribute nothing until the optimizer moves them, so the loss curve is continuous across unlocks and no queries are spent absorb-ing an initialization shock. The schedule is indexed by budget fraction rather than by a loss-based trigger, which keeps it de-terministic and immune to the noise of ZO loss estimates. Our default uses a single unlock, exploring the rank-1 subspace, a search space 4× smaller than the full parameterization, for the first 20% of the budget before releasing all components. 
+
+Momentum and rank expansion reinforce each other. 
+
+Both mechanisms act on the same quantity, the variance of the SPSA estimate, which grows with the number of active dimensions. The rank schedule keeps that variance low early on by unlocking only a few components, so each estimate is fairly accurate. The momentum buffer, a running average of these estimates, then settles onto a reliable descent di-rection. When more components unlock and the variance rises, the buffer is carried forward rather than reset, so the optimizer keeps descending along the direction found in the low-variance phase while the running average smooths out the added noise. Removing either half breaks this. Without momentum, expansion has no memory to carry that early di-rection into the noisy phase; without expansion, momentum builds its buffer in the high-variance full space from the first step, averaging noise instead of signal. Our component abla-tion confirms this. Neither mechanism alone improves mean-ingfully on the plain SPSA backbone, and only together do they add a full point to the 13-dataset average. Algorithm 1 summarizes the full procedure. 
+
+Empirical Results 
+
+Experimental Setup 
+
+Datasets. We evaluate ZOMP on four generalization set-tings that together stress-test both accuracy and query ef-ficiency: few-shot classification, base-to-new generaliza-tion, cross-dataset transfer (CDT), and out-of-distribution (OOD) generalization. Few-shot classification, base-to-new, and CDT are evaluated on the same 13 image classification datasets used by prior BP-free prompt tuning work (Zhou et al. 2022b,a; Oh et al. 2023; Park et al. 2025): Im-ageNet (Deng et al. 2009), Caltech101 (Fei-Fei, Fergus, and Perona 2004), OxfordPets (Parkhi et al. 2012), Flow-ers102 (Nilsback and Zisserman 2008), Food101 (Bossard, Guillaumin, and Van Gool 2014), FGVCAircraft (Maji et al. 2013), SUN397 (Xiao et al. 2010), Resisc45 (Cheng, Han, and Lu 2017), DTD (Cimpoi et al. 2014), SVHN (Netzer et al. 2011), EuroSAT (Helber et al. 2019), CLEVR (John-son et al. 2017), and UCF101 (Soomro, Zamir, and Shah 2012). For OOD, prompts trained on ImageNet are evaluated zero-shot on four ImageNet variants: ImageNetV2 (Recht et al. 2019), ImageNet-Sketch (Wang et al. 2019), ImageNet-A (Hendrycks et al. 2021b), and ImageNet-R (Hendrycks et al. 2021a). All splits, class subsets, and few-shot sampling follow the protocol of Zhou et al. (2022b,a); Oh et al. (2023). 
+
+Baselines. We compare against the state-of-the-art BP-free prompt-tuning methods for vision-language models: BAR (Tsai, Chen, and Ho 2020), BlackVIP (Oh et al. 2023), BPT-VLM (Yu et al. 2023), and ZIP (Park et al. 2025), the strongest prior method and our primary point of comparison. We additionally report a manual-prompt zero-shot baseline. Every baseline is run with its official implementation under an identical protocol to ZOMP: the same backbone, the same 16-shot splits, and the same query budget, so that the only difference between methods is the optimization and parame-terization each brings to the same problem. Table 2: Base-to-new generalization (16-shot, 5,000 queries; mean ±std over 3 seeds, all methods reproduced under an identical protocol). HM is the harmonic mean of base and new accuracy. The average HM is the mean of the per-dataset harmonic means, following ZIP. Best and second-best per column. 
+
+Method Set Caltech101 OxfordPets Flowers102 Food101 FGVC SUN397 DTD SVHN EuroSAT Resisc45 CLEVR UCF101 ImageNet 
+
+> Average
+
+BAR Base 95.4 ±0.1 89.9 ±0.1 70.8 ±0.2 88.2 ±0.1 24.4 ±0.2 67.8 ±0.1 48.3 ±0.7 20.6 ±0.6 72.6 ±0.3 65.0 ±0.1 29.8 ±0.4 68.1 ±0.3 69.5 ±0.0 62.3 ±0.1 
+
+BlackVIP 96.4 ±0.2 91.0 ±0.2 71.8 ±0.7 88.2 ±0.1 26.9 ±0.6 68.7 ±0.5 52.9 ±0.7 34.5 ±6.7 72.2 ±2.4 71.2 ±0.9 56.1 ±0.6 71.2 ±0.7 70.2 ±0.2 67.0 ±0.7 
+
+BPTVLM 94.2 ±2.0 92.8 ±1.1 67.7 ±2.3 88.9 ±0.5 29.7 ±0.3 63.0 ±2.3 56.9 ±0.6 49.1 ±2.8 78.8 ±1.8 74.8 ±1.3 45.3 ±6.6 70.6 ±2.9 67.3 ±1.5 67.6 ±0.3 
+
+ZIP 97.0 ±0.4 94.9 ±0.5 72.2 ±1.2 90.2 ±0.2 30.6 ±0.6 69.4 ±1.2 60.6 ±2.2 57.7 ±6.5 83.6 ±2.7 83.6 ±0.8 55.4 ±8.6 73.6 ±1.2 72.2 ±0.8 72.4 ±1.0 
+
+ZOMP 97.6 ±0.1 95.3 ±0.1 83.9 ±1.4 90.6 ±0.2 32.2 ±0.5 74.7 ±0.5 71.2 ±1.6 58.3 ±0.2 88.8 ±2.2 86.6 ±1.0 59.4 ±1.1 78.6 ±2.0 74.2 ±0.3 76.3 ±0.3 
+
+BAR New 94.1 ±0.1 95.7 ±0.2 76.9 ±0.2 89.4 ±0.2 31.3 ±0.2 74.1 ±0.2 54.0 ±1.6 34.4 ±1.0 81.2 ±0.2 59.4 ±0.2 31.2 ±0.5 75.3 ±0.2 65.3 ±0.2 66.3 ±0.1 
+
+BlackVIP 93.2 ±0.3 95.2 ±0.2 75.7 ±0.5 89.9 ±0.2 33.4 ±0.9 74.2 ±0.4 57.3 ±0.4 38.1 ±7.4 37.2 ±2.3 62.0 ±1.8 30.6 ±3.3 76.6 ±0.5 66.7 ±0.1 63.8 ±0.5 
+
+BPTVLM 92.4 ±0.5 94.4 ±3.0 73.8 ±2.9 89.1 ±0.5 33.5 ±3.2 63.7 ±5.6 46.9 ±0.6 38.3 ±0.4 70.8 ±10.2 60.8 ±2.0 23.6 ±1.9 68.6 ±2.1 58.0 ±2.5 62.6 ±1.7 
+
+ZIP 94.4 ±1.2 97.0 ±0.6 72.6 ±0.9 90.3 ±1.0 30.2 ±1.7 71.5 ±1.8 52.3 ±3.6 43.7 ±5.2 60.0 ±7.0 63.2 ±1.0 24.5 ±0.6 71.6 ±3.8 65.5 ±1.8 64.4 ±0.8 
+
+ZOMP 94.0 ±1.1 97.5 ±0.3 75.1 ±0.8 91.7 ±0.1 34.1 ±0.6 77.7 ±0.6 53.5 ±2.7 45.6 ±5.1 60.4 ±11.4 69.4 ±1.1 34.8 ±3.9 75.6 ±2.3 69.6 ±0.1 67.6 ±0.5 
+
+BAR HM 94.8 ±0.0 92.7 ±0.0 73.7 ±0.2 88.8 ±0.0 27.4 ±0.1 70.8 ±0.1 51.0 ±1.1 25.8 ±0.7 76.6 ±0.2 62.1 ±0.1 30.5 ±0.0 71.5 ±0.1 67.4 ±0.1 64.1 ±0.1 
+
+BlackVIP 94.7 ±0.1 93.1 ±0.1 73.7 ±0.6 89.1 ±0.2 29.8 ±0.4 71.4 ±0.4 55.0 ±0.4 36.2 ±6.7 49.1 ±1.6 66.3 ±0.7 39.6 ±2.9 73.8 ±0.6 68.4 ±0.0 64.6 ±0.5 
+
+BPTVLM 93.3 ±1.1 93.6 ±1.0 70.7 ±2.0 89.0 ±0.3 31.5 ±1.3 63.3 ±3.5 51.4 ±0.6 43.0 ±1.3 74.6 ±4.8 67.1 ±1.0 31.0 ±2.4 69.6 ±2.3 62.3 ±1.3 64.6 ±0.8 
+
+ZIP 95.7 ±0.5 95.9 ±0.3 72.4 ±0.3 90.2 ±0.5 30.4 ±1.1 70.4 ±1.4 56.1 ±1.4 49.7 ±5.0 69.8 ±5.5 72.0 ±0.8 33.9 ±1.3 72.6 ±2.6 68.7 ±1.3 67.5 ±0.7 
+
+ZOMP 95.8 ±0.5 96.4 ±0.2 79.3 ±0.9 91.2 ±0.1 33.1 ±0.5 76.2 ±0.4 61.1 ±2.3 51.1 ±3.3 71.9 ±7.4 77.1 ±1.1 43.9 ±2.8 77.1 ±0.7 71.8 ±0.2 71.2 ±0.3 
+
+Table 3: Out-of-distribution generalization: the ImageNet-trained prompt evaluated zero-shot on four ImageNet vari-ants. Source is its ImageNet accuracy, excluded from the average. Best and second-best per column. 
+
+Method Source ImageNet-A ImageNetV2 ImageNet-R ImageNet-Sketch 
+
+> Average
+
+BAR 63.5 ±0.2 40.0 ±0.2 57.2 ±0.3 71.9 ±0.1 43.7 ±0.1 53.2 ±0.1 
+
+BlackVIP 64.6 ±0.3 39.1 ±0.3 58.0 ±0.1 72.0 ±0.2 43.6 ±0.1 53.2 ±0.1 
+
+BPTVLM 58.7 ±1.2 33.9 ±4.6 45.9 ±3.5 62.9 ±3.7 31.9 ±1.4 43.7 ±3.3 
+
+ZIP 65.8 ±1.5 47.8 ±1.0 59.5 ±1.5 75.1 ±2.0 45.4 ±1.2 57.0 ±1.3 
+
+ZOMP 68.6 ±0.2 50.1 ±0.1 62.3 ±0.3 76.6 ±0.1 47.5 ±0.2 59.1 ±0.1 
+
+Implementation details. All experiments use a frozen CLIP ViT-B/16 backbone. ZOMP inserts low-rank multi-modal prompts of T =4 tokens at depth L=9 in both en-coders, at rank r=4 with a single budget-indexed unlock from rank 1 to rank 4 at 20% of the query budget, as detailed in the Proposed Algorithm section, giving 46 .2k trainable parameters. Gradients are estimated with SPSA using N =5 
+
+perturbation samples per step and the gain-sequence con-stants (o, c, a, α, γ ) = (1 .0, 0.01 , 0.01 , 0.4, 0.1) , combined with SPSA-GC momentum at β=0 .8, following the param-eterization of Park et al. (2025). Query cost is counted iden-tically for all methods: each forward pass through the frozen model counts as one query, so a budget of 5,000 queries cor-responds to the same number of model evaluations for every method. Under this accounting, ZOMP and all baselines are trained with the same 5,000 -query budget per dataset across all four settings (few-shot, base-to-new, CDT, and OOD), and all results are reported as the mean and standard deviation over three random seeds. All experiments are conducted on four NVIDIA A6000 GPUs. Additional experimental details can be found in the Appendix. 
+
+Main Results 
+
+Few-shot performance. Table 1 reports 16-shot accuracy across all 13 datasets under the 5,000 -query budget. ZOMP attains the best average accuracy at 68 .2% , 6.0 points ahead of ZIP at 62 .2% and well above the manual-prompt zero-shot baseline at 57 .3% , and it outperforms every baseline on every one of the 13 datasets. The gains over ZIP are largest on the specialized, non-natural-image domains where CLIP’s zero-shot prior is weakest, such as EuroSAT ( +15 .9), CLEVR (+10 .3), DTD ( +8 .6), and SVHN ( +8 .1), which are among the datasets with the lowest zero-shot accuracy in the table. The gap narrows on datasets closer to natural web imagery, where zero-shot CLIP is already strong, but ZOMP still leads ZIP on every one of the 13 datasets, with the closest margin a +0 .9-point lead on Food101. 
+
+Base-to-new generalization. Table 2 trains prompts on base classes only, under the same 5,000 -query budget, and evaluates them both on held-out base classes and on en-tirely unseen new classes, summarized by the harmonic mean (HM) of the two, the standard metric for this setting (Zhou et al. 2022a). Because HM is dominated by the lower of the base and new accuracies, it rewards balanced performance across both and penalizes methods that inflate one at the ex-pense of the other (Xian, Schiele, and Akata 2017). ZOMP reaches an HM of 71 .2% , exceeding ZIP’s 67 .5% by 3.7
+
+points and every other baseline by at least 6.6 points, and it posts the best base accuracy on every dataset. On new classes, where overfitting to the base split usually shows up as a drop, ZOMP still attains the best average ( 67 .6% ,compared with ZIP’s 64 .4% ), showing that our low-rank, cross-modally shared parameterization does not trade gener-Table 4: Cross-dataset transfer: the ImageNet-trained prompt evaluated zero-shot on 12 target datasets. Method Source Caltech101 OxfordPets Flowers102 Food101 FGVC SUN397 DTD SVHN EuroSAT Resisc45 CLEVR UCF101 
+
+> Average
+
+BAR 63.5 ±0.2 91.8 ±0.1 87.8 ±0.2 70.0 ±0.3 83.7 ±0.1 21.6 ±0.4 60.9 ±0.2 39.4 ±0.3 19.3 ±0.3 61.0 ±0.9 50.3 ±0.2 15.9 ±0.4 63.9 ±0.3 55.5 ±0.1 
+
+BlackVIP 64.6 ±0.3 92.7 ±0.1 88.1 ±0.5 68.8 ±0.2 82.9 ±0.7 23.3 ±0.2 61.6 ±0.4 42.1 ±0.5 15.3 ±0.9 36.5 ±2.6 55.3 ±0.5 16.2 ±0.8 66.2 ±0.6 54.1 ±0.5 
+
+BPTVLM 58.7 ±1.2 82.0 ±3.1 76.9 ±1.9 54.7 ±5.1 76.2 ±4.5 15.7 ±0.5 41.5 ±6.6 27.5 ±4.5 14.6 ±3.1 38.7 ±7.4 36.4 ±2.2 12.2 ±0.5 50.4 ±7.2 43.9 ±2.8 
+
+ZIP 65.8 ±1.5 92.3 ±1.4 87.9 ±2.0 64.1 ±2.7 84.3 ±1.3 19.3 ±1.4 58.7 ±3.7 38.5 ±1.9 21.8 ±13.5 45.8 ±6.5 54.3 ±4.4 16.3 ±1.7 61.7 ±3.5 53.8 ±2.7 
+
+ZOMP 68.6 ±0.2 92.8 ±0.5 87.4 ±1.3 68.6 ±1.3 85.8 ±0.1 21.3 ±1.0 64.8 ±1.1 45.4 ±0.7 30.1 ±4.5 47.8 ±5.1 57.0 ±1.8 15.6 ±0.7 66.4 ±0.1 56.9 ±0.6 
+
+Table 5: Component ablation of ZOMP; best and second-best per column among the remaining rows. 
+
+Method Caltech101 OxfordPets Flowers102 Food101 FGVC SUN397 DTD SVHN EuroSAT Resisc45 CLEVR UCF101 ImageNet 
+
+> Average
+
+Deep prompt 93.9 ±0.2 93.2 ±0.6 73.0 ±3.4 86.7 ±0.4 16.8 ±8.6 67.3 ±0.5 54.8 ±2.2 47.1 ±1.1 74.0 ±4.1 71.5 ±0.8 33.7 ±2.3 73.0 ±0.9 67.6 ±0.8 65.6 ±1.5 
+
+Cross-modal LoRA 94.4 ±0.2 93.0 ±0.3 74.8 ±1.2 87.2 ±0.1 28.9 ±0.5 68.2 ±0.1 55.8 ±0.8 50.5 ±1.7 75.8 ±0.5 71.7 ±0.6 31.2 ±1.7 73.3 ±0.5 69.2 ±0.3 67.2 ±0.4 
+
++ rank schedule only 94.4 ±0.3 92.9 ±0.2 75.1 ±1.9 87.1 ±0.1 28.8 ±0.4 68.0 ±0.3 55.5 ±1.1 47.7 ±2.7 77.5 ±4.3 71.8 ±0.5 28.5 ±3.0 72.7 ±0.8 69.2 ±0.1 66.9 ±0.9 
+
++ momentum only 94.6 ±0.2 93.3 ±0.3 75.4 ±0.7 87.1 ±0.1 25.4 ±2.5 67.5 ±0.4 55.8 ±1.6 49.8 ±5.1 77.7 ±6.6 72.3 ±1.5 35.1 ±2.2 72.3 ±0.8 68.6 ±0.1 67.3 ±1.0 
+
+ZOMP (unlock 20%) 94.8 ±0.3 93.0 ±0.2 76.5 ±1.3 87.0 ±0.1 28.2 ±0.5 68.4 ±0.7 56.4 ±1.3 51.4 ±6.1 80.5 ±1.8 73.5 ±0.6 35.1 ±2.4 73.6 ±1.5 68.6 ±0.2 68.2 ±0.4 
+
+alization for base-class fit. The largest harmonic-mean gains over ZIP appear on CLEVR ( +10 .0), Flowers102 ( +6 .9), and SUN397 ( +5 .8). 
+
+Cross-dataset transfer & Out-of-distribution general-ization. Tables 3 and 4 take a single prompt trained on Im-ageNet (16-shot, 5,000 queries), on which ZOMP reaches the best source accuracy ( 68 .6% , +2 .8 over ZIP), and trans-fer it without further tuning to four ImageNet distribution-shift variants (OOD, Table 3) and to 12 other classifica-tion datasets (CDT, Table 4). On OOD, ZOMP leads on all four variants, for a 59 .1% average against ZIP’s 57 .0% , with the largest single-variant gain of +2 .8 on ImageNetV2. On CDT, ZOMP attains the best average ( 56 .9% ), ahead of the strongest baseline (BAR at 55 .5% ) and ZIP ( 53 .8% ), and it outperforms ZIP on 10 of the 12 targets. Since no target-dataset or shifted-distribution data is seen during training, this transfer performance reflects the quality of the source prompt learned under the query budget, consistent with the few-shot and base-to-new results above: a lower-variance, lower-dimensional optimization trajectory yields a prompt that generalizes better rather than one that merely fits its own training queries. 
+
+Ablation Studies & Efficiency Analysis 
+
+Component ablation. Table 5 builds ZOMP up one compo-nent at a time. A deep multimodal prompt optimized directly with SPSA, without any factorization, reaches 65 .6% average accuracy. Introducing the cross-modal low-rank factorization is the single largest step, lifting the average to 67 .2% . Struc-turing the search into a few shared rank components is what makes the deep prompt trainable under noisy zeroth-order estimates. On top of the factorization we add the two train-ing mechanisms, the rank schedule and gradient-correction momentum. The rank schedule alone gives 66 .9% and mo-mentum alone gives 67 .3% , so neither component improves meaningfully on its own, and the schedule alone is even slightly worse than the backbone. Combining both lifts the average to 68 .2% , a full point over the backbone and clearly ahead of either component in isolation. This matches the de-sign argument made earlier: the schedule only helps because momentum carries a direction through the variance spike of the unlock, and momentum only helps because the schedule first gives it a low-noise phase to build that direction. 
+
+Sensitivity to the rank schedule. Table 6 varies the unlock point and schedule shape around the default (rank 1 for the first 20% of the budget). Moving the unlock earlier to 10% 
+
+or later to 30% both cost 0.4 points on average; replacing the single jump with a staged 1→2→4 schedule costs 0.3
+
+points; and adding √d intrinsic-dimensional clipping (Park et al. 2025) on top of momentum, rather than relying on momentum alone, also costs 0.3 points. Every variant still lands within 0.4 of the default and ahead of every baseline in Table 1, so the schedule’s exact timing and shape are not a hyperparameter the method needs tuned per dataset. 
+
+Cross-modal factor sharing. The last row of Table 6 replaces the shared U (l) of Eq. (4) with independent U (l)
+
+> v
+
+and U (l) 
+
+> t
+
+per modality. Sharing wins on 9 of the 13 datasets, ties on two, and loses only on DTD and ImageNet by 0.3
+
+points each, with the largest gains on EuroSAT ( +3 .4) and Flowers102 ( +2 .5). On average it improves accuracy by 0.7
+
+points while using fewer parameters. 
+
+Learning curves. Figure 1 tracks train accuracy against the number of queries on Caltech101, OxfordPets, Flow-ers102, and Food101. ZOMP is the highest-accuracy curve on every panel and reaches a strong operating point within Table 6: Sensitivity of ZOMP to the rank schedule and to cross-modal factor sharing. Each row varies a single factor from the default configuration; best and second-best are marked per column. 
+
+Variant Caltech101 OxfordPets Flowers102 Food101 FGVC SUN397 DTD SVHN EuroSAT Resisc45 CLEVR UCF101 ImageNet 
+
+> Average
+
+ZOMP 94.8 ±0.3 93.0 ±0.2 76.5 ±1.3 87.0 ±0.1 28.2 ±0.5 68.4 ±0.7 56.4 ±1.3 51.4 ±6.1 80.5 ±1.8 73.5 ±0.6 35.1 ±2.4 73.6 ±1.5 68.6 ±0.2 68.2 ±0.4 
+
+unlock 10% 94.4 ±0.3 92.9 ±0.2 76.2 ±1.1 87.2 ±0.1 28.2 ±0.7 67.9 ±0.4 56.6 ±1.3 48.8 ±2.7 79.9 ±1.8 73.0 ±1.8 32.6 ±0.8 74.6 ±1.2 68.9 ±0.1 67.8 ±0.3 
+
+unlock 30% 94.6 ±0.2 93.0 ±0.2 74.3 ±1.6 87.1 ±0.2 27.7 ±1.0 68.0 ±0.3 57.1 ±1.4 51.2 ±4.0 78.4 ±3.9 74.0 ±0.4 33.8 ±2.2 73.5 ±1.1 68.8 ±0.2 67.8 ±0.4 
+
+schedule 1→2→4 94.5 ±0.2 92.9 ±0.3 75.2 ±1.3 87.1 ±0.1 27.1 ±1.2 68.0 ±0.3 56.5 ±0.6 51.7 ±2.2 80.4 ±3.4 72.7 ±1.4 34.9 ±1.5 73.4 ±1.2 68.8 ±0.4 67.9 ±0.1 
+
+momentum + clip 94.5 ±0.2 92.8 ±0.6 75.4 ±0.5 87.2 ±0.2 27.7 ±1.1 68.0 ±0.5 57.0 ±1.9 51.8 ±5.8 78.7 ±0.5 73.5 ±1.3 33.9 ±1.4 73.7 ±0.6 68.8 ±0.2 67.9 ±0.3 
+
+Unshared U vℓ , U tℓ 94.2 ±0.4 93.0 ±0.3 74.0 ±1.1 87.0 ±0.2 27.7 ±0.4 68.2 ±0.6 56.7 ±1.1 50.5 ±1.8 77.1 ±5.2 73.1 ±1.1 34.2 ±2.4 73.1 ±0.6 68.9 ±0.2 67.5 ±0.5 1K 2K 3K 4K 5K             
+
+> Number of Queries
+> 55 60 65 70 75 80
+> Train Accuracy (%)
+> Caltech101
+> BAR BlackVIP BPTVLM ZIP ZOMP (ours)
+> 1K 2K 3K 4K 5K
+> Number of Queries
+> 60 65 70 75 80 85
+> OxfordPets
+> BAR BlackVIP BPTVLM ZIP ZOMP (ours)
+> 1K 2K 3K 4K 5K
+> Number of Queries
+> 20 30 40 50 60 70
+> Flowers102
+> BAR BlackVIP BPTVLM ZIP ZOMP (ours)
+> 1K 2K 3K 4K 5K
+> Number of Queries
+> 55 60 65 70 75 80
+> Food101
+> BAR BlackVIP BPTVLM ZIP ZOMP (ours)
+
+Figure 1: Train accuracy versus number of queries on Caltech101, OxfordPets, Flowers102, and Food101. We provide more results on other datasets in Fig. A1 in the Appendix. Table 7: Efficiency comparison, all methods profiled on the same machine and averaged over the 13 datasets. Best and second-best per column; lower is better except FPS and Acc.                                          
+
+> Method Params (k) Queries VRAM (GB) Train (min) Infer (ms/img) FPS GFLOP Acc (%) BAR 37.6 1821 0.36 63.2 43.0 23.8 17.6 56.2 BlackVIP 9.9 2442 0.77 86.5 36.9 27.2 35.2 58.9 BPTVLM 4.0 2492 1.00 64.0 396.4 7.5 490.5 57.5 ZIP 0.4 638 0.95 71.7 487.8 3.7 490.1 62.2 ZOMP (Ours) 46.2 191 0.96 57.7 380.1 7.9 490.5 68.2
+
+the first few hundred queries, well before any baseline, hold-ing that lead for the rest of the budget. BAR, BlackVIP, and BPTVLM converge far more slowly and plateau below both ZIP and ZOMP throughout. 
+
+Efficiency. Table 7 profiles all methods on the same ma-chine, averaged over the 13 datasets. Following ZIP, query ef-ficiency is measured against a target accuracy set per dataset. Over the 5,000 -query budget each method reaches some peak training accuracy, and the target is the smallest of these peaks across all methods. The Queries column reports how many queries each method needs to first reach it. ZOMP reaches this target in the fewest queries despite having the most train-able parameters ( 46 .2k, against ZIP’s 0.4k). This is notable because zeroth-order optimization is expected to worsen as the parameter count grows, and ZIP itself reports that plain ZO prompt tuning becomes slower and less accurate as the number of tunable parameters increases (Park et al. 2025). ZOMP avoids this cost because it does not search the full parameterization all at once. The schedule expands the rank gradually while momentum accumulates a stable descent di-rection before the noisier full-rank phase, so a larger nominal parameter count does not make the optimization harder. In absolute terms 46 .2k is still a small footprint, well under 0.1% 
+
+of the frozen CLIP backbone, so ZOMP stays lightweight even as the most parameter-heavy BP-free method. Its per-image inference cost and memory footprint likewise stay in line with BPTVLM and ZIP rather than scaling with the pa-rameter count; the lower inference cost of BAR and BlackVIP reflects only that they reprogram the image encoder alone and skip the per-call text-encoder forward that BPTVLM, ZIP, and ZOMP all incur. 
+
+Conclusion 
+
+We presented ZOMP, a backpropagation-free method that makes deep multimodal prompt tuning practical under a re-alistic query budget. The core idea is to stop optimizing the prompt matrices directly and instead search a cross-modal low-rank factorization, which ties the vision and text prompts at every layer to a shared low-dimensional factor. On top of this parameterization, gradient-correction momentum stabi-lizes the noisy SPSA estimate and a budget-indexed rank schedule holds the effective search space small early in train-ing and widens it only once a reliable direction has formed. Across 13 vision-language benchmarks, ZOMP reaches the best few-shot accuracy and the fewest queries to target of any BP-free method, and it generalizes better than prior work across base-to-new, cross-dataset transfer, and out-of-distribution settings. A controlled component ablation con-firms that the two training mechanisms are complementary and only effective together. References 
+
+Bossard, L.; Guillaumin, M.; and Van Gool, L. 2014. Food-101: Mining discriminative components with random forests. In European Conference on Computer Vision .Cheng, G.; Han, J.; and Lu, X. 2017. Remote sensing image scene classification: Benchmark and state of the art. Pro-ceedings of the IEEE , 105(10): 1865–1883. Cimpoi, M.; Maji, S.; Kokkinos, I.; Mohamed, S.; and Vedaldi, A. 2014. Describing textures in the wild. In Pro-ceedings of the IEEE Conference on Computer Vision and Pattern Recognition .Covi, E.; Donati, E.; Liang, X.; Kappel, D.; Heidari, H.; Payvand, M.; and Wang, W. 2021. Adaptive extreme edge computing for wearable devices. Frontiers in Neuroscience ,15: 611300. Deng, J.; Dong, W.; Socher, R.; Li, L.-J.; Li, K.; and Fei-Fei, L. 2009. Imagenet: A large-scale hierarchical image database. In Proceedings of the IEEE Conference on Com-puter Vision and Pattern Recognition .Du, Y.; Wei, F.; Zhang, Z.; Shi, M.; Gao, Y.; and Li, G. 2022. Learning to prompt for open-vocabulary object de-tection with vision-language model. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 14084–14093. Fei-Fei, L.; Fergus, R.; and Perona, P. 2004. Learning gen-erative visual models from few training examples: An incre-mental Bayesian approach tested on 101 object categories. In CVPR Workshop on Generative-Model Based Vision .Ghadimi, S.; and Lan, G. 2013. Stochastic first- and zeroth-order methods for nonconvex stochastic programming. SIAM Journal on Optimization , 23(4): 2341–2368. Ghiasvand, S.; Alizadeh, M.; and Pedarsani, R. 2026. pfed-mma: Personalized federated fine-tuning with multi-modal adapter for vision-language models. In International Con-ference on Learning Representations , volume 2026, 76213– 76240. Ghiasvand, S.; Oskouie, H. E.; Alizadeh, M.; and Pedarsani, R. 2026. MMLoP: Multi-Modal Low-Rank Prompting for Efficient Vision-Language Adaptation. arXiv preprint arXiv:2602.21397 .Helber, P.; Bischke, B.; Dengel, A.; and Borth, D. 2019. Eurosat: A novel dataset and deep learning benchmark for land use and land cover classification. IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing .Hendrycks, D.; Basart, S.; Mu, N.; Kadavath, S.; Wang, F.; Dorundo, E.; Desai, R.; Zhu, T.; Parajuli, S.; Guo, M.; et al. 2021a. The many faces of robustness: A critical analysis of out-of-distribution generalization. In Proceedings of the IEEE/CVF International Conference on Computer Vision .Hendrycks, D.; Zhao, K.; Basart, S.; Steinhardt, J.; and Song, D. 2021b. Natural adversarial examples. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition .Hu, E. J.; Shen, Y.; Wallis, P.; Allen-Zhu, Z.; Li, Y.; Wang, S.; and Chen, W. 2021. LoRA: Low-rank adaptation of large language models. arXiv preprint arXiv:2106.09685 .Johnson, J.; Hariharan, B.; Van Der Maaten, L.; Fei-Fei, L.; Zitnick, C. L.; and Girshick, R. 2017. CLEVR: A diagnos-tic dataset for compositional language and elementary visual reasoning. In Proceedings of the IEEE Conference on Com-puter Vision and Pattern Recognition .Khattak, M. U.; Rasheed, H.; Maaz, M.; Khan, S.; and Khan, F. S. 2023. MaPLe: Multi-modal prompt learning. In Pro-ceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition .Khezresmaeilzadeh, T.; Razmara, P.; Azizi, S.; Sadeghi, M. E.; and Potraghloo, E. B. 2025a. Vista: Vision-language inference for training-free stock time-series analysis. arXiv preprint arXiv:2505.18570 .Khezresmaeilzadeh, T.; Razmara, P.; Sadeghi, M. E.; Azizi, S.; and Potraghloo, E. B. 2025b. Morfi: Mutimodal zero-shot reasoning for financial time-series inference. In 2025 IEEE/CVF International Conference on Computer Vision Workshops (ICCVW) , 4295–4304. IEEE. Li, Z.; Li, Y.; Li, Q.; Wang, P.; Guo, D.; Lu, L.; Jin, D.; Zhang, Y.; and Hong, Q. 2023. LViT: Language meets vision trans-former in medical image segmentation. IEEE Transactions on Medical Imaging , 43(1): 96–107. Maji, S.; Rahtu, E.; Kannala, J.; Blaschko, M.; and Vedaldi, A. 2013. Fine-grained visual classification of aircraft. arXiv preprint arXiv:1306.5151 .Netzer, Y.; Wang, T.; Coates, A.; Bissacco, A.; Wu, B.; and Ng, A. Y. 2011. Reading digits in natural images with un-supervised feature learning. In NeurIPS Workshop on Deep Learning and Unsupervised Feature Learning .Nilsback, M.-E.; and Zisserman, A. 2008. Automated flower classification over a large number of classes. In Indian Con-ference on Computer Vision, Graphics & Image Processing .Oh, C.; Hwang, H.; Lee, H.-y.; Lim, Y.; Jung, G.; Jung, J.; Choi, H.; and Song, K. 2023. BlackVIP: Black-box visual prompting for robust transfer learning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 24224–24235. Park, S.; Jeong, J.; Kim, Y.; Lee, J.; and Lee, N. 2025. ZIP: An efficient zeroth-order prompt tuning for black-box vision-language models. In International Conference on Learning Representations .Parkhi, O. M.; Vedaldi, A.; Zisserman, A.; and Jawahar, C. 2012. Cats and dogs. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition .Radford, A.; Kim, J. W.; Hallacy, C.; Ramesh, A.; Goh, G.; Agarwal, S.; Sastry, G.; Askell, A.; Mishkin, P.; Clark, J.; et al. 2021. Learning transferable visual models from natural language supervision. In International Conference on Machine Learning , 8748–8763. PMLR. Recht, B.; Roelofs, R.; Schmidt, L.; and Shankar, V. 2019. Do imagenet classifiers generalize to imagenet? In International Conference on Machine Learning .Soomro, K.; Zamir, A. R.; and Shah, M. 2012. UCF101: A dataset of 101 human actions classes from videos in the wild. 
+
+arXiv preprint arXiv:1212.0402 .Spall, J. C. 1992. Multivariate stochastic approximation using a simultaneous perturbation gradient approximation. 
+
+IEEE Transactions on Automatic Control , 37(3): 332–341. Spall, J. C. 1997. A one-measurement form of simultaneous perturbation stochastic approximation. Automatica , 33(1): 109–112. Sun, T.; He, Z.; Qian, H.; Zhou, Y.; Huang, X.-J.; and Qiu, X. 2022a. BBTv2: Towards a gradient-free future with large language models. In Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing , 3916– 3930. Sun, T.; Shao, Y.; Qian, H.; Huang, X.; and Qiu, X. 2022b. Black-box tuning for language-model-as-a-service. In Inter-national Conference on Machine Learning , 20841–20855. PMLR. Tekin, N.; Aris, A.; Acar, A.; Uluagac, S.; and Gungor, V. C. 2024. A review of on-device machine learning for IoT: An energy perspective. Ad Hoc Networks , 153: 103348. Tsai, Y.-Y.; Chen, P.-Y.; and Ho, T.-Y. 2020. Transfer learn-ing without knowing: Reprogramming black-box machine learning models with scarce data and limited resources. In 
+
+International Conference on Machine Learning , 9614–9624. PMLR. Wang, H.; Ge, S.; Lipton, Z.; and Xing, E. P. 2019. Learning robust global representations by penalizing local predictive power. In Advances in Neural Information Processing Sys-tems .Xian, Y.; Schiele, B.; and Akata, Z. 2017. Zero-shot learning: The good, the bad and the ugly. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition .Xiao, J.; Hays, J.; Ehinger, K. A.; Oliva, A.; and Torralba, A. 2010. Sun database: Large-scale scene recognition from abbey to zoo. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition .Xu, M.; Zhang, Z.; Wei, F.; Lin, Y.; Cao, Y.; Hu, H.; and Bai, X. 2022. A simple baseline for open-vocabulary semantic segmentation with pre-trained vision-language model. In Eu-ropean Conference on Computer Vision , 736–753. Springer. Yu, L.; Chen, Q.; Lin, J.; and He, L. 2023. Black-box prompt tuning for vision-language model as a service. In Proceed-ings of the Thirty-Second International Joint Conference on Artificial Intelligence , 1686–1694. Zhao, S.; Zhang, Z.; Schulter, S.; Zhao, L.; Vijay Kumar, B.; Stathopoulos, A.; Chandraker, M.; and Metaxas, D. N. 2022. Exploiting unlabeled data with vision and language models for object detection. In European Conference on Computer Vision , 159–175. Springer. Zhou, K.; Yang, J.; Loy, C. C.; and Liu, Z. 2022a. Conditional prompt learning for vision-language models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pat-tern Recognition .Zhou, K.; Yang, J.; Loy, C. C.; and Liu, Z. 2022b. Learning to prompt for vision-language models. International Journal of Computer Vision .Experimental Details 
+
+This appendix reports the full training configuration for ZOMP and every baseline. All methods share the same back-bone, data splits, query budget, and query accounting, and differ only in what is optimized and how. Table A2 summa-rizes the key settings. 
+
+Common Setup 
+
+Every method uses the same frozen CLIP ViT-B/16 back-bone and is evaluated on the same datasets under the stan-dardized few-shot splits of Zhou et al. (2022b,a), with 16 shots per class and all results averaged over three random seeds. Images are resized to 224 ×224 with bicubic interpola-tion and CLIP normalization, with random-resized-crop and random-flip augmentation during training. The mini-batch size is 128 for both training and evaluation. All methods are backpropagation-free and are trained under an identical budget of 5,000 queries per dataset, where one query is a single forward pass through the frozen model. Each baseline is run with its official implementation under the zeroth-order training protocol of Park et al. (2025), so the only differences between methods are the parameterization and the optimizer. 
+
+Dataset Details 
+
+We use 13 image classification datasets for the few-shot, base-to-new, and cross-dataset transfer settings, together with 4 ImageNet distribution-shift variants for out-of-distribution generalization. The 13 datasets span a broad range of recog-nition problems, from generic object recognition (ImageNet, Caltech101) through fine-grained categories (OxfordPets, Flowers102, Food101, FGVCAircraft), scenes (SUN397, Re-sisc45), textures (DTD), satellite imagery (EuroSAT), dig-its (SVHN), compositional counting (CLEVR), and actions (UCF101). This mix deliberately includes several domains that are far from CLIP’s natural-image pretraining, where zero-shot accuracy is weakest and the room for prompt tuning is largest. For every dataset we draw the few-shot examples only from its training split and evaluate on the standard test split. Table A1 lists the split sizes, the recognition type, and the manual prompt template used for each dataset, matching the templates in our zero-shot reference. 
+
+Hyper-parameters 
+
+ZOMP inserts low-rank multimodal prompts of T =4 tokens into the first L=9 transformer layers of both encoders, at rank r=4 , with a factor U (l) shared across the two modali-ties. The shared factors are initialized from N (0 , 0.05 2) and the modality-specific factors are set to zero, so the model starts at zero-shot CLIP, giving 46 .2k trainable parame-ters. Zeroth-order gradients are noisy, so like all zeroth-order baselines we average N =5 two-sided SPSA esti-mates per step, following Oh et al. (2023). The pertur-bation directions are segmented-uniform, and the gain se-quences ck = c/k γ and ηk = a/ (o + k)α use the constants 
+
+(o, c, a, α, γ ) = (1 .0, 0.01 , 0.01 , 0.4, 0.1) that Park et al. (2025) report for this backbone, which we adopt unchanged rather than re-tuning per method. Updates use SPSA-GC momentum with coefficient β=0 .8, and we do not apply the intrinsic-dimensional gradient clipping of Park et al. (2025). The one component we tune is the rank schedule, and the sensitivity study in the main text shows the method is robust to its exact timing and shape. Our default perturbs only the rank-1 subspace for the first 20% of the budget and the full rank r=4 thereafter. Training minimizes the cross-entropy between the prompted image-text similarities and the labels, all parameters are stored and optimized in fp32 , and the shared settings above (batch size, shots, budget) are identical across methods. 
+
+Baseline Details 
+
+Zero-shot CLIP. CLIP (Radford et al. 2021) is a vision-language model trained to align images and text from large-scale web supervision, and it classifies without any task-specific training by scoring each image against manual class templates such as “a photo of a [CLASS].” It has no trainable parameters, serves as the frozen backbone that every method here adapts, and provides the training-free reference against which the learned prompts are measured. 
+
+BAR. (Tsai, Chen, and Ho 2020) adapts the model by reprogramming the input image rather than the prompt. It places the resized image inside a learnable border, or frame, and optimizes the pixels of that frame with a zeroth-order method so that the reprogrammed image elicits the desired prediction. The method was introduced for transferring a pretrained model to a new domain, and the frame size follows the input resolution. We adopt the setting of Oh et al. (2023), which embeds a 194 ×194 image inside the frame to avoid the heavy padding that degrades thin inputs. BAR only touches the image side and never modifies the text encoder. 
+
+BlackVIP. (Oh et al. 2023) also operates in image space but produces an input-conditional visual prompt. Instead of a single fixed prompt, a small coordinator network maps each image to its own prompt, so the perturbation adapts to the content of the input. Optimization uses SPSA with gradient correction, which folds a Nesterov-style momentum term into the SPSA estimate. Because the prompt is generated by a network rather than stored directly, BlackVIP adapts flexibly across images, at the cost of the extra parameters and forward cost of the coordinator. 
+
+BPT-VLM. (Yu et al. 2023) departs from SPSA and in-stead searches with an evolutionary strategy, CMA-ES, us-ing a population of 15 candidates and an initial step size of 
+
+σ=1 . Unlike the image-space methods, it attaches learnable prompts to both the text and the image encoder, but to keep the search tractable it optimizes them inside a low-dimensional intrinsic subspace, projecting a 2,000 -dimensional latent code per modality up to the prompt space with a fixed random matrix. This trades some expressiveness for a much smaller effective search dimension, though the prompts remain shal-low, at a single injection point per encoder. 
+
+Per-Dataset Learning Curves 
+
+Figure A1 extends the learning-curve analysis of the main text to the remaining nine datasets, tracking train accuracy against the number of queries for every method. The pattern from the main text holds across domains. ZOMP is the highest curve on every panel and reaches a strong operating point Table A1: The datasets used in our experiments, with their split sizes, recognition type, and the manual prompt template used to form the class text. The upper block lists the 13 classification datasets and the lower block the 4 ImageNet out-of-distribution variants, which are evaluated test-only using the ImageNet-trained prompt. Dataset #Train #Val #Test Recognition type Manual prompt ImageNet 1.28M N/A 50,000 Generic object “a photo of a [CLASS].” Caltech101 4,128 1,649 2,465 Generic object “a photo of a [CLASS].” OxfordPets 2,944 736 3,669 Fine-grained “a photo of a [CLASS], a type of pet.” Flowers102 4,093 1,633 2,463 Fine-grained “a photo of a [CLASS], a type of flower.” Food101 50,500 20,200 30,300 Fine-grained “a photo of [CLASS], a type of food.” FGVCAircraft 3,334 3,333 3,333 Fine-grained “a photo of a [CLASS], a type of aircraft.” SUN397 15,880 3,970 19,850 Scene “a photo of a [CLASS].” DTD 2,820 1,128 1,692 Texture “[CLASS] texture.” SVHN 73,257 26,032 26,032 Digit “This is a photo of a [CLASS].” EuroSAT 13,500 5,400 8,100 Satellite “a centered satellite photo of [CLASS].” Resisc45 6,300 2,520 7,560 Scene “This is a photo of a [CLASS].” CLEVR 70,000 15,000 15,000 Counting “This is a photo of [CLASS] objects.” UCF101 7,639 1,898 3,783 Action “a photo of a person doing [CLASS].” ImageNetV2 N/A N/A 10,000 Generic object “a photo of a [CLASS].” ImageNet-Sketch N/A N/A 50,889 Sketch “a photo of a [CLASS].” ImageNet-A N/A N/A 7,500 Adversarially filtered “a photo of a [CLASS].” ImageNet-R N/A N/A 30,000 Renditions “a photo of a [CLASS].” Table A2: Training configuration for ZOMP and the base-lines. All methods use a frozen CLIP ViT-B/16, mini-batch size 128 , 16 shots, and a 5,000 -query budget, averaged over three seeds. SPSA-based methods share the gain constants 
+
+(o, c, a, α, γ ) = (1 .0, 0.01 , 0.01 , 0.4, 0.1) and momentum 
+
+β=0 .8, except BAR, which uses a two-stage learning rate 
+
+{10 .0, 0.1}.Method Optimizer Samples Params What is optimized BAR SPSA-GC N =5 37 .6k input frame BlackVIP SPSA-GC N =5 9.9k coordinator net → image prompt BPT-VLM CMA-ES pop. 15 4.0k intrinsic-subspace prompts, both encoders ZIP SPSA-clip N =5 0.4k shallow text prompt, low-rank subspace ZOMP (ours) SPSA-GC N =5 46 .2k deep dual-encoder low-rank prompts, rank schedule within the first few hundred queries, well before any baseline, then holds that lead for the rest of the budget. The margin is widest on the specialized, non-natural-image datasets such as EuroSAT, SVHN, Resisc45, and CLEVR, where ZOMP both ends higher and climbs far faster over the early queries, which is the regime that matters most under a tight budget. BAR, BlackVIP, and BPT-VLM converge more slowly and plateau below ZIP and ZOMP, with BPT-VLM the least stable across seeds. ZIP is the strongest baseline but stays below ZOMP throughout. 1K 2K 3K 4K 5K 
+
+Number of Queries 
+
+10 15 20 25 
+
+> Train Accuracy (%)
+
+FGVCAircraft 
+
+BAR BlackVIP BPTVLM ZIP ZOMP (ours) 
+
+1K 2K 3K 4K 5K 
+
+Number of Queries 
+
+35 40 45 50 55 60 
+
+SUN397 
+
+BAR BlackVIP BPTVLM ZIP ZOMP (ours) 
+
+1K 2K 3K 4K 5K 
+
+Number of Queries 
+
+20 25 30 35 40 45 50 55 60 
+
+DTD 
+
+BAR BlackVIP BPTVLM ZIP ZOMP (ours) 
+
+1K 2K 3K 4K 5K 
+
+Number of Queries 
+
+10.0 12.5 15.0 17.5 20.0 22.5 25.0 27.5 30.0 
+
+> Train Accuracy (%)
+
+SVHN 
+
+BAR BlackVIP BPTVLM ZIP ZOMP (ours) 
+
+1K 2K 3K 4K 5K 
+
+Number of Queries 
+
+20 30 40 50 60 70 80 
+
+EuroSAT 
+
+BAR BlackVIP BPTVLM ZIP ZOMP (ours) 
+
+1K 2K 3K 4K 5K 
+
+Number of Queries 
+
+30 40 50 60 70 
+
+Resisc45 
+
+BAR BlackVIP BPTVLM ZIP ZOMP (ours) 
+
+1K 2K 3K 4K 5K 
+
+Number of Queries 
+
+10 15 20 25 30 35 
+
+> Train Accuracy (%)
+
+CLEVR 
+
+BAR BlackVIP BPTVLM ZIP ZOMP (ours) 
+
+1K 2K 3K 4K 5K 
+
+Number of Queries 
+
+30 35 40 45 50 55 60 65 
+
+UCF101 
+
+BAR BlackVIP BPTVLM ZIP ZOMP (ours) 
+
+1K 2K 3K 4K 5K 
+
+Number of Queries 
+
+35 40 45 50 55 60 
+
+ImageNet 
+
+BAR BlackVIP BPTVLM ZIP ZOMP (ours) Figure A1: Train accuracy versus number of queries on the nine datasets not shown in the main text. Curves are the mean over three seeds and the shaded band spans the seed minimum and maximum.
