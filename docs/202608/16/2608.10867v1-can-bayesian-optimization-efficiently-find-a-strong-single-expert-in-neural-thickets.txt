@@ -1,0 +1,227 @@
+Title: Can Bayesian Optimization Efficiently Find a Strong Single Expert in Neural Thickets?
+
+URL Source: https://arxiv.org/pdf/2608.10867v1
+
+Published Time: Wed, 12 Aug 2026 01:03:57 GMT
+
+Number of Pages: 6
+
+Markdown Content:
+# Can Bayesian Optimization Efficiently Find a Strong Single Expert in Neural Thickets? 
+
+Nigel Bastian Cendra 1,* Abdelhamid Ezzerg 1 Fernando Julio Cendra 2 Jeremias Knoblauch 1 Jakob Zeitler 3,* 
+
+Abstract 
+
+Gradient-free post-training has emerged as a compelling alternative to gradient-based optimization for large language models (LLMs), but existing approaches remain costly. We ask whether structured search can identify a strong single expert under a modest evaluation budget. Motivated by evidence that useful weight updates lie in low-dimensional subspaces, we apply Bayesian optimization within a random linear embedding of weight space. Our method requires no backpropagation and uses a Gaussian process surrogate to guide candidate evaluations efficiently. Across several reasoning benchmarks with Qwen2.5-Instruct models from 0.5B to 3B parameters, Bayesian optimization using five times less candidate evaluations matches or exceeds RandOpt. These results show that surrogate-guided search can substantially reduce the evaluation cost of gradient-free post-training while producing stronger deployable single experts. 
+
+## 1 Introduction 
+
+Figure 1: Small models require intelligent search, whereas large models contain many promising solutions for random search. Figure adapted from [1]. Post-training of large language models is dominated by gradient-based methods such as PPO [2] and GRPO [3], but a growing line of work shows that gradient-free alternatives are competitive at scale [4, 5, 1]. Neural Thickets [1] offers a structural explanation: well-pretrained models are surrounded by a dense population of task-specialist weight perturbations (Fig. 1), therefore sampling random Gaussian perturbations, scoring them on a selection set, keeping the top K, and ensembling their predictions by majority vote (RandOpt) can match standard post-training methods without a single backward pass. A complementary perspective is that useful weight updates con-centrate in a subspace far smaller than the parameter count [6, 7, 8], and when the effective dimension is low, scalar rewards suffice to guide search [9]. How small depends sharply on the training sig-nal: TinyLoRA [10] shows that reward-driven updates need 100 –
+
+1000 × fewer parameters than supervised ones, reaching 91 % on GSM8K using Qwen2.5 with only 13 trained parameters. This structure admits two complementary levers: making each candidate cheaper to generate, as in EGGROLL [5], whose low-rank candidate perturbations (with full-rank aggregate up-dates) enable Evolutionary Strategies at population sizes in the hundreds of thousands; or making the search itself smaller, so that far fewer candidates are needed. We take the second, restricting search to a low-dimensional subspace and prioritizing sample efficiency over population-scale efficiency. Even where random sampling succeeds, however, it is expensive along two axes. (1) Search cost : each candidate is scored by generating a full solution for every item in the selection set, so a population of N candidates costs N × |D sel | generations, each of which is hundreds of autoregressive decoding steps. RandOpt [1] uses populations of several thousand: at N = 5 ,000 
+
+on a 200 -item selection set this is 10 6 generations per run. This cost cannot be escaped by simply sampling less, since the best of N random draws improves slowly in N ; at modest budgets outcomes become high-variance across runs rather than reliably good. (2) Deployment cost : the strongest results rely on majority voting over K = 50 perturbed models, so each test query costs 50 generations and serving requires K distinct weight configurations rather than one. The search cost is paid once; this one is paid on every query, for the lifetime of the model. Falling back to a single model is expensive in accuracy: on Qwen2.5-1.5B-Instruct, RandOpt reports 59 .7 at K = 50 against 48 .5 at K = 1 MATH-500, and 76 .4 against 67 .9 on GSM8K, drops of 11 .2 and 8.5 points [1]. The question is therefore one of efficiency, not feasibility: 
+
+Research Question. Given a fixed and modest evaluation budget and limited selection data, can a structured gradient-free method find a stronger single expert than random sampling? Bayesian optimization (BO) is the natural candidate for this setting: it is designed for expensive, noisy, low-dimensional black-box problems, using a Gaussian process (GP) surrogate to decide where to evaluate next, so that each costly evaluation        
+
+> 1University College London 2Institut Polytechnique de Paris 3University of Oxford *Corresponding authors.
+
+1arXiv:2608.10867v1 [cs.LG] 11 Aug 2026 is maximally informative [11]. The surrogate also offers something sampling cannot: a denoised estimate of each candidate’s true fitness via the posterior mean, which mitigates the winner’s curse inherent in selecting candidates by their raw observed rewards. We therefore run BO within a random linear embedding of weight space [12], keeping the entire pipeline free of backpropagation, and treat the gap between BO and random search at matched budget as a measure of what the surrogate buys. In preliminary experiments on Countdown [13], GSM8k [14], and MATH500 [15] with Qwen-2.5-Instruct [16] 0.5B, 1.5B, and 3B models, BO with 200 candidate evaluations matches or exceeds RandOpt with 1000 at K = 1 , and reaches selection set rewards that random sampling never attains, though only part of this gain transfers: beyond a threshold, further selection reward reflects noise in the selection set rather than better models. 
+
+## 2 Background 
+
+RandOpt. Let θ0 ∈ RD denote pretrained weights. RandOpt draws P candidate perturbations ϵp ∼ N (0 , I D ), forms 
+
+θp = θ0 + σϵ p, scores each by its reward on a selection set Dsel , and retains the top K. At inference the K models each generate an answer and the majority vote is returned. No gradients are computed at any stage: the entire cost is P × |D sel |
+
+generations for search, and K generations per query at deployment. Neural Thickets [1] shows this suffices to match gradient-based post-training for sufficiently large models, because task-specialist perturbations are dense around θ0.
+
+Evolutionary Strategy. RandOpt shares its sampling step with evolution strategies (ES) [17]: both draw isotropic Gaussian perturbations of θ0 and score them. They differ in what they do with the scores, ES aggregates all of them into a gradient estimate and takes a step, while RandOpt selects the top K and keeps them as models. 
+
+Bayesian Optimization. Bayesian Optimization (BO) targets expensive, noisy black-box objectives. It fits a probabilistic surrogate ( e.g . Gaussian Process) to the evaluations seen so far and chooses the next point by maximizing an acquisition function that trades predicted value against uncertainty; in high dimensions this is typically done within a low-dimensional linear subspace [12]. Two properties matter here. First, each evaluation is chosen using all previous ones, so the budget is spent where it is most informative, this is the sample efficiency we are after. Second, the surrogate supplies a posterior mean at every point: an estimate of true reward that differs from the observed score. Selecting a final candidate by posterior mean rather than by best observed reward which in principle shrinks the estimates of candidates whose high scores are partly luck. 
+
+## 3 Method 
+
+RandOpt samples ϵp isotropically in RD . We instead search within a random linear embedding: construct A = [ e1, . . . , e d] ∈
+
+RD×d of d Gaussian directions spans a d-dimensional subspace of weight space, and a candidate is specified by its coefficients in that subspace as illustrated in Fig. 2. A candidate is parametrized by a coefficient vector α ∈ Rd and a scale σ ∈ R>0:
+
+θ′ = θ0 + σ · √D · Aα 
+
+∥Aα ∥ .
+
+The perturbation therefore has norm ∥θ′ − θ0∥ = σ√D, matching the expected norm of a RandOpt perturbation σϵ ∼N (0 , σ 2ID ), for which E∥σϵ ∥2 = Dσ 2. At equal σ the two methods move the same distance from θ0, so our comparisons are matched in perturbation scale as well as in evaluation budget. The normalization decouples the two search variables: α
+
+determines only the direction of the perturbation (it is invariant to rescaling of α), while σ alone sets its magnitude. The search space is therefore (d+1) -dimensional, with d = 64 and σ searched on a log scale, regardless of model size D.perturbed model ′                            
+
+> generate over sel (200 items)
+> verifier scalar reward r
+> GP posterior
+> acquisition function
+> P× | sel |generations
+> fit a GP over ( ,), maximise logEI
+> next (,)
+> 0
+> D
+> task-expert perturbations
+> darker = stronger
+> searched slice: span( A), d= 64
+> ′=0+DAA
+> ′
+> r
+> propose the next (,)and repeat (200 evaluations)
+> Search space Evaluation Surrogate
+
+Figure 2: Overview of the method. Open circles are evaluated candidates, confined to span (A) at distance σ√D from θ0;small dots are task-expert perturbations. The GP is fitted to observed rewards and proposes the next (α, σ ).Each candidate is scored by its reward on a selection set Dsel (accuracy under the task’s verifier). We compare three methods under the same evaluation budget N : BO , which fits a GP surrogate to observed scores and proposes the next (α, σ ) by 2maximizing an acquisition function; random search, which draws (α, σ ) from a fixed prior in the same subspace, isolating the effect of the surrogate; and RandOpt [1], which samples full-dimensional scalar Gaussian perturbations of θ as in prior work and serves as an external baseline. The final model is the candidate with the highest observed reward or the highest GP posterior mean, i.e . the surrogate’s estimate of true reward, which should penalizes candidates whose high scores are due to high variability; we compare both selection rules. Held-out test data is evaluated exactly once, by the final selected model, and all methods share prompts, parser, and evaluation stack. 
+
+## 4 Preliminary Results 
+
+Sample efficiency at K=1 . With a 5× smaller budget, BO matches or beats RandOpt-1000 at K=1 in most setting (Tab. 1): Countdown-0.5B ( 9.34 vs. 6.81 ), Countdown-1.5B ( 15 .05 vs. 14 .60 ), Countdown-3B ( 19 .71 vs. 18 .89 ), GSM8k-1.5B ( 67 .78 
+
+vs. 66 .13 ) and MATH500-1.5B ( 40 .43 vs. 39 .80 ), and is at parity on GSM8k-0.5B ( 43 .92 vs. 43 .99 ). The size of the advantage is not arbitrary: it tracks the headroom the neighbourhood offers to any method, measured as the best test accuracy reached by random search or RandOpt minus the base model’s. Where the base model is weakest and good perturbations are rare, as on Countdown-0.5B, BO gains most ( +2 .53 over a headroom of 6.46 ); where little is available to any method, as on GSM8k-0.5B and MATH500, it gains nothing. BO does not create gains that sampling cannot reach; it extracts available gains at a smaller budget. 
+
+MATH500: the sign reverses. BO attains the highest selection reward at both model sizes ( 44 .55 and 63 .75 , Tab. 1), but test accuracy moves in the opposite direction. At 0.5B it is the lowest of any method ( 28 .63 ), and at both sizes BO falls below the base model ( 30 .67 and 41 .00 ). At 1.5B the two methods with the highest selection reward, BO ( 63 .75 ) and RandOpt-1000 (63 .30 ), produce the two lowest test accuracies ( 40 .43 and 39 .80 ), while the two with the lowest selection reward, random search and RandOpt-200 (both 61 .80 ), produce the two highest ( 42 .23 and 41 .80 ). Neither regime offers much headroom, as on GSM8k-0.5B, where a five point selection gain produced none at test. Where the neighbourhood contains no genuinely better model, selection reward can still be raised by several points, but those gains are fit to Dsel rather than to the task, and the more effective the search, the more it overfits. 
+
+Same subspace, different search. Within a fixed basis, BO and random search differ only in how the next candidate is chosen. BO reaches higher selection reward in all seven settings (Fig. 4), by 1.6 to 9.97 points, and higher test accuracy at 
+
+K=1 in five of seven; the exceptions are the two MATH500 settings discussed above. The gains we report are therefore attributable to the surrogate rather than to the dimensionality reduction: at matched budget, random search in the basis does not outperform full-dimensional RandOpt sampling, so the low-dimensional parametrization is a concession to tractability rather than a better place to sample. What we can claim is that BO exploits the chosen subspace efficiently. What we cannot claim is how much the choice costs: every optimum we report is by construction contained in a single 64 -dimensional slice, and whether a larger or better-aligned basis raises the ceiling and whether BO’s advantage survives there, is untested. 
+
+Selection reward stops resolving above a threshold. BO reaches selection set rewards that random sampling never attains (Tab. 1), but these gains transfer only in part. Evaluating all 200 candidates from a GSM8k-1.5B run on a validation set and the test set (Fig. 3) shows why. Ranked from worst to best by selection reward, all three curves rise together over the lower three quarters of the range: the selection objective is informative there, and optimising it improves held out accuracy. Above roughly rank 75 , at a selection reward near 80 %, the curves separate. Selection reward continues climbing to 88 %while validation and test accuracy stay flat at approximately 79 % and 68 %. The final eight points of selection reward buy no measurable improvement on either held out set. 125 50 75 100 125 150 175 200 
+
+> Candidate rank by selection reward (worst to best)
+> 55 60 65 70 75 80 85
+> Reward (%)
+> Selection (train) Validation Test
+
+Figure 3: All 200 candidates from a GSM8k in Qwen2.5-Instruct-1.5B run, ranked by selection reward in de-scending order, evaluated on the selection set ( 200 ), val-idation and test; all three are accuracy. Two features identify the cause. Validation and test flatten at the same rank and remain locked together, so the plateau reflects the selection set rather than noise in a single evaluation. And while test sits a constant ten points below validation, reflecting the diffi-culty difference between the splits, the gap between selection and validation widens from about one point at the worst candidates to eight at the best. Since both are drawn from the same pool, a gap that grows toward the selected extreme is selection bias: the top scores are inflated by favourable draws on Dsel .Both interventions act on this quantity. Enlarging Dsel from 200 
+
+to 1000 raises the worst run from around 68 .2% to 70 .6% and the best from 71 .0% to 73 .5% (Fig. 5b), and a noise aware variant com-bining qLogNEI with posterior-mean selection raises the worst of nine runs to 71 % at no cost to the best (Fig. 5c). We do not sepa-rate the contributions of the acquisition function and the selection rule, further ablations are required to resolve its contributions. 
+
+Majority voting ensembles. Table 1 shows that at K=20 BO matches the alternatives at matched budget on every setting; on Countdown-1.5B its mean lies well within one standard deviation of both random search and RandOpt-200. The one clear deficit is against RandOpt-1000, which uses five times the search budget, suggesting that ensemble quality continues to benefit from a broader pool of candidates in a way that a 3concentrated search does not supply. Selecting the K members jointly from the GP, trading individual quality for diversity, is a natural next step. 0 50 100 150 200 
+
+> Selection evaluations
+> 12.5 15.0 17.5 20.0 22.5 25.0 27.5
+> Best-so-far selection reward (%)  BO random
+
+(a) Countdown 0 50 100 150 200  
+
+> Selection evaluations
+> 67.5 70.0 72.5 75.0 77.5 80.0 82.5 85.0
+> Best-so-far selection reward (%)  BO random
+
+(b) GSM8k 0 50 100 150 200  
+
+> Selection evaluations
+> 56 58 60 62 64
+> Best-so-far selection reward (%)
+> BO random
+
+(c) MATH500 
+
+Figure 4: Best-so-far selection rewards for the Qwen2.5-Instruct-1.5B model and its standard deviation. BO random 64 65 66 67 68 69 70 71 
+
+> Test accuracy (K=1, %)
+
+(a) Selection size 200 BO random 69 70 71 72 73  
+
+> Test accuracy (K=1, %)
+
+(b) Selection size 1000 BO random 62 64 66 68 70 72  
+
+> Test accuracy (K=1, %)
+
+(c) 200, qLogNEI [18] + posterior mean 
+
+Figure 5: (GSM8K) Comparison of selection strategies and selection sizes. Evaluated on 9 runs and smaller val set. Method Selection reward (%) Test 
+
+K=1 (%) Test 
+
+K=20 (%) Base model 12.53 15.54 –BO best run 42.18 34.45 57.80 
+
+BO second-best run 32.16 21.25 55.65 All 10 BO runs ( ± SD) 32 .34 ± 3.31 19 .71 ± 4.24 50 .39 ± 2.45 
+
+Table 2: Base model and BO results for Qwen2.5-Instruct-3B across 5
+
+basis seeds × 2 BO seeds. 
+
+Evidence of a higher ceiling. Table 2 shows that in one basis and BO seed combination at Qwen2.5-Instruct-3B, BO located a region with top selection rewards of 42 .18 %, well above the 
+
+32 .16 % reached by the next best run, and its best candidate reached 34 .45 % test accuracy at K=1 
+
+against 21 .25 % for that run and 19 .71 % ± 4.24 %across all ten. RandOpt never produced a candi-date of this quality. Selection reward tracked test accuracy correctly here: a ten point gap in selec-tion reward between the two runs produced a thirteen point gap at test. At K=20 the same run leads by only 2.15 %, so the advantage is concentrated in a single candidate rather than spread across the surrounding set. We did not recover this region in later runs, including with the same basis, so the solution is reachable within a subspace BO searches repeatedly but is found only occasionally. This places the difficulty in locating good regions rather than in ranking candidates within one, and suggests run-to-run variance is dominated by which region a run settles in. 
+
+## 5 Discussion and Planned Experiments 
+
+Why BO’s gains transfer imperfectly. The selection objective is informative over most of its range and stops being so near the top. Ranking all 200 candidates of a GSM8k in Qwen2.5-Instruct-1.5B run by selection reward (Fig. 3), selection, validation and test accuracy rise together over the lower three quarters, then separate above rank ∼ 75 : selection reward climbs a further eight points while validation and test stay flat. Validation and test flatten at the same rank and remain locked together, so the plateau is a property of the selection set rather than noise in a single evaluation, while the gap between selection and validation, drawn from the same pool, widens toward the selected extreme. BO’s gains are therefore real where the signal resolves and inflated where it does not. 
+
+Planned experiments. (i) Scaling to Qwen2.5-Instruct-3B with a larger budget ( N = 500 rather than 200 ). Raising the population increases selection reward in every setting we have run, but improves test accuracy only where the neighbourhood still offers headroom, so the value of additional search budget is not constant across model scales. Full results are pending. (ii) A selection-data sweep ( |D sel | = 200 to 1,000 ) with the test set fixed, to test whether the saturation threshold moves with resolution as predicted. 4Task Model size Method Budget Selection reward (%) Test K=1 (%) Test K=20 (%) Countdown 0.5B Base model – 4.47 0.35 –0.5B Random search 200 9.16 ± 1.31 4.34 ± 2.35 7.89 ± 0.81 
+
+0.5B RandOpt 200 9.22 ± 0.84 5.58 ± 1.58 8.10 ± 0.22 
+
+0.5B RandOpt 1000 13 .16 ± 1.46 6.81 ± 0.97 10 .46 ± 0.56 
+
+0.5B BO (ours) 200 17 .12 ± 1.05 9.34 ± 1.15 11 .11 ± 0.28 
+
+1.5B Base model – 10 .68 12 .20 –1.5B Random search 200 20 .21 ± 0.56 13 .16 ± 1.10 31 .61 ± 1.15 
+
+1.5B RandOpt 200 22 .58 ± 2.00 14 .03 ± 1.91 32 .05 ± 1.96 
+
+1.5B RandOpt 1000 24 .29 ± 1.27 14 .60 ± 2.24 36 .02 ± 0.88 
+
+1.5B BO (ours) 200 26 .27 ± 2.28 15 .05 ± 1.86 31 .64 ± 2.74 
+
+3B Base model – 12 .53 15 .54 –3B Random search 200 22 .37 ± 1.02 15 .83 ± 0.69 46 .70 ± 1.41 
+
+3B RandOpt 200 23 .04 ± 1.99 16 .42 ± 3.93 46 .59 ± 1.81 
+
+3B RandOpt 1000 26 .20 ± 1.05 18 .89 ± 2.93 50 .12 ± 0.54 
+
+3B BO (ours) 200 32 .34 ± 3.31 19 .71 ± 4.24 50 .39 ± 2.45 
+
+> GSM8k
+
+0.5B Base model – 57 .10 43 .80 –0.5B Random search 200 60 .60 ± 0.71 43 .67 ± 0.43 46 .96 ± 0.41 
+
+0.5B RandOpt 200 60 .20 ± 0.76 44 .28 ± 0.97 46 .50 ± 0.51 
+
+0.5B RandOpt 1000 61 .40 ± 0.55 43 .99 ± 0.58 47 .13 ± 0.42 
+
+0.5B BO (ours) 200 62 .20 ± 1.27 43 .92 ± 0.42 47 .32 ± 0.89 
+
+1.5B Base model – 72 .00 61 .49 –1.5B Random search 200 77 .05 ± 0.64 62 .49 ± 1.46 65 .34 ± 0.35 
+
+1.5B RandOpt 200 78 .70 ± 1.96 65 .84 ± 1.01 66 .82 ± 1.31 
+
+1.5B RandOpt 1000 79 .30 ± 0.57 66 .13 ± 2.43 72 .40 ± 0.82 
+
+1.5B BO (ours) 200 84 .48 ± 0.71 67 .78 ± 2.14 73 .65 ± 1.66 
+
+> MATH500
+
+0.5B Base model – 37 .00 30 .67 –0.5B Random search 200 42 .95 ± 0.49 30 .23 ± 1.46 36 .63 ± 0.24 
+
+0.5B RandOpt 200 42 .80 ± 0.57 29 .47 ± 1.94 36 .47 ± 1.07 
+
+0.5B RandOpt 1000 − − −
+
+0.5B BO (ours) 200 44 .55 ± 1.06 28 .63 ± 1.18 36 .70 ± 1.37 
+
+1.5B Base model – 58 .00 41 .00 –1.5B Random search 200 61 .80 ± 0.45 42 .23 ± 1.18 52 .17 ± 0.80 
+
+1.5B RandOpt 200 61 .80 ± 0.45 41 .80 ± 0.69 52 .53 ± 2.10 
+
+1.5B RandOpt 1000 63 .30 ± 0.67 39 .80 ± 3.09 53 .60 ± 1.32 
+
+1.5B BO (ours) 200 63 .75 ± 0.49 40 .43 ± 1.56 52 .00 ± 2.72          
+
+> Table 1: Performance of Qwen2.5-Instruct on the Countdown, GSM8k and MATH500 tasks. Selection rewards and test accuracies are reported as percentages. Values are mean ±standard deviation. Bold numerical values indicate the highest score within each task and model-size group. Random search and BO are averaged over 5basis seeds ×2search seeds; RandOpt uses no basis and is averaged over 5seeds.
+
+## References     
+
+> [1] Yulu Gan and Phillip Isola. Neural thickets: Diverse task experts are dense around pretrained weights. In ICML , 2026. [2] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algo-rithms. arXiv preprint arXiv:1707.06347 , 2017. [3] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y.K￿. Li, Y. Wu, and Daya Guo. Deepseekmath: Pushing the limits of mathematical reasoning in open language models.
+> arXiv preprint arXiv:2402.03300 , 2024. [4] Xin Qiu, Yulu Gan, Conor F. Hayes, Qiyao Liang, Yinggan Xu, Roberto Dailey, Elliot Meyerson, Babak Hodjat, and Risto Miikkulainen. Evolution strategies at scale: LLM fine-tuning beyond reinforcement learning. In ICML , 2026. [5] Bidipta Sarkar, Mattie Fellows, Juan Agustin Duque, Alistair Letcher, Antonio León Villares, Anya Sims, Clarisse Wibault, Dmitry Samsonov, Dylan Cope, Jarek Liesen, Kang Li, Lukas Seier, Theo Wolf, Uljad Berdica, Valentin 5
+
+Mohl, Alexander David Goldie, Aaron Courville, Karin Sevegnani, Shimon Whiteson, and Jakob Nicolaus Foerster. Evolution strategies at the hyperscale. In ICML , 2026. [6] Chunyuan Li, Heerad Farkhoor, Rosanne Liu, and Jason Yosinski. Measuring the intrinsic dimension of objective landscapes. In ICLR , 2018. [7] Armen Aghajanyan, Luke Zettlemoyer, and Sonal Gupta. Intrinsic dimensionality explains the effectiveness of language model fine-tuning. In ACL , 2021. [8] Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. Lora: Low-rank adaptation of large language models. In ICLR , 2022. [9] Sadhika Malladi, Tianyu Gao, Eshaan Nichani, Alex Damian, Jason D. Lee, Danqi Chen, and Sanjeev Arora. Fine-tuning language models with just forward passes. In NeurIPS , 2023. [10] John X. Morris, Niloofar Mireshghallah, Mark Ibrahim, and Saeed Mahloujifar. Learning to reason in 13 parameters. 
+
+arXiv 2602.04118 , 2026. [11] Jasper Snoek, Hugo Larochelle, and Ryan P. Adams. Practical bayesian optimization of machine learning algorithms. In NeurIPS , 2012. [12] Ziyu Wang, Frank Hutter, Masrour Zoghi, David Matheson, and Nando de Freitas. Bayesian optimization in a billion dimensions via random embeddings. JAIR , 2016. [13] Kanishk Gandhi, Denise Lee, Gabriel Grand, Muxin Liu, Winson Cheng, Archit Sharma, and Noah D. Goodman. Stream of search (sos): Learning to search in language. In COLM , 2024. [14] Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. Training verifiers to solve math word problems. arXiv preprint 2110.14168 , 2021. [15] Prasanna Mayilvahanan, Ricardo Dominguez-Olmedo, Thaddäus Wiedemer, and Wieland Brendel. Math-beyond: A benchmark for rl to expand beyond the base model. In NeurIPS , 2026. [16] Qwen, An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang, Haoran Wei, Huan Lin, Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Yang, Jiaxi Yang, Jingren Zhou, Junyang Lin, Kai Dang, Keming Lu, Keqin Bao, Kexin Yang, Le Yu, Mei Li, Mingfeng Xue, Pei Zhang, Qin Zhu, Rui Men, Runji Lin, Tianhao Li, Tianyi Tang, Tingyu Xia, Xingzhang Ren, Xuancheng Ren, Yang Fan, Yang Su, Yichang Zhang, Yu Wan, Yuqiong Liu, Zeyu Cui, Zhenru Zhang, and Zihan Qiu. Qwen2.5 technical report. arXiv preprint 2412.15115 , 2025. [17] Tim Salimans, Jonathan Ho, Xi Chen, Szymon Sidor, and Ilya Sutskever. Evolution strategies as a scalable alternative to reinforcement learning. arXiv preprint arXiv:1703.03864 , 2017. [18] Sebastian Ament, Samuel Daulton, David Eriksson, Maximilian Balandat, and Eytan Bakshy. Unexpected improve-ments to expected improvement for bayesian optimization. In NeurIPS , 2023. 6

@@ -1,0 +1,849 @@
+Title: AnchorFold: A Focus-Then-Fold Framework via Recursive Attention Propagation for Efficient Multi-Vector Visual Document Retrieval
+
+URL Source: https://arxiv.org/pdf/2608.08732v1
+
+Published Time: Tue, 11 Aug 2026 01:23:18 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# AnchorFold: A Focus-Then-Fold Framework via Recursive Attention Propagation for Efficient Multi-Vector Visual Document Retrieval 
+
+## Haoyu Zuo 1, Yibo Yan 1,2,3 , Xin Zou 1,3 , Shuliang Liu 1,3 , Yi Cao 2, Mingdong Ou 2, ∗, Xuming Hu 1,3, †
+
+> 1
+
+Hong Kong University of Science and Technology (Guangzhou) 
+
+> 2
+
+Alibaba Cloud Computing, 3Hong Kong University of Science and Technology 
+
+hzuo258@connect.hkust-gz.edu.cn, xuminghu@hkust-gz.edu.cn 
+
+Abstract 
+
+Multi-vector vision-language retrievers enable fine-grained Visual Document Retrieval (VDR) through late interaction, but storing and scoring hundreds of visual patch embed-dings per page incurs substantial overhead. Existing training-free methods rely on pruning or merging: pruning degrades sharply under aggressive compression, whereas merging does not explicitly prioritize important regions when forming rep-resentatives. We introduce AnchorFold, a training-free focus-then-fold framework for document-side index com-pression . AnchorFold applies Recursive Attention Propaga-tion over visual self-attention graphs, performing multi-step propagation within each attention head and integrating scores across heads and layers. The focus stage selects the highest-centrality tokens as anchors. The fold stage assigns remaining tokens to their most similar anchors in the normalized retrieval space and summarizes each anchor-centered group through centrality-weighted aggregation. This preserves non-anchor contributions while concentrating capacity on structurally im-portant tokens. Across ViDoRe v1/v2 and REAL-MM-RAG with three diverse retrieval backbones, AnchorFold con-sistently outperforms all evaluated training-free baselines at 
+
+γ ≤ 0.20 . On ViDoRe v1/v2, it retains 98.3% of full-index NDCG@5 on average at 5× compression, achieving near-lossless compression, and 92.4% at 20 × compression. 
+
+## 1 Introduction 
+
+Visual Document Retrieval (VDR) aims to retrieve pages rel-evant to textual queries from visually rich document corpora (Yan et al. 2026a; Tanaka et al. 2025; Wang et al. 2025). Un-like text-only retrieval, relevance can depend jointly on tex-tual content, tables, figures, and their spatial layout. Single-vector retrievers represent each page with one global embed-ding, whereas multi-vector vision-language retrievers such as ColPali encode each page into contextualized visual patch embeddings and use late interaction: MaxSim matches each query-token embedding to its most similar document vector (Ma et al. 2024; Faysse et al. 2025; Khattab and Zaharia 2020). By deferring aggregation until query-time scoring, late interaction preserves localized matching signals that a global representation may obscure. This fine-grained rep-resentation, however, incurs substantial storage and scoring 
+
+> ∗
+
+Project lead. 
+
+> †
+
+Corresponding author. 1 30 60 
+
+Storage relative to single-vector baseline    
+
+> 55 60 65 70 75 80 85 90
+> NDCG@5 on ViDoRe v1  AnchorFold–ColQwen2.5 AnchorFold–ColPali
+> ColPali ColQwen2.5
+> BiQwen2 BiPali
+> Low storage Global representation Fine-grained matching High storage
+> 5% 10% 20% 50% 5% 10% 20% 50%
+> AnchorFold (ours) Multi-vector retriever Single-vector retriever
+
+Figure 1: Retrieval effectiveness versus relative document-embedding storage on ViDoRe v1. Relative storage is nor-malized to the corresponding single-vector baseline; percent-ages denote vector retention ratios. costs: each page contributes hundreds of index vectors, and both index storage and exact per-document MaxSim cost scale linearly with the number of stored vectors (Santhanam et al. 2022; Nardini, Rulli, and Venturini 2024). Figure 1 il-lustrates this trade-off: AnchorFold retains most of the full-index retrieval effectiveness while requiring substantially less document-embedding storage. Reducing the document-side vector count is therefore critical to scaling multi-vector VDR. Existing training-free methods for document-side index compression, illustrated in the lower panel of Figure 2, fall into two categories: pruning and merging. Pruning retains a subset of patch embeddings using attention-derived or structure-aware selection scores (Yan et al. 2025; Liu et al. 2026). It leaves selected vectors unchanged with relatively low compression-time overhead. However, unselected vec-tors are irreversibly removed. Because queries are unavail-able during indexing, a discarded vector may still provide a strong MaxSim match for a future query token (Zong and Piwowarski 2025). Under aggressive pruning, this loss of candidate matches can degrade retrieval effectiveness (Yan et al. 2026c). Merging instead replaces groups of patch em-beddings with fewer representative vectors through spatial arXiv:2608.08732v1 [cs.CV] 9 Aug 2026 pooling or representation-space clustering (Ma et al. 2025). By allowing a broader set of tokens to influence the com-pressed representation, merging can degrade more gracefully as the document-vector budget decreases. However, purely spatial or similarity-based grouping does not explicitly allo-cate limited representation capacity according to the impor-tance of page regions, while uniform aggregation can atten-uate localized discriminative features (Veneroso et al. 2025). Learned compressors can optimize representative selection and aggregation, but require compression-specific training or learnable modules (Xiao et al. 2026; Huo et al. 2026). These limitations expose a central trade-off under a con-strained document-vector budget: a compressor must con-struct a small set of representative vectors while preserving evidence distributed across the page. Effective training-free compression must therefore address two coupled questions: 
+
+where should the limited representation capacity be allo-cated , and how can tokens not stored individually still influ-ence the compressed representation? 
+
+We introduce AnchorFold, a training-free framework for document-side index compression that organizes com-pression into a focus-then-fold process . AnchorFold op-erates during offline index construction, introduces no train-able parameters, and leaves both query encoding and late-interaction scoring unchanged. In the focus stage, Anchor-Fold constructs visual-to-visual self-attention graphs from a fixed window of intermediate backbone layers. It then performs finite-step Recursive Attention Propagation inde-pendently within each attention head, allowing support to be redistributed along multi-hop attention paths. Integrating the resulting signals across heads and layers yields query-agnostic propagated attention centrality scores, which are used to select the highest-scoring tokens as anchors. In the fold stage, each non-anchor token is assigned to its most simi-lar anchor in the normalized retrieval space, and each anchor-centered group is summarized via centrality-weighted aggre-gation. Propagated attention centrality allocates represen-tation capacity, while retrieval-space similarity guides to-ken assignment. This design retains contributions from non-anchor tokens while concentrating the available capacity on tokens receiving stronger multi-hop attention support. We evaluate AnchorFold on ViDoRe v1 and v2 (Faysse et al. 2025; Macé, Loison, and Faysse 2025) using three het-erogeneous multi-vector retrieval backbones, and further as-sess its generalization to REAL-MM-RAG (Wasserman et al. 2025). Across these benchmarks and all three backbones, An-chorFold consistently outperforms all evaluated training-free compression baselines at retention ratios of 20% , 10% ,and 5% . On ViDoRe v1/v2, it retains 98.3% of full-index NDCG@5 on average at 5× compression, achieving near-lossless compression; even at 20 × compression, it preserves 92.4%. The widening performance margin under stronger compression, also observed on REAL-MM-RAG, suggests that concentrating the vector budget on high-centrality an-chors while consolidating evidence from non-anchor tokens becomes increasingly beneficial as the document-vector bud-get decreases. 
+
+## 2 Related Work 
+
+2.1 Multi-Vector Retrieval 
+
+ColBERT introduced late interaction in text retrieval, repre-senting documents as sets of contextualized token embed-dings for fine-grained query–document matching (Khattab and Zaharia 2020). ColPali extended this paradigm to VDR by encoding document images into multi-vector representa-tions (Faysse et al. 2025). Subsequent work advances VDR through vision-language backbones (Bai et al. 2025) and retrieval-oriented architectures and training strategies (Gün-ther et al. 2025; de Souza P. Moreira et al. 2026; Chaffin et al. 2026). Although these representations preserve local-ized matching signals, they associate each page with many vectors, making index efficiency important at scale. 
+
+2.2 Efficient Multi-Vector VDR 
+
+Pruning-based compression. Pruning retains a subset of visual embeddings (Acquavia, Macdonald, and Tonellotto 2023; Lassance et al. 2022; Zong and Piwowarski 2025; Jha et al. 2026; Archish et al. 2026). Light-ColPali studies random and attention-based token selection (Ma et al. 2025), while DocPruner uses intra-document attention statistics and SAP uses intermediate-layer visual in-degree centrality (Yan et al. 2025; Liu et al. 2026). These methods leave retained embeddings unchanged, but removed tokens no longer con-tribute to late-interaction matching. 
+
+Merging-based compression. Merging consolidates em-beddings into fewer representatives (Clavié, Chaffin, and Adams 2024). Light-ColPali studies spatial pooling and representation-space clustering (Ma et al. 2025). Prune-then-Merge combines adaptive pruning with hierarchical cluster-ing (Yan et al. 2026c), while ColChunk augments hierarchi-cal clustering with two-dimensional positional information (Yan et al. 2026b). However, grouping based primarily on spatial or representation-space proximity may not allocate distinct representation capacity to important page regions. 
+
+Learned and structure-assisted compact representations. 
+
+Other work constructs compact representations through learned mechanisms or auxiliary structure (MacAvaney, Mallia, and Tonellotto 2025; Xiang et al. 2026; Cha et al. 2026; Jääsaari, Hyvönen, and Roos 2026). MetaEmbed learns meta tokens with a Matryoshka multi-vector objec-tive (Xiao et al. 2026), while CausalEmbed autoregressively generates latent document representations (Huo et al. 2026). AGC learns universal query tokens for saliency-guided cen-troid selection and weighted aggregation (Qin et al. 2026), whereas ColParse uses parsed structure to build layout-aware representations (Yan et al. 2026d). These approaches require training, learnable components, or preprocessing. Training-free methods typically use importance signals for token retention or spatial and representation-space proximity for grouping. AnchorFold instead derives self-attention-based, query-agnostic importance for anchor selection and weighted aggregation. Similarity-based assignment allows non-anchor tokens to contribute to the compressed represen-tation without modifying the query encoder or the original late-interaction scoring function. Offline Phase Online Phase Index Compression 
+
+> Compressed vectors
+> MaxSim
+
+Query Pruning   
+
+> DocPruner/SAP
+> Importance scoring ×××Irreversible Information Loss
+
+Merging  
+
+> Semantic Clustering/1D Pooling Proximity-based grouping Uniform aggregation
+> Suboptimal Capacity Allocation
+
+AnchorFold FOCUS FOLD Recursive Attention Propagation Update × K     
+
+> s⁽ᵏ⁾ = Gᵀ s⁽ᵏ⁻¹⁾
+> Assign non-anchor tokens by cosine similarity
+> centrality-weighted aggregation
+> Select top-m tokens
+> ★★★★★★
+
+Figure 2: Overview of AnchorFold for training-free multi-vector VDR compression. Top: document representations are compressed during offline indexing and reused for online MaxSim retrieval. Bottom: pruning discards unselected vectors, while merging forms representatives through proximity-based grouping and uniform aggregation. AnchorFold instead follows a focus-then-fold process, selecting anchors via Recursive Attention Propagation and folding non-anchor tokens into anchor-centered representations through similarity-based assignment and centrality-weighted aggregation. 
+
+## 3 Methodology 
+
+3.1 Overview 
+
+Figure 2 illustrates AnchorFold, a training-free framework that compresses document representations during offline in-dex construction. It introduces no trainable parameters and leaves query encoding and MaxSim scoring unchanged. Let Z = [ z1, . . . , zN ] denote the final-layer hidden states of the N valid visual tokens immediately before the retrieval projection, where zi ∈ Rd. Let P : Rd → Rdr denote the retrieval projection of the underlying backbone, with P taken as the identity when the backbone already outputs retrieval-space representations. The uncompressed document index is 
+
+E = [ e1, . . . , eN ], where 
+
+ei = norm( P (zi)) , norm( u) = u
+
+∥u∥2
+
+. (1) Given a target retention ratio γ ∈ (0 , 1] , we set the com-pressed document-vector budget to 
+
+m = ⌈γN ⌉ . (2) AnchorFold follows a focus-then-fold process. The focus stage estimates propagated attention centrality and selects the 
+
+m highest-scoring tokens as anchors, thereby allocating the available representation budget. The fold stage assigns each non-anchor token to its most similar anchor in the normalized retrieval space and summarizes each anchor-centered group through centrality-weighted aggregation. 
+
+3.2 Recursive Attention Propagation 
+
+We derive an attention-based centrality signal from the vi-sual self-attention patterns of the retrieval backbone (Wang, Dedhia, and Jha 2024). For a Transformer layer l and atten-tion head h, let Al,h ∈ [0 , 1] T ×T denote the post-softmax self-attention matrix, where Al,h ab is the attention weight from query position a to key position b, and let V = {v1, . . . , v N }
+
+denote the positions of the valid visual tokens in the full se-quence. We form a visual attention graph by restricting Al,h 
+
+to these tokens and row-normalizing the resulting submatrix: 
+
+Gl,h ij = Al,h vivj
+
+PNr=1 Al,h vivr
+
+. (3) 
+
+Gl,h ∈ RN ×N is row-stochastic and defines a directed visual attention transition matrix for head h at layer l.One-step aggregation captures only first-order support because every token initially contributes equal importance mass. To incorporate multi-hop attention structure, we ini-tialize a uniform distribution over the valid visual tokens and propagate it for K steps: 
+
+sl,h  
+
+> 0
+
+= 1
+
+N 1, sl,h t =  Gl,h ⊤ sl,h t−1, t = 1 , . . . , K. 
+
+(4) We term this procedure Recursive Attention Propagation. After K steps, a token receives a high score when it is sup-ported by tokens that have themselves accumulated impor-tance, thereby incorporating multi-hop attention structure. Propagation is performed independently within each at-tention head. We then integrate the resulting head-specific scores using a root-mean-square operator, which emphasizes stronger head-specific responses while integrating evidence across all heads: 
+
+rl(j) = 
+
+vuut 1
+
+H
+
+> H
+
+X
+
+> h=1
+
+
+
+sl,h K (j)
+
+2
+
+. (5) To remove layer-wise scale differences before averaging, we normalize each layer score by its mean over the valid visual tokens: 
+
+˜rl(j) = rl(j)
+
+> 1
+> N
+
+PNq=1 rl(q) . (6) Because attention organization varies across backbone depth, centrality derived from a single layer can be sensi-tive to layer-specific attention patterns (Liu et al. 2026). We therefore integrate the normalized scores over a contiguous layer set L. The selection of L is described in Section 4.6. The final propagated attention centrality score of token j is defined as 
+
+αj = 1
+
+|L| 
+
+X
+
+> l∈L
+
+˜rl(j). (7) The resulting centrality scores α = [ α1, . . . , α N ] are used to allocate the anchor budget and to modulate the contribution of tokens during subsequent aggregation. 
+
+3.3 Anchor Selection 
+
+Given the target vector budget m, the focus stage selects the indices of the m tokens with the largest propagated attention centrality scores: 
+
+C = {c1, . . . , c m} = Top m (α) , (8) where C ⊆ { 1, . . . , N }. The selected token indices define the anchors used in the subsequent fold stage. 
+
+3.4 Token Assignment and Weighted Aggregation 
+
+The fold stage begins by assigning each non-anchor token to the most similar anchor using the L2-normalized retrieval vectors ei:
+
+a(i) = arg max  
+
+> 1≤q≤m
+
+e⊤ 
+
+> i
+
+ecq , i / ∈ C. (9) This cosine-based assignment is performed in the normalized retrieval space used by the downstream MaxSim scoring function. For each anchor cq , we define the corresponding anchor-centered group as 
+
+Cq = {cq } ∪ { i / ∈ C | a(i) = q} . (10) This construction guarantees that every anchor remains in its own group and produces exactly m non-empty groups. When 
+
+m = N , AnchorFold reduces to the original uncompressed document representation. The fold stage is completed by consolidating each anchor-centered group into a single document vector. For each group 
+
+Cq , we aggregate the pre-projection hidden states zi using the propagated attention centrality scores: 
+
+yq =
+
+P 
+
+> i∈C q
+
+αizi
+
+P 
+
+> i∈C q
+
+αi
+
+. (11) Compared with uniform averaging, centrality-weighted ag-gregation reduces the relative contribution of tokens with lower propagated attention centrality while still allowing ev-ery token assigned to the group to contribute to the resulting representation. The compressed document index is 
+
+bE = [ˆ e1, . . . , ˆem], ˆeq = norm ( P (yq )) . (12) Retrieval is then performed using the original MaxSim scor-ing function over the compressed document index bE.
+
+## 4 Experiments 
+
+4.1 Experimental Setup 
+
+Benchmarks and evaluation. We conduct experiments on the full ViDoRe v1 benchmark and the four datasets in the official ViDoRe v2 collection, following their standard eval-uation protocols (Faysse et al. 2025; Macé, Loison, and Faysse 2025). ViDoRe v1 comprises ten datasets spanning diverse document domains and formats, while ViDoRe v2 comprises four more challenging datasets covering ESG re-ports, biomedical lectures, and economics reports. We fur-ther evaluate generalization on the BEIR-compatible versions of the four REAL-MM-RAG datasets: FinReport, FinSlides, TechReport, and TechSlides (Wasserman et al. 2025). Fol-lowing standard VDR practice, we adopt NDCG@5 as the primary evaluation metric (Wang et al. 2013) and report the unweighted macro-average across the constituent datasets of each benchmark. We additionally report NDCG@5 retention, defined as the benchmark-level NDCG@5 of a compressed index divided by that of its corresponding full index. 
+
+Retrieval backbones. We evaluate AnchorFold with three representative multi-vector VDR backbones: ColPali v1.3 (Faysse et al. 2025), ColQwen2.5 with bidirectional at-tention (Bai et al. 2025), and Nemotron ColEmbed-3B v2 (de Souza P. Moreira et al. 2026). The three models con-tain 18, 36, and 28 backbone layers, respectively, and differ substantially in backbone architecture, visual tokenization, and model depth. All parameters of the underlying retrievers remain frozen, and AnchorFold is applied exclusively to document representations during offline index construction. 
+
+Baselines. We include the uncompressed Full Index as the reference and compare AnchorFold with four representa-tive training-free compression baselines: SAP, which per-forms structure-aware pruning using visual in-degree cen-trality (Liu et al. 2026); Semantic Clustering, which groups final document embeddings based on representation-space proximity and stores the resulting centroids (Ma et al. 2025); 1D-Pooling, which averages consecutive visual embeddings (Ma et al. 2025); and DocPruner, an adaptive attention-based pruning method (Yan et al. 2025). We evaluate retention ra-tios γ ∈ { 0.50 , 0.20 , 0.10 , 0.05 }; for fixed-ratio methods, a page with N valid visual tokens is compressed to ⌈γN ⌉
+
+vectors. To fairly compare with the fixed-ratio methods, we apply quantile-based calibration to DocPruner on a held-out calibration set, aligning its global retention rate with each target retention ratio (Liu et al. 2026). 75 80 85 90 95 100            
+
+> NDCG@5 retention (%) ViDoRe v1
+> ColPali ColQwen2.5 Nemotron ColEmbed-3B
+> 0.5 0.2 0.1 0.05
+> 50 60 70 80 90 100
+> NDCG@5 retention (%) ViDoRe v2
+> ColPali
+> 0.5 0.2 0.1 0.05
+> ColQwen2.5
+> 0.5 0.2 0.1 0.05
+> Nemotron ColEmbed-3B
+
+( ) ( ) ( )  
+
+> Retention ratio
+> Pruning
+> SAP DocPruner
+> Merging
+> Semantic Clustering 1D-Pooling
+> Ours
+> AnchorFold
+
+Figure 3: NDCG@5 retention on ViDoRe v1 (top) and v2 (bottom) across three retrieval backbones. AnchorFold achieves the highest retention among the evaluated methods in all six settings at γ ≤ 0.20 , with larger margins under stronger compression. 
+
+Implementation details. All compression methods are im-plemented within a unified PyTorch evaluation pipeline. Within each backbone, all methods are evaluated on the same document inputs at matched target retention ratios. Anchor-Fold uses K = 6 with layer windows 11–14, 25–32, and 14–19 for ColPali, ColQwen2.5, and Nemotron ColEmbed-3B, respectively, as selected by the SR-based calibration in Section 4.6. All experiments are conducted on a clus-ter equipped with NVIDIA A800 GPUs. Additional dataset statistics, model specifications, baseline settings, and imple-mentation details are provided in Appendix A. 
+
+4.2 Main Results 
+
+Figure 3 compares NDCG@5 retention across three retrieval backbones on ViDoRe v1 and v2, revealing three consistent patterns across different backbone–benchmark pairs. First, under moderate compression, AnchorFold pre-serves nearly all of the full-index retrieval effectiveness. At 
+
+γ = 0 .20 , corresponding to a roughly 5× reduction in the number of stored document vectors, AnchorFold achieves the highest retention on all six backbone–benchmark pairs, with a mean NDCG@5 retention of 98.3% across the six pairs. At γ = 0 .50 , the performance gaps among the com-pression strategies are comparatively small. Second, the advantage of AnchorFold becomes increas-ingly pronounced as the representation budget decreases. At γ = 0 .10 and γ = 0 .05 , AnchorFold retains 95.8% and 92.4% of full-index NDCG@5 on average, respectively, while achieving the best performance on all six backbone– benchmark pairs. Relative to the strongest evaluated baseline for each pair, the mean margin in NDCG@5 retention in-creases from 2.7 percentage points at γ = 0 .20 to 3.0 points at γ = 0 .10 and 4.6 points at γ = 0 .05 . This trend indicates that allocating the limited vector budget to high-centrality anchors while folding non-anchor evidence into the resulting compressed representations becomes particularly beneficial under aggressive compression. Third, the gains are more pronounced on the more chal-lenging ViDoRe v2 benchmark and remain consistent across heterogeneous retrieval backbones. At γ = 0.05 , An-chorFold exceeds the strongest evaluated baseline by 4.7, 4.6, and 5.5 NDCG@5 points on ViDoRe v2 for Col-Pali, ColQwen2.5, and Nemotron ColEmbed-3B, respec-tively, compared with gains of 0.1, 1.1, and 1.3 points on ViDoRe v1. Notably, AnchorFold retains 96.5% of full-index NDCG@5 with Nemotron ColEmbed-3B on ViDoRe v2 at γ = 0 .05 . Taken together, the consistent improvements across three substantially different retrieval backbones indi-cate that the effectiveness of AnchorFold is not tied to a par-ticular architecture. Its larger margins on ViDoRe v2 suggest a more favorable degradation profile when the document-vector budget is severely constrained. Complete NDCG@5 and retention results are provided in Appendix B. 
+
+4.3 Generalization to Complex Retrieval Settings 
+
+We further evaluate AnchorFold on REAL-MM-RAG, which uses rephrased queries to assess retrieval robustness under reduced lexical overlap between queries and relevant documents (Wasserman et al. 2025). As shown in Figure 4, AnchorFold consistently achieves the highest NDCG@5 retention among the evaluated methods across all three back-bones, with its advantage becoming more pronounced as the retention ratio decreases. At γ = 0 .20 , AnchorFold retains 97.4% of full-index NDCG@5 on average and exceeds the strongest evaluated baseline by 4.0 percentage points. The advantage further increases under aggressive com-pression. At γ = 0.05 , AnchorFold outperforms the strongest evaluated baseline by 4.8, 6.5, and 5.3 NDCG@5 points for ColPali, ColQwen2.5, and Nemotron ColEmbed-3B, respectively. These results show that the advantages ob-served on ViDoRe extend to the evaluated REAL-MM-RAG setting and remain substantial when the available document-0.5 0.2 0.1 0.05 
+
+> 50 60 70 80 90 100
+> NDCG@5 retention (%) Real-MM-RAG
+
+ColPali    
+
+> 0.5 0.2 0.1 0.05
+
+ColQwen2.5    
+
+> 0.5 0.2 0.1 0.05
+
+Nemotron ColEmbed-3B 
+
+( ) ( ) ( )
+
+Retention ratio 
+
+Pruning  
+
+> SAP DocPruner
+
+Merging  
+
+> Semantic Clustering 1D-Pooling
+
+Ours 
+
+> AnchorFold
+
+Figure 4: NDCG@5 retention on REAL-MM-RAG across three retrieval backbones. AnchorFold achieves the highest retention among the evaluated methods, with larger margins under stronger compression. 
+
+Variant NDCG@5 ↑ ∆
+
+AnchorFold 60.31 –w/o Multi-Step RAP 58.53 −1.78 
+
+w/o Centrality Selection 57.11 −3.20 
+
+w/o Folding 57.79 −2.52 
+
+w/o Centrality Weighting 59.48 −0.83 
+
+Table 1: Ablation results on ViDoRe v2 with ColQwen2.5 at 
+
+γ = 0 .20 . Each variant independently modifies one design choice of the full AnchorFold configuration. vector budget is severely constrained. Complete per-dataset results are provided in Appendix B. 
+
+4.4 Comparison with Trained Compression 
+
+We compare AnchorFold with AGC, a trained compres-sion method based on learned universal query tokens (Qin et al. 2026). For a controlled comparison, we reproduce AGC within a unified codebase using the same ColQwen2.5 con-figuration and training recipe as the baseline retriever, while AnchorFold is applied to the baseline checkpoint without additional training. Both are evaluated on ViDoRe v1, Vi-DoRe v2, and REAL-MM-RAG with a fixed budget of 128 document vectors. AnchorFold achieves an NDCG@5 of 59.8 on ViDoRe v2, exceeding the 57.0 obtained by AGC under the same setting, with consistent improvements also observed on ViDoRe v1 and REAL-MM-RAG. These re-sults suggest that AnchorFold remains competitive with trained compression without requiring compression-specific training. The controlled comparison protocol and complete results are provided in Appendix C. 
+
+4.5 Ablation Study 
+
+We conduct an ablation study on ColQwen2.5 over ViDoRe v2 at γ = 0 .20 to analyze the contribution of each design choice. Specifically, w/o Multi-Step RAP sets K = 1 ; w/o Centrality Selection replaces centrality-based anchor selec-tion with uniform random selection; w/o Folding retains only the selected anchor embeddings without assigning or ag-gregating non-anchor tokens; and w/o Centrality Weighting replaces centrality-weighted aggregation with uniform aver-aging within each anchor-centered group. As shown in Ta-2 3 4 6 8 10 12                                                  
+
+> Propagation depth, K
+> 0.00 0.05 0.10 0.15
+> Mean paired SR gap to best candidate (percentage points)  Selected K= 6
+> ColPali
+> 2346810 12
+> Propagation depth, K
+> 0.0 0.1 0.2 0.3
+> Selected K= 6
+> ColQwen2.5
+> 2346810 12
+> Propagation depth, K
+> 0.00 0.01 0.02 0.03 Selected K= 6
+> Nemotron ColEmbed-3B
+> 04813 17
+> Layer index
+> −4 −3 −2 −1 012
+> Mean single-layer SR minus cross-layer median (percentage points)  K= 6 selected layers 11 –14
+> 0918 26 35
+> Layer index
+> −4 −3 −2 −1 01
+> K= 6 selected layers 25 –32
+> 0714 20 27
+> Layer index
+> −0.3 −0.2 −0.1 0.0 0.1
+> K= 6 selected layers 14 –19
+> Eligible (paired one-SE) Ineligible Selected K(smallest eligible) Mean single-layer SR Selected layer window Trailing alignment region
+
+Figure 5: SR-based calibration of propagation depth and layer windows. Top: paired SR gaps across candidate depths. Bot-tom: median-centered layer-wise SR profiles at K = 6 , with selected windows and trailing low-SR regions shaded. ble 1, removing centrality-based anchor selection causes the largest degradation, demonstrating its importance for allocat-ing the limited representation budget. Removing folding and multi-step RAP also leads to clear performance drops, val-idating the benefits of preserving non-anchor evidence and capturing multi-hop attention structure. Centrality-weighted aggregation provides additional but smaller improvements over uniform averaging. 
+
+4.6 Hyperparameter Analysis 
+
+AnchorFold uses a finite propagation depth K together with a backbone-specific layer window. Following SAP, we jointly calibrate both choices once per backbone using SR, the compressed-to-full MaxSim score ratio, on 500 held-out query–page pairs sampled from the ColPali training corpus and disjoint from all evaluation splits, with a cali-bration retention ratio of γcal = 0 .20 and a relative win-dow width of ρ = 0 .2, corresponding to 20% of the back-bone depth (Liu et al. 2026). For each candidate depth 
+
+K ∈ { 2, 3, 4, 6, 8, 10 , 12 }, we compute the mean single-layer SR profile, identify its longest trailing suffix below the across-layer median, place a candidate window imme-1.3× 1.2× 1.1× 1.0× 
+
+> Normalized total indexing latency
+> 60 70 80 90 100
+> NDCG@5 retention (%)
+> Full Index
+> SAP DocPruner Semantic Clustering 1D-Pooling
+> AnchorFold
+
+Figure 6: Retrieval fidelity–indexing latency trade-off on Vi-DoRe v2 with ColQwen2.5 at γ = 0 .10 . Total indexing latency includes document encoding and compression and is normalized to the Full Index. diately before this region, and evaluate the corresponding multi-layer AnchorFold operator. We select the smallest K
+
+whose mean paired SR gap to the highest-mean joint con-figuration does not exceed one standard error of the per-pair gaps. Full calibration details and validation are provided in Appendix D. As shown in Figure 5, although the SR-maximizing joint configuration varies across backbones, the paired one-SE rule selects K = 6 for all three models. All smaller can-didates fall outside the eligible set, whereas larger depths yield only marginal or backbone-dependent improvements, making K = 6 the most parsimonious configuration within the one-SE set. At K = 6 , the SR-guided procedure yields the zero-indexed layer windows 11–14, 25–32, and 14–19 for ColPali, ColQwen2.5, and Nemotron ColEmbed-3B, respec-tively. We therefore fix K = 6 and these backbone-specific windows for all reported experiments. 
+
+4.7 Efficiency Analysis 
+
+We further evaluate the trade-off between retrieval fidelity and index-time efficiency on ViDoRe v2 using ColQwen2.5 at γ = 0 .10 . Detailed efficiency evaluation settings and re-sults are provided in Appendix E. As shown in Figure 6, AnchorFold achieves the highest retrieval fidelity among the evaluated compression methods, retaining 93.80% of full-index NDCG@5 at approximately 
+
+1.11 × the total indexing latency of the Full Index. Com-pared with SAP, AnchorFold provides substantially higher retrieval fidelity with a moderate increase in indexing cost, while outperforming Semantic Clustering in both retrieval fi-delity and total indexing latency. By contrast, DocPruner and 1D-Pooling remain close to the Full Index in indexing latency but incur markedly larger losses in retrieval fidelity. Overall, AnchorFold offers a favorable trade-off between retrieval fidelity and index-time efficiency. Although it increases total indexing latency, the additional overhead is incurred exclu-SAP AnchorFold (ours) Query: Does SSP propose cow milk substitutes?       
+
+> γ = 0.20 γ = 0.10 γ = 0.05 Pair-SR=0.93 Pair-SR=0.88 Pair-SR=0.81 Pair-SR=0.82 Pair-SR=0.81 Pair-SR=0.42
+
+Figure 7: Qualitative comparison of AnchorFold and SAP on a ViDoRe v2 ESG query–page pair. Columns correspond to retention ratios γ ∈ { 0.20 , 0.10 , 0.05 }. The heatmaps show positive MaxSim contributions on a shared scale, and the red boxes delineate two query-relevant evidence regions. Pair-SR reports SR for the displayed query–page pair. sively during offline index construction and does not recur during subsequent queries. 
+
+4.8 Qualitative Case Study 
+
+Figure 7 compares how AnchorFold and SAP preserve query-relevant matching signals as the document-vector bud-get decreases. Across all three retention ratios, Anchor-Fold consistently yields a higher Pair-SR than SAP, indi-cating more faithful preservation of the original query–page matching score under the same vector budget. At γ = 0 .20 ,AnchorFold retains visible positive MaxSim contributions within both marked evidence regions, whereas SAP retains a contribution only within the lower region. As the budget decreases, AnchorFold continues to preserve a visible con-tribution within the upper evidence region at γ = 0 .10 and within the lower evidence region at γ = 0 .05 . In contrast, SAP exhibits no visible contribution within either marked region under these two more aggressive settings. Although the dominant response shifts across compression budgets, the consistently higher Pair-SR and continued overlap with query-relevant evidence are consistent with the intended ef-fect of folding: preserving matching signals that may other-wise be removed by hard pruning. 
+
+## 5 Conclusion 
+
+In this work, we introduce AnchorFold, a training-free framework for document-side index compression in multi-vector visual document retrieval. AnchorFold organizes compression into a focus-then-fold process: Recursive At-tention Propagation identifies high-centrality anchors, while similarity-based assignment and centrality-weighted aggre-gation consolidate the remaining visual evidence into com-pact representations. Across ViDoRe v1/v2 and REAL-MM-RAG with three heterogeneous backbones, AnchorFold consistently outperforms all evaluated training-free baselines from 5× to 20 × compression, with larger margins under stronger compression. Ultimately, AnchorFold advances the practical scalability of multi-vector VDR by enabling high-fidelity index compression without additional training. References 
+
+Acquavia, A.; Macdonald, C.; and Tonellotto, N. 2023. Static Pruning for Multi-Representation Dense Retrieval. In Pro-ceedings of the ACM Symposium on Document Engineering 2023 , DocEng ’23. New York, NY, USA: Association for Computing Machinery. ISBN 9798400700279. Archish, S.; Garg, A.; Shiragur, K.; and Kayal, N. 2026. In-corporating token importance in multi-vector retrieval. In 
+
+Proceedings of the AAAI Conference on Artificial Intelli-gence , 32860–32866. Bai, S.; Chen, K.; Liu, X.; Wang, J.; Ge, W.; Song, S.; Dang, K.; Wang, P.; Wang, S.; Tang, J.; Zhong, H.; Zhu, Y.; Yang, M.; Li, Z.; Wan, J.; Wang, P.; Ding, W.; Fu, Z.; Xu, Y.; Ye, J.; Zhang, X.; Xie, T.; Cheng, Z.; Zhang, H.; Yang, Z.; Xu, H.; and Lin, J. 2025. Qwen2.5-VL Technical Report. arXiv:2502.13923. Cha, S.; Kim, D.; Kim, M.; Han, Y.; Jeon, B.-K.; and Lee, S. 2026. ReinPool: Reinforcement Learning Pooling Multi-Vector Embeddings for Retrieval System. arXiv:2601.07125. Chaffin, A.; Arnaboldi, L.; Chatelain, A.; and Krzakala, F. 2026. ColBERT-Zero: To Pre-train Or Not To Pre-train Col-BERT models. arXiv:2602.16609. Clavié, B.; Chaffin, A.; and Adams, G. 2024. Reducing the Footprint of Multi-Vector Retrieval with Minimal Perfor-mance Impact via Token Pooling. arXiv:2409.14683. de Souza P. Moreira, G.; Ak, R.; Xu, M.; Holworthy, O.; Schifferer, B.; Yu, Z.; Babakhin, Y.; Osmulski, R.; Cai, J.; Chesler, R.; Liu, B.; and Oldridge, E. 2026. Nemotron ColEmbed V2: Top-Performing Late Interaction Embedding Models for Visual Document Retrieval. arXiv:2602.03992. Faysse, M.; Sibille, H.; Wu, T.; Omrani, B.; Viaud, G.; HUDELOT, C.; and Colombo, P. 2025. ColPali: Efficient Document Retrieval with Vision Language Models. In The Thirteenth International Conference on Learning Represen-tations .Günther, M.; Sturua, S.; Akram, M. K.; Mohr, I.; Ungureanu, A.; Eslami, S.; Martens, S.; Wang, B.; Wang, N.; and Xiao, H. 2025. jina-embeddings-v4: Universal Embeddings for Multimodal Multilingual Retrieval. arXiv:2506.18902. Huo, J.; Huang, Y.; Yan, Y.; Pan, Y.; Cao, Y.; Ou, M.; Yu, P. S.; and Hu, X. 2026. CausalEmbed: Auto-Regressive Multi-Vector Generation in Latent Space for Visual Docu-ment Embedding. arXiv:2601.21262. Jha, R.; Zuo, C.; Kriz, R.; and Durme, B. V. 2026. A Brief Comparison of Training-Free Multi-Vector Sequence Com-pression Methods. arXiv:2603.22434. Jääsaari, E.; Hyvönen, V.; and Roos, T. 2026. LEMUR: Learned Multi-Vector Retrieval. arXiv:2601.21853. Khattab, O.; and Zaharia, M. 2020. ColBERT: Efficient and Effective Passage Search via Contextualized Late Interaction over BERT. In Proceedings of the 43rd International ACM SIGIR Conference on Research and Development in Informa-tion Retrieval , SIGIR ’20, 39–48. New York, NY, USA: As-sociation for Computing Machinery. ISBN 9781450380164. Lassance, C.; Maachou, M.; Park, J.; and Clinchant, S. 2022. Learned token pruning in contextualized late interaction over BERT (ColBERT). In Proceedings of the 45th International ACM SIGIR Conference on Research and Development in Information Retrieval , 2232–2236. Liu, Z.; Hu, Z.; Zhang, Y.; and Xiao, Y. 2026. Structural Anchor Pruning: Training-Free Multi-Vector Compression for Visual Document Retrieval. arXiv:2601.20107. Ma, X.; Lin, S.-C.; Li, M.; Chen, W.; and Lin, J. 2024. Uni-fying multimodal retrieval via document screenshot embed-ding. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , 6492–6505. Ma, Y.; Li, J.; Zang, Y.; Wu, X.; Dong, X.; Zhang, P.; Cao, Y.; Duan, H.; Wang, J.; Cao, Y.; and Sun, A. 2025. Towards Storage-Efficient Visual Document Retrieval: An Empirical Study on Reducing Patch-Level Embeddings. arXiv:2506.04997. MacAvaney, S.; Mallia, A.; and Tonellotto, N. 2025. Ef-ficient constant-space multi-vector retrieval. In European Conference on Information Retrieval , 237–245. Springer. Macé, Q.; Loison, A.; and Faysse, M. 2025. ViDoRe Benchmark V2: Raising the Bar for Visual Retrieval. arXiv:2505.17166. Nardini, F. M.; Rulli, C.; and Venturini, R. 2024. Efficient Multi-vector Dense Retrieval with Bit Vectors. In European Conference on Information Retrieval , 3–17. Springer. Qin, H.; Martin, A.; Jha, R.; Zuo, C.; Kriz, R.; and Durme, B. V. 2026. Multi-Vector Index Compression in Any Modal-ity. arXiv:2602.21202. Santhanam, K.; Khattab, O.; Saad-Falcon, J.; Potts, C.; and Zaharia, M. 2022. Colbertv2: Effective and efficient retrieval via lightweight late interaction. In Proceedings of the 2022 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technolo-gies , 3715–3734. Tanaka, R.; Iki, T.; Hasegawa, T.; Nishida, K.; Saito, K.; and Suzuki, J. 2025. Vdocrag: Retrieval-augmented generation over visually-rich documents. In Proceedings of the Com-puter Vision and Pattern Recognition Conference , 24827– 24837. Veneroso, J.; Jayaram, R.; Rao, J.; Ábrego, G. H.; Hadian, M.; and Cer, D. 2025. CRISP: Clustering Multi-Vector Rep-resentations for Denoising and Pruning. arXiv:2505.11471. Wang, H.; Dedhia, B.; and Jha, N. K. 2024. Zero-tprune: Zero-shot token pruning through leveraging of the atten-tion graph in pre-trained transformers. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 16070–16079. Wang, Q.; Ding, R.; Chen, Z.; Wu, W.; Wang, S.; Xie, P.; and Zhao, F. 2025. Vidorag: Visual document retrieval-augmented generation via dynamic iterative reasoning agents. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , 9124–9145. Wang, Y.; Wang, L.; Li, Y.; He, D.; and Liu, T.-Y. 2013. A theoretical analysis of NDCG type ranking measures. In 
+
+Conference on learning theory , 25–54. PMLR. Wasserman, N.; Pony, R.; Naparstek, O.; Goldfarb, A. R.; Schwartz, E.; Barzelay, U.; and Karlinsky, L. 2025. Real-mm-rag: A real-world multi-modal retrieval benchmark. In 
+
+Proceedings of the 63rd Annual Meeting of the Associa-tion for Computational Linguistics (Volume 1: Long Papers) ,31660–31683. Xiang, H.; Yan, Y.; Huo, J.; Huang, Y.; Cao, Y.; Ou, M.; and Hu, X. 2026. MM-Matryoshka: Towards Budget-Elastic Visual Document Retrieval via a 2D Multimodal Matryoshka Training Framework. arXiv:2606.07654. Xiao, Z.; Ma, Q.; Gu, M.; cheng Jason Chen, C.; Chen, X.; Ordonez, V.; and Mohan, V. 2026. MetaEmbed: Scaling Multimodal Retrieval at Test-Time with Flexible Late In-teraction. In The Fourteenth International Conference on Learning Representations .Yan, Y.; Huo, J.; Feng, G.; Ou, M.; Cao, Y.; Zou, X.; Liu, S.; Lyu, Y.; Huang, Y.; Li, J.; Zheng, K.; Zheng, X.; Yu, P. S.; Kwok, J.; and Hu, X. 2026a. Unlocking Multimodal Document Intelligence: From Current Triumphs to Future Frontiers of Visual Document Retrieval. arXiv:2602.19961. Yan, Y.; Ou, M.; Cao, Y.; Huo, J.; Zou, X.; Liu, S.; Kwok, J.; and Hu, X. 2026b. Visual Late Chunking: An Empirical Study of Contextual Chunking for Efficient Visual Document Retrieval. arXiv:2604.10167. Yan, Y.; Ou, M.; Cao, Y.; Zou, X.; Huo, J.; Liu, S.; Kwok, J.; and Hu, X. 2026c. Sculpting the Vector Space: Towards Efficient Multi-Vector Visual Document Retrieval via Prune-then-Merge Framework. In Findings of the Association for Computational Linguistics: ACL 2026 , 24883–24925. Yan, Y.; Ou, M.; Cao, Y.; Zou, X.; Liu, S.; Huo, J.; Huang, Y.; Kwok, J.; and Hu, X. 2026d. Beyond the Grid: Layout-Informed Multi-Vector Retrieval with Parsed Visual Docu-ment Representations. arXiv:2603.01666. Yan, Y.; Xu, G.; Zou, X.; Liu, S.; Kwok, J.; and Hu, X. 2025. DocPruner: A Storage-Efficient Framework for Multi-Vector Visual Document Retrieval via Adaptive Patch-Level Embedding Pruning. arXiv:2509.23883. Zong, Y.; and Piwowarski, B. 2025. Towards Lossless Token Pruning in Late-Interaction Retrieval Models. In Proceed-ings of the 48th International ACM SIGIR Conference on Research and Development in Information Retrieval , 2407– 2417. Technical Appendix Contents 
+
+A Experimental Details 11 A.1 Benchmarks and Evaluation 11 A.2 Retrieval Backbones 11 A.3 Baselines and Budget Matching 11 A.4 AnchorFold Configuration 12 A.5 Implementation Details 12 
+
+B Complete Experimental Results 12 B.1 Benchmark-Level Results 12 B.2 Detailed Results on ViDoRe v1 12 B.3 Detailed Results on ViDoRe v2 12 B.4 Detailed Results on REAL-MM-RAG 12 
+
+C Detailed Comparison with Trained Compression 20 C.1 Controlled Comparison Protocol 20 C.2 Complete Comparison Results 20 
+
+D Calibration Details and Validation 20 D.1 Joint SR-Based Calibration Protocol 20 D.2 Joint Calibration Results 21 D.3 SR-Guided Layer-Window Validation 21 D.4 Propagation-Depth Validation 22 
+
+E Efficiency Evaluation Details 22 E.1 Efficiency Measurement Protocol 22 E.2 Computational Complexity 23 E.3 Complete Efficiency Results 23 A Experimental Details 
+
+A.1 Benchmarks and Evaluation 
+
+Benchmarks. We evaluate on all constituent test sets of the official ViDoRe v1 (Faysse et al. 2025) and Vi-DoRe v2 (Macé, Loison, and Faysse 2025) benchmarks. Vi-DoRe v1 comprises ten datasets spanning scientific figures, scanned documents, infographics, tables, financial reports, and domain-specific reports in English and French. ViDoRe v2 comprises four collections covering ESG re-ports, biomedical lectures, and economics reports. Compared with ViDoRe v1, it places greater emphasis on long-form documents, multi-page relevance, and queries with reduced lexical overlap with the source pages. Three collections provide queries in English, French, German, and Spanish, whereas the fourth contains a fully human-labeled English query set that is disjoint from its semi-synthetic ESG coun-terpart. We use the complete official test split of every con-stituent dataset without additional subsampling. We further evaluate cross-benchmark generalization on the four BEIR-compatible REAL-MM-RAG collections— FinReport, FinSlides, TechReport, and TechSlides (Wasser-man et al. 2025). These collections cover reports and presen-tation slides in the finance and technology domains. REAL-MM-RAG provides multiple rephrased query variants with progressively reduced lexical overlap with the relevant page. We use the rephrase_level_3 queries throughout all REAL-MM-RAG experiments. 
+
+Evaluation protocol. We use NDCG@5 as the primary retrieval metric. For each constituent dataset, NDCG@5 is averaged over all test queries. For each benchmark suite, we report the unweighted macro-average over its constituent datasets. To quantify retrieval fidelity relative to the correspond-ing uncompressed index, we additionally report NDCG@5 retention: 
+
+Retention b, B,c = 100 × NDCG@5 b, B,c 
+
+NDCG@5 b, B,Full 
+
+, (13) where b denotes the retrieval backbone, B the benchmark suite, and c the compression method. When aggregating re-tention across multiple backbone–benchmark pairs, we first compute retention independently for each pair and then take their unweighted arithmetic mean. 
+
+A.2 Retrieval Backbones 
+
+We evaluate three late-interaction retrievers that differ sub-stantially in backbone architecture, depth, visual tokeniza-tion, and retrieval embedding dimensionality, as summarized in Table 2. 
+
+ColPali v1.3. We use the official 
+
+vidore/colpali-v1.3 checkpoint (Faysse et al. 2025) without further training. 
+
+ColQwen2.5. We construct a bidirectional ColQwen2.5 retriever from vidore/colqwen2.5-base (Bai et al. 2025). Specifically, we remove the causal mask from self-attention throughout the language back-bone and train the resulting retriever on the official 
+
+vidore/colpali_train_set , following the training recipe released with vidore/colqwen2.5-v0.2 . We use the official three-epoch LoRA configuration with a per-device batch size of 32, a learning rate of 10 −4, 500 warm-up steps, r = α = 32 , a LoRA dropout of 0.1, bfloat16 preci-sion, and FlashAttention-2. 
+
+Nemotron ColEmbed-3B v2. We use the official 
+
+nvidia/llama-nemotron-colembed-vl-3b-v2 
+
+checkpoint (de Souza P. Moreira et al. 2026) without further training. 
+
+A.3 Baselines and Budget Matching 
+
+All baselines are reproduced within the same evaluation pipeline and operate exclusively on document-side represen-tations. Query encoding and the original MaxSim scoring function remain unchanged. 
+
+Full Index. The uncompressed reference retains all valid visual retrieval vectors produced by the corresponding back-bone. 
+
+Structural Anchor Pruning. SAP (Liu et al. 2026) re-stricts intermediate-layer self-attention to valid visual tokens and ranks them using visual in-degree centrality aggregated across attention heads and a selected layer window. Given a budget m, SAP retains the m highest-scoring visual vec-tors without modifying their representations. We indepen-dently apply SAP’s label-free SR-guided window-selection procedure to each retrieval backbone and use the resulting calibrated window for all evaluation datasets and retention ratios. The selected zero-indexed windows are 11–14 for ColPali, 26–33 for ColQwen2.5, and 18–23 for Nemotron ColEmbed-3B v2. 
+
+DocPruner. DocPruner (Yan et al. 2025) uses final-layer global-token attention to adapt the number of retained visual vectors to each page. To match a prescribed global retention ratio, we standardize the attention scores within each cali-bration page and, for each target γ, determine a single global threshold from the corresponding empirical quantile over 128 held-out calibration pages. This preserves DocPruner’s document-adaptive allocation while matching its global aver-age retention rate to the target budget. The calibration pages are disjoint from all evaluation splits. 
+
+Semantic Clustering. Following Ma et al. (2025), we ap-ply K-means independently to the post-projection visual re-trieval vectors of each page and represent each cluster by the arithmetic mean of its members. The number of clusters is set directly by the common per-page output budget. 
+
+1D-Pooling. Following Ma et al. (2025), we partition the ordered sequence of visual retrieval vectors into contigu-ous, non-overlapping groups and represent each group by the arithmetic mean of its members. Group boundaries are chosen such that the number of output vectors matches the common per-page budget. 
+
+Budget matching. We evaluate retention ratios 
+
+γ ∈ {0.50 , 0.20 , 0.10 , 0.05 }, corresponding to nomi-nal document-vector compression factors of 2×, 5×,Retriever Language backbone Layers Retrieval dim. Image processing ColPali v1.3 PaliGemma-3B 18 128 Fixed 448 × 448 ; 1,024 visual tokens ColQwen2.5 Qwen2.5-VL-3B 36 128 Dynamic resolution; ≤ 768 visual tokens Nemotron ColEmbed-3B v2 Llama-3.2-3B 28 3,072 512 × 512 dynamic tiling; ≤ 8 tiles + thumbnail 
+
+Table 2: Retrieval backbones used in our experiments. The layer count refers to the language backbone. 
+
+10 ×, and 20 ×, respectively. For AnchorFold and all fixed-budget baselines, a page containing N valid visual vectors is represented using the common budget 
+
+m = ⌈γN ⌉ . (14) For Semantic Clustering, m specifies the number of clusters; for 1D-Pooling, it specifies the number of contiguous groups. DocPruner is matched to the same target global retention ratio using the held-out quantile calibration described above. 
+
+A.4 AnchorFold Configuration 
+
+The configurations used in the reported experiments are se-lected independently for each retrieval backbone using the label-free joint SR-based calibration procedure described in Appendix D. The calibration selects propagation depth K =6 for all three backbones and yields the zero-indexed layer windows 11–14 for ColPali v1.3, 25–32 for ColQwen2.5, and 14–19 for Nemotron ColEmbed-3B v2. These calibrated configurations are then fixed across all benchmarks and re-tention ratios. 
+
+A.5 Implementation Details 
+
+All methods are implemented within a unified PyTorch evaluation pipeline. We use the official model-specific im-age processors and preserve each backbone’s native image-processing and visual-tokenization policy. No OCR text or externally provided layout annotations are used by any com-pression method. Evaluation queries are not available to the document compressor during index construction; queries are used only for the one-time, label-free calibration on the held-out query–page pairs described in Appendix D.1. After backbone construction or retrieval training, all re-triever parameters remain frozen during compression and evaluation. Compression is applied once during offline doc-ument indexing, and the compressed representations are reused for all subsequent queries with the original query encoder and MaxSim scoring function. Backbone inference uses bfloat16 precision. All experiments are conducted on a cluster equipped with NVIDIA A800 80-GB GPUs. 
+
+## B Complete Experimental Results 
+
+This section reports the complete benchmark-level and per-dataset results underlying the comparisons in the main pa-per. All NDCG@5 values are reported on a 0–100 scale. For each backbone–dataset pair, NDCG@5 retention is mea-sured relative to the corresponding Full Index, following Appendix A.1. At the benchmark level, we first compute the unweighted macro-average NDCG@5 over the con-stituent datasets and then calculate retention with respect to the corresponding Full Index macro-average. Accordingly, benchmark-level retention is not obtained by averaging the per-dataset retention values. 
+
+B.1 Benchmark-Level Results 
+
+Table 3 summarizes the complete benchmark-level results for all three retrieval backbones, the five evaluated training-free compression methods, and four matched document-vector retention ratios. For each backbone–benchmark pair, Full gives the uncompressed reference NDCG@5, while every compressed setting reports both NDCG@5 and its retention relative to Full. 
+
+B.2 Detailed Results on ViDoRe v1 
+
+Tables 4, 5, and 6 report the ViDoRe v1 per-dataset results for ColPali v1.3, ColQwen2.5, and Nemotron ColEmbed-3B v2, respectively. In each table, the Full Index row provides the dataset-specific reference NDCG@5 used to compute retention. 
+
+B.3 Detailed Results on ViDoRe v2 
+
+Tables 7, 8, and 9 report the ViDoRe v2 per-dataset results for ColPali v1.3, ColQwen2.5, and Nemotron ColEmbed-3B v2, respectively. In each table, the Full Index row provides the dataset-specific reference NDCG@5 used to compute retention. 
+
+B.4 Detailed Results on REAL-MM-RAG 
+
+Tables 10, 11, and 12 report the REAL-MM-RAG per-dataset results for ColPali v1.3, ColQwen2.5, and Nemotron ColEmbed-3B v2, respectively. In each table, the Full Index row provides the dataset-specific reference NDCG@5 used to compute retention. Backbone Method Full γ = 0 .50 γ = 0 .20 γ = 0 .10 γ = 0 .05 
+
+NDCG@5 NDCG@5 Ret. (%) NDCG@5 Ret. (%) NDCG@5 Ret. (%) NDCG@5 Ret. (%) 
+
+ViDoRe v1 (10 datasets) 
+
+ColPali 1D-Pooling 83.7 82.1 98.1 77.9 93.1 72.7 86.9 68.3 81.6 Semantic Clust. 83.2 99.4 81.2 97.0 79.4 94.9 76.6 91.5 DocPruner 79.4 94.9 76.2 91.0 69.5 83.0 63.4 75.7 SAP 82.8 98.9 81.4 97.3 78.0 93.2 72.3 86.4 
+
+AnchorFold 83.2 99.4 81.9 97.8 79.9 95.5 76.7 91.6 
+
+ColQwen2.5 1D-Pooling 89.6 87.5 97.7 82.3 91.9 78.2 87.3 74.6 83.3 Semantic Clust. 89.0 99.3 87.5 97.7 86.0 96.0 82.6 92.2 DocPruner 87.6 97.8 78.8 87.9 73.4 81.9 66.6 74.3 SAP 89.4 99.8 87.2 97.3 84.4 94.2 80.2 89.5 
+
+AnchorFold 89.3 99.7 88.5 98.8 86.6 96.7 83.7 93.4 
+
+Nemotron ColEmbed-3B 1D-Pooling 91.7 90.5 98.7 89.3 97.4 86.8 94.7 84.7 92.4 Semantic Clust. 90.7 98.9 90.1 98.3 89.3 97.4 87.3 95.2 DocPruner 90.5 98.7 88.7 96.7 86.4 94.2 81.9 89.3 SAP 90.9 99.1 90.4 98.6 89.3 97.4 86.7 94.5 
+
+AnchorFold 91.0 99.2 90.7 98.9 90.3 98.5 88.6 96.6 ViDoRe v2 (4 datasets) 
+
+ColPali 1D-Pooling 54.4 49.0 90.1 42.9 78.9 35.7 65.6 32.0 58.8 Semantic Clust. 53.2 97.8 49.2 90.4 44.8 82.4 40.7 74.8 DocPruner 49.0 90.1 47.0 86.4 41.4 76.1 33.8 62.1 SAP 53.7 98.7 48.6 89.3 47.8 87.9 42.6 78.3 
+
+AnchorFold 53.9 99.1 52.9 97.2 50.2 92.3 47.3 86.9 
+
+ColQwen2.5 1D-Pooling 61.3 54.9 89.6 43.6 71.1 37.6 61.3 33.0 53.8 Semantic Clust. 58.4 95.3 53.1 86.6 48.0 78.3 41.9 68.4 DocPruner 60.7 99.0 52.1 85.0 48.3 78.8 35.8 58.4 SAP 59.8 97.6 57.1 93.1 53.7 87.6 50.1 81.7 
+
+AnchorFold 61.1 99.7 60.3 98.4 57.5 93.8 54.7 89.2 
+
+Nemotron ColEmbed-3B 1D-Pooling 63.4 60.8 95.9 55.5 87.5 50.8 80.1 46.8 73.8 Semantic Clust. 61.5 97.0 59.4 93.7 56.7 89.4 52.5 82.8 DocPruner 62.1 97.9 61.2 96.5 58.9 92.9 54.3 85.6 SAP 61.9 97.6 60.0 94.6 59.3 93.5 55.7 87.9 
+
+AnchorFold 63.0 99.4 62.5 98.6 62.3 98.3 61.2 96.5 REAL-MM-RAG (4 datasets) 
+
+ColPali 1D-Pooling 53.6 47.7 89.0 39.7 74.1 32.8 61.2 27.6 51.5 Semantic Clust. 52.6 98.1 48.9 91.2 44.9 83.8 39.5 73.7 DocPruner 43.9 81.9 40.9 76.3 33.4 62.3 27.2 50.7 SAP 52.5 97.9 49.0 91.4 44.4 82.8 37.7 70.3 
+
+AnchorFold 53.4 99.6 52.0 97.0 49.0 91.4 44.3 82.6 
+
+ColQwen2.5 1D-Pooling 64.0 58.2 90.9 46.6 72.8 40.2 62.8 33.8 52.8 Semantic Clust. 62.6 97.8 58.5 91.4 53.1 83.0 44.6 69.7 DocPruner 57.4 89.7 40.9 63.9 35.9 56.1 29.4 45.9 SAP 62.7 98.0 57.2 89.4 50.3 78.6 41.7 65.2 
+
+AnchorFold 63.4 99.1 61.3 95.8 57.3 89.5 51.1 79.8 
+
+Nemotron ColEmbed-3B 1D-Pooling 73.8 71.9 97.4 66.5 90.1 58.8 79.7 52.5 71.1 Semantic Clust. 72.8 98.6 70.8 95.9 66.8 90.5 61.0 82.7 DocPruner 73.0 98.9 68.9 93.4 62.8 85.1 53.9 73.0 SAP 73.4 99.5 71.7 97.2 69.6 94.3 65.2 88.3 
+
+AnchorFold 73.8 100.0 73.3 99.3 72.2 97.8 70.5 95.5 
+
+Table 3: Complete benchmark-level results. Full is the uncompressed NDCG@5. For each document-vector retention ratio 
+
+γ, we report compressed-index NDCG@5 and NDCG@5 retention (%) relative to Full. Benchmark scores are unweighted macro-averages over constituent datasets. Method γ
+
+Arxiv QA Doc VQA Info VQA TabF Quad TAT-DQA NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. Full Index – 82.5 100.0 53.9 100.0 84.8 100.0 86.4 100.0 69.5 100.0 1D-Pooling 0.50 80.7 97.8 51.1 94.9 83.6 98.5 86.7 100.3 64.6 93.0 0.20 76.0 92.1 43.4 80.5 79.8 94.1 85.1 98.4 58.8 84.6 0.10 71.7 86.9 35.7 66.2 77.6 91.5 80.9 93.6 53.7 77.3 0.05 68.1 82.5 31.0 57.4 74.5 87.9 78.9 91.3 47.9 69.0 Semantic Clust. 0.50 81.8 99.2 53.3 98.8 84.5 99.7 86.1 99.7 68.1 98.0 0.20 81.3 98.5 51.6 95.6 82.9 97.8 86.4 100.0 64.1 92.3 0.10 80.8 98.0 48.6 90.1 82.0 96.7 85.0 98.3 61.2 88.1 0.05 79.7 96.5 44.0 81.6 79.1 93.3 84.1 97.3 54.9 79.0 DocPruner 0.50 79.9 96.9 51.0 94.6 80.1 94.5 86.1 99.6 61.1 88.0 0.20 77.5 94.0 45.9 85.2 76.5 90.2 85.3 98.7 57.1 82.1 0.10 74.3 90.1 38.0 70.6 71.5 84.3 80.8 93.4 49.2 70.8 0.05 69.4 84.1 31.8 58.9 66.7 78.7 74.9 86.6 40.0 57.5 SAP 0.50 82.0 99.4 52.8 97.9 84.2 99.3 86.8 100.5 68.0 97.8 0.20 79.6 96.5 50.5 93.7 82.8 97.6 85.9 99.4 63.8 91.8 0.10 77.3 93.6 47.2 87.5 81.0 95.5 84.1 97.3 58.1 83.6 0.05 74.7 90.6 41.4 76.7 73.9 87.1 81.9 94.7 48.1 69.2 
+
+AnchorFold 
+
+0.50 81.9 99.3 53.0 98.4 83.9 98.9 87.1 100.7 68.5 98.5 0.20 80.2 97.1 51.5 95.6 83.1 98.0 85.9 99.4 65.9 94.8 0.10 81.3 98.5 50.0 92.8 81.2 95.7 85.9 99.4 60.4 86.9 0.05 79.6 96.5 44.4 82.4 77.9 91.9 83.6 96.8 53.0 76.3 
+
+Table 4: Per-dataset results on ViDoRe v1 with ColPali v1.3. Each dataset reports NDCG@5 and retention (%) relative to its Full Index. Benchmark-level macro-averages are reported in Table 3. 
+
+Method γ
+
+Shift Project Syn. AI Syn. Energy Syn. Govt Syn. Health NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. Full Index – 75.4 100.0 97.4 100.0 94.7 100.0 95.3 100.0 97.0 100.0 1D-Pooling 0.50 74.3 98.5 96.5 99.1 93.6 98.9 93.6 98.2 95.8 98.8 0.20 65.4 86.7 92.4 94.8 92.4 97.6 92.6 97.1 93.3 96.2 0.10 49.9 66.1 90.1 92.5 87.3 92.2 88.9 93.3 90.8 93.6 0.05 45.1 59.8 87.8 90.1 79.8 84.3 83.4 87.5 86.3 89.0 Semantic Clust. 0.50 74.8 99.2 97.1 99.6 94.3 99.6 94.3 99.0 97.3 100.3 0.20 70.3 93.2 94.9 97.4 92.6 97.8 92.7 97.2 95.4 98.4 0.10 63.5 84.2 94.2 96.7 92.0 97.2 92.3 96.8 93.8 96.8 0.05 59.6 79.1 91.4 93.8 91.6 96.8 90.1 94.5 91.8 94.7 DocPruner 0.50 61.6 81.6 95.1 97.6 91.0 96.1 92.6 97.2 95.3 98.3 0.20 60.7 80.5 92.7 95.1 86.7 91.6 88.5 92.9 91.4 94.2 0.10 46.3 61.4 88.4 90.7 81.2 85.7 82.4 86.5 83.0 85.6 0.05 38.3 50.8 78.5 80.6 75.3 79.5 78.2 82.0 81.0 83.6 SAP 0.50 72.7 96.3 96.3 98.8 93.6 98.8 94.3 99.0 97.0 100.1 0.20 75.8 100.5 94.6 97.1 92.2 97.4 93.8 98.4 95.5 98.5 0.10 67.0 88.9 92.9 95.4 88.7 93.6 90.7 95.2 92.6 95.5 0.05 60.4 80.1 90.5 92.9 81.4 86.0 83.1 87.1 87.5 90.2 
+
+AnchorFold 
+
+0.50 74.4 98.7 96.3 98.8 94.8 100.1 95.1 99.7 96.8 99.8 0.20 73.1 96.9 96.8 99.3 92.2 97.4 95.2 99.9 95.3 98.3 0.10 68.0 90.2 94.8 97.2 91.2 96.3 92.0 96.5 94.3 97.3 0.05 64.6 85.6 93.5 95.9 88.5 93.4 89.7 94.1 92.5 95.4 
+
+Table 4: Per-dataset results on ViDoRe v1 with ColPali v1.3 (continued). Method γ
+
+Arxiv QA Doc VQA Info VQA TabF Quad TAT-DQA NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. Full Index – 89.7 100.0 56.0 100.0 91.0 100.0 93.1 100.0 81.3 100.0 1D-Pooling 0.50 88.1 98.2 53.0 94.6 88.2 96.9 92.8 99.7 76.1 93.6 0.20 83.9 93.4 48.6 86.7 84.4 92.7 90.3 97.0 68.0 83.6 0.10 79.4 88.5 43.0 76.7 81.6 89.6 86.9 93.3 62.6 77.0 0.05 73.9 82.4 38.5 68.8 78.1 85.8 83.6 89.8 56.6 69.6 Semantic Clust. 0.50 90.0 100.2 54.3 97.0 90.7 99.7 92.9 99.8 80.1 98.6 0.20 89.4 99.7 53.4 95.4 89.2 98.0 92.7 99.6 77.6 95.5 0.10 88.4 98.5 52.1 93.0 87.6 96.2 92.7 99.5 73.7 90.6 0.05 87.1 97.0 48.1 85.8 85.5 94.0 90.7 97.4 69.5 85.5 DocPruner 0.50 88.0 98.1 52.7 94.1 87.2 95.8 92.6 99.4 80.3 98.9 0.20 82.9 92.4 44.6 79.6 77.7 85.4 88.5 95.0 69.8 85.8 0.10 77.8 86.7 37.9 67.7 73.6 80.9 85.3 91.6 62.6 77.0 0.05 72.1 80.3 32.5 58.0 68.3 75.0 78.6 84.4 54.3 66.8 SAP 0.50 89.0 99.2 56.2 100.2 90.2 99.1 93.2 100.1 81.2 99.9 0.20 87.7 97.7 54.1 96.6 87.9 96.6 92.6 99.4 77.3 95.1 0.10 84.8 94.5 51.8 92.5 84.7 93.1 91.5 98.2 72.6 89.3 0.05 81.3 90.6 49.0 87.4 81.7 89.7 90.1 96.7 62.9 77.4 
+
+AnchorFold 
+
+0.50 89.3 99.5 54.6 97.5 90.5 99.5 93.2 100.1 81.2 99.9 0.20 89.1 99.3 53.7 95.8 88.6 97.3 92.7 99.6 79.7 98.1 0.10 87.2 97.1 52.2 93.2 86.7 95.3 91.8 98.6 77.2 95.0 0.05 85.0 94.7 48.9 87.3 84.0 92.3 91.0 97.7 71.9 88.5 
+
+Table 5: Per-dataset results on ViDoRe v1 with ColQwen2.5. Each dataset reports NDCG@5 and retention (%) relative to its Full Index. Benchmark-level macro-averages are reported in Table 3. 
+
+Method γ
+
+Shift Project Syn. AI Syn. Energy Syn. Govt Syn. Health NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. Full Index – 89.5 100.0 99.3 100.0 97.4 100.0 99.3 100.0 99.1 100.0 1D-Pooling 0.50 85.1 95.0 98.6 99.3 96.6 99.2 98.5 99.3 97.8 98.6 0.20 71.2 79.5 94.1 94.8 94.3 96.8 93.1 93.8 95.5 96.3 0.10 62.1 69.4 92.2 92.9 89.1 91.5 91.5 92.2 93.6 94.4 0.05 60.9 68.0 86.1 86.8 88.7 91.1 87.8 88.4 91.7 92.5 Semantic Clust. 0.50 88.5 98.9 98.9 99.6 96.7 99.2 98.9 99.6 98.5 99.4 0.20 83.1 92.8 97.9 98.6 95.3 97.8 97.4 98.1 98.5 99.4 0.10 80.5 89.9 96.0 96.8 95.3 97.8 96.4 97.1 97.3 98.1 0.05 69.7 77.8 95.1 95.8 91.3 93.7 92.3 92.9 96.5 97.4 DocPruner 0.50 87.6 97.9 97.2 97.9 95.2 97.7 96.8 97.5 98.2 99.0 0.20 70.0 78.2 89.1 89.8 85.3 87.6 84.9 85.6 94.7 95.6 0.10 58.9 65.8 82.4 83.0 82.7 84.9 80.1 80.7 92.6 93.4 0.05 46.7 52.2 74.9 75.5 77.4 79.4 74.3 74.9 86.6 87.4 SAP 0.50 89.4 99.9 99.6 100.4 97.1 99.6 98.9 99.6 99.1 100.0 0.20 86.3 96.4 96.5 97.2 94.8 97.3 96.4 97.1 98.8 99.6 0.10 83.0 92.7 94.1 94.8 89.2 91.5 94.5 95.2 98.0 98.9 0.05 76.0 84.9 89.8 90.4 84.7 87.0 92.0 92.7 94.5 95.4 
+
+AnchorFold 
+
+0.50 89.0 99.4 99.6 100.4 97.1 99.7 99.6 100.4 99.1 100.0 0.20 89.1 99.5 98.3 99.0 95.9 98.4 98.9 99.6 98.8 99.6 0.10 86.2 96.3 96.5 97.2 92.3 94.8 98.4 99.1 97.2 98.0 0.05 81.9 91.5 92.9 93.6 90.7 93.1 93.9 94.6 96.4 97.3 
+
+Table 5: Per-dataset results on ViDoRe v1 with ColQwen2.5 (continued). Method γ
+
+Arxiv QA Doc VQA Info VQA TabF Quad TAT-DQA NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. Full Index – 90.4 100.0 67.2 100.0 94.7 100.0 97.3 100.0 81.0 100.0 1D-Pooling 0.50 90.4 100.0 58.8 87.5 92.7 97.8 97.4 100.1 79.6 98.3 0.20 87.6 96.9 57.7 85.9 92.1 97.2 95.9 98.6 76.8 94.8 0.10 83.1 91.9 53.3 79.4 90.8 95.9 95.8 98.5 70.2 86.7 0.05 80.8 89.4 51.2 76.1 89.5 94.6 94.7 97.4 62.9 77.6 Semantic Clust. 0.50 90.2 99.7 60.0 89.2 93.2 98.4 97.2 99.9 79.9 98.7 0.20 89.5 99.0 58.9 87.7 92.7 97.9 96.8 99.5 78.2 96.5 0.10 88.6 98.0 57.6 85.7 92.0 97.2 96.5 99.2 76.3 94.1 0.05 87.9 97.3 54.8 81.6 90.8 95.9 95.5 98.1 71.0 87.6 DocPruner 0.50 90.3 99.9 60.4 89.8 93.2 98.4 97.0 99.7 78.8 97.3 0.20 88.6 98.0 59.9 89.2 91.4 96.5 96.8 99.4 71.1 87.8 0.10 85.7 94.8 57.5 85.6 89.5 94.5 96.7 99.3 62.3 77.0 0.05 80.7 89.3 53.7 79.9 86.2 91.1 94.3 96.9 50.1 61.9 SAP 0.50 90.3 99.9 60.3 89.7 93.1 98.3 97.0 99.7 80.5 99.3 0.20 90.5 100.1 58.9 87.7 92.6 97.8 97.2 99.9 79.1 97.6 0.10 88.2 97.5 58.2 86.6 90.7 95.8 96.5 99.2 75.9 93.6 0.05 84.9 93.9 56.1 83.4 88.6 93.6 94.7 97.3 69.3 85.5 
+
+AnchorFold 
+
+0.50 90.4 100.0 60.7 90.4 93.4 98.6 97.3 100.0 80.8 99.8 0.20 89.9 99.5 60.2 89.5 93.4 98.6 97.3 100.0 79.4 98.0 0.10 90.0 99.6 60.0 89.3 92.8 98.0 97.3 100.0 77.1 95.2 0.05 88.4 97.8 58.6 87.3 91.3 96.4 96.6 99.3 73.1 90.3 
+
+Table 6: Per-dataset results on ViDoRe v1 with Nemotron ColEmbed-3B v2. Each dataset reports NDCG@5 and retention (%) relative to its Full Index. Benchmark-level macro-averages are reported in Table 3. 
+
+Method γ
+
+Shift Project Syn. AI Syn. Energy Syn. Govt Syn. Health NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. Full Index – 92.0 100.0 100.0 100.0 98.0 100.0 98.0 100.0 98.9 100.0 1D-Pooling 0.50 92.8 100.8 99.6 99.6 96.1 98.0 98.3 100.3 99.3 100.4 0.20 91.1 99.1 98.3 98.3 96.8 98.7 98.0 100.0 98.9 100.0 0.10 88.7 96.4 94.6 94.6 96.4 98.3 97.0 99.0 98.5 99.6 0.05 86.5 94.0 92.6 92.6 95.0 96.9 96.6 98.5 97.0 98.1 Semantic Clust. 0.50 92.2 100.2 100.0 100.0 97.3 99.2 98.3 100.3 98.9 100.0 0.20 91.2 99.1 100.0 100.0 97.1 99.1 98.4 100.4 98.5 99.6 0.10 89.9 97.7 99.6 99.6 97.1 99.0 97.5 99.5 97.7 98.7 0.05 85.8 93.2 97.3 97.3 97.1 99.0 96.8 98.8 96.3 97.4 DocPruner 0.50 90.6 98.5 100.0 100.0 97.1 99.1 98.7 100.7 98.9 100.0 0.20 87.9 95.5 99.3 99.3 95.2 97.2 98.8 100.8 98.4 99.5 0.10 86.4 93.9 97.1 97.1 94.4 96.4 97.2 99.1 97.0 98.1 0.05 79.4 86.3 94.7 94.7 90.3 92.2 92.2 94.1 97.2 98.2 SAP 0.50 92.5 100.5 100.0 100.0 97.5 99.5 98.7 100.7 99.3 100.4 0.20 92.4 100.4 99.6 99.6 97.6 99.6 98.2 100.2 98.2 99.2 0.10 91.4 99.4 99.3 99.3 96.6 98.6 98.1 100.2 98.2 99.2 0.05 89.1 96.9 97.5 97.5 93.9 95.8 95.3 97.3 98.2 99.2 
+
+AnchorFold 
+
+0.50 92.8 100.8 100.0 100.0 97.1 99.1 98.7 100.7 99.3 100.4 0.20 91.8 99.7 100.0 100.0 97.1 99.1 98.7 100.7 98.9 100.0 0.10 90.6 98.5 100.0 100.0 96.6 98.6 99.1 101.2 99.3 100.4 0.05 87.6 95.2 100.0 100.0 96.3 98.2 97.5 99.5 97.0 98.1 
+
+Table 6: Per-dataset results on ViDoRe v1 with Nemotron ColEmbed-3B v2 (continued). Method γ
+
+ESG Reports Biomedical Lectures Economics Reports ESG Human NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. Full Index – 54.4 100.0 55.5 100.0 49.2 100.0 58.5 100.0 1D-Pooling 0.50 45.7 84.0 53.2 95.8 49.0 99.7 48.0 82.1 0.20 35.3 65.0 48.6 87.6 48.1 97.8 39.5 67.6 0.10 27.1 49.8 44.4 80.0 44.4 90.2 26.9 46.0 0.05 22.3 41.0 40.1 72.2 42.6 86.7 22.8 39.1 Semantic Clust. 0.50 51.7 95.0 55.1 99.3 48.1 97.9 57.9 99.0 0.20 45.7 84.0 52.9 95.3 45.7 93.0 52.4 89.6 0.10 42.5 78.2 51.2 92.3 40.8 82.9 44.5 76.0 0.05 37.5 69.1 48.1 86.7 38.6 78.5 38.7 66.2 DocPruner 0.50 47.7 87.7 52.1 93.9 46.0 93.6 50.0 85.5 0.20 47.2 86.8 47.4 85.4 43.3 88.0 50.2 85.8 0.10 42.2 77.6 40.6 73.1 43.5 88.5 39.5 67.5 0.05 28.2 51.9 35.6 64.2 44.0 89.4 27.5 47.0 SAP 0.50 53.5 98.4 55.2 99.5 48.8 99.1 57.4 98.2 0.20 46.6 85.8 53.0 95.6 44.0 89.5 50.7 86.7 0.10 45.6 83.9 50.4 90.8 43.8 89.0 51.4 87.9 0.05 41.4 76.1 43.9 79.1 37.6 76.4 47.4 81.1 
+
+AnchorFold 
+
+0.50 55.0 101.2 55.6 100.1 48.8 99.2 56.4 96.4 0.20 53.1 97.6 54.6 98.4 47.9 97.3 56.0 95.8 0.10 50.2 92.4 53.6 96.6 45.5 92.5 51.3 87.7 0.05 45.9 84.5 50.8 91.5 43.3 88.0 49.3 84.4 
+
+Table 7: Per-dataset results on ViDoRe v2 with ColPali v1.3. Each dataset reports NDCG@5 and retention (%) relative to its Full Index. Benchmark-level macro-averages are reported in Table 3. 
+
+Method γ
+
+ESG Reports Biomedical Lectures Economics Reports ESG Human NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. Full Index – 61.2 100.0 61.7 100.0 55.4 100.0 67.0 100.0 1D-Pooling 0.50 54.9 89.8 58.5 94.8 51.0 92.1 55.3 82.5 0.20 38.0 62.1 53.3 86.3 47.5 85.7 35.5 53.0 0.10 28.0 45.7 47.5 77.0 45.6 82.4 29.1 43.4 0.05 21.3 34.8 43.9 71.1 42.0 75.8 24.8 37.0 Semantic Clust. 0.50 56.6 92.5 60.0 97.2 52.1 94.1 64.8 96.8 0.20 48.0 78.5 58.7 95.1 49.0 88.5 56.6 84.5 0.10 42.6 69.7 55.0 89.0 44.4 80.2 49.8 74.4 0.05 31.3 51.3 52.1 84.4 42.0 75.8 42.2 63.0 DocPruner 0.50 61.6 100.7 58.8 95.3 55.4 100.1 66.9 99.9 0.20 59.1 96.7 49.0 79.4 49.0 88.4 51.3 76.6 0.10 56.7 92.7 45.8 74.2 44.1 79.6 46.7 69.7 0.05 37.2 60.8 40.5 65.6 33.9 61.2 31.4 46.9 SAP 0.50 60.5 98.9 61.1 99.0 53.6 96.8 64.1 95.7 0.20 59.6 97.4 58.9 95.4 52.3 94.4 57.8 86.3 0.10 53.2 87.0 55.9 90.6 52.7 95.1 53.1 79.3 0.05 51.3 83.9 53.5 86.6 51.9 93.7 43.8 65.4 
+
+AnchorFold 
+
+0.50 59.9 98.0 61.4 99.4 54.9 99.2 68.0 101.5 0.20 59.7 97.7 59.7 96.7 54.7 98.8 67.1 100.2 0.10 59.3 97.0 58.0 93.9 53.7 97.0 58.9 87.9 0.05 56.8 92.9 55.7 90.2 48.0 86.8 58.1 86.7 
+
+Table 8: Per-dataset results on ViDoRe v2 with ColQwen2.5. Each dataset reports NDCG@5 and retention (%) relative to its Full Index. Benchmark-level macro-averages are reported in Table 3. Method γ
+
+ESG Reports Biomedical Lectures Economics Reports ESG Human NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. Full Index – 58.5 100.0 64.9 100.0 56.7 100.0 73.4 100.0 1D-Pooling 0.50 55.9 95.5 61.4 94.6 55.5 97.9 70.4 96.0 0.20 48.3 82.6 60.3 92.9 48.6 85.7 64.8 88.3 0.10 45.5 77.8 58.2 89.7 39.2 69.2 60.3 82.2 0.05 42.9 73.3 55.4 85.3 32.0 56.5 56.8 77.4 Semantic Clust. 0.50 56.0 95.8 62.5 96.3 56.6 99.8 70.9 96.7 0.20 55.5 94.8 61.2 94.3 51.8 91.3 69.3 94.5 0.10 51.7 88.3 60.5 93.2 45.5 80.2 69.1 94.1 0.05 47.0 80.3 59.2 91.3 41.1 72.6 62.5 85.1 DocPruner 0.50 58.0 99.1 62.6 96.4 55.5 97.9 72.4 98.6 0.20 57.6 98.5 62.0 95.5 53.8 94.9 71.2 97.0 0.10 56.1 95.9 59.4 91.5 50.6 89.3 69.4 94.5 0.05 51.8 88.5 54.0 83.3 47.0 82.9 64.4 87.7 SAP 0.50 57.8 98.8 62.9 97.0 56.0 98.7 70.9 96.6 0.20 54.7 93.5 61.9 95.3 50.3 88.6 73.0 99.5 0.10 57.2 97.8 61.6 94.9 48.3 85.2 70.3 95.7 0.05 53.2 90.9 60.1 92.6 44.8 79.0 64.8 88.3 
+
+AnchorFold 
+
+0.50 58.6 100.1 63.0 97.1 58.8 103.6 71.6 97.6 0.20 57.3 97.9 62.8 96.7 57.2 100.9 72.8 99.2 0.10 57.5 98.4 62.8 96.8 56.4 99.4 72.5 98.7 0.05 58.0 99.2 62.2 95.9 51.7 91.2 72.9 99.3 
+
+Table 9: Per-dataset results on ViDoRe v2 with Nemotron ColEmbed-3B v2. Each dataset reports NDCG@5 and retention (%) relative to its Full Index. Benchmark-level macro-averages are reported in Table 3. 
+
+Method γ
+
+Fin Report Fin Slides Tech Report Tech Slides NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. Full Index – 40.1 100.0 35.3 100.0 60.9 100.0 78.0 100.0 1D-Pooling 0.50 32.5 80.9 26.7 75.7 56.1 92.2 75.7 97.1 0.20 23.6 58.9 16.9 47.9 50.0 82.1 68.2 87.4 0.10 19.0 47.3 11.7 33.2 39.5 64.9 61.2 78.5 0.05 15.7 39.1 7.6 21.6 31.0 50.9 56.2 72.0 Semantic Clust. 0.50 39.0 97.2 33.5 94.9 60.1 98.7 77.8 99.7 0.20 33.2 82.7 30.5 86.4 56.2 92.3 75.9 97.3 0.10 28.8 71.8 27.3 77.3 50.5 83.0 72.9 93.4 0.05 23.9 59.5 21.1 59.7 44.4 72.9 68.6 88.0 DocPruner 0.50 31.9 79.6 19.4 55.1 52.1 85.6 72.0 92.3 0.20 27.6 68.8 17.4 49.4 50.0 82.1 68.8 88.2 0.10 20.0 49.8 11.7 33.0 41.0 67.3 61.0 78.2 0.05 16.6 41.3 8.4 23.7 32.5 53.5 51.5 66.0 SAP 0.50 38.9 97.0 33.9 96.0 59.4 97.6 77.7 99.5 0.20 35.8 89.3 30.4 86.1 54.9 90.2 74.8 95.9 0.10 32.1 80.0 24.0 68.1 50.2 82.5 71.1 91.2 0.05 26.2 65.3 16.1 45.6 43.0 70.7 65.6 84.1 
+
+AnchorFold 
+
+0.50 39.9 99.6 34.8 98.6 60.6 99.6 78.3 100.4 0.20 39.4 98.3 32.3 91.4 58.5 96.1 77.6 99.5 0.10 36.6 91.3 28.8 81.6 55.3 90.8 75.3 96.5 0.05 33.3 83.0 21.9 62.1 50.9 83.7 70.9 90.9 
+
+Table 10: Per-dataset results on REAL-MM-RAG with ColPali v1.3. Each dataset reports NDCG@5 and retention (%) relative to its Full Index. Benchmark-level macro-averages are reported in Table 3. Method γ
+
+Fin Report Fin Slides Tech Report Tech Slides NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. Full Index – 53.7 100.0 45.4 100.0 73.4 100.0 83.5 100.0 1D-Pooling 0.50 43.9 81.7 38.1 83.8 69.2 94.3 81.4 97.6 0.20 31.0 57.7 24.2 53.3 57.6 78.5 73.7 88.3 0.10 27.5 51.2 19.2 42.2 48.6 66.3 65.6 78.6 0.05 20.4 38.0 13.5 29.8 41.9 57.1 59.5 71.3 Semantic Clust. 0.50 50.7 94.4 45.0 98.9 71.8 97.8 83.1 99.5 0.20 45.5 84.7 39.2 86.3 67.4 91.8 81.9 98.1 0.10 38.7 72.0 34.2 75.2 60.8 82.8 78.7 94.3 0.05 30.4 56.6 24.3 53.4 50.4 68.7 73.5 88.1 DocPruner 0.50 50.4 93.8 31.0 68.2 69.1 94.1 79.0 94.7 0.20 37.6 70.0 13.3 29.2 49.6 67.6 63.0 75.5 0.10 32.5 60.5 9.7 21.3 42.1 57.4 59.3 71.1 0.05 20.7 38.5 8.5 18.7 34.1 46.5 54.3 65.1 SAP 0.50 53.6 99.9 42.6 93.8 71.5 97.5 83.2 99.6 0.20 50.0 93.2 35.4 78.0 63.2 86.0 80.0 95.8 0.10 42.9 79.9 28.1 61.7 54.7 74.6 75.5 90.5 0.05 32.1 59.7 20.0 43.9 45.2 61.6 69.6 83.5 
+
+AnchorFold 
+
+0.50 53.9 100.4 44.3 97.6 72.2 98.4 83.2 99.7 0.20 52.8 98.4 41.8 91.9 68.8 93.7 81.8 98.1 0.10 50.2 93.5 36.8 81.0 63.2 86.1 78.9 94.6 0.05 44.6 83.0 29.0 63.8 56.6 77.1 74.1 88.8 
+
+Table 11: Per-dataset results on REAL-MM-RAG with ColQwen2.5. Each dataset reports NDCG@5 and retention (%) relative to its Full Index. Benchmark-level macro-averages are reported in Table 3. 
+
+Method γ
+
+Fin Report Fin Slides Tech Report Tech Slides NDCG Ret. NDCG Ret. NDCG Ret. NDCG Ret. Full Index – 69.5 100.0 61.5 100.0 77.4 100.0 86.6 100.0 1D-Pooling 0.50 65.7 94.4 60.2 97.8 75.7 97.9 86.0 99.3 0.20 56.2 80.8 54.6 88.8 71.8 92.7 83.5 96.4 0.10 43.1 62.0 48.7 79.2 65.2 84.3 78.1 90.1 0.05 34.2 49.2 44.3 72.0 57.0 73.6 74.4 85.9 Semantic Clust. 0.50 67.5 97.0 60.9 99.0 76.4 98.8 86.4 99.8 0.20 62.7 90.1 60.2 97.8 74.5 96.2 85.8 99.1 0.10 54.9 78.9 56.1 91.3 71.6 92.5 84.4 97.5 0.05 46.0 66.2 51.2 83.2 64.9 83.9 81.7 94.4 DocPruner 0.50 68.2 98.1 60.6 98.5 76.3 98.6 86.8 100.2 0.20 62.4 89.7 56.4 91.6 72.1 93.2 84.8 97.9 0.10 56.4 81.1 48.1 78.3 64.3 83.1 82.4 95.1 0.05 44.5 63.9 39.4 64.0 53.6 69.3 78.3 90.4 SAP 0.50 69.0 99.2 60.9 99.0 76.9 99.3 86.6 100.0 0.20 66.5 95.6 59.6 97.0 74.7 96.5 85.8 99.1 0.10 63.0 90.5 58.5 95.1 72.0 93.1 84.9 98.0 0.05 58.1 83.6 53.9 87.6 66.6 86.1 82.1 94.8 
+
+AnchorFold 
+
+0.50 69.3 99.7 61.7 100.4 77.5 100.1 86.6 99.9 0.20 68.6 98.6 61.3 99.7 76.8 99.2 86.4 99.8 0.10 66.6 95.7 60.9 99.0 74.7 96.6 86.6 100.0 0.05 64.8 93.2 59.2 96.3 72.7 94.0 85.4 98.6 
+
+Table 12: Per-dataset results on REAL-MM-RAG with Nemotron ColEmbed-3B v2. Each dataset reports NDCG@5 and retention (%) relative to its Full Index. Benchmark-level macro-averages are reported in Table 3. C Detailed Comparison with Trained Compression 
+
+C.1 Controlled Comparison Protocol 
+
+We compare AnchorFold with AGC, a trained compression method that learns universal query tokens for saliency-guided representative selection and weighted aggregation (Qin et al. 2026). AGC uses last-layer attention from the learned to-kens to select representative document vectors, assigns the remaining vectors to their most similar representatives, and summarizes each resulting group through attention-weighted aggregation. We reproduce AGC within the same codebase used for AnchorFold and use the same bidirectional ColQwen2.5 backbone setup. AGC is trained using the same data and LoRA recipe as the ColQwen2.5 retriever described in Ap-pendix A.2, while jointly learning 128 universal query to-kens. In contrast, AnchorFold is applied post hoc to the corresponding retrieval checkpoint, introduces no additional parameters, and requires no additional training. We use the calibrated ColQwen2.5 configuration from Appendix A.4. Unlike the retention-ratio experiments in the main evalua-tion, this comparison uses a common fixed document-vector cap. For a page with N valid document vectors, both methods use 
+
+m = min( N, 128) . (15) All other preprocessing and retrieval settings are held fixed, including the image processor, document corpora, test queries, relevance judgments, query encoding, and MaxSim scoring. Evaluation follows Appendix A.1 over the same 18 constituent datasets. 
+
+C.2 Complete Comparison Results 
+
+Table 13 reports the complete comparison. At the bench-mark level, AnchorFold achieves higher macro-average NDCG@5 than AGC on all three evaluation suites, with improvements of 0.5, 2.8, and 1.4 points on ViDoRe v1, ViDoRe v2, and REAL-MM-RAG, respectively. The largest benchmark-level improvement occurs on ViDoRe v2, where AnchorFold reaches 59.8 NDCG@5 compared with 57.0 for AGC. The per-dataset results show that the benchmark-level im-provements are not driven by a single collection. Anchor-Fold achieves higher NDCG@5 on 14 of the 18 constituent datasets and on all four REAL-MM-RAG collections. On ViDoRe v2, the largest improvement occurs on the fully human-labeled ESG collection, where AnchorFold exceeds AGC by 5.6 NDCG@5 points, with additional gains on ESG Reports and Economics Reports. On REAL-MM-RAG, An-chorFold improves over AGC on both report and slide col-lections, with the largest gain of 3.5 points on FinReport. AGC remains stronger on four individual datasets: ArX-ivQA, InfoVQA, Synthetic AI, and Biomedical Lectures. Nevertheless, AnchorFold obtains a higher macro-average on each of the three evaluated benchmark suites. These re-sults show that AnchorFold can achieve competitive fixed-budget retrieval performance without additional parameters or training, while providing higher aggregate NDCG@5 un-der this comparison protocol. 
+
+## D Calibration Details and Validation 
+
+D.1 Joint SR-Based Calibration Protocol 
+
+We calibrate the propagation depth K and layer window L
+
+jointly using Score Retention (SR), adapted from the label-free diagnostic introduced by SAP (Liu et al. 2026). Let 
+
+Qn = [ qn, 1, . . . , qn,M n ] and En = [ en, 1, . . . , en,N n ] de-note the query and full document representations for calibra-tion pair n. Their MaxSim score is 
+
+S(Qn, En) = 
+
+> Mn
+
+X
+
+> i=1
+
+max 
+
+> 1≤j≤Nn
+
+q⊤
+
+> n,i
+
+en,j . (16) For propagation depth K and layer set L, let bEn,K, L be the representation produced by the complete AnchorFold operator, including anchor selection, token assignment, and centrality-weighted aggregation. Pair-level SR is defined as 
+
+Rn(K, L) = 100 × S(Qn, bEn,K, L)
+
+S(Qn, En) . (17) Unlike NDCG, SR measures the fidelity of a compressed representation for an individual query–page pair without in-troducing corpus-level ranking effects or requiring relevance judgments. We use 500 held-out query–page pairs sampled from the ColPali training corpus with random seed 42. The calibra-tion pairs are disjoint from all ViDoRe v1, ViDoRe v2, and REAL-MM-RAG evaluation splits. Calibration is performed at γcal = 0 .20 ; a page with Nn valid visual tokens is therefore represented using mn = ⌈0.20 Nn⌉ vectors. We use zero-based layer indices, a relative window width of ρ = 0 .2, and candidate propagation depths 
+
+K = {2, 3, 4, 6, 8, 10 , 12 }. (18) The calibration consists of two stages. First, for every can-didate K, we apply AnchorFold using each backbone layer independently and average pair-level SR over the calibration set, producing the single-layer profile 
+
+RK (l) = 1500 
+
+> 500
+
+X
+
+> n=1
+
+Rn(K, {l}), l = 0 , . . . , L tot − 1,
+
+(19) where Ltot denotes the total number of backbone layers. Let 
+
+mK be the median of this profile across all layers. We define 
+
+l⋆K as the beginning of the longest trailing suffix whose SR remains below mK :
+
+l⋆K = min l : RK (j) < m K for every j ∈ { l, . . . , L tot − 1} .
+
+(20) With 
+
+w = ⌈ρL tot ⌉ , (21) the candidate window for K is placed immediately before this trailing low-SR region: 
+
+LK = {max(0 , l ⋆K − w), . . . , l ⋆K − 1} . (22) This procedure yields widths of 4, 8, and 6 layers for ColPali v1.3, ColQwen2.5, and Nemotron ColEmbed-3B v2, respec-tively. Dataset AGC (Trained) AnchorFold (Training-Free)                                              
+
+> ViDoRe v1 (10 datasets)
+> ArXivQA 89.7 88.9 DocVQA 53.6 53.9
+> InfoVQA 89.1 88.9 TabFQuAD 91.2 92.9
+> TAT-DQA 77.9 79.9
+> Shift Project 87.1 88.3
+> Synthetic AI 99.6 97.6 Synthetic Energy 93.2 94.7
+> Synthetic Government 97.5 98.5
+> Synthetic Healthcare 98.0 98.8
+> Average 87.7 88.2
+> Dataset AGC (Trained) AnchorFold (Training-Free)
+> ViDoRe v2 (4 datasets)
+> ESG Reports 56.7 59.4
+> Biomedical Lectures 60.1 59.5 Economics Reports 51.9 55.5
+> ESG Reports (Human) 59.2 64.8
+> Average 57.0 59.8 REAL-MM-RAG (4 datasets)
+> FinReport 49.3 52.8
+> FinSlides 39.3 40.0
+> TechReport 67.3 68.5
+> TechSlides 80.9 81.3
+> Average 59.2 60.6
+
+Table 13: Controlled fixed-budget comparison with trained AGC using at most 128 document vectors per page. All entries are NDCG@5 on a 0–100 scale. Average is the unweighted mean over the constituent datasets of each benchmark. The better result in each row is shown in bold. Second, we evaluate each joint candidate (K, LK ) us-ing the deployment-faithful multi-layer operator: layer-normalized centrality is averaged over LK , after which the complete focus-then-fold procedure constructs the com-pressed representation. We denote the resulting pair-level values by 
+
+Rn,K = Rn(K, LK ), RK = 1500 
+
+> 500
+
+X
+
+> n=1
+
+Rn,K . (23) We select K using a paired one-standard-error rule. Let 
+
+Kbest = arg max  
+
+> K∈K
+
+RK (24) and define the pairwise gap 
+
+dn(K) = Rn,K best − Rn,K , (25) with mean paired gap 
+
+d(K) = 1500 
+
+> 500
+
+X
+
+> n=1
+
+dn(K). (26) A candidate is eligible when its mean paired gap does not exceed one standard error of the paired gaps: 
+
+d(K) ≤ SE[ d(K)] = sd( d1(K), . . . , d 500 (K)) 
+
+√500 . (27) Among the eligible candidates, we select the smallest K.The rule uses paired differences from the same calibration examples and therefore accounts for the strong correlation between candidate configurations. It also avoids selecting a larger propagation depth for a negligible improvement in mean SR. 
+
+D.2 Joint Calibration Results 
+
+Table 14 reports the complete joint-SR sweep. SR is reported on a percentage scale as the mean and standard error over the 500 calibration pairs. Each entry is evaluated with the layer window independently obtained from the single-layer SR profile for that K; the layer indices are zero-based and inclusive. The highest mean SR occurs at K = 6 for ColPali v1.3, K = 10 for ColQwen2.5, and K = 8 for Nemotron ColEmbed-3B v2. These maxima differ by at most small fractions of one percentage point from the neighboring can-didates. Applying the paired rule in Equation 27, K = 6 is the smallest eligible depth for all three backbones, whereas every candidate with K < 6 falls outside the corresponding one-standard-error set. At K = 6 , the calibrated windows are lay-ers 11–14, 25–32, and 14–19 for ColPali v1.3, ColQwen2.5, and Nemotron ColEmbed-3B v2, respectively. We therefore use this common propagation depth and the three backbone-specific windows in all reported experiments. 
+
+D.3 SR-Guided Layer-Window Validation 
+
+We next validate whether the label-free SR criterion identi-fies a layer region that also preserves downstream retrieval effectiveness. Using ColQwen2.5 on the complete ViDoRe v2 benchmark, we fix K = 6 and γ = 0 .20 , and evaluate the nine canonical 20%-wide windows spanning the backbone. SR is computed on the held-out calibration pairs, whereas Avg. NDCG@5 is the unweighted macro-average over the four ViDoRe v2 datasets. NDCG@5 is used only for post-hoc validation and does not participate in window selection. The SR-selected 70–90% window attains both the highest calibration SR and the highest downstream NDCG@5. Re-trieval effectiveness generally improves from the early layers toward the middle-to-late backbone region, but decreases when the window is moved to the final 20% of the backbone. In particular, shifting from layers 25–32 to layers 28–35 de-creases SR from 96.043% to 95.272% and Avg. NDCG@5 from 60.31 to 59.35. This agreement suggests that the trailing low-SR region provides a useful label-free signal for avoid-ing layer regions whose attention patterns yield less effective compression under the fixed vector budget. ColPali v1.3 ColQwen2.5 Nemotron ColEmbed-3B v2                                                                                           
+
+> KLayers SR (%) Layers SR (%) Layers SR (%) 211–14 95 .948 ±0.127 25–32 95 .999 ±0.174 14–19 99 .444 ±0.018
+> 311–14 95 .967 ±0.136 25–32 96 .014 ±0.174 14–19 99 .448 ±0.019
+> 411–14 95 .981 ±0.137 25–32 96 .005 ±0.175 14–19 99 .450 ±0.019
+> 611–14 96 .034 ±0.145 25–32 96 .043 ±0.188 14–19 99 .463 ±0.018
+> 811–14 96 .001 ±0.138 25–32 96 .016 ±0.195 14–19 99 .464 ±0.019
+> 10 11–14 95 .975 ±0.140 24–31 96 .162 ±0.182 14–19 99 .462 ±0.019
+> 12 11–14 95 .990 ±0.140 24–31 96 .155 ±0.173 14–19 99 .462 ±0.019
+
+Table 14: Joint SR-based calibration across propagation depths and retrieval backbones. Values are mean SR (%) ± standard error over 500 held-out query–page pairs. Each K is evaluated with its own SR-selected layer window. Bold indicates the configuration retained by the paired one-standard-error rule. The reported marginal standard errors are descriptive; eligibility is determined from paired per-example gaps in Equation 27.                               
+
+> Relative window (%) Layers SR (%) Avg. NDCG@5 0–20 0–7 94.365 55.64 10–30 3–10 94.969 56.42 20–40 7–14 95.187 57.84 30–50 10–17 95.495 59.47 40–60 14–21 95.392 58.93 50–70 18–25 95.955 59.93 60–80 21–28 95.874 60.00
+> 70–90 25–32 96.043 60.31
+> 80–100 28–35 95.272 59.35
+
+Table 15: Post-hoc validation of the SR-guided layer window on ViDoRe v2 with ColQwen2.5 at K = 6 and γ = 0 .20 .Layer indices are zero-based and inclusive. Bold indicates the SR-selected window. 
+
+D.4 Propagation-Depth Validation 
+
+Finally, we validate the selected propagation depth on Vi-DoRe v2 with ColQwen2.5 at γ = 0 .20 . To preserve the joint nature of the calibration, each K is evaluated with the layer window selected from its own single-layer SR pro-file. Thus, K ∈ { 2, 3, 4, 6, 8} uses layers 25–32, whereas 
+
+K ∈ { 10 , 12 } uses layers 24–31. The benchmark evalua-tion is again post-hoc and does not modify the SR-selected configuration. Increasing the propagation depth from K = 2 to K = 6 
+
+improves Avg. NDCG@5 by approximately 1.7 points, show-ing a clear benefit over the shallowest calibrated setting. Beyond K = 6 , performance largely saturates: K = 8 is slightly lower, while K = 10 and K = 12 provide only marginal additional improvements. These results are con-sistent with the paired SR calibration: K = 6 captures the substantial benefit of recursive propagation while avoid-ing additional iterations whose downstream gains are small and backbone-dependent. Together with the backbone-wise paired SR results in Table 14, this ColQwen2.5 sensitivity analysis supports retaining K = 6 as the common propaga-tion depth for all three backbones.                 
+
+> KLayers Avg. NDCG@5 225–32 58.64 325–32 59.85 425–32 59.72
+> 625–32 60.31
+> 825–32 60.10 10 24–31 60.39 12 24–31 60.42
+
+Table 16: Post-hoc propagation-depth validation on ViDoRe v2 with ColQwen2.5 at γ = 0 .20 . Each depth uses its in-dependently SR-selected layer window. Bold indicates the deployed configuration. 
+
+## E Efficiency Evaluation Details 
+
+E.1 Efficiency Measurement Protocol 
+
+We evaluate index-time efficiency on ViDoRe v2 using the same bidirectional ColQwen2.5 retrieval checkpoint and na-tive image processor as in the main experiments. All com-pression methods are evaluated at the target document-vector retention ratio γ = 0 .10 . For AnchorFold, we use the cali-brated propagation depth K = 6 and the zero-indexed layer window L = {25 , . . . , 32 }. The number of valid visual to-kens is capped at 768. Latency is measured on a fixed stratified sample of 200 document pages, with 50 pages sampled uniformly without replacement from each of the four ViDoRe v2 subsets: ESG Reports, Biomedical Lectures, Economics Reports, and ESG Reports (Human). We fix the sampling seed to 42 and reuse the same sample manifest for every method. Retrieval quality reported in Table 17, in contrast, is evaluated on the complete ViDoRe v2 benchmark rather than on the 200-page latency sample. Each method is evaluated in a separate process on a single NVIDIA A800 80GB GPU with batch size 1 and bfloat16 inference. All sampled inputs are prepared before timing. We exclude image I/O, image preprocessing, and host-to-device transfer so that the measurements isolate model-side docu-ment encoding and index construction. Each method is first run on 30 untimed warm-up pages. We then perform three Retrieval Latency (ms/page) Method NDCG@5 Ret. (%) Comp. Total Mean ± SD P95 Index / Full Full Index 61.3 100.0 – 88 .119 ± 0.053 92.047 1.000 SAP 53.7 87.6 2.324 ± 0.005 92 .915 ± 0.039 97.116 1.054 Semantic Clust. 48.0 78.3 29 .497 ± 0.054 117 .367 ± 0.091 122.424 1.332 1D-Pooling 37.6 61.3 0.3300 ± 0.0001 88 .327 ± 0.027 92.254 1.002 DocPruner 48.3 78.8 0.823 ± 0.003 89 .084 ± 0.064 93.025 1.011           
+
+> AnchorFold 57.5 93.8 7.103 ±0.015 97 .726 ±0.017 101.858 1.109
+
+Table 17: Index-time efficiency on ViDoRe v2 using ColQwen2.5 at γ = 0 .10 . Retrieval metrics are evaluated on the complete ViDoRe v2 benchmark, while latency is measured on the fixed 200-page sample. “Comp.” denotes compression latency, and Index / Full denotes mean total indexing latency normalized to the Full Index. Bold indicates the best retrieval result among the compressed methods. complete measured passes over the same 200-page manifest, yielding 600 per-page observations. Wall-clock latency is measured using time.perf_counter , with CUDA syn-chronization immediately before and after each timed region. We report two latency quantities. Compression latency 
+
+measures only the method-specific compression procedure, starting after the backbone outputs required by the compres-sor are available and ending when the compressed document vectors have been constructed. Total indexing latency mea-sures the complete document-side indexing procedure from prepared device-resident model inputs to the final document vectors. For each latency quantity, the reported mean is computed over all 600 per-page observations. The value following ±
+
+is the standard deviation of the three full-pass means, while P95 is computed over all 600 per-page observations. We additionally report total indexing latency normalized to the Full Index: 
+
+Rindex = Tmethod 
+
+Tfull 
+
+. (28) The corresponding indexing overhead is 
+
+∆index = ( Rindex − 1) × 100% . (29) The normalized quantity Rindex corresponds to the horizon-tal axis of Figure 6 in the main paper. For AnchorFold and the fixed-budget baselines, a page containing N valid document vectors is represented using 
+
+m = ⌈0.10 N ⌉ output vectors, following the common bud-get definition in Appendix A.3. DocPruner instead uses its globally calibrated pruning threshold and realizes a vector retention of 10.75% on the fixed latency sample. NDCG@5 retention is computed relative to the Full Index on the com-plete ViDoRe v2 benchmark. 
+
+E.2 Computational Complexity 
+
+We analyze the additional index-time computation intro-duced by AnchorFold. Let N denote the number of valid visual tokens, m = ⌈γN ⌉ the number of anchors, H the number of attention heads, and Ls = |L| the number of selected layers. Let d and dr denote the backbone hidden dimension and retrieval embedding dimension, respectively. In the focus stage, constructing and normalizing the vi-sual attention graphs over the selected layers and heads re-quires O(LsHN 2) operations. Recursive Attention Propa-gation performs K matrix–vector multiplications for each selected layer and attention head, giving a focus-stage com-plexity of 
+
+Cfocus = O LsHKN 2 . (30) The subsequent head integration and layer-wise score aggre-gation require only linear computation in N and are lower-order terms. In the fold stage, selecting the m highest-centrality anchors costs O(N log m). Assigning visual tokens to their most similar anchors in the dr -dimensional normalized retrieval space requires O(N md r ) operations. Centrality-weighted aggregation over the resulting anchor-centered groups costs 
+
+O(N d ), and projecting the m aggregated hidden states into the retrieval space costs O(mdd r ). The overall additional index-time complexity of AnchorFold is therefore 
+
+CAnchorFold = O LsHKN 2 + N md r
+
++ mdd r + N d + N log m. (31) Since m = ⌈γN ⌉, the leading terms can be expressed as 
+
+O LsHKN 2 + γN 2dr + γN dd r
+
+ . (32) For a fixed backbone and compression configuration, Ls, H,
+
+K, γ, d, and dr are constants; thus, the index-time complexity of AnchorFold is quadratic in the number of valid visual tokens. In the evaluated ColQwen2.5 configuration, K = 6 ,
+
+Ls = 8 , and N ≤ 768 .AnchorFold introduces no additional computation dur-ing query encoding. For a query containing Q query vectors, exact per-page MaxSim scoring decreases from O(QN d r )
+
+for the Full Index to O(Qmd r ) = O(γQN d r ) after com-pression. Similarly, document-index storage decreases from 
+
+O(N d r ) to O(md r ) = O(γN d r ).
+
+E.3 Complete Efficiency Results 
+
+Table 17 reports the complete efficiency measurements. The fixed 200-page latency sample contains 148,409 Full Index visual vectors in total. The NDCG@5 values are evaluated on the complete ViDoRe v2 benchmark, whereas latency is measured on the fixed 200-page sample. At γ = 0 .10 , AnchorFold retains 93.8% of the Full Index NDCG@5 while requiring 1.109 × its total indexing latency, corresponding to a 10.9% indexing overhead. Rela-tive to SAP, AnchorFold improves NDCG@5 retention by 6.2 percentage points while increasing total indexing latency by 4.811 ms per page. Relative to Semantic Clustering, An-chorFold improves NDCG@5 retention by 15.5 percentage points while reducing total indexing latency by 19.641 ms per page. Semantic Clustering incurs the largest compression latency, whereas 1D-Pooling and DocPruner remain clos-est to the Full Index in total indexing latency but preserve substantially less retrieval quality. Overall, these results are consistent with Figure 6: AnchorFold provides the highest retrieval fidelity among the evaluated compression methods while incurring a moderate one-time increase in offline index construction cost.

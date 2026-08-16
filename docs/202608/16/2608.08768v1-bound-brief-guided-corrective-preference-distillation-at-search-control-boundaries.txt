@@ -1,0 +1,948 @@
+Title: BOUND: Brief-Guided Corrective Preference Distillation at Search-Control Boundaries
+
+URL Source: https://arxiv.org/pdf/2608.08768v1
+
+Published Time: Tue, 11 Aug 2026 01:25:39 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# BOUND: Brief-Guided Corrective Preference Distillation at Search-Control Boundaries 
+
+# Qingying Niu 
+
+qingyingniu36@gmail.com Gaoling School of Artificial Intelligence Renmin University of China Beijing, China 
+
+# Ruiyang Ren ∗
+
+reyon_ren@outlook.com Gaoling School of Artificial Intelligence Renmin University of China Beijing, China 
+
+# Wayne Xin Zhao ∗
+
+batmanfly@gmail.com Gaoling School of Artificial Intelligence Renmin University of China Beijing, China 
+
+# Yaliang Li 
+
+yaliang.li@alibaba-inc.com Alibaba Group Bellevue, Washington, United States 
+
+## Abstract 
+
+Large language model (LLM)-based deep search agents solve tasks through iterative retrieval and reasoning, but locally relevant evi-dence can cause persistent wrong-anchor drift, constraint drift, or local-topic drift. Existing methods supervise trajectories, outcomes, or steps, but rarely distinguish task-aligned continuations from locally plausible ones that reinforce drift. We propose BOUND, a brief-guided corrective preference distillation framework for per-sistent search drift. For each student-induced decision-time state, BOUND constructs a teacher-side search-state brief that preserves the original search target and key constraints while summarizing confirmed evidence, missing information, and drift status. Guided by the brief, the teacher determines whether the student’s contin-uation contains a correctable local search-control error likely to affect subsequent decisions. Together with the rollout outcome, this assessment determines whether to construct a corrective contrast between a student-specific correction and the original continua-tion, or a termination contrast between a supported answer and an unnecessary retrieval continuation. Each validated state-matched preference pair operationalizes a search-control boundary. Direct preference optimization (DPO) distills these preferences into the stu-dent, while the brief and teacher-side computation remain confined to training. We evaluate BOUND on four multi-hop QA benchmarks and three deep-search benchmarks. Across the six benchmarks for which we reran baselines, BOUND leads on five datasets and 12 of 14 metrics. Under the same search-control interface and matched settings, BOUND outperforms Trajectory SFT by 5.6 EM points on Bamboogle and 4.8 accuracy points on BrowseComp-Plus. Code is available at https://github.com/RUCAIBox/BOUND. 
+
+## CCS Concepts 
+
+• Information systems → Information retrieval ; • Computing methodologies → Artificial intelligence ; Machine learning .
+
+> ∗Corresponding authors.
+> Conference’17, Washington, DC, USA
+> 2026. ACM ISBN 978-1-4503-XXXX-X/2018/06 https://doi.org/10.1145/nnnnnnn.nnnnnnn
+
+## Keywords 
+
+LLM-based search agents, persistent search drift, search control, preference distillation, multi-step information seeking 
+
+## 1 Introduction 
+
+Large language models (LLMs) show strong capabilities in language understanding, generation, and reasoning [1]. Despite these capa-bilities, answering questions that require current or verifiable infor-mation often depends on external evidence. Retrieval-augmented generation (RAG) grounds generation in retrieved documents [14], but one retrieval step is insufficient when evidence must be pro-gressively acquired and connected. LLM-based search agents ad-dress this through iterative querying, retrieval, and reasoning. Re-cent work advances this process through agentic retrieval [18] and search-oriented post-training [11, 15, 30]. However, dependence on retrieval makes search vulnerable to error propagation, as each result reshapes context and later decisions. Semantically relevant evidence can still mislead reasoning, al-lowing errors to propagate through multi-step search [5]. Once the search departs from the original search target or drops a key constraint, later decisions may reinforce the deviation even when queries appear reasonable. We refer to this failure mode as persis-tent search drift . Figure 1 illustrates three manifestations. In wrong-anchor drift , a related entity introduced by retrieved evidence be-comes the new search anchor, causing the agent to pursue Lenard instead of Einstein. In constraint drift , the agent drops qualifiers concerning the year or the reason for the award. In local-topic drift ,it explores the history of the photoelectric effect rather than resolv-ing the connection between the physicist’s university studies and the target city. Across cases, the search remains locally plausible while diverging from the original search target. Existing methods train search agents through trajectory-based post-training [7, 15] and outcome-based reinforcement learning [11, 30]. Successful trajectories provide limited guidance for context-induced deviations, while outcome rewards offer coarse credit over long interactions. To provide finer-grained supervision, recent methods introduce intermediate signals for query quality, informa-tion acquisition, or failure-relevant actions [20, 38, 39, 43]. Yet an action may appear locally appropriate while continuing a trajec-tory shaped by misleading context, allowing the search to remain arXiv:2608.08768v1 [cs.IR] 9 Aug 2026 Conference’17, July 2017, Washington, DC, USA Niu et al. User's Query             
+
+> In which city did the 1921 Nobel Prize in Physics laureate, recognized especially for the law of the photoelectric effect, complete his university studies?
+> Wrong-Anchor Drift
+> Search:
+> "1921 Nobel Physics photoelectric effect"
+> 1Step 1
+> 2Step 2
+> Misaligned next step ×
+> Targeted correction:
+> Re-anchor on the target laureate and find where he completed his studies.
+> Constraint Drift
+> Original constraints:
+> "1921 Nobel Prize"
+> "photoelectric effect"
+> 1Step 1
+> Step 2
+> Misaligned next step ×
+> Search:
+> "Nobel physicist university"
+> Reinstate the year and award-basis constraints before searching again.
+> year award basis
+> Local-Topic Drift
+> Retrieved:
+> "Photoelectric effect details ..."
+> 1Step 1
+> 2Step 2
+> Misaligned next step ×
+> Search:
+> "photoelectric effect experiments"
+> Return to the original question and find where the laureate completed his university studies.
+> Shifts to a side topic:
+> "history of the photoelectric effect"
+> Retrieved:
+> "Einstein’s law …
+> Lenard’s experimental findings …"
+> 2
+> Dropped constraints:
+> Search:
+> "Philipp Lenard 1921 Nobel laureate university studies"
+> Targeted correction: Targeted correction:
+
+Figure 1: Three manifestations of persistent search drift and their corrective search decisions. 
+
+coherent while progressively departing from the original search target. We propose BOUND , a brief-guided corrective preference distil-lation framework for persistent search drift. Starting from student-generated rollouts, BOUND constructs a search-state brief that records the original search target, key constraints, confirmed evi-dence, missing information, and drift status. The brief serves as a teacher-side privileged representation during preference construc-tion. By preserving the original search target and key constraints, the brief provides a stable task-level reference when search con-text may reinforce a misleading entity, a dropped constraint, or a displaced topic. Guided by the brief, the teacher evaluates each decision-time state and the student’s original continuation against the task and currently available evidence, determining whether a reliable lo-cal preference can be established. This assessment, together with the rollout outcome, determines which contrast to construct. For an erroneous continuation, BOUND contrasts a student-specific correction with the original continuation; for a supported answer, it contrasts the answer with an unnecessary retrieval alternative. States without a reliable preference contribute no contrast. Because both continuations share the same student-visible state, the pref-erence isolates the local search-control decision, exposing how a locally plausible continuation may reinforce drift while the pre-ferred alternative remains anchored to the task and evidence. Each contrast is represented as a state-matched preference pair, and each validated pair operationalizes a search-control boundary where the alternatives imply different local decisions. We use direct prefer-ence optimization (DPO) [26] to distill these preferences into the student, enabling it to correct emerging search drift. The brief and teacher-side computation remain confined to training. We evaluate BOUND on multi-hop question answering and deep search benchmarks. BOUND consistently outperforms Trajectory SFT under the same Qwen3-4B-Instruct-2507 initialization, as well as the comparably sized ORBIT-4B baseline. Compared with Trajec-tory SFT, BOUND achieves gains of 5.6 EM points on Bamboogle and 4.8 accuracy points on BrowseComp-Plus. Analyses demonstrate the value of anchoring teacher assessment to the original search target and key constraints, combining brief-guided assessment with rollout outcomes during preference construction, and constructing corrections that target the student’s original continuation. Our main contributions are summarized as follows: 
+
+• We formulate persistent search drift as a cumulative search-control failure where locally plausible evidence redirects decisions from the original search target or constraints. We characterize three representative forms of this failure: wrong-anchor drift, constraint drift, and local-topic drift. 
+
+• We propose BOUND, which combines brief-guided assess-ment with rollout outcomes to construct reliable local con-trasts and distill student-specific preferences. Each validated state-matched pair operationalizes a search-control bound-ary. 
+
+• We demonstrate consistent gains across multi-hop question answering and deep search benchmarks, with analyses show-ing the value of brief-guided assessment, its joint use with rollout outcomes in preference construction, and student-specific corrective preferences. 
+
+## 2 Related Work 2.1 LLM-based Deep Search 
+
+LLM-based deep search interleaves querying, retrieval, and reason-ing for multi-step information seeking. Early work established this reasoning-and-search paradigm [22, 35, 42], while later agentic re-trieval frameworks extended it to more complex search settings [18]. These advances strengthen overall search capability, but repeated retrieval and reasoning can accumulate partially relevant evidence and gradually divert the search from the original information need, making search drift a recurring challenge. 
+
+## 2.2 Training Methods for Search Control 
+
+Search control can be learned from supervised trajectories con-structed for challenging or shortcut-resistant multi-step tasks [7, 15], through outcome-based reinforcement learning [11, 30], or by combining distillation with policy optimization [12]. More localized supervision comes from preference learning over alternative be-haviors [2, 23, 26], including retrieval-feedback-driven preferences for query expansion [17]. Recent methods further introduce query-level process rewards, failure-relevant action selection, stepwise objectives, first-error correction, environment feedback, grouped-rollout hindsight, action-centered rescoring, or teacher–student discrepancies [19, 20, 38, 39, 43, 47, 49]. DAS targets over- and under-search through search-versus-answer preferences [45], while CSO constructs shared-state preference pairs from failed rollouts using outcome-changing alternatives [16]. However, retrieval-side drift remains underexplored: locally plausible continuations can steer search away from the original target, key constraints, or unresolved evidence needs. BOUND: Brief-Guided Corrective Preference Distillation at Search-Control Boundaries Conference’17, July 2017, Washington, DC, USA Teacher-Side Brief-Guided Preference Construction 
+
+st = ( q, Ht, Ct)   
+
+> qquestion
+> Htaction–parameter history
+> Ctactive evidence context
+> observable decision-time state
+
+Search-State Brief b t
+
+> teacher-only, generated from s t
+
+Brief-Guided Decision-Time Assessment 
+
+> Task alignment
+> Original target, constraints and drift status
+> Evidence progress
+> Confirmed and
+> missing information
+> Continuation assessment
+> Student continuation
+> correct or incorrect
+
+Outcome-Conditioned Contrast Construction 
+
+> y⁻
+> supported student
+> answer
+> unnecessary retrieval
+
+State-Matched Preference Construction and Distillation 
+
+Student-Induced Decision-Time States  Validated Preference Pair              
+
+> Dpref = {( st,yt+,yt−)} DPO Training
+> πθ(yt+|st) ↑
+> πθ(yt−|st) ↓
+> reference: π0
+> Inference
+> Input: student-visible state s t
+> y⁺
+> q(1)
+> q(2)
+> q(N)
+> ...
+> s1(1) ...
+> s1(2) ...
+> s1(N) sr(N) ...
+> s2(1)
+> s2(2)
+> s2(N)
+> Drift Status
+
+> 
+
+> brief-guided assessment + rollout outcome
+> sr(2)
+> sr(1)
+
+Successful rollout 
+
+Unsuccessful rollout    
+
+> y⁻
+> student
+> continuation
+> student-specific
+> correction
+> y⁺
+> States with Reliable Local Contrasts
+> operationalizes a search-control boundary (s t, y t), y t= (thought, action, parameter)
+> Current search state before the next decision
+> construct
+> construct
+> yt−rejected
+> Original student continuation
+> or unnecessary retrieval
+> yt+chosen
+> Student-specific correction
+> or retained correct answer
+> Missing Information
+> Confirmed Evidence
+> Key Constraints
+> Original Search Target
+
+Student-Visible State  st
+
+Search-Control Student 
+
+> At inference: no brief or teacher
+> Generate continuation y t
+
+Figure 2: Overview of BOUND. A teacher-side brief and rollout outcomes yield validated state-matched preference pairs that operationalize search-control boundaries and are distilled into the student. 
+
+## 2.3 Teacher-Guided Distillation with Privileged Information 
+
+LLM distillation transfers reasoning traces from stronger teach-ers to smaller models [8, 10, 29]. PLaD instead constructs pseudo-preference pairs from teacher and student outputs [44]. On-policy training and self-distillation further supervise student trajectories to reduce the mismatch between training and inference [28, 48]. 
+
+𝜋 -Distill jointly trains a shared-parameter PI-conditioned teacher and unconditioned student, while OPSD transfers teacher behavior through reverse-KL-regularized reinforcement learning for multi-turn agents [24]. Skill-SD exposes trajectory-derived skills only to the teacher during distillation [36]. These methods show that teacher-only information can provide richer supervision without increasing inference-time inputs. 
+
+## 3 Method 3.1 Overview 
+
+BOUND addresses persistent search drift by distilling corrective preferences at search-control boundaries. Such boundaries arise when alternative continuations from the same student-visible state have different search-control implications and decision-time evi-dence supports a reliable preference between them. BOUND opera-tionalizes each boundary through a validated state-matched pair, avoiding the assumption that every decision in an unsuccessful rollout is necessarily erroneous. Figure 2 summarizes the workflow. For each state, the teacher produces a search-state brief covering the original search target, key constraints, confirmed evidence, missing information, and drift status. The brief anchors decision-time assessment around task alignment, evidence progress, and the student’s original contin-uation. Guided by the brief, the teacher determines whether the continuation contains a local search-control error with a preferable correction. Together with the rollout outcome, this assessment de-termines pair form: an unsuccessful rollout yields the erroneous continuation and its student-specific correction, whereas a suc-cessful one yields the earliest evidence-supported Answer and an unnecessary retrieval continuation. States without a sufficiently reliable preference yield no pair. Each validated pair shares the same student-visible state but contrasts continuations expressing different local search-control decisions, with the chosen continuation reliably preferable under the task and available evidence at that decision point. Using the initial policy as reference, DPO uses these preferences to update the student toward task- and evidence-aligned behavior and prevent local deviations from compounding across later search steps. The brief and teacher-side computation remain confined to training; inference requires only the student-visible state. 
+
+## 3.2 Brief-Guided Corrective Preference Distillation 
+
+3.2.1 Corrective Preferences over Student-Induced States. Given a training question 𝑞 , the initial student policy 𝜋 0 interacts with the retrieval environment to generate a trajectory 
+
+𝜏 𝜋 0 (𝑞 ) = (𝑠 𝑡 , 𝑦 0 
+
+> 𝑡
+
+, 𝑜 𝑡 )𝑇 𝑡 =1 .
+
+At step 𝑡 , the student-visible state is 𝑠 𝑡 = (𝑞, 𝐻 𝑡 , 𝐶 𝑡 ), where 𝐻 𝑡 
+
+denotes the preceding actions and their parameters, 𝐶 𝑡 is the active Conference’17, July 2017, Washington, DC, USA Niu et al. 
+
+evidence context, and 𝑦 0 
+
+> 𝑡
+
+is the student’s original continuation. If 𝑦 0
+
+> 𝑡
+
+invokes retrieval, 𝑜 𝑡 is the resulting observation; otherwise, 𝑜 𝑡 = ∅.Here, 𝑇 denotes the number of decision steps in the trajectory. Persistent drift emerges and propagates through these student-induced states. An unsupported entity may become the anchor of subsequent queries, a key constraint may disappear during reformu-lation, or a locally coherent side topic may displace the unresolved information need. Later continuations can therefore remain locally plausible while progressively departing from the original search target and key constraints. BOUND performs correction over states induced by the student’s own policy rather than requiring the student to imitate complete teacher trajectories. These states expose errors and ambiguities aris-ing during the student’s actual search process, including situations absent from an ideal teacher trajectory. For each state 𝑠 𝑡 admitting a reliable local contrast, BOUND defines a local preference 
+
+𝑦 + 
+
+> 𝑡
+
+≻𝑠 𝑡 𝑦 − 
+
+> 𝑡
+
+,
+
+where 𝑦 + 
+
+> 𝑡
+
+is preferred to 𝑦 − 
+
+> 𝑡
+
+under the same state 𝑠 𝑡 . The two con-tinuations share the same question, preceding interaction history, and active evidence context. Their comparison therefore isolates the preferred local decision rather than differences in available information. This formulation transfers a state-specific local pref-erence without requiring the teacher to regenerate the remaining trajectory. 
+
+3.2.2 Search-State Briefs as Privileged Information. Reliable correc-tion requires assessing the student-visible state relative to the orig-inal search target and key constraints. However, the accumulated context may already contain misleading evidence or assumptions that contribute to drift, causing the teacher to reproduce the same local bias. For each decision-time state, BOUND constructs a structured search-state brief 
+
+𝑏 𝑡 = 𝑔 B (𝑠 𝑡 ) = 𝑔 B (𝑞, 𝐻 𝑡 , 𝐶 𝑡 ),
+
+as a teacher-side privileged, task-anchored state representation. It contains five fields: Original Search Target , Key Constraints ,
+
+Confirmed Evidence , Missing Information , and Drift Status .The first two preserve a stable reference to the original task, while the remaining fields summarize evidence progress and whether the current search remains aligned with that reference. By separating task-invariant requirements from state-dependent search progress, the brief makes explicit what should remain fixed and what still needs to be resolved. It therefore provides a task-anchored reference for decision-time assessment, allowing the teacher to evaluate the student’s continuation against the original search objective rather than relying solely on the potentially drifted trajectory context. In this way, the brief helps distinguish contin-uations that are merely locally plausible from those that remain aligned with the unresolved information need and key constraints. The brief and the associated decision-time assessment are used only for preference construction during training. BOUND then optimizes the student over the resulting preference dataset using DPO, with the initial policy 𝜋 0 as the reference policy. Because the student itself remains conditioned only on 𝑠 𝑡 , the learned policy requires neither the brief nor any teacher-side computation during inference. 
+
+Algorithm 1 Corrective preference construction 
+
+Require: Rollout 𝜏 = [( 𝑠 𝑡 , 𝑦 0 
+
+> 𝑡
+
+, 𝑜 𝑡 )] 𝑇 𝑡 =1 and outcome 𝑟 ∈ {0, 1},where 𝑟 = 1 denotes a correct final answer 
+
+Ensure: Preference dataset Dpref  
+
+> 1:
+
+Dpref ← ∅  
+
+> 2:
+
+for 𝑡 = 1, . . . ,𝑇 do  
+
+> 3:
+
+𝑏 𝑡 ← 𝑔 B (𝑠 𝑡 ) 
+
+> 4:
+
+(𝑑 𝑡 , e𝑦 T 
+
+> 𝑡
+
+) ← AssessAndCorrect (𝑠 𝑡 , 𝑏 𝑡 , 𝑦 0 
+
+> 𝑡
+
+) ⊲ 𝑑 𝑡 = (𝑧 𝑡 , 𝜌 𝑡 , 𝑒 𝑡 ),possibly with e𝑦 T 
+
+> 𝑡
+
+= ∅ 
+
+> 5:
+
+if 𝑟 = 0 ∧ 𝑒 𝑡 ∧ 𝑧 𝑡 ≠ not_selected ∧ e𝑦 T 
+
+> 𝑡
+
+≠ ∅ then  
+
+> 6:
+
+𝑦 + 
+
+> 𝑡
+
+← e𝑦 T 
+
+> 𝑡
+> 7:
+
+𝑦 − 
+
+> 𝑡
+
+← 𝑦 0 
+
+> 𝑡
+> 8:
+
+if the pair passes validation then  
+
+> 9:
+
+Add (𝑠 𝑡 , 𝑦 + 
+
+> 𝑡
+
+, 𝑦 − 
+
+> 𝑡
+
+) to Dpref  
+
+> 10:
+
+end if  
+
+> 11:
+
+else if 𝑟 = 1 ∧ SupportedAnswer (𝑑 𝑡 , 𝑦 0 
+
+> 𝑡
+
+) then  
+
+> 12:
+
+𝑦 + 
+
+> 𝑡
+
+← 𝑦 0 
+
+> 𝑡
+> 13:
+
+𝑦 − 
+
+> 𝑡
+
+← UnnecessaryRetrieval (𝑠 𝑡 , 𝑏 𝑡 , 𝑦 0 
+
+> 𝑡
+
+) 
+
+> 14:
+
+if the pair passes validation then  
+
+> 15:
+
+Add (𝑠 𝑡 , 𝑦 + 
+
+> 𝑡
+
+, 𝑦 − 
+
+> 𝑡
+
+) to Dpref  
+
+> 16:
+
+end if  
+
+> 17:
+
+break  
+
+> 18:
+
+end if  
+
+> 19:
+
+end for  
+
+> 20:
+
+return Dpref 
+
+## 3.3 Corrective Preference Construction at Search-Control Boundaries 
+
+BOUND constructs corrective preferences in two stages. It first combines brief-guided decision-time assessment with rollout out-comes to determine the contrast for each student-induced state (Sec-tion 3.3.1). In unsuccessful rollouts, an erroneous continuation is paired with a student-specific correction. In successful rollouts, the earliest supported answer is paired with an unnecessary retrieval al-ternative. Each retained contrast forms a state-matched preference pair whose continuations encode different local search decisions under the same student-visible state (Section 3.3.2), thereby opera-tionalizing a search-control boundary. Before entering the preference dataset, each pair is checked for valid format, consistency with its construction route, a difference in action or parameter, and the absence of teacher-only informa-tion. For supported-answer pairs, the rejected continuation must invoke further retrieval. Pairs that pass these checks are retained for preference optimization. Algorithm 1 summarizes the construction process. Lines 3 to 4 build the brief and assess the original continuation. Lines 5 to 10 form corrective pairs for unsuccessful rollouts, while Lines 11 to 17 form a termination pair from the earliest supported answer in a suc-cessful rollout. The auxiliary tag 𝑧 𝑡 serves as a teacher-side routing signal, while pair retention follows the construction route, rollout outcome, local assessment, correction availability, and validation checks. Validation removes malformed pairs, pairs that differ only in reasoning text, pairs inconsistent with their construction route, and pairs that expose teacher-only information. Appendix D details BOUND: Brief-Guided Corrective Preference Distillation at Search-Control Boundaries Conference’17, July 2017, Washington, DC, USA 
+
+the interfaces, schemas, generation requirements, and validation checks. Exact templates appear in the released code. 
+
+3.3.1 Decision-Time Assessment with Rollout Outcomes. BOUND combines brief-guided decision-time assessment with rollout out-comes to determine whether a reliable local pair can be constructed and which contrast form should be used. Not every state in an unsuccessful rollout provides useful supervision. A continuation may be locally appropriate even when the final answer is incorrect, since other states may still require additional evidence, an evidence-supported answer, or recovery of a displaced target or constraint. BOUND therefore assesses each state independently rather than propagating the rollout outcome across the trajectory. For each state, the teacher examines the student-visible state, search-state brief, and original continuation to determine whether the continuation contains a specific local search-control error with a clearly preferable correction. The observation produced by the con-tinuation is excluded, so the assessment relies only on information available at decision time rather than later trajectory information. If no specific error with a reliable correction can be established, the teacher abstains and constructs no corrective pair. The rollout outcome determines the permitted contrast form rather than the local error judgment. For an unsuccessful rollout, BOUND pairs an erroneous continuation with its student-specific correction, while locally appropriate continuations produce no pair. For a successful rollout, it retains the earliest evidence-supported correct Answer and contrasts it with an unnecessary retrieval continuation. In both cases, the two continuations share the same decision-time state, and the resulting pair must pass validation before entering preference optimization. 
+
+3.3.2 State-Matched Preference Construction. Each eligible state yields a state-matched preference pair 
+
+ 𝑥 𝑡 , 𝑦 + 
+
+> 𝑡
+
+, 𝑦 −
+
+> 𝑡
+
+ , 𝑥 𝑡 = 𝑠 𝑡 .
+
+Both continuations share the same question, action history, and active evidence context, so their comparison isolates the preferred local decision. When the student’s original continuation is judged incorrect, the teacher generates a student-specific correction conditioned on the state, brief, and continuation: 
+
+(𝑦 + 
+
+> 𝑡
+
+, 𝑦 − 
+
+> 𝑡
+
+) = (e𝑦 T 
+
+> 𝑡
+
+, 𝑦 0 
+
+> 𝑡
+
+).
+
+The correction may seek unresolved evidence, restore a displaced search target or missing constraint, or answer when the evidence is sufficient. Conditioning on 𝑦 0 
+
+> 𝑡
+
+targets the observed error rather than producing a generic teacher continuation. For the earliest supported correct answer in a successful rollout, BOUND constructs 
+
+(𝑦 + 
+
+> 𝑡
+
+, 𝑦 − 
+
+> 𝑡
+
+) =  𝑦 0 
+
+> 𝑡
+
+, UnnecessaryRetrieval (𝑠 𝑡 , 𝑏 𝑡 , 𝑦 0 
+
+> 𝑡
+
+) ,
+
+where the rejected continuation is plausible yet unnecessary. This preserves evidence-supported termination and discourages further search once the evidence establishes the answer. During execution, selecting Reroute implements the corrected search decision by appending the action and revised query to the history and advancing the student-visible state through a fixed environment transition. The retrieved passages are added while preserving prior history and evidence. The same transition is used during rollout collection and inference, so rerouting supervision matches the action actually executed, as detailed in Appendix D.4. Each continuation contains a thought, action, and parameter, but only the action and parameter enter history. BOUND removes mal-formed pairs, pairs lacking distinct local search-control decisions, and outputs exposing the brief, assessment record, rollout outcome, or other teacher-only information. For a supported correct answer, the rejected continuation must invoke retrieval rather than provide another answer. The surviving pairs form 
+
+Dpref =   𝑥 𝑖 , 𝑦 + 
+
+> 𝑖
+
+, 𝑦 −
+
+> 𝑖
+
+ 𝑁 𝑖 =1 ,
+
+where 𝑁 is the number of validated preference pairs. 
+
+## 4 Experiments 4.1 Experimental Settings 
+
+Datasets. We derive training preferences from existing and auxil-iary synthetic multi-hop questions. Existing questions are sampled and screened from the official HotpotQA [41] and MuSiQue [34] training splits, while synthetic questions are constructed from multi-path evidence in a fixed English Wikipedia dump. No evaluation questions, answers, annotations, or benchmark-specific supervision are used. Appendix C details the construction and contamination audit. We evaluate on the development sets of HotpotQA, MuSiQue, and 2WikiMultiHopQA [9], the full Bamboogle benchmark [25], and FRAMES [13], GAIA [21], and BrowseComp-Plus [3]. Following SimpleDeepSearcher [31], GAIA uses its 103-example text-only validation subset. 
+
+Baselines. We compare BOUND against prompting-based and trained search agents. Direct Inference uses no retrieval, whereas Standard RAG [14] performs a single retrieval step. ReAct [42] alter-nates reasoning with search, while IRCoT [35] interleaves chain-of-thought reasoning with retrieval. For trained 7B baselines, we eval-uate the Qwen2.5-7B variants of Search-R1 [11], StepSearch [38], SimpleDeepSearcher [31], and R1-Searcher [30]. We additionally evaluate ORBIT-4B [33] as a trained 4B baseline. Together, these baselines cover no-retrieval inference, single-step retrieval, iterative search prompting, and trained multi-step search. We rerun the baselines in Table 1 under our experimental setup, following their original formulations and released implementations where available. All methods use the same retrieval environment and top-5 retrieval setting. On the multi-hop benchmarks, FRAMES, and GAIA, iterative-search methods are limited to 10 steps per ques-tion and use a generation temperature of 0.6. BrowseComp-Plus is evaluated separately with its fixed corpus and official evaluator. The external reference systems reported in Table 2 are taken directly from the public leaderboard. 
+
+Evaluation Metrics. For multi-hop QA benchmarks, we report exact match (EM) and token-level F1 following common practice. For FRAMES and GAIA, we additionally report cover exact match (CEM), which counts a prediction as correct if any normalized gold answer or accepted alias appears in the normalized final response, allowing minor variations in answer phrasing. Conference’17, July 2017, Washington, DC, USA Niu et al. 
+
+Table 1: Main results on multi-hop and deep search benchmarks. All values are percentages.                                                                                                                                                                
+
+> Method HotpotQA MuSiQue 2Wiki Bamboogle FRAMES GAIA
+> EM F1 EM F1 EM F1 EM F1 EM CEM F1 EM CEM F1
+> Qwen3-4B-Instruct without task-specific search training
+> Direct Inference 18.4 26.8 2.0 7.4 18.1 25.1 5.6 14.1 2.3 4.9 8.1 2.9 3.9 5.8 Standard RAG 24.0 32.9 4.3 10.1 20.2 29.8 8.8 17.7 4.0 6.4 11.2 –––IRCoT 26.1 39.9 5.1 10.9 20.8 29.7 24.0 35.9 4.4 8.6 11.7 14.6 19.4 28.6 ReAct 29.6 41.7 7.9 14.2 25.8 34.6 28.0 37.2 8.4 9.2 15.2 16.5 17.5 22.6
+> Trained search baselines based on Qwen2.5-7B models
+> Search-R1 37.4 49.8 12.2 19.9 33.7 40.3 32.0 42.0 12.4 13.5 19.5 17.5 19.4 30.6 StepSearch 36.0 46.1 13.0 23.7 39.6 46.6 32.0 42.9 12.5 13.2 19.1 17.5 20.4 29.9 SimpleDeepSearcher 39.6 51.9 12.6 23.1 48.1 55.5 34.4 47.0 13.2 13.7 19.9 24.3 25.2 34.3 R1-Searcher 41.1 53.5 15.1 24.7 48.9 55.8 37.6 46.5 12.0 12.9 19.3 16.5 18.5 28.3
+> Trained search methods based on Qwen3-4B models
+> ORBIT-4B 35.7 45.5 12.5 20.2 38.6 45.4 39.2 46.7 12.5 15.4 20.4 19.4 24.3 28.0
+> BOUND 42.4 54.0 15.9 26.3 47.7 53.8 42.4 54.2 14.2 15.8 24.7 27.2 30.1 40.8
+
+For BrowseComp-Plus, we use its fixed corpus and official leader-board evaluator, reporting answer accuracy judged by Qwen3-32B together with retrieval recall under the standard metric definitions. 
+
+Implementation Details. Qwen3-4B-Instruct-2507 [40] serves as the student, while DeepSeek-V4-Flash [6] conducts brief-guided assessment and preference construction. We refer to the student as Qwen3-4B-Instruct throughout the paper. Training uses 2,424 step-level preference pairs constructed from decision-time states in student rollouts. Appendix C details the question sources and synthetic construction procedure. We train with DPO for one epoch using a learning rate of 1e −6, 𝛽 = 0.1, and a maximum sequence length of 8,192 tokens, with the initial checkpoint serving as the reference policy. The search-state brief is used only for preference construction and is unavailable at inference time. For HotpotQA, MuSiQue, 2WikiMultiHopQA, Bamboogle, and FRAMES, we retrieve over the March 1, 2022 English Wikipedia dump using BM25 [27] and E5-base-v2 [37] with reciprocal rank fusion [4]. For BrowseComp-Plus, we use its fixed corpus with Qwen3-Embedding-8B [46]. Following prior work [31], GAIA uses a shared Serper API and frozen QwQ-32B summarizer. 
+
+## 4.2 Main Results 
+
+Overall Performance. Table 1 reports the main results on multi-hop QA and deep search benchmarks. Initialized from Qwen3-4B-Instruct and evaluated under the shared retrieval and inference settings, BOUND achieves the best performance on five of the six datasets. We make three observations. (1) Inference-time retrieval improves performance but re-mains limited. Standard RAG, IRCoT, and ReAct generally outper-form Direct Inference, demonstrating the value of external evidence and iterative retrieval. However, they remain behind methods ex-plicitly trained for multi-step search. BOUND outperforms both IRCoT and ReAct on every reported metric, with substantial gains across the six datasets, including Bamboogle and GAIA. These re-sults suggest that retrieval alone does not fully address the need to control evidence acquisition and stopping. (2) Training for search control yields clear improvements. 
+
+Trained search methods generally outperform inference-time re-trieval baselines, highlighting the value of task-specific optimiza-tion for multi-step search. Among the trained methods, BOUND achieves the best performance on five of the six datasets. It outper-forms ORBIT-4B, a Qwen3-4B search model trained with GRPO, on every reported metric and surpasses the trained Qwen2.5-7B base-lines on five datasets. These comparisons support the effectiveness of local preference supervision for search control. (3) BOUND performs strongly on challenging deep search benchmarks. BOUND achieves 24.7 F1 on FRAMES and 40.8 F1 on GAIA, exceeding the strongest 7B baseline by 4.8 and 6.5 F1 points, respectively, under the shared evaluation setting. These results are consistent with BOUND’s focus on maintaining the target and constraints, assessing unresolved evidence needs, and stopping when sufficient evidence has been acquired. The main exception is 2Wiki, where SimpleDeepSearcher and R1-Searcher achieve higher EM and F1 scores. Unlike BOUND, both methods incorporate 2Wiki questions into their training-data construction [30, 31]. Nevertheless, despite its smaller 4B scale and lack of 2Wiki training questions, BOUND remains competitive with the strongest 7B baselines and outperforms ORBIT-4B by 9.1 EM and 8.4 F1 points. This result indicates transfer beyond the datasets used as sources of its training questions. 
+
+Performance on BrowseComp-Plus. Table 2 reports results on BrowseComp-Plus, a challenging deep search benchmark with a fixed search corpus. The selected public reference systems use Qwen3-Embedding-8B and return the top five documents at each search step. BOUND uses the same retrieval configuration and of-ficial evaluator. Trained only on multi-hop and synthetic search questions, BOUND achieves 29.6 answer accuracy under the Qwen3-32B judge and 32.1 retrieval recall. It exceeds DeepSeek-R1-0528, Search-R1-32B, WebSailor-32B, and FRUGALRAG-7B on both met-rics. Although BOUND remains below the strongest proprietary models and large-scale deep-research systems, these results indi-cate transfer to harder search questions despite its compact scale and without using BrowseComp-Plus training data. The teacher BOUND: Brief-Guided Corrective Preference Distillation at Search-Control Boundaries Conference’17, July 2017, Washington, DC, USA 
+
+Table 2: Results on BrowseComp-Plus. Public leaderboard systems using Qwen3-Embedding-8B are included for refer-ence. 
+
+Method Size Acc. (%) Recall (%) Claude Sonnet 4 – 37.4 47.3 Claude Opus 4 – 36.8 50.8 Gemini-2.5-Flash – 34.6 40.2 Gemini-2.5-Pro – 29.5 35.3 kimi-k2-0711-preview 1000B 35.4 38.4 DeepSeek-R1-0528 685B 16.4 16.3 Search-R1-32B 32B 11.1 10.2 Tongyi-DeepResearch-30B-A3B 30B 44.5 62.3 WebSailor-32B 32B 27.6 29.3 oss-20B-high 20B 35.1 49.3 FRUGALRAG-7B 7B 20.5 23.6 
+
+BOUND 4B 29.6 32.1 
+
+model and search-state brief are not required at inference time. Additional experiments with Qwen3.5-4B in Appendix A show consistent improvements in both metrics. 
+
+## 4.3 Ablation Study 
+
+Table 3 evaluates the main training components and execution choices of BOUND. All variants share the same training questions, candidate state pool, student backbone, and optimization setup. The remaining supervision-construction procedure is kept unchanged, so variations in the resulting preference sets arise directly from the ablated component rather than from resampling or indepen-dently constructed training data. In w/o Rerouting Supervision , the teacher is restricted to Continue and Answer. In w/o Teacher Cor-rection , teacher corrections are replaced with student-generated alternatives, while the states, briefs, assessments, and rejected con-tinuations remain unchanged. In w/o Student-Specific Correction ,corrections are generated without access to the student’s original continuation or the identified local error. Query-Only Rerouting 
+
+uses the same preference pairs as Full BOUND and disables only the filtering of passages from the immediately preceding retrieval during execution. On BrowseComp-Plus, removing rerouting supervision produces the largest accuracy drop: judge accuracy falls from 29.6 to 21.2, while retrieval recall falls from 32.1 to 26.4. This indicates that explicit re-anchoring is important when early deviations persist across subsequent search steps. Replacing teacher corrections with student-generated alterna-tives reduces BrowseComp-Plus judge accuracy to 21.7 and retrieval recall to 25.8. The result suggests that teacher corrections more reli-ably preserve the original target and key constraints while directing the student toward missing information. Without student-specific correction, Bamboogle F1 drops from 54.2 to 52.3, and BrowseComp-Plus judge accuracy falls from 29.6 to 24.6. Conditioning the correction on the student’s continuation and the identified local error is therefore more effective than generating a generic continuation from the state alone. 
+
+Table 3: Ablation results on Bamboogle and BrowseComp-Plus.                          
+
+> Variant Bamboogle BrowseComp-Plus
+> EM F1 Acc. Recall
+> w/o Rerouting Supervision 37.6 50.3 21.2 26.4 w/o Teacher Correction 36.8 50.8 21.7 25.8 w/o Student-Specific Correction 38.4 52.3 24.6 28.6 Query-Only Rerouting 38.4 51.7 26.0 27.7
+> BOUND 42.4 54.2 29.6 32.1
+
+Table 4: Comparison with trajectory-level distillation under our search-control interface. 
+
+Method Bamboogle BrowseComp-Plus 
+
+EM F1 Acc. Recall 
+
+Initial Search Policy 28.8 36.5 14.9 14.0 Trajectory SFT 36.8 47.7 24.8 30.4 BOUND 42.4 54.2 29.6 32.1 
+
+Query-only rerouting reduces BrowseComp-Plus judge accuracy from 29.6 to 26.0 and retrieval recall from 32.1 to 27.7. This sug-gests that removing passages associated with the abandoned search direction helps the rerouting query guide subsequent evidence acquisition. 
+
+## 4.4 Comparison with Trajectory-Level Distillation 
+
+We compare BOUND with Trajectory supervised fine-tuning (Tra-jectory SFT), which imitates teacher-generated search trajectories with token-level cross-entropy. Both methods share the training questions, teacher, student initialization, action space, retriever, and evaluation protocol throughout the controlled comparison. Their initial policy is the same Qwen3-4B-Instruct checkpoint evaluated under our search-control interface and environment transitions, which differs from the prompting-based setup used in Table 1. This comparison isolates complete-trajectory SFT from state-matched DPO supervision. Table 4 shows that trajectory imitation substantially improves the initial search policy, while BOUND further gains 5.6 EM and 6.5 F1 on Bamboogle and 4.8 accuracy and 1.7 recall on BrowseComp-Plus. The BrowseComp-Plus accuracy gain is statistically significant (𝑝 < 0.001). The greater improvement in accuracy relative to recall suggests that BOUND benefits not only from acquiring relevant evidence but also from making better search-control and answering decisions over the available evidence. 
+
+Case Study. Table 5 presents representative cases of divergence be-tween Trajectory SFT and BOUND for the three drift manifestations introduced in Section 1. Across the three cases, Trajectory SFT follows locally plausible continuations after the search state becomes misaligned, allowing Conference’17, July 2017, Washington, DC, USA Niu et al. 
+
+Table 5: Representative cases of persistent search drift. 
+
+Drift Type Task Cue Trajectory SFT BOUND Wrong-Anchor Drift Identify the surviving spouse who founded a philanthropic foundation. Introduces an unsupported celebrity association and makes Jeff Bezos the search anchor. 
+
+Answer: Jeff Bezos ✗
+
+Preserves the original target and verifies the foundation and role constraints. 
+
+Answer: Trudy Bronner ✓
+
+Constraint Drift Identify a game released during 2001–2007 under the given developer and publisher constraints. Drops the release-window constraint during query reformulation. 
+
+Answer: It Takes Two ✗
+
+Retains the release window and the developer and publisher constraints throughout the search. 
+
+Answer: Law & Order: Justice Is Served ✓
+
+Local-Topic Drift Identify the insect associated with the dormant volcano specified by the satellite and caldera clues. Follows a coherent but displaced “stick insect” side path. 
+
+Answer: Lord Howe stick insect ✗
+
+Returns to the unresolved volcano evidence and redirects search away from the displaced topic. 
+
+Answer: Mosquito ✓
+
+Table 6: Effect of search-state briefs on student performance under different teachers. DeepSeek refers to DeepSeek-V4-Flash, and Δ denotes the absolute gain from adding the brief. 
+
+Teacher Brief BrowseComp-Plus Bamboogle 
+
+Acc. Recall EM F1 
+
+DeepSeek No 21.2 24.6 36.8 48.7 Yes 29.6 32.1 42.4 54.2 
+
+Δ +8.4 +7.5 +5.6 +5.5 Qwen3-32B No 19.8 24.2 37.6 50.0 Yes 24.3 26.3 39.2 52.0 
+
+Δ +4.5 +2.1 +1.6 +2.0 
+
+an unsupported entity, a dropped constraint, or a side topic to redi-rect later search. BOUND instead preserves or restores the target, constraints, or unresolved evidence need while recovery remains possible, before these local errors become entrenched in the tra-jectory. Its state-matched preferences contrast the drift-inducing decision with a corrective alternative that re-anchors the target, reinstates the constraint, or redirects search toward missing evi-dence. Together with the controlled ablations, these comparisons support the interpretation that BOUND improves performance by correcting the local search-control decisions through which drift propagates across subsequent steps. 
+
+## 4.5 Effect of Search-State Briefs on Teacher Assessment and Correction 
+
+Brief quality. Manual inspection of 50 randomly sampled search-state briefs shows reliable preservation of the original target and key constraints, with most errors occurring in missing-information summaries and drift-status assessment. Field-level results and eval-uation criteria appear in Appendix B. 
+
+Student-level effect. We next examine whether search-state briefs improve the downstream utility of teacher-generated preference data. Using the same student-induced decision-time states, we build preference pairs with DeepSeek-V4-Flash and Qwen3-32B, each with and without briefs. All resulting Qwen3-4B students are trained and evaluated under the same configuration. As shown in Table 6, search-state briefs improve downstream students under both teachers. With DeepSeek, the brief yields gains of 8.4 accuracy and 7.5 recall points on BrowseComp-Plus and 5.6 All-State Construction State-Only Selection Outcome-Only Selection BOUND        
+
+> 010 20 30 40
+> Score (%)
+> 36.0 37.6 31.2
+> 42.4
+> Bamboogle (EM)
+> All-State Construction State-Only Selection Outcome-Only Selection BOUND
+> 010 20 30 40 50
+> 51.2 53.2 41.5
+> 54.2
+> Bamboogle (F1)
+> All-State Construction State-Only Selection Outcome-Only Selection BOUND
+> 0510 15 20 25 30
+> Score (%)
+> 24.9 26.6 18.6
+> 29.6
+> BrowseComp-Plus (Accuracy)
+> All-State Construction State-Only Selection Outcome-Only Selection BOUND
+> 0510 15 20 25 30 35
+> 28.0 29.5 17.7
+> 32.1
+> BrowseComp-Plus (Recall)
+
+Figure 3: Effect of preference-pair construction strategies. Higher is better. 
+
+EM and 5.5 F1 points on Bamboogle. Qwen3-32B shows the same trend, gaining 4.5 accuracy and 2.1 recall points on BrowseComp-Plus and 1.6 EM and 2.0 F1 points on Bamboogle. Qualitative trajectory inspection suggests that the brief mainly improves target preservation during teacher assessment and cor-rection. Without it, the teacher may reformulate queries around a locally relevant but incorrect entity, omit original constraints, or misjudge evidence sufficiency. Retaining the original target, key constraints, and missing information provides a stable task-level anchor for student-specific corrections and reduces reinforcement of plausible but displaced directions. Although gains vary across teachers, their consistent direction indicates that the benefits of brief-guided assessment and correction are not teacher-specific. 
+
+## 4.6 Role of Brief-Guided Assessment and Outcome Signals 
+
+We examine how preference-pair construction affects downstream performance. All-State Construction retains every intermediate state. 
+
+State-Only Selection uses brief-guided assessment without rollout outcomes, whereas Outcome-Only Selection considers only student Answer states and retains or corrects them based on rollout success. Our strategy combines both signals to construct informative pairs while avoiding supervision from states without a reliable local contrast. BOUND: Brief-Guided Corrective Preference Distillation at Search-Control Boundaries Conference’17, July 2017, Washington, DC, USA 
+
+As shown in Figure 3, our strategy performs best across all four metrics, supporting the complementarity of brief-guided assess-ment and rollout outcomes. All-State Construction may introduce weak or redundant supervision, while State-Only Selection lacks outcome information and Outcome-Only Selection cannot correct deviations before the final Answer. Combining both signals yields more locally grounded, outcome-informed corrective preferences. 
+
+## 5 Conclusion 
+
+We introduced BOUND, a brief-guided corrective preference dis-tillation framework for multi-step information seeking. BOUND combines task-anchored search-state briefs, used during preference construction to preserve the original target and key constraints, with rollout outcomes to construct validated local preferences over student-induced states. It corrects erroneous continuations in un-successful rollouts while preserving supported answers in suc-cessful ones. Across multi-hop QA and deep search benchmarks, BOUND outperforms Trajectory SFT and a trained search base-line. In future work, we plan to evaluate BOUND with additional teachers and model scales. 
+
+## References 
+
+[1] Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Floren-cia Leoni Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al. 2023. GPT-4 technical report. arXiv preprint arXiv:2303.08774 
+
+(2023). [2] Yuntao Bai, Andy Jones, Kamal Ndousse, Amanda Askell, Anna Chen, Nova DasSarma, Dawn Drain, Stanislav Fort, Deep Ganguli, Tom Henighan, et al. 2022. Training a helpful and harmless assistant with reinforcement learning from human feedback. arXiv preprint arXiv:2204.05862 (2022). [3] Zijian Chen, Xueguang Ma, Shengyao Zhuang, Ping Nie, Kai Zou, Andrew Liu, Joshua Green, Kshama Patel, Ruoxi Meng, Mingyi Su, et al. 2025. BrowseComp-Plus: A more fair and transparent evaluation benchmark of deep-research agent. 
+
+arXiv preprint arXiv:2508.06600 (2025). [4] Gordon V Cormack, Charles LA Clarke, and Stefan Buettcher. 2009. Reciprocal rank fusion outperforms condorcet and individual rank learning methods. In 
+
+Proceedings of the 32nd international ACM SIGIR conference on Research and development in information retrieval . 758–759. [5] Lu Dai, Liang Sun, Fanpu Cao, Ziyang Rao, Cehao Yang, Hao Liu, and Hui Xiong. 2026. LLM-Oriented Information Retrieval: A Denoising-First Perspective. arXiv preprint arXiv:2605.00505 (2026). [6] DeepSeek-AI. 2026. DeepSeek-V4: Towards Highly Efficient Million-Token Con-text Intelligence. [7] Jia Deng, Yimeng Chen, Xiaoqing Xiang, Ziyang Zeng, Shuo Tang, Wayne Xin Zhao, Feng Chang, Chuan Hao, Yuan Wei, Ran Tao, et al. 2026. FORT-Searcher: Synthesizing Shortcut-Resistant Search Tasks for Training Deep Search Agents. 
+
+arXiv preprint arXiv:2606.12087 (2026). [8] Namgyu Ho, Laura Schmid, and Se-Young Yun. 2023. Large Language Models Are Reasoning Teachers. In Proceedings of the 61st annual meeting of the association for computational linguistics (volume 1: long papers) . 14852–14882. [9] Xanh Ho, Anh-Khoa Duong Nguyen, Saku Sugawara, and Akiko Aizawa. 2020. Constructing a multi-hop qa dataset for comprehensive evaluation of reason-ing steps. In Proceedings of the 28th International Conference on Computational Linguistics . 6609–6625. [10] Cheng-Yu Hsieh, Chun-Liang Li, Chih-Kuan Yeh, Hootan Nakhost, Yasuhisa Fujii, Alex Ratner, Ranjay Krishna, Chen-Yu Lee, and Tomas Pfister. 2023. Distilling Step-by-Step! Outperforming Larger Language Models with Less Training Data and Smaller Model Sizes. In Findings of the Association for Computational Linguistics: ACL 2023 . 8003–8017. [11] Bowen Jin, Hansi Zeng, Zhenrui Yue, Jinsung Yoon, Sercan Arik, Dong Wang, Hamed Zamani, and Jiawei Han. 2025. Search-R1: Training LLMs to rea-son and leverage search engines with reinforcement learning. arXiv preprint arXiv:2503.09516 (2025). [12] Rikuto Kotoge, Mai Nishimura, and Jiaxin Ma. 2026. Can Compact Language Models Search Like Agents? Distillation-Guided Policy Optimization for Preserv-ing Agentic RAG Capabilities. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) . Association for Computational Linguistics. [13] Satyapriya Krishna, Kalpesh Krishna, Anhad Mohananey, Steven Schwarcz, Adam Stambler, Shyam Upadhyay, and Manaal Faruqui. 2025. Fact, fetch, and reason: A unified evaluation of retrieval-augmented generation. In Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers) .4745–4759. [14] Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, Sebastian Riedel, and Douwe Kiela. 2020. Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks. In Advances in Neural Information Processing Systems , Vol. 33. Curran Associates, Inc., 9459–9474. [15] Kuan Li, Zhongwang Zhang, Huifeng Yin, Liwen Zhang, Litu Ou, Jialong Wu, Wenbiao Yin, Baixuan Li, Zhengwei Tao, Xinyu Wang, Weizhou Shen, Junkai Zhang, Dingchu Zhang, Xixi Wu, Yong Jiang, Ming Yan, Pengjun Xie, Fei Huang, and Jingren Zhou. 2025. WebSailor: Navigating Super-human Reasoning for Web Agent. arXiv:2507.02592 [cs.CL] [16] Mukai Li, Qingcheng Zeng, Tianqing Fang, Zhenwen Liang, Linfeng Song, Qi Liu, Haitao Mi, and Dong Yu. 2026. Verified Critical Step Optimization for LLM Agents. In Findings of the Association for Computational Linguistics: ACL 2026 , Maria Liakata, Viviane P. Moreira, Jiajun Zhang, and David Jurgens (Eds.). Association for Computational Linguistics, San Diego, California, United States, 39627–39639. [17] Minghan Li and Guodong Zhou. 2026. Retrieval-Feedback-Driven Distillation and Preference Alignment for Efficient LLM-based Query Expansion. arXiv preprint arXiv:2603.13776 (2026). [18] Xiaoxi Li, Guanting Dong, Jiajie Jin, Yuyao Zhang, Yujia Zhou, Yutao Zhu, Peitian Zhang, and Zhicheng Dou. 2025. Search-o1: Agentic search-enhanced large reasoning models. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing . 5420–5438. [19] Xiaozhe Li, Tianyi Lyu, Yang Li, Yichuan Ma, Peiji Li, Linyang Li, Qipeng Guo, Dahua Lin, and Kai Chen. 2026. What and When to Distill: Selective Hindsight Distillation for Multi-Turn Agents. arXiv preprint arXiv:2605.19447 (2026). [20] Yufei Ma, Zihan Liang, Ben Chen, Zhipeng Qian, Huangyu Dai, Lingtao Mao, Xuxin Zhang, Chenyi Lei, and Wenwu Ou. 2026. SD-Search: On-Policy Hindsight Self-Distillation for Search-Augmented Reasoning. arXiv preprint arXiv:2605.18299 (2026). [21] Grégoire Mialon, Clémentine Fourrier, Craig Swift, Thomas Wolf, Yann LeCun, and Thomas Scialom. 2024. GAIA: a benchmark for General AI Assistants. In 
+
+International Conference on Learning Representations .[22] Reiichiro Nakano, Jacob Hilton, Suchir Balaji, Jeff Wu, Long Ouyang, Christina Kim, Christopher Hesse, Shantanu Jain, Vineet Kosaraju, William Saunders, et al. 2021. WebGPT: Browser-assisted question-answering with human feedback. 
+
+arXiv preprint arXiv:2112.09332 (2021). [23] Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, John Schul-man, Jacob Hilton, Fraser Kelton, Luke Miller, Maddie Simens, Amanda Askell, Peter Welinder, Paul F Christiano, Jan Leike, and Ryan Lowe. 2022. Training lan-guage models to follow instructions with human feedback. In Advances in Neural Information Processing Systems , Vol. 35. Curran Associates, Inc., 27730–27744. [24] Emiliano Penaloza, Dheeraj Vattikonda, Nicolas Gontier, Alexandre Lacoste, Laurent Charlin, and Massimo Caccia. 2026. Privileged Information Distillation for Language Models. arXiv preprint arXiv:2602.04942 (2026). [25] Ofir Press, Muru Zhang, Sewon Min, Ludwig Schmidt, Noah A Smith, and Mike Lewis. 2023. Measuring and narrowing the compositionality gap in language models. In Findings of the Association for Computational Linguistics: EMNLP 2023 .5687–5711. [26] Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher D Manning, Stefano Ermon, and Chelsea Finn. 2023. Direct Preference Optimization: Your Language Model is Secretly a Reward Model. In Advances in Neural Information Processing Systems , Vol. 36. Curran Associates, Inc., 53728–53741. doi:10.52202/075280-2338 [27] Stephen Robertson and Hugo Zaragoza. 2009. The Probabilistic Relevance Frame-work: BM25 and Beyond. Foundations and Trends in Information Retrieval 3 (09 2009), 333–389. doi:10.1561/1500000019 [28] Idan Shenfeld, Mehul Damani, Jonas Hübotter, and Pulkit Agrawal. 2026. Self-Distillation Enables Continual Learning. arXiv preprint arXiv:2601.19897 (2026). [29] Kumar Shridhar, Alessandro Stolfo, and Mrinmaya Sachan. 2023. Distilling reasoning capabilities into smaller language models. In Findings of the Association for Computational Linguistics: ACL 2023 . 7059–7073. [30] Huatong Song, Jinhao Jiang, Yingqian Min, Jie Chen, Zhipeng Chen, Wayne Xin Zhao, Lei Fang, and Ji-Rong Wen. 2025. R1-Searcher: Incentivizing the Search Capability in LLMs via Reinforcement Learning. arXiv preprint arXiv:2503.05592 
+
+(2025). [31] Shuang Sun, Huatong Song, Yuhao Wang, Ruiyang Ren, Jinhao Jiang, Jun-jie Zhang, Fei Bai, Jia Deng, Wayne Xin Zhao, Zheng Liu, et al. 2025. Sim-pleDeepSearcher: Deep Information Seeking via Web-Powered Reasoning Tra-jectory Synthesis. arXiv preprint arXiv:2505.16834 (2025). [32] Qwen Team. 2026. Qwen3.5: Accelerating Productivity with Native Multimodal Agents. https://qwen.ai/blog?id=qwen3.5 Conference’17, July 2017, Washington, DC, USA Niu et al. 
+
+[33] Nandan Thakur, Zijian Chen, Xueguang Ma, and Jimmy Lin. 2026. ORBIT: Scalable and Verifiable Data Generation for Search Agents on a Tight Budget. 
+
+arXiv preprint arXiv:2604.01195 (2026). [34] Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot, and Ashish Sabharwal. 2022. MuSiQue: Multihop Questions via Single-hop Question Composition. 
+
+Transactions of the Association for Computational Linguistics 10 (2022), 539–554. [35] Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot, and Ashish Sabharwal. 2023. Interleaving retrieval with chain-of-thought reasoning for knowledge-intensive multi-step questions. In Proceedings of the 61st annual meeting of the association for computational linguistics (volume 1: long papers) . 10014–10037. [36] Hao Wang, Guozhi Wang, Han Xiao, Yufeng Zhou, Yue Pan, Jichao Wang, Ke Xu, Yafei Wen, Xiaohu Ruan, Xiaoxin Chen, et al. 2026. Skill-SD: Skill-conditioned self-distillation for multi-turn llm agents. arXiv preprint arXiv:2604.10674 (2026). [37] Liang Wang, Nan Yang, Xiaolong Huang, Binxing Jiao, Linjun Yang, Daxin Jiang, Rangan Majumder, and Furu Wei. 2022. Text embeddings by weakly-supervised contrastive pre-training. arXiv preprint arXiv:2212.03533 (2022). [38] Ziliang Wang, Xuhui Zheng, Kang An, Cijun Ouyang, Jialu Cai, Yuhang Wang, and Yichao Wu. 2025. StepSearch: Igniting llms search ability via step-wise proximal policy optimization. arXiv preprint arXiv:2505.15107 (2025). [39] Tongyu Wen, Guanting Dong, and Zhicheng Dou. 2026. SmartSearch: Pro-cess Reward-Guided Query Refinement for Search Agents. arXiv preprint arXiv:2601.04888 (2026). [40] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, et al. 2025. Qwen3 technical report. arXiv preprint arXiv:2505.09388 (2025). [41] Zhilin Yang, Peng Qi, Saizheng Zhang, Yoshua Bengio, William Cohen, Ruslan Salakhutdinov, and Christopher D Manning. 2018. HotpotQA: A dataset for diverse, explainable multi-hop question answering. In Proceedings of the 2018 conference on empirical methods in natural language processing . 2369–2380. [42] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik Narasimhan, and Yuan Cao. 2023. ReAct: Synergizing Reasoning and Acting in Language Models. In International Conference on Learning Representations (ICLR) .[43] Woongyeng Yeo, Yumin Choi, Taekyung Ki, and Sung Ju Hwang. 2026. HINT-SD: Targeted Hindsight Self-Distillation for Long-Horizon Agents. arXiv preprint arXiv:2605.17873 (2026). [44] Rongzhi Zhang, Jiaming Shen, Tianqi Liu, Haorui Wang, Zhen Qin, Feng Han, Jialu Liu, Simon Baumgartner, Michael Bendersky, and Chao Zhang. 2024. PLaD: Preference-based Large Language Model Distillation with Pseudo-Preference Pairs. In Findings of the Association for Computational Linguistics: ACL 2024 .Association for Computational Linguistics, Bangkok, Thailand, 15623–15636. doi:10.18653/v1/2024.findings-acl.923 [45] Wenlin Zhang, Kuicai Dong, Junyi Li, Yingyi Zhang, Xiaopeng Li, Pengyue Jia, Yi Wen, Derong Xu, Maolin Wang, Yichao Wang, et al. 2026. To search or not to search: Aligning the decision boundary of deep search agents via causal intervention. In Proceedings of the ACM Web Conference 2026 . 2049–2059. [46] Yanzhao Zhang, Mingxin Li, Dingkun Long, Xin Zhang, Huan Lin, Baosong Yang, Pengjun Xie, An Yang, Dayiheng Liu, Junyang Lin, Fei Huang, and Jingren Zhou. 2025. Qwen3 Embedding: Advancing Text Embedding and Reranking Through Foundation Models. arXiv preprint arXiv:2506.05176 (2025). [47] Yanfei Zhang, Xu Lin, and Chenglin Wu. 2026. StepOPSD: Step-Aware On-line Preference Distillation for Agent Reinforcement Learning. arXiv preprint arXiv:2605.27140 (2026). [48] Siyan Zhao, Zhihui Xie, Mengchen Liu, Jing Huang, Guan Pang, Feiyu Chen, and Aditya Grover. 2026. Self-Distilled Reasoner: On-Policy Self-Distillation for Large Language Models. arXiv preprint arXiv:2601.18734 (2026). [49] Qiyong Zhong, Mao Zheng, Mingyang Song, Xin Lin, Jie Sun, Houcheng Jiang, Xiang Wang, and Junfeng Fang. 2026. SOD: Step-wise on-policy distillation for small language model agents. arXiv preprint arXiv:2605.07725 (2026). BOUND: Brief-Guided Corrective Preference Distillation at Search-Control Boundaries Conference’17, July 2017, Washington, DC, USA 
+
+## A Additional Results across 4B Backbones 
+
+To test whether BOUND depends on the Qwen3-4B-Instruct-2507 student, we additionally apply the full pipeline to Qwen3.5-4B [32] and evaluate it on BrowseComp-Plus. We do not reuse Qwen3-4B preference data, ensuring that supervision remains specific to the stronger student’s own failures. Qwen3.5-4B generates its own search rollouts, from which we independently construct validated state-matched preference pairs over student-induced decision-time states using the same brief-guided procedure. 
+
+Table 7: BrowseComp-Plus results across different 4B back-bones. Each BOUND model is trained on preference pairs constructed from its own student rollouts.                
+
+> Backbone Training Accuracy (%) Recall (%) Qwen3-4B-Instruct Before BOUND 14.9 14.0 + BOUND 29.6 32.1
+> Δ+14.7 +18.1 Qwen3.5-4B Before BOUND 37.4 49.3 + BOUND 44.0 53.4
+> Δ+6.6 +4.1
+
+As shown in Table 7, BOUND improves both judge accuracy and retrieval recall across the two backbones. On the stronger Qwen3.5-4B student, accuracy increases by 6.6 percentage points, compared with a 4.1-point gain in recall. This larger accuracy improvement suggests that BOUND does more than retrieve additional relevant evidence: its student-specific corrections also reduce the influence of unsupported search directions and distracting context, helping the model use the available evidence more effectively. This further supports transfer across distinct rollout distributions and student-specific search-control errors. 
+
+## B Manual Inspection of Search-State Briefs and Teacher Assessment 
+
+We manually examine both the faithfulness of the search-state briefs and their effect on teacher-side assessment and correction. We randomly sample 50 intermediate states from those used for preference construction. Each state contains the original question, the history of preceding actions and their parameters, the active evidence context, and the student’s original continuation. 
+
+Brief faithfulness. Each search-state brief records the Original Search Target, Key Constraints, Confirmed Evidence, Missing Infor-mation, and Drift Status. We manually inspect each field against the corresponding trajectory prefix. A field is considered valid only if it is consistent with the student-visible state and contains no major omission or unsupported information. 
+
+Paired assessment and correction inspection. To assess the brief’s contribution, we evaluate the same teacher on 50 states un-der matched conditions. In the with-brief condition, the teacher receives the student-visible state, structured brief, and original continuation; in the without-brief condition, only the brief is omit-ted, with all other inputs and settings unchanged. Using identical 
+
+Table 8: Manual inspection of search-state briefs and their effect on teacher assessment and correction.                         
+
+> (a) Faithfulness of search-state brief fields
+> Brief Field Valid Cases Ratio Original Search Target 50/50 100.0% Key Constraints 50/50 100.0% Confirmed Evidence 49/50 98.0% Missing Information 47/50 94.0% Drift Status 47/50 94.0%
+> (b) Assessment and correction quality
+> Metric With Brief Without Brief Drift-status accuracy 47/50 (94.0%) 45/50 (90.0%) Drift precision 11/12 (91.7%) 12/16 (75.0%) Drift recall 11/13 (84.6%) 12/13 (92.3%) False drift positives 1/37 (2.7%) 4/37 (10.8%) Target-aligned chosen 49/50 (98.0%) 46/50 (92.0%)
+
+decision-time states and student continuations isolates the effect of providing the brief. We manually assign a reference drift status to each state before comparing the teacher outputs. Among the 50 inspected states, 13 are judged to be at risk of or already affected by drift, while the remaining 37 are aligned with the original search target and key constraints. For this comparison, at-risk and drifted states are jointly treated as drift-positive. We then inspect whether the teacher correctly assesses the state’s drift status and whether its generated chosen continuation remains aligned with the original search target and key constraints. A chosen continuation is considered target-aligned only if it preserves or restores the intended target and constraints without continuing along a displaced direction. This criterion evaluates task-level alignment rather than surface wording and requires the continuation to remain grounded in information available at the original decision point. As shown in Table 8(a), all inspected briefs preserve the Orig-inal Search Target and Key Constraints, while 49 of the 50 briefs accurately summarize the Confirmed Evidence. Most errors occur in Missing Information and Drift Status, which require interpreting unresolved evidence and search direction rather than extracting explicit facts. Table 8(b) further shows that the brief improves teacher-side assessment. With the brief, drift-status accuracy increases from 45/50 to 47/50, false drift positives decrease from four to one, and drift precision increases from 75.0 to 91.7. Drift recall decreases slightly from 92.3 to 84.6, indicating a more conservative assessment that avoids unnecessary correction of aligned states. The target-alignment rate of the generated chosen continuation also increases from 92.0 to 98.0. Because the brief contains no future observations or gold answers, these gains reflect structured state abstraction rather than additional supervision, helping the teacher remain anchored to the original target, constraints, and unresolved evidence needs. Although limited to 50 states, this analysis complements the downstream results by showing that the search-state brief is largely Conference’17, July 2017, Washington, DC, USA Niu et al. 
+
+faithful to the student-visible state and improves the reliability and target alignment of teacher-side preference construction. 
+
+## C Training Question Sources and Auxiliary Question Construction C.1 Training Question Sources 
+
+We construct the corrective preference data from 983 distinct multi-hop questions. Using a fixed random seed of 42, we first sample 300 candidate questions from the training splits of HotpotQA [41] and MuSiQue [34]. We apply the same screening criterion to both sources, excluding questions that do not require substantive multi-step evidence acquisition under our search setting, such as those reducible to direct lookup or single-evidence answering. This pro-cedure retains 274 existing questions, including 85 from HotpotQA and 189 from MuSiQue. Separately, applying the graph-based con-struction and validation procedure described in Section C.2 to the same English Wikipedia dump yields 709 auxiliary synthetic ques-tions. We retain all questions that pass their respective procedures rather than subsampling either source to impose a predefined mix-ture ratio, resulting in 983 training questions in total. No evaluation questions from any benchmark are used during preference con-struction. The existing questions provide naturally occurring relation pat-terns and linguistic variation, while the synthetic questions supple-ment them with convergent, multi-path evidence structures that are less frequent in standard multi-hop QA datasets. The two sources therefore contribute complementary question structures while shar-ing the same downstream supervision procedure. Synthetic con-struction supplies training questions rather than preference labels: questions from all sources are processed using the same student-rollout and corrective preference construction pipeline described in Section 3.3. Source metadata is retained in the construction records for auditing but is not included in the student-visible input. 
+
+## C.2 Auxiliary Synthetic Question Construction 
+
+To supplement existing multi-hop QA questions, we construct syn-thetic questions from the March 1, 2022 English Wikipedia dump. A local evidence graph identifies answer entities supported through multiple evidence paths. The teacher extracts grounded graph edges and verbalizes selected evidence structures rather than generating questions from unconstrained topics or evaluation examples. 
+
+Seed Sampling and Evidence-Graph Construction. We ran-domly sample Wikipedia documents as graph seeds using a fixed random seed. We filter list, disambiguation, template, category, timeline, outline, and year pages, and remove documents outside the specified length range. Each retained seed initializes graph exploration and need not correspond to the final answer. We perform breadth-first expansion from each retained seed to a depth of three to four. For each expanded page, the teacher ex-tracts neighboring named entities, relations connecting the current subject to those entities, and exact supporting spans. An edge is retained only if its supporting span occurs verbatim in the page and its target entity resolves to a document in the local corpus. Each retained edge is associated with its supporting passage and document identifier. 
+
+Convergent Candidates and Question Generation. We enu-merate seed-to-entity paths and identify entities supported by multi-ple evidence paths. Selected paths cannot reuse intermediate nodes and must traverse distinct document sequences. A candidate answer must be supported by at least two such paths and three distinct evidence documents. We retain at most four paths per candidate. Given a candidate and its evidence paths, the teacher generates one question whose constraints are derived only from the sup-plied evidence. Each path must contribute a distinct constraint, unsupported facts are prohibited, and the answer entity cannot be named directly. The teacher receives no evaluation questions, answers, or annotations. Each generated record stores the question, answer, constraints, evidence paths, supporting documents, and graph provenance. 
+
+Question Validation and Decontamination. We apply rule-based and teacher-based validation. The rule-based stage rejects malformed questions, questions outside the permitted length range, questions with fewer than two distinct constraints, duplicate ques-tions, and questions revealing the normalized answer string. We also reject a question if the answer page appears among the top-5 results returned by the hybrid retriever used in our experiments. The remaining questions undergo a single-pass grounding check. A question is retained only if all constraints are supported, the an-swer cannot be derived from a single document, no answer leakage is present, and at least three required document titles appear in the supplied evidence or retrieved results. The pipeline performs no scalar difficulty scoring, iterative prompt repair, or post-generation rewriting. Accepted and rejected questions are stored separately with their evidence and verification records. We additionally audited the retained synthetic questions against all questions from the seven evaluation benchmarks. We found no exact or normalized duplicates and no complete benchmark question in the chosen, rejected, history, or context fields of the 1,670 preference pairs derived from synthetic questions. We man-ually reviewed stratified samples and the highest-scoring cases under complementary lexical and semantic similarity measures. The identified cases shared only broad topics or generic phrasing, while their key entities, constraints, solution paths, and answers remained distinct. 
+
+## D Additional Details of Brief-Guided Corrective Preference Construction 
+
+This appendix specifies the decision-time information used during preference construction, brief-guided assessment and outcome con-ditioning, teacher-side construction interfaces, pair construction and validation, student-facing serialization, and rerouting execu-tion semantics. The search-state brief, assessment record, rollout outcome, and other construction-side information are used only to construct preference data and are excluded from preference opti-mization and inference inputs. The implementation uses auxiliary generation tags to route can-didate construction under the fixed search-agent interface. These tags are construction-time variables rather than an exhaustive tax-onomy of search failures, and they are neither optimized nor ex-posed to the student. A decision point constitutes a search-control boundary only when alternative continuations under the same BOUND: Brief-Guided Corrective Preference Distillation at Search-Control Boundaries Conference’17, July 2017, Washington, DC, USA 
+
+student-visible state imply different local search-control decisions and the task and decision-time evidence support a reliable prefer-ence. A validated state-matched pair operationalizes such a bound-ary; no auxiliary tag identifies one independently. 
+
+## D.1 Decision-Time Assessment and Outcome Conditioning 
+
+For each decision-time state 𝑠 𝑡 = (𝑞, 𝐻 𝑡 , 𝐶 𝑡 ), the teacher first con-structs a search-state brief: 
+
+𝑏 𝑡 = 𝑔 B (𝑠 𝑡 ).
+
+The brief generator receives only the original question 𝑞 , preceding actions and their parameters 𝐻 𝑡 , and evidence available in 𝐶 𝑡 .The teacher then assesses the student’s original continuation: 
+
+𝑑 𝑡 = (𝑧 𝑡 , 𝜌 𝑡 , 𝑒 𝑡 ) = Assess (𝑠 𝑡 , 𝑏 𝑡 , 𝑦 0 
+
+> 𝑡
+
+),
+
+where 𝑧 𝑡 is an auxiliary generation tag, 𝜌 𝑡 is a state-grounded justification, and 𝑒 𝑡 ∈ { 0, 1} indicates whether the continuation contains a specific local error. The tag takes one of four values: 
+
+𝑧 𝑡 ∈
+
+evidence_completion , target_maintenance ,
+
+answerability , not_selected 
+
+
+
+.
+
+The error indicator and auxiliary tag serve different purposes. The indicator 𝑒 𝑡 evaluates whether the complete student continu-ation contains a specific local error. The tag 𝑧 𝑡 indicates whether the state supports a reliable local contrast and, when it does, routes construction toward acquiring unresolved evidence, restoring the original target or a missing constraint, or preferring an evidence-supported answer. The value not_selected means that no pair-construction route is authorized. It is not a no-error label: it may occur with 𝑒 𝑡 = 0when the continuation is locally appropriate, or with 𝑒 𝑡 = 1 when an error is apparent but no reliable correction can be constructed. It is also used when multiple alternatives are similarly reasonable or the available information does not establish a meaningful local preference. Thus, 𝑧 𝑡 is neither a boundary label nor a substitute for the error judgment. The error indicator evaluates the continuation’s thought, action, and parameter rather than only its action label. For example, 𝑒 𝑡 may be true when a Continue query pursues an unsupported entity instead of the unresolved information in the state. The assessment receives 𝑠 𝑡 , 𝑏 𝑡 , and 𝑦 0 
+
+> 𝑡
+
+, but not the observation produced by 𝑦 0 
+
+> 𝑡
+
+, any later action or observation, the rollout out-come, or a gold answer. The rollout outcome is consulted only after assessment. The operator in Algorithm 1 returns the assessment record and an optional correction: 
+
+(𝑑 𝑡 , e𝑦 T 
+
+> 𝑡
+
+) = AssessAndCorrect (𝑠 𝑡 , 𝑏 𝑡 , 𝑦 0 
+
+> 𝑡
+
+).
+
+When 𝑒 𝑡 = 1 and 𝑧 𝑡 ≠ not_selected , the teacher attempts to generate 
+
+e𝑦 T 
+
+> 𝑡
+
+= Correct (𝑠 𝑡 , 𝑏 𝑡 , 𝑑 𝑡 , 𝑦 0 
+
+> 𝑡
+
+).
+
+Otherwise, e𝑦 T 
+
+> 𝑡
+
+= ∅. Any generated correction must still pass vali-dation. Let 𝑟 ∈ { 0, 1} denote the rollout outcome. For an unsuccessful rollout, BOUND constructs a corrective contrast when 
+
+𝑟 = 0 ∧ 𝑒 𝑡 ∧ 𝑧 𝑡 ≠ not_selected ∧ e𝑦 T 
+
+> 𝑡
+
+≠ ∅.
+
+The correction becomes the chosen continuation, and the student’s original continuation becomes the rejected continuation. This con-dition neither treats every decision in an unsuccessful rollout as erroneous nor retains errors without reliable corrections. For a successful rollout, define SupportedAnswer (𝑑 𝑡 , 𝑦 0 
+
+> 𝑡
+
+) ⇐⇒ 𝑧 𝑡 = answerability 
+
+∧ ¬ 𝑒 𝑡 ∧ 𝑦 0 
+
+> 𝑡
+
+is an Answer .
+
+BOUND uses the earliest supported answer step: 
+
+𝑡 ∗ = min {𝑡 : SupportedAnswer (𝑑 𝑡 , 𝑦 0 
+
+> 𝑡
+
+)} .
+
+At this step, the supported student answer is preferred to a plausible but unnecessary retrieval continuation. Each contrast contributes to the preference dataset only if it passes validation. A surviving state-matched pair operationalizes a search-control boundary because its continuations share the same student-visible state, imply different local decisions, and admit a reliable preference under the task and decision-time evidence. 
+
+## D.2 Pair Construction and Validation 
+
+For a corrective contrast, the candidate pair is 
+
+ 𝑦 + 
+
+> 𝑡
+
+, 𝑦 −
+
+> 𝑡
+
+ =
+
+e𝑦 T 
+
+> 𝑡
+
+, 𝑦 0
+
+> 𝑡
+
+
+
+.
+
+The correction is conditioned on the state, brief, assessment record, and original continuation, and directly addresses the identified error under the existing action interface. Using the student’s original continuation as the rejected continuation targets behavior that actually occurred under the same state. For the earliest supported answer in a successful rollout, the original student answer remains chosen: 
+
+ 𝑦 + 
+
+> 𝑡 ∗
+
+, 𝑦 −
+
+> 𝑡 ∗
+
+ =  𝑦 0 
+
+> 𝑡 ∗
+
+, UnnecessaryRetrieval (𝑠 𝑡 ∗ , 𝑏 𝑡 ∗ , 𝑦 0 
+
+> 𝑡 ∗
+
+) .
+
+The rejected continuation is a plausible retrieval action that con-tinues searching after the available evidence already supports the answer. In both cases, 
+
+𝑥 𝑡 = 𝑠 𝑡 .
+
+The chosen and rejected continuations therefore share the same question, preceding action history, and available evidence. Neither continuation is executed during pair construction, and no future observation, regenerated trajectory suffix, or additional evidence is attached to either side. Each generated continuation contains exactly three non-empty fields: 
+
+𝑦 𝑡 = (thought , action , parameter ) ,
+
+where 
+
+action ∈ { Continue , Reroute , Answer } .
+
+For a corrective pair, the chosen continuation must directly address the identified error. For a termination pair, the rejected continuation must use Continue or Reroute. The two continuations must not be identical, express equivalent local search intent, or imply the same local decision. Validation removes malformed or multiline fields, unsupported action labels, empty parameters, parameters longer than 512 char-acters, protocol tags embedded in parameters, and teacher-only information. It also removes pairs that differ only in superficial Conference’17, July 2017, Washington, DC, USA Niu et al. 
+
+wording, cannot be supported from the decision-time state, or con-tain inconsistent actions and parameters. Neither continuation may expose the search-state brief, auxiliary tag, assessment justification, rollout outcome, future information, or environment-side passage-selection details. For a termination pair, the chosen answer must be supported by evidence already present in the state, and the rejected continuation must pursue a concrete but unnecessary retrieval subgoal rather than an unrelated topic. Exact duplicate student-facing records are removed. If the same student-visible state receives incompatible preferred action labels across candidate records, the corresponding ambiguous records are excluded to avoid introducing contradictory supervision. For audit-ing and reproducibility, construction-side records retain rollout and step identifiers, the rollout outcome, search-state brief, assessment, generated continuations, and validation result separately from the final student-facing DPO artifact. 
+
+## D.3 Teacher-Side Construction Interfaces 
+
+Preference construction produces four teacher-side records: the brief, a local assessment, a correction for an erroneous continuation, and an unnecessary-retrieval alternative for a supported answer. Their separation is an implementation choice rather than part of the learning objective. The final optimization instance contains only the student-visible state and the validated chosen and rejected continuations. The brief generator observes only 𝑠 𝑡 . The local assessment re-ceives 𝑠 𝑡 , 𝑏 𝑡 , and 𝑦 0 
+
+> 𝑡
+
+. Correction generation additionally receives 
+
+𝑑 𝑡 , while unnecessary-retrieval generation receives the state, brief, and supported student Answer after the decision point has been selected. None of these interfaces receives a future observation, a regenerated trajectory suffix, the rollout outcome, or a gold answer. We reproduce below the prompts whose literal wording spec-ifies the structured brief and unnecessary-retrieval records. For local assessment and correction generation, we report the input restrictions, output schemas, abstention behavior, and generation requirements in text; exact templates appear in the released code. In the prompt wording, “search history” refers to the preceding actions and parameters represented by 𝐻 𝑡 .
+
+Search-State Brief Prompt 
+
+> Summarize the decision-time search state. Use only the question, search history, and evidence provided at this state. Do not use fu-ture actions, future observations, or a gold answer. Return JSON only with exactly these five fields:
+> {"Original Search Target": "<target asked for by the question>", "Key Constraints": "<constraints the answer must satisfy>", "Confirmed Evidence": "<question-relevant facts supported by the current evidence>", "Missing Information": "<information still needed, or None>", "Drift Status": "<aligned|at risk|drifted>: <short reason>" }
+> Evidence sufficiency must be represented through Confirmed Evidence and Missing Information. Drift Status should describe only whether the current search direction remains anchored to the original target. Do not restate the full question or copy entire evidence passages. Do not add fields or instructions.
+
+Local decision assessment. Given 𝑠 𝑡 , 𝑏 𝑡 , and 𝑦 0 
+
+> 𝑡
+
+, the teacher de-termines whether the continuation contains a specific local error and whether the state supports a reliable local contrast. The assessment is serialized as 
+
+{boundary, reason, student_action_is_error} ,
+
+corresponding to 𝑧 𝑡 , 𝜌 𝑡 , and 𝑒 𝑡 . The field name boundary is re-tained for compatibility with the implementation schema, but its value functions only as an auxiliary generation tag and does not independently identify a search-control boundary. The field student_action_is_error evaluates the complete continuation. The boundary field is set to evidence_completion ,
+
+target_maintenance , or answerability when the state supports the corresponding corrective or termination contrast; otherwise, it is set to not_selected .A not_selected tag covers locally appropriate continuations, errors without reliable corrections, several similarly reasonable alternatives, and states without a meaningful local preference. Such cases yield neither a correction nor a preference pair. The assessment uses only the decision-time state, brief, and original continuation. It excludes the resulting observation, future trajectory information, rollout outcome, and gold answer. 
+
+Student-specific correction generation. When 𝑒 𝑡 = 1 and 𝑧 𝑡 ≠
+
+not_selected , the teacher attempts to generate a correction con-ditioned on 𝑠 𝑡 , 𝑏 𝑡 , 𝑑 𝑡 , and 𝑦 0 
+
+> 𝑡
+
+. The correction targets the identified error under the fixed student action interface. It may acquire unre-solved evidence, restore the original target or a missing constraint, or answer when the available evidence is sufficient. No correction is generated when 𝑧 𝑡 = not_selected .The generated record contains exactly three fields: thought ,
+
+action , and parameter . The first briefly explains the next decision, while the latter two specify the student action and its focused retrieval query or concise final answer. Retrieval actions must target a concrete unresolved information need, and an Answer must be supported by evidence already available in 𝑠 𝑡 .Because generation is conditioned on the original continuation, the correction addresses the student’s specific error rather than replacing it with a generic teacher continuation. It must remain expressible from the student-visible state and must not copy teacher-only information into the student-facing output. 
+
+Unnecessary Retrieval Prompt                  
+
+> Construct one rejected local continuation for an answerability decision point. The chosen continuation correctly stops and answers using the cur-rently available evidence. Construct a plausible alternative that per-forms unnecessary additional retrieval instead. The rejected continuation must: BOUND: Brief-Guided Corrective Preference Distillation at Search-Control Boundaries Conference’17, July 2017, Washington, DC, USA
+> -be plausible under the student-visible state;
+> -use either Continue or Reroute ;
+> -pursue a concrete but unnecessary subgoal suggested by the current state;
+> -avoid introducing a new entity, constraint, or information need;
+> -remain grounded in the student-visible state; and
+> -express a clear contrast with the chosen Answer continuation. Return JSON only:
+> {"thought" :"<brief rationale that incorrectly claims further retrieval is needed>" ,
+> "action" :"<Continue|Reroute>" ,
+> "parameter" :"<focused but unnecessary retrieval query>" }
+> Do not introduce future observations or teacher-only information.
+
+## D.4 Student-Facing Serialization and Reroute Execution 
+
+Each validated pair yields one preference instance 
+
+ 𝑥 𝑡 , 𝑦 + 
+
+> 𝑡
+
+, 𝑦 −
+
+> 𝑡
+
+ , 𝑥 𝑡 = 𝑠 𝑡 .
+
+Teacher outputs are generated as JSON for parsing and validation and then rendered as 
+
+[Thought]: <decision rationale> [Action]: <Continue|Reroute|Answer> [Parameter]: <query or answer> .
+
+The final DPO artifact stores 𝑥 𝑡 , 𝑦 + 
+
+> 𝑡
+
+, and 𝑦 − 
+
+> 𝑡
+
+as prompt , chosen ,and rejected . The prompt contains the same search-policy in-struction and student-visible state used during inference, while the chosen and rejected fields each contain one assistant continuation in the tagged format above. The brief, auxiliary tag, assessment justification, rollout outcome, validation metadata, and all other construction-side fields are omitted. The state transition associated with Reroute is an environment-side execution rule rather than part of preference construction. When a policy selects Reroute, the action and rerouting query are appended to the history. The environment then computes the E5-base-v2 cosine similarity between the rerouting query and each passage returned by the immediately preceding retrieval. Passages with similarity below 0.2 are removed. If all passages fall below this threshold, the highest-scoring passage is retained. All earlier history and evidence are preserved. The rerouting query is then issued to the benchmark-specific retrieval backend, which returns a new top-5 passage batch. The new passages are combined with earlier evidence and retained passages to form the next student-visible state. For BrowseComp-Plus, Qwen3-Embedding-8B performs the new retrieval, while E5-base-v2 only scores passages from the preceding retrieval. This transition requires no teacher call and is applied during roll-out collection and evaluation of the initial search policy, Trajectory SFT, and BOUND. Passage filtering is disabled only in the query-only rerouting ablation. Algorithm 1, by contrast, operates on fixed student rollouts and constructs chosen and rejected continuations without executing either continuation or modifying their shared student-visible state. The final training artifact contains 2,424 validated step-level pref-erence instances constructed from 983 distinct training questions.

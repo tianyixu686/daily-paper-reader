@@ -1,0 +1,1361 @@
+Title: Control-Diverse Reinforcement Fine-Tuning: Decoupling the Shared Control Bottleneck of RL Post-Training
+
+URL Source: https://arxiv.org/pdf/2608.08224v1
+
+Published Time: Tue, 11 Aug 2026 00:49:05 GMT
+
+Number of Pages: 27
+
+Markdown Content:
+# Control-Diverse Reinforcement Fine-Tuning: Decoupling the Shared Control Bottleneck of RL Post-Training 
+
+## Binwen Tan 1∗, Jingchao Wang 3∗, Dengzhe Hou 1,2, Lingyu Jiang 1,Zeyuan Wu 4, Yunhan Shen 1, Fangzhou Lin 5,6, Kazunori Yamada 1,2, Atsushi Koike 1
+
+> 1
+
+Graduate School of Information Sciences, Tohoku University 
+
+> 2
+
+Unprecedented-scale Data Analytics Center, Tohoku University 
+
+> 3
+
+School of Computer Science, Peking University 
+
+> 4
+
+School of Science, Tohoku University 
+
+> 5
+
+Texas A&M University 
+
+> 6
+
+Worcester Polytechnic Institute 
+
+Abstract 
+
+Reinforcement learning post-training unlocks complex reason-ing in large language models. Yet benchmark scores reveal only whether a model improved, not what changed inside it, nor how it splits a finite capability across competing tasks. A repre-sentative line of work in mechanistic interpretability attributes the success of reinforcement-learning fine-tuning to stronger and more diverse circuit activation. Complementing this view, we separate activation from control: an activated circuit need not control the post-training reward gain. Adapting Metabolic Control Analysis, we define the Post-training Control Coeffi-cient to measure component control over the reward gain and arrange these coefficients by task family into a control matrix, paired with an activation-magnitude matrix. We call cross-task control concentration the Shared Control Bottleneck and the difference between activation and control concentration the Activation–Control Gap. We show that highly shared activa-tions can coexist with task-specific control, while a small gap indicates that control concentrates along a shared direction and loses task specificity. To reduce this concentration, we regular-ize the post-training loss with the Shared Control Bottleneck and propose Control-Diverse Reinforcement Fine-Tuning (CD-RFT). The exact regularizer gradient requires second-order automatic differentiation incompatible with flash attention, so we derive a first-order proxy with worst-case overhead below eight percent. On Qwen2.5-7B, CD-RFT achieves the largest control decoupling and improves multi-task capability over its matched GRPO recipe across all three domains. The no-KL variant leads on pass@ 1, and the KL-penalized variant leads on the large-k pass@ k coverage that KL otherwise degrades. Together, these results show that the Shared Control Bottleneck serves as a mechanistic diagnostic and a training regularizer, and that both control decoupling and capability gains transfer to Llama-3.2-3B. 
+
+## 1 Introduction 
+
+The complex reasoning of large language models is unlocked primarily during post-training, where reinforcement learning maximizes a reward while holding the policy near its base model (Ouyang et al. 2022). As post-training moves from single-task to multi-task settings, a central question emerges: what does it actually change inside the model, and how does it distribute a finite capability across competing tasks? 
+
+> ∗
+
+These authors contributed equally. From mechanistic diagnosis to capability gain 
+
+Math Code Logic task family m 
+
+Task-wise reward fluxes: 
+
+> · · ·
+
+Analysis of internal mechanism in LLM RL Post-training    
+
+> Activation-pattern view
+> Which components are activated?
+> Reward-flux control view (ours)
+> Which components control reward flux?
+> gated component (analysis intervention)
+> ×
+> residual stream
+> Ahigh activation , low control
+> Blower activation, high control
+> GRPO Math Code Logic
+> Shared Control Bottleneck
+> CD-RFT(add-on Control-Diverse Regularizer)
+> Math Code Logic
+> Task-specific control directions
+
+Multi-task pass@1 / pass@k ↑
+
+> · · ·
+> Control Coefficient
+> 🌟 Key observation: Activation ≠ Control
+
+Figure 1: The control view at a glance. Top: task-wise reward flux Jm (Eq. (1)). Middle: attribution patching (Syed, Rager, and Conmy 2024) through a differentiable gate on each component yields the control coefficient Cm,k (Eq. (4)); A and B show that activation does not imply control. Bottom: 
+
+CD-RFT keeps control task-specific across families, lowering 
+
+Bshared (C) and raising pass@ 1/pass@ k.Benchmark scores answer only whether a model has im-proved, not where the change occurs. Mechanistic inter-pretability quantifies, through attribution patching, the causal role of each component (Syed, Rager, and Conmy 2024); arXiv:2608.08224v1 [cs.LG] 8 Aug 2026 along this line, a representative work attributes the success of reinforcement-learning fine-tuning to stronger and more diverse circuit activation (Zhang et al. 2026). We complement this view: activation tells us which circuits fire, but not which ones control the post-training reward gain, and that account is established on activation alone, within a single domain (mathematical reasoning). To separate which components fire from which ones control the gain, we draw on Metabolic Control Analysis (Kacser and Burns 1973; Heinrich and Rapoport 1974; Fell 1992), the systems-biology framework for asking which local steps con-trol a network’s overall flux, and define the reward flux as the mean log-likelihood ratio margin by which the policy raises a reference target above the base model; a differentiable gate on each component then yields the Post-training Control Coeffi-cient, read out by a single backward pass, measuring which components control the gain. Task-wise coefficients and com-ponent activation magnitudes form the control and activation matrices, respectively. We call cross-task control concentra-tion the Shared Control Bottleneck and the difference between activation and control concentration the Activation–Control Gap. Highly shared activations can retain task-specific con-trol; a small gap indicates that control concentrates along a shared direction and loses task specificity. We turn this diagnosis into CD-RFT, which regularizes the post-training loss with the Shared Control Bottleneck. 1
+
+The exact regularizer gradient requires second-order differ-entiation incompatible with flash attention, so we derive a first-order proxy requiring one backward pass and less than eight percent overhead. On Qwen2.5-7B, CD-RFT attains the largest control decoupling. Over its matched GRPO recipe, the no-KL variant improves pass@ 1 and the KL-penalized variant improves large-k pass@ k coverage. Beyond Qwen2.5-7B, the same pattern of control decoupling and capability gain carries over to Llama-3.2-3B. Our contributions are as follows. 
+
+• We define the Post-training Control Coefficient, which separates activation contribution from control responsibil-ity. 
+
+• We characterize excessive cross-task control sharing using the Shared Control Bottleneck and the Activation–Control Gap, and derive an optimizable first-order proxy for the bottleneck. 
+
+• We propose CD-RFT, which connects mechanistic di-agnosis to training by decoupling the control structure; reducing the diagnosed bottleneck improves multi-task pass@ 1 and pass@ k on Qwen2.5-7B, with the same pat-tern on Llama-3.2-3B. 
+
+## 2 Related Work 
+
+Reinforcement learning post-training paradigm for LLM. 
+
+Reference-constrained post-training (reinforcement learning from human feedback (Ouyang et al. 2022) and direct prefer-ence optimization (Rafailov et al. 2023)) shares the log-ratio structure on which our reward flux is based. Reinforcement learning with verifiable rewards has become the dominant 
+
+> 1Code is available at https://github.com/tttbw/cd-rft.
+
+paradigm for reasoning: group relative policy optimization removes the value network (Shao et al. 2024), pure rein-forcement learning elicits reasoning behaviours (Guo et al. 2025), whose gains over the base model, especially at large-k
+
+pass@ k, are recently questioned (Yue et al. 2025), and later work extends it along training stability (Yu et al. 2025) and data coverage (Luo et al. 2025; Cheng et al. 2025). Closest to our setting, multi-task GRPO jointly trains a single policy across several task families, re-weighting tasks to balance worst-task performance (Ramesh et al. 2026). Whether acting on the reward, the data, or the multi-task objective, however, such methods stay at the external-signal level and do not characterize how a finite capability is distributed inside the model, or how concentrated that distribution is; we instead lower the Shared Control Bottleneck directly in the control space. 
+
+Mechanistic interpretability and causal attribution of fine-tuning. Mechanistic interpretability quantifies the causal role of components by attribution patching (Syed, Rager, and Conmy 2024; Nanda 2023), an idea inherited from the circuit framework (Elhage et al. 2021) and circuit discovery (Conmy et al. 2023; Wang et al. 2023; Kramár et al. 2024) and made more faithful by integrated gradients (Sundararajan, Taly, and Yan 2017; Hanna, Pezzelle, and Belinkov 2024); on fine-tuning, one line shows that it amplifies or reuses existing mechanisms rather than reconstructing circuits (Prakash et al. 2024; Jain et al. 2024). Most relevant to us, Zhang et al. (2026) attribute the success of reinforcement-learning fine-tuning to increased activation intensity and diversity, measured within a single domain (mathematical reasoning) by three statistics of the same EAP edge-magnitude tensor: its mean (activation in-tensity), its entropy (information complexity), and its kurtosis (distribution kurtosis). All three describe how large and how spread the attributions are, not which components the reward gain depends on, a distinction Lemma 1 makes precise: a circuit being activated does not entail that it controls the gain. That line of work is moreover purely diagnostic. We therefore redirect attribution to the Post-training Control Coefficient over the reward flux, characterize the over-sharing of con-trol for the first time through the cross-task Shared Control Bottleneck, and close the loop by writing that quantity into the training objective and measuring the resulting multi-task gain. 
+
+## 3 The Post-Training Control Coefficient 
+
+3.1 Post-Training Reward Flux 
+
+To separate activation from control into checkable quantities, we take as our basic object the log-likelihood-ratio margin of the policy relative to the reference model on a reference target. Our main experiments use reinforcement learning with verifiable rewards (RLVR; Lambert et al. 2024), in which the reference target y⋆ is a verified-correct completion; for a task family m with samples (x, y ⋆) ∼ D m, we define the reward flux 
+
+Jm(θ) = E(x,y ⋆)∼D m [log πθ (y⋆ | x) − log π0(y⋆ | x)] .
+
+(1) The integrand log( πθ /π 0) in Eq. (1) is the common structure of the family of reference-constrained post-training objectives: RLVR takes verifiable correctness as the reward and raises this log-likelihood ratio on correct targets, DPO writes the implicit reward as β log( πθ /π 0) (Rafailov et al. 2023), and RLHF targets a trade-off between the reward and KL( πθ ∥ π0)
+
+(Ouyang et al. 2022). Hence Jm is not an artifact constructed for the analysis but this shared log-ratio structure evaluated at the reference target. 
+
+3.2 Metabolic Control Analysis 
+
+Metabolic Control Analysis (MCA) originates in systems biology (Kacser and Burns 1973; Heinrich and Rapoport 1974) and studies the share of control that a single local step exerts over the overall flux of a network. Its central object, the flux control coefficient, is the scaled sensitivity (log–log derivative) of the overall flux J to a local rate vi,
+
+CJi = ∂ ln J∂ ln vi
+
+= vi
+
+J∂J ∂v i
+
+, (2) and its summation theorem states that in a closed conservative network the control coefficients sum to one, so control is systematically distributed rather than monopolized (Fell 1992). We transplant this “how local rates control the overall flux” viewpoint to post-training, taking the reward flux as the overall flux and the component gate as the local rate. The residual structure breaks the required homogeneity, so P 
+
+> k
+
+Cm,k ̸ = 1 
+
+here, as Appendix Proposition B.1 shows; the distribution of control does not rely on this conservation law, however, and Theorem 1 proves independently that residual-stream superposition alone keeps the control support from collapsing to a single gate. We therefore borrow only the “control share” viewpoint of MCA. 
+
+3.3 Differentiable Gating and Attribution Patching 
+
+On the residual update of each layer, we multiply a set of internal components each by a differentiable scalar gate gk,
+
+hℓ+1 = hℓ + X
+
+> k:ℓ(k)= ℓ
+
+gk fk(hℓ; θ), (3) where fk is the transformation of component k and out k is its output written into the residual stream; when the gates take their nominal value g ≡ 1 the network recovers the original model under Appendix Assumption A.2, so that 
+
+gk is a continuous ablation intervention at the component level ( 0 for full ablation, 1 for intact), and we denote the gated reward flux by Jm(θ; g). The gate granularity is a free choice: an attention head, an MLP neuron, or a circuit edge. We use the sublayer granularity, the coarsest choice under which the spectral-proxy optimization stays feasible for full 7B fine-tuning; finer gate sets (head, neuron, or edge) are left to future work. To measure the causal effect of such an intervention on a target metric, the standard tool in mechanistic interpretability is attribution patching (Syed, Rager, and Conmy 2024; Nanda 2023), which linearizes an activation replacement by a first-order Taylor expansion (Appendix Eq. (16)), so a single backward pass gives the attributions of all components at once. We take the gate as the intervention variable and the target log-likelihood as the metric, and read out the control coefficient next. 
+
+3.4 The Coefficient and Its Expansion 
+
+Combining the flux control coefficient with the gating above, we define the post-training control coefficient as the scaled gate-sensitivity of the target log-likelihood ℓm(θ) := 
+
+EDm [log πθ (y⋆ | x)] , the policy term of the flux, 
+
+Cm,k = 1
+
+ℓm(θ)
+
+∂ℓ m(θ; g)
+
+∂g k g=1
+
+. (4) The reference term log π0 is gate-independent, so ∂ℓ m/∂g k =
+
+∂J m/∂g k: the coefficient reports the gate-sensitivity of the reward flux, now normalized by the stable ℓm (|ℓm| ≥ ϵ0,Appendix Assumption A.3) rather than by the sign-indefinite, possibly-vanishing Jm (Appendix Remark A.2). Arranging the control coefficients into the control matrix C = [ Cm,k ] ∈
+
+RM ×K with M = Mfam rows, one per task family: each row is the control vector of family m, averaged over the family’s 
+
+n probe samples, as detailed in Appendix A. The explanatory power of the control coefficient comes from its first-order dominance over the relative change of the reward flux under small gate perturbations. 
+
+Proposition 1 (first-order expansion of control) . Under Appendix Assumptions A.1–A.3, and writing the gate log-perturbation u = log g, the relative change of the target log-likelihood of family m satisfies 
+
+ℓm(θ; eu) − ℓm(θ)
+
+ℓm(θ) =
+
+> K
+
+X
+
+> k=1
+
+Cm,k uk+O ∥u∥22
+
+ , u → 0.
+
+(5) This is a first-order Taylor expansion about u = 0 divided by ℓm(θ)̸ = 0 , proven in Appendix Proposition A.1. Equation (5) makes the control coefficient the first-order dominant coefficient of the relative change in gate log-space, measuring the control of component k over the gain of family 
+
+m. This differs from the activation magnitude tracked by prior analyses (Zhang et al. 2026), the average usage of component 
+
+k on family m,
+
+Fm,k = EDm ∥out k(x; θ)∥2, F = [ Fm,k ] ∈ RM ×K .
+
+(6) Because the reward flux is read out along a fixed direction wm
+
+defined in Appendix A, the first-order effect of a component depends on the part of its write that survives propagation to wm, not on its norm; large usage and strong control thus decouple. 
+
+Lemma 1 (the activation axis and the control axis are not interchangeable) . For the gating of Eq. (3) there are networks and task families in which Cm, · is not a scalar multiple of 
+
+Fm, ·.
+
+Appendix Lemma A.1 constructs one. Lemma 1 has two consequences. First, “post-training en-hances activation diversity” does not entail “post-training improves the control structure”: the two axes are not inter-changeable. Second, optimizing on the activation axis changes the objective and cannot reduce control sharing (Section 5.3). We therefore treat the control matrix as a first-class object. 4 The Shared Control Bottleneck 
+
+Distinguishing control from activation is what makes control-aware training possible (Section 5). This section builds that measurement: the Activation–Control Gap between the shar-ing of control and of activation. 
+
+4.1 Cross-Task Concentration 
+
+For a matrix X ∈ { F, C }, its family Gram matrix GX =
+
+XX ⊤ ∈ RM ×M is symmetric positive semidefinite, and we characterize the cross-task concentration by its normalized largest eigenvalue, 
+
+Bshared (X) = λmax (GX )tr( GX ) ∈
+
+h 1 
+
+> M
+
+, 1
+
+i
+
+, (7) with X̸ = 0 so that the denominator is nonzero. This quantity measures how much of the energy of the rows (one per task family) falls along a single shared direction. 
+
+Proposition 2 (bounds, saturation, and invariance of Bshared ).
+
+Let the eigenvalues of GX be λ1 ≥ · · · ≥ λM ≥ 0. Then: (i) 
+
+1/M ≤ Bshared (X) ≤ 1; (ii) the upper bound Bshared = 1 
+
+holds if and only if rank( X) = 1 , i.e. the row vectors are collinear; (iii) the lower bound Bshared = 1 /M holds if and only if all λi are equal, i.e. the row vectors are pairwise orthogonal and of equal norm; (iv) it is invariant under magnitude scaling X 7 → cX (c̸ = 0 ) and under orthogo-nal reparameterization of the gate coordinates X 7 → XQ 
+
+(QQ ⊤ = IK ). 
+
+Appendix Proposition B.2 proves these. Property (iv) therefore makes Bshared (C) comparable across methods and training steps at a fixed granularity, the prerequisite for a cross-method mechanistic comparison. 
+
+Bshared (C) measures direction sharing and the distribution of control energy jointly. 
+
+4.2 The Activation–Control Gap 
+
+Applying the concentration to the activation axis and the control axis separately, their difference characterizes the degree to which control is decoupled from activation, 
+
+ACG = Bshared (F ) − Bshared (C). (8) That multi-task activations are shared across tasks is an expected property, with Bshared (F ) near its upper bound (measured ≈ 99 .6), and as a ceiling it is not a target. 
+
+Proposition 3 (characterization of the gap) . Under the activational ceiling Bshared (F ) → 1, the gap satisfies 
+
+ACG ∈ [0 , 1 − 1/M ], and ACG → 0 if and only if 
+
+Bshared (C) → Bshared (F ), in which case control is as con-centrated as activation; ACG is large if and only if Bshared (C)
+
+lies far below the ceiling, corresponding to families sharing activations while control stays task-specific. 
+
+Appendix Proposition B.3 proves this. Hence the target is not to suppress Bshared (F ) but, at a fixed ceiling, to lower Bshared (C) and thereby enlarge the gap in Eq. (8), which is precisely the objective of the method in Section 5.1. Empirically, reinforcement learning already lowers Bshared (C) below the base, so our claim is controlled-variable: on a matched recipe, our method lowers Bshared (C)
+
+the most, as Appendix Remark B.2 discusses.                        
+
+> GRPO CD-RFT ∆∆<0
+> Bshared (C)82.8 67.3 −15 .5±6.56/7
+> Bdir (C)58.2 50.6 −7.6±2.17/7
+> Bnorm (C)77.3 62.9 −14 .4±7.16/7
+
+Table 1: Decomposition of the Bshared (C) drop on a matched GRPO/CD-RFT pair ( β=0 ; seven probe seeds, same-seed paired differences). Bdir (C) = λmax (R)/M , with R the matrix of row cosines, is Bshared on a row-normalized C and so measures direction sharing alone; Bnorm (C) is the value 
+
+Bshared takes at exactly orthogonal rows. Only the direction term falls on every seed (Appendix F.3). 
+
+4.3 Distributedness of Control 
+
+Taking the overall shape of the control matrix, rather than a single-gate attribution, as the object of analysis is justified by the fact that control is systematically distributed over the residual network. This distributedness does not rely on the summation theorem of Section 3.2 (which fails here, Ap-pendix Proposition B.1) but stems from the more fundamental structure of residual-stream superposition. 
+
+Theorem 1 (no single-gate monopoly under residual super-position) . Suppose the reward flux is read out by projecting the final residual onto a fixed readout direction wm. Then, for generic network weights, ∂gk Jm|g=1̸ = 0 for every k: the control support is not a proper subset of {1, . . . , K }.
+
+Intuitively, residual superposition mixes the write of every component into the readout, so a gate with no control would need its write to cancel exactly along wm, a measure-zero coincidence (the propagation identity and the generic-weight argument are in Appendix Theorem B.1). The control support is therefore generically not a single gate, so a single-gate scalar cannot characterize it and the right object is the cross-task concentration Bshared (C) of the full matrix (Figure 2a). Concentration also implies a deployment-level fragility geom-etry, larger Bshared (C) giving larger perturbation variance, as Appendix Proposition B.4 shows. 
+
+## 5 Control-Diverse Regularizer 
+
+5.1 Objective 
+
+On top of the backbone post-training loss Lpost , we add a single control-diverse regularizer, 
+
+LCD −RF T (θ) = Lpost (θ) + λ B shared 
+
+ C(θ), λ > 0,
+
+(9) so that lowering Bshared (C) at a fixed activational ceiling enlarges the gap in Eq. (8). It attaches to any reference-constrained objective; we use GRPO (Shao et al. 2024). Computing ∇θ Bshared (C) exactly requires differentiating the already first-order control coefficient once more in θ, i.e. second-order automatic differentiation: eager-only, memory-exploding, and incompatible with flash-attention (Dao et al. 2022) and parameter sharding. The next three subsections reduce its θ-gradient to one backward pass over a stop-gradient control estimate (operation count in Appendix Remark C.5). Table 1 checks which of the two components of Bshared (C)
+
+the regularizer moves: both fall. 5.2 A Stable Spectral-Moment Ratio Replacing the Spectral Extremum 
+
+Optimizing the spectral extremum λmax directly invokes an eigendecomposition of GC that is non-smooth at top-eigenvalue degeneracy λ1 = λ2, where the eigenvector derivative blows up as 1/(λ1 − λi), as Appendix Propo-sition C.1 shows. Borrowing from spectral graph convolution the idea of avoiding eigendecomposition by polynomial ap-proximation (Defferrard, Bresson, and Vandergheynst 2016; Kipf and Welling 2017), and writing the normalized spectrum 
+
+ˆλi = λi/ P 
+
+> j
+
+λj , we substitute the stable spectral-moment ratio 
+
+R(C) = tr( G2 
+
+> C
+
+)tr( GC )2 =
+
+> M
+
+X
+
+> i=1
+
+ˆλ2 
+
+> i
+
+. (10) This quantity is a pure polynomial (matrix multiplication, no eigendecomposition), is C∞ at C̸ = 0 with no 1/(λ1 − λi)
+
+singularity, and is co-monotone with Bshared = max i ˆλi un-der the majorization order, a partial order, sharing the bounds 
+
+{1, 1/M }, as Appendix Proposition C.2 establishes. Replac-ing Bshared by R buys a smooth objective with bounded gradient at degeneracy; both share extrema, and we verify their agreement empirically during training (Figure 2b). 
+
+5.3 Closed-Form Sensitivity and the Irreplaceability of the Control Axis 
+
+Let ¯C be the control matrix obtained from one ordinary backward pass with the gradient with respect to θ stopped, and write ¯G = ¯C ¯C⊤. The sensitivity of the spectral-moment ratio to the control matrix admits a closed form, with no eigendecomposition, 
+
+W := ∂R
+
+∂C ¯C
+
+= 4tr( ¯G)2
+
+  ¯G ¯C − ¯R tr( ¯G) ¯C ∈ RM ×K
+
+(11) Appendix Lemma C.1 gives the derivation. By the chain rule, the true gradient is the projection of this stop-gradient weight W along the direction of the control matrix, ∇θ R =
+
+∇θ ⟨W, C (θ)⟩; hence W must act on the control matrix C(θ)
+
+rather than on the activation usage Ak = E∥out k∥2.
+
+Theorem 2 (irreplaceability of the control axis) . Substituting the activation usage Ak for C(θ) fails on two structural grounds: it violates the premise F̸ = C of Lemma 1; and the per-gate scalar sums out the family dimension, so it cannot express per-task decoupling. 
+
+Appendix Theorem C.1 proves this. Empirically, minimiz-ing P 
+
+> k
+
+wkAk under fixed reward further cuts the high-usage shared directions and forces control to reconcentrate, the concentration spike observed on large models by early imple-mentations that act on the activation usage. 
+
+5.4 First-Order Proxy Gradient via Central Differences in Gate Space 
+
+Expanding the Frobenius inner product row by row into gate-space directional derivatives gives 
+
+⟨W, C (θ)⟩ = X
+
+> m
+
+1
+
+ℓm
+
+DWm, · ℓm, (12) 70 80 90        
+
+> Bshared (%, cross-task)
+> 020 40
+> PR (within-task)
+> monopoly (PR=1)
+> (a) spread sharing
+> base GRPO CD-RFT
+> 50 60 70 80
+> Rproxy (%)
+> 50 60 70 80 90
+> Bshared  (%)
+> Spearman = 0.995
+> (b) proxy fidelity
+
+Figure 2: Distributedness of control and proxy fidelity. (a) 
+
+Every family spreads control over many gates ( PR ≫ 1), equally at every Bshared (C), so no per-gate scalar character-izes control. Circles Qwen2.5-7B, triangles Llama-3.2-3B (5 seeds). (b) R tracks Bshared (C) in training (CD-RFT, β=0 ). where DWm, · ℓm = ⟨Wm, ·, ∂ g ℓm|g=1⟩ is the directional derivative of ℓm along Wm, ·. Since the gate-space dimension 
+
+K is far smaller than dim θ, we estimate this directional derivative by a central difference in gate space. 
+
+Theorem 3 (central-difference form of the proxy gradient) .
+
+Writing ˆWm, · = Wm, ·/∥Wm, ·∥2, we have               
+
+> ⟨W, C (θ)⟩=
+> MX
+> m=1
+> ∥Wm, ·∥2
+> ℓm
+> ·ℓm(θ;1+ϵˆWm, ·)−ℓm(θ;1−ϵˆWm, ·)2ϵ+O(ϵ2),
+
+(13) 
+
+where the two gated forward passes carry only constant gate scalings and are ordinarily differentiable in θ; hence 
+
+∇θ Lproxy is obtained by one backward pass, with no second-order graph, and agrees with ∇θ R to within O(ϵ2).
+
+Appendix Theorem C.2 proves this. Intuitively, the gradient needs only the projection of C(θ)
+
+along the fixed W , and a directional derivative along a fixed gate direction is the slope of a scalar read out by two forward passes; differentiation with respect to the gates is absorbed into the forward passes, leaving a first-order graph in θ. Numerically we perturb along the unit direction and rescale by ∥Wm, ·∥2 to stay in the linear regime, as Appendix Remark C.2 notes. 
+
+5.5 Estimation Protocol 
+
+The control matrix is estimated on a fixed probe of n samples per family, each row a family mean, so Bshared (C) is an 
+
+n-dependent estimator: under the rank-one signal-plus-noise model of Appendix Proposition C.3, 
+
+E tr( GC ) = s2Mfam 
+
+| {z }
+
+> signal
+
++ 1 
+
+> n
+
+tr(Σ N )
+
+| {z }
+
+> per-row noise
+
+, (14) so a small probe inflates the denominator and under-reads concentration, while the leading direction is located at a sample size independent of K (Davis–Kahan (Davis and Kahan 1970)). We therefore fix n across compared models and cut variance by offline seed averaging rather than a larger probe. 
+
+5.6 Implementation and Scalability 
+
+The soft coefficient λ alone cannot curb the transient concen-tration peak during the reinforcement-learning warm-up, so we enforce the near-hard constraint 
+
+min  
+
+> θ
+
+Lpost (θ) s.t. Bshared 
+
+ C(θ) ≤ τ, (15) by a per-step inner loop that descends −∇ θ Lproxy until 
+
+Bshared ≤ τ or a cap Kmax is reached; Appendix Algorithm 1 and Definition C.1 give the full step and the (τ, K max ) set-ting. Reduced to a single backward pass by Theorem 3, the regularizer is compatible with flash-attention and parameter sharding, scales to full fine-tuning of 7B on a single GPU without low-rank adaptation, and adds only a minor per-step overhead, as Appendix Remark C.4 shows. 
+
+## 6 Experiments 
+
+We organize the experiments around two questions: (i) whether the Shared Control Bottleneck Bshared (C) is the right object for characterizing the internal changes wrought by reinforcement-learning post-training, namely whether it yields a reproducible mechanistic signature that activation-level metrics cannot; and (ii) whether explicitly decoupling this bottleneck on top of the same recipe (CD-RFT) pre-dictably translates into gains in multi-task capability. 
+
+6.1 Experimental Setup 
+
+We train Qwen2.5-7B (Yang et al. 2024) from the base model with GRPO (Shao et al. 2024) as the backbone, under an RLVR setting (Lambert et al. 2024), on a balanced mixture of three families of verifiable tasks (mathematics, code, and logic) drawn respectively from DeepScaleR (Luo et al. 2025), code-r1-12k (Liu and Zhang 2025), and the GURU logic subset (Cheng et al. 2025), each scored by a rule or test-case verifier, with data and mixing ratios in Appendix A. To isolate the single variable of adding the control-diverse regularizer, we compare along two paired axes, without KL (β=0 ) and with KL ( β=0 .01 ), on each of which CD-RFT and its matched GRPO share every setting except the regularizer; the untrained base serves as an anchor. Evaluation uses the nine held-out benchmarks of Table 2, reported with unbiased pass@ k (Chen et al. 2021) at a fixed temperature applied identically to all methods. The full setup is deferred to the appendix. 
+
+6.2 Mechanistic Diagnosis of the Shared Control Bottleneck 
+
+Activation-Level Metrics Are Insufficient. Two of the three activation metrics of Zhang et al. (2026) reproduce robustly (reinforcement-learning fine-tuning raises activation intensity and lowers distribution kurtosis across all methods and datasets), but the third, information complexity (the “ac-tivation diversity” metric), is direction-unstable : as Figure 3 shows, among models of comparable capability it stays high under CD-RFT yet nearly collapses under the matched GRPO, in the same direction across all three domains and by sev-eral standard errors. Without overturning the intensity and kurtosis effects that do replicate, the component singled out as evidence of activation diversity disagrees with itself on equally healthy models, so activation-level metrics cannot on their own answer what reinforcement learning changes. The object of analysis should move from which components are MATH500 MBPP Logic-graph 0.0 0.2 0.4 0.6 
+
+> Info. complexity
+> Base GRPO(β=0) CD-RFT(β=0) GRPO(β=0.01) CD-RFT(β=0.01)
+
+Figure 3: Information complexity (edge-distribution entropy) across the three domains, with bootstrap confidence intervals. activated to which control the reward flux, the control matrix and its cross-task concentration Bshared (C).
+
+The Shared Control Bottleneck Yields a Robust Signature. 
+
+We measure Bshared (C) under the probe protocol detailed in the appendix, reported in Table 2. The activation axis 
+
+Bshared (F ) stays at the reference ceiling of Section 4.2 across all methods, so we analyze the control axis only. Table 2 shows a clean ordering, base > the RL baselines >
+
+the CD-RFT variants: reinforcement learning already lowers control sharing, and the regularizer lowers it further and most, so both variants open a larger Activation–Control Gap than their matched baseline. Because absolute values depend on probe sampling, the method claim is read as the same-seed paired difference of Table 1 and Appendix Figure F.2: robust on the no-KL axis and directionally consistent, if smaller, with KL, matching the coverage-side gains of the latter. Across five base models spanning two families and several scales, Appendix Figure F.3 shows Bshared (C) above the 
+
+99 th percentile of a simulated random reference at this shape (42 .8 ± 3.4, well above the bound 1/M ; Appendix F.2), so the bottleneck is not a single-model artifact. The two models we intervene on (Qwen2.5-7B and Llama-3.2-3B; Section 6.5) have the deepest bottlenecks, and hence the most decoupling headroom; absolute values are tokenizer- and probe-dependent, so the comparison is read across models by ordering. 
+
+6.3 Multi-Task Capability 
+
+We evaluate capability on nine benchmarks and summarize by domain in Table 2. The paired comparison is a controlled test of the diagnosis: if the Shared Control Bottleneck is what matters, decoupling it on an otherwise identical recipe should move capability. We read the net change of CD-RFT relative to its matched GRPO on each β axis, an ordering the appendix temperature and checkpoint sweeps confirm. Two trends stand out. First, adding the control-diverse reg-ularizer improves both accuracy axes over its matched GRPO baseline on almost every benchmark. As Appendix Figure G.1 shows, the no-KL variant improves greedy pass@ 1 on 8 of 9 benchmarks, and the with-KL variant improves pass@ k cov-erage on 8 of 9, so the two variants are complementary (one leads on pass@ 1, the other on coverage), and both dominate the base across all three domains. The gains are those of a well-tuned strong-baseline comparison, not of over-tuning: mechanism pass@ 1 pass@ k                                                                                    
+
+> Method Bshared ↓ACG ↑math code logic overall hard math code logic overall hard Base 83.4 ±3.8 16.2 20.0 54.5 33.2 35.9 6.8 71.3 92.0 90.8 84.7 56.6 GRPO ( β=0 )81.1 ±4.2 18.6 23.5 58.0 39.7 40.4 8.1 72.1 92.9 94.1 86.4 57.0 + CD-RFT 68.9 ±3.8 30.7 24.0 60.5 40.5 41.7 8.3 74.2 93.4 94.8 87.5 60.6 GRPO ( β=0 .01 )79.5 ±5.0 20.1 21.5 59.1 36.5 39.0 7.0 70.5 92.7 92.1 85.1 55.3 + CD-RFT 73.4 ±5.0 26.3 22.3 59.9 36.4 39.5 7.4 76.0 93.1 93.5 87.6 63.4
+
+Table 2: Mechanism and capability on Qwen2.5-7B. Bshared abbreviates Bshared (C); it and ACG are measured on the fixed probe over seven probe seeds (mean ±SE), while the capability columns are benchmark accuracies. Math = MATH500/AMC23/AIME24/AIME25/Minerva; code = HumanEval+/MBPP; logic = ordering-puzzle/Logic-graph; hard = AIME24/AIME25/Minerva. Each domain averages its sets; overall averages the three domains; all entries are percentages; full ladder in Appendix Table G.1. the pass@ 1 margin over the matched RL baseline stays within a few points, while the coverage advantage of the with-KL variant grows steadily with k and is largest on the hardest problems, as Appendix Figure G.2 shows. Second, the coverage shortfall at large k is a known failure of RLVR: reward maximization trades large-k coverage for pass@ 1, and the boundary can fall to or below the base (Yue et al. 2025). It tracks the reward objective, both matched GRPO baselines converging to the base on the hardest sets (Appendix Table G.1) at β=0 and β=0 .01 alike, so it lies in the reward flux of Eq. (1) that the analysis targets. CD-RFT addresses it in control space, where the diagnosis locates the bottleneck: on both axes it restores coverage to the base level or above by holding control decoupled while the reward flux is optimized, the behavioural counterpart of the mechanism of Section 6.2 and, by construction, visible only at large k.
+
+6.4 Ablation: Net Effect of the Regularizer 
+
+To isolate the effect of the control regularizer from backbone differences, we toggle only the on/off of the regularizer under a fully balanced setting. This on/off contrast is precisely the matched GRPO → CD-RFT pair of Table 2, whose control and capability axes we now read jointly. Both balanced pairs trace the same pattern: adding the regularizer lowers Bshared (C) (mechanistic decoupling), and overall pass@ 1 and pass@ k rise in tandem. The chain is tightest where the compression is strongest (the no-KL axis, whose larger drop in Bshared (C) coincides with the largest pass@ 1 gain), while the with-KL axis compresses less but gains more on coverage. The regularizer thus acts on the control axis, and the capability gain moves with the decoupling rather than with the backbone or hyperparameters. 
+
+6.5 Robustness and Generalization 
+
+We test that the main result holds along three axes over which one might worry it was tuned: the evaluation temperature, the method’s own target hyperparameter, and the model family. 
+
+Sampling temperature. We repeat the evaluation over a per-domain temperature sweep bracketing the main-table working temperature of each domain. On the math hard set and on code, the ordering “CD-RFT ≥ matched RL” holds at every temperature on pass@ 1 and at nearly all on pass@ k;lowering the temperature raises pass@ 1 and raising it raises                                    
+
+> Method GSM8K MATH500 code L-ord L-graph pass@ 1
+> Base 10.0 5.9 4.0 2.6 1.5 GRPO 16.4 7.4 27.7 11.7 29.5 + CD-RFT 16.8 7.6 28.2 11.0 29.6
+> pass@ k
+> Base 79.6 47.8 51.4 31.0 46.0 GRPO 83.0 48.4 69.0 37.0 70.0 + CD-RFT 84.2 51.2 69.9 46.0 71.0
+
+Table 3: Transfer to Llama-3.2-3B (base, β=0 ). Each shaded + CD-RFT row is the add-on over the GRPO above it; L-ord = Logic-ordering, L-graph = Logic-graph; all columns are single benchmarks except code, the mean of HumanEval+ and MBPP. All entries are percentages. pass@ k, but the method ordering never flips, so the main-table conclusions are not an artifact of a chosen temperature. The full win-rate table, per-temperature curves, and the per-domain breakdown are in Appendix H. 
+
+Proxy target. Sweeping the target concentration τ ∈{55 , 65 , 70 } (only τ changed) traces a smooth pass@ 1–pass@ k trade-off rather than a sharp optimum: the two looser settings are adjacent optima that exchange a little pass@ 1 for coverage, and only over-compression ( τ =55 ) is clearly worse on both axes. The method is thus insensitive to τ by design rather than tuning, with the full ladder and per-τ reading in Appendix Table I.1. 
+
+Second model family. Both the mechanism and the capabil-ity gain also hold on Llama-3.2-3B (Grattafiori, Dubey et al. 2024): the control-sharing signature reproduces, and CD-RFT leads pass@ k coverage on every benchmark and pass@ 1 on four of five, so the effect is not specific to Qwen2.5-7B. Full protocol, ladders, and the mechanism table are in Appendix K. 
+
+## 7 Conclusion 
+
+We have reframed the interpretability of reinforcement-learning post-training: the question is not which components are activated, but which control the reward gain, and whether that control stays task-specific or collapses into one shared channel. This shift from an activation view to a control view turns a diagnosis into a lever, writing the Shared Control Bottleneck into the loss, CD-RFT decouples control at low overhead and improves multi-task pass@ 1 and pass@ k across two model families. We see the control view as the broader contribution: once post-training is read as reshaping which components control the reward flux, control-level objectives become a natural handle on how a finite capability is split among competing tasks, beyond the multi-task rule-verifier setting studied here. 
+
+## References 
+
+Austin, J.; Odena, A.; Nye, M.; Bosma, M.; Michalewski, H.; Dohan, D.; Jiang, E.; Cai, C.; Terry, M.; Le, Q.; and Sutton, C. 2021. Program Synthesis with Large Language Models. 
+
+arXiv preprint arXiv:2108.07732 .Chen, M.; Tworek, J.; Jun, H.; Yuan, Q.; Pinto, H. P. d. O.; Kaplan, J.; Edwards, H.; Burda, Y.; Joseph, N.; Brockman, G.; et al. 2021. Evaluating Large Language Models Trained on Code. arXiv preprint arXiv:2107.03374 .Cheng, Z.; Hao, S.; Liu, T.; Zhou, F.; Xie, Y.; Yao, F.; et al. 2025. Revisiting Reinforcement Learning for LLM Reasoning from A Cross-Domain Perspective. arXiv preprint arXiv:2506.14965 .Conmy, A.; Mavor-Parker, A. N.; Lynch, A.; Heimersheim, S.; and Garriga-Alonso, A. 2023. Towards Automated Circuit Discovery for Mechanistic Interpretability. In Advances in Neural Information Processing Systems (NeurIPS) .Dao, T.; Fu, D. Y.; Ermon, S.; Rudra, A.; and Ré, C. 2022. FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. In Advances in Neural Information Processing Systems (NeurIPS) .Davis, C.; and Kahan, W. M. 1970. The Rotation of Eigen-vectors by a Perturbation. III. SIAM Journal on Numerical Analysis , 7(1): 1–46. Defferrard, M.; Bresson, X.; and Vandergheynst, P. 2016. Convolutional Neural Networks on Graphs with Fast Local-ized Spectral Filtering. In Advances in Neural Information Processing Systems (NeurIPS) .Elhage, N.; Nanda, N.; Olsson, C.; Henighan, T.; Joseph, N.; Mann, B.; Askell, A.; Bai, Y.; Chen, A.; Conerly, T.; et al. 2021. A Mathematical Framework for Transformer Circuits. Transformer Circuits Thread; https://transformer-circuits.pub/2021/framework/index.html. Accessed: 2026-07-27. Fell, D. A. 1992. Metabolic Control Analysis: A Survey of Its Theoretical and Experimental Development. Biochemical Journal , 286(2): 313–330. Grattafiori, A.; Dubey, A.; et al. 2024. The Llama 3 Herd of Models. arXiv preprint arXiv:2407.21783 .Guo, D.; Yang, D.; Zhang, H.; Song, J.; Zhang, R.; Xu, R.; Zhu, Q.; Ma, S.; Wang, P.; Bi, X.; et al. 2025. DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforce-ment Learning. arXiv preprint arXiv:2501.12948 .Hanna, M.; Pezzelle, S.; and Belinkov, Y. 2024. Have Faith in Faithfulness: Going Beyond Circuit Overlap When Finding Model Mechanisms. In Conference on Language Modeling (COLM) .Heinrich, R.; and Rapoport, T. A. 1974. A Linear Steady-State Treatment of Enzymatic Chains: General Properties, Control and Effector Strength. European Journal of Biochemistry ,42(1): 89–95. Hendrycks, D.; Burns, C.; Kadavath, S.; Arora, A.; Basart, S.; Tang, E.; Song, D.; and Steinhardt, J. 2021. Measuring Math-ematical Problem Solving with the MATH Dataset. In Ad-vances in Neural Information Processing Systems (NeurIPS), Datasets and Benchmarks Track .Jain, S.; Kirk, R.; Lubana, E. S.; Dick, R. P.; Tanaka, H.; Grefenstette, E.; Rocktäschel, T.; and Krueger, D. S. 2024. Mechanistically Analyzing the Effects of Fine-Tuning on Procedurally Defined Tasks. In International Conference on Learning Representations (ICLR) .Kacser, H.; and Burns, J. A. 1973. The Control of Flux. 
+
+Symposia of the Society for Experimental Biology , 27: 65– 104. Kipf, T. N.; and Welling, M. 2017. Semi-Supervised Classifi-cation with Graph Convolutional Networks. In International Conference on Learning Representations (ICLR) .Kramár, J.; Lieberum, T.; Shah, R.; and Nanda, N. 2024. AtP*: An Efficient and Scalable Method for Localizing LLM Behaviour to Components. arXiv preprint arXiv:2403.00745 .Lambert, N.; Morrison, J.; Pyatkin, V.; Huang, S.; Ivison, H.; Brahman, F.; Miranda, L. J. V.; Liu, A.; Dziri, N.; Lyu, S.; et al. 2024. Tülu 3: Pushing Frontiers in Open Language Model Post-Training. arXiv preprint arXiv:2411.15124 .Lewkowycz, A.; Andreassen, A.; Dohan, D.; Dyer, E.; Michalewski, H.; Ramasesh, V.; Slone, A.; Anil, C.; Schlag, I.; Gutman-Solo, T.; et al. 2022. Solving Quantitative Reasoning Problems with Language Models. In Advances in Neural Information Processing Systems (NeurIPS) .Liu, J.; Xia, C. S.; Wang, Y.; and Zhang, L. 2023. Is Your Code Generated by ChatGPT Really Correct? Rigorous Evaluation of Large Language Models for Code Generation. In Advances in Neural Information Processing Systems (NeurIPS) .Liu, J.; and Zhang, L. 2025. Code-R1: Reproducing R1 for Code with Reliable Rewards. https://github.com/ganler/code-r1. Dataset ganler/code-r1-12k ; accessed: 2026-07-27. Luo, M.; Tan, S.; Wong, J.; Shi, X.; Tang, W. Y.; Roongta, M.; Cai, C.; Luo, J.; Li, L. E.; Popa, R. A.; and Stoica, I. 2025. DeepScaleR: Surpassing O1-Preview with a 1.5B Model by Scaling RL. Notion Blog; https://github.com/agentica-project/rllm. Accessed: 2026-07-27. Magnus, J. R.; and Neudecker, H. 2019. Matrix Differential Calculus with Applications in Statistics and Econometrics .John Wiley & Sons, 3rd edition. Marshall, A. W.; Olkin, I.; and Arnold, B. C. 2011. Inequali-ties: Theory of Majorization and Its Applications . Springer, 2nd edition. Nanda, N. 2023. Attribution Patching: Activation Patching At Industrial Scale. https://www.neelnanda.io/mechanistic-interpretability/attribution-patching. Accessed: 2026-07-27. Ouyang, L.; Wu, J.; Jiang, X.; Almeida, D.; Wainwright, C.; Mishkin, P.; Zhang, C.; Agarwal, S.; Slama, K.; Ray, A.; et al. 2022. Training Language Models to Follow Instructions with Human Feedback. In Advances in Neural Information Processing Systems (NeurIPS) .Prakash, N.; Shaham, T. R.; Haklay, T.; Belinkov, Y.; and Bau, D. 2024. Fine-Tuning Enhances Existing Mechanisms: A Case Study on Entity Tracking. In International Conference on Learning Representations (ICLR) .Rafailov, R.; Sharma, A.; Mitchell, E.; Ermon, S.; Manning, C. D.; and Finn, C. 2023. Direct Preference Optimization: Your Language Model is Secretly a Reward Model. In Ad-vances in Neural Information Processing Systems (NeurIPS) .Rajbhandari, S.; Rasley, J.; Ruwase, O.; and He, Y. 2020. ZeRO: Memory Optimizations Toward Training Trillion Pa-rameter Models. In Proceedings of the International Confer-ence for High Performance Computing, Networking, Storage and Analysis (SC) .Ramesh, S. S.; et al. 2026. Multi-Task GRPO: Reliable LLM Reasoning Across Tasks. arXiv preprint arXiv:2602.05547 .Shao, Z.; Wang, P.; Zhu, Q.; Xu, R.; Song, J.; Bi, X.; Zhang, H.; Zhang, M.; Li, Y.; Wu, Y.; and Guo, D. 2024. DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models. arXiv preprint arXiv:2402.03300 .Sundararajan, M.; Taly, A.; and Yan, Q. 2017. Axiomatic Attribution for Deep Networks. In International Conference on Machine Learning (ICML) .Syed, A.; Rager, C.; and Conmy, A. 2024. Attribution Patching Outperforms Automated Circuit Discovery. In Proceedings of the 7th BlackboxNLP Workshop (EMNLP) .Wang, K.; Variengien, A.; Conmy, A.; Shlegeris, B.; and Steinhardt, J. 2023. Interpretability in the Wild: a Circuit for Indirect Object Identification in GPT-2 Small. In International Conference on Learning Representations (ICLR) .Yang, A.; Yang, B.; Zhang, B.; Hui, B.; Zheng, B.; Yu, B.; Li, C.; et al. 2024. Qwen2.5 Technical Report. arXiv preprint arXiv:2412.15115 .Yu, Q.; Zhang, Z.; Zhu, R.; Yuan, Y.; Zuo, X.; Yue, Y.; Dai, W.; Fan, T.; Liu, G.; Liu, L.; et al. 2025. DAPO: An Open-Source LLM Reinforcement Learning System at Scale. arXiv preprint arXiv:2503.14476 .Yue, Y.; Chen, Z.; Lu, R.; Zhao, A.; Wang, Z.; Yue, Y.; Song, S.; and Huang, G. 2025. Does Reinforcement Learning Really Incentivize Reasoning Capacity in LLMs Beyond the Base Model? In Advances in Neural Information Processing Systems (NeurIPS) .Zhang, H.; Hao, Q.; Xu, F.; and Li, Y. 2026. Reinforcement Learning Fine-Tuning Enhances Activation Intensity and Diversity in the Internal Circuitry of LLMs. In International Conference on Learning Representations (ICLR) .Zhao, Y.; Gu, A.; Varma, R.; Luo, L.; Huang, C.-C.; Xu, M.; Wright, L.; Shojanazeri, H.; Ott, M.; Shleifer, S.; et al. 2023. PyTorch FSDP: Experiences on Scaling Fully Sharded Data Parallel. Proceedings of the VLDB Endowment , 16(12): 3848–3860. APPENDIX Contents 
+
+A Full Specification of the Control Coefficient 1B Full Specification of the Shared Control Bottleneck 2C Full Specification of the Control-Diverse Regularizer 3D CD-RFT Training Step 5E Full Experimental Settings 5F Additional Mechanistic Results 7
+
+F.1 Activation-Level Metrics . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 7F.2 Random Reference for Bshared . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 8F.3 Direction Versus Row Norm . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 8F.4 Paired Verification and Cross-Model Generality . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 10 
+
+G Additional Capability Results 10 
+
+G.1 Full Per-Benchmark pass@ k Ladder . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 10 G.2 Per-Benchmark Paired Gains and Coverage . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 12 
+
+H Full Temperature-Sweep Results 12 I Proxy-Target Sensitivity 15 J Cross-Checkpoint Robustness 15 K Second Model: Llama-3.2-3B 16 L Computational Overhead of the Control Regularizer 17 
+
+This appendix has two parts. Appendices A–D complete the theory: the function-space conventions, the full set of assumptions, the secondary propositions, and the proofs abbreviated in the main text, with Appendix A corresponding to the setting (Section 3), Appendix B to the problem (Section 4), Appendix C to the method (Section 5), and Appendix D giving one training step in full. Appendices E–L complete the experiments: Appendix E fixes the settings shared by every reported number, Appendix F the mechanistic results deferred from Section 6.2, Appendix G the per-benchmark capability results deferred from Section 6.3, Appendix H the temperature sweep and Appendix I the proxy-target sweep of Section 6.5, Appendix J the cross-checkpoint robustness check, Appendix K the second-model (Llama-3.2-3B) transfer results of Section 6.5, and Appendix L the measured cost of the regularizer. 
+
+## A Full Specification of the Control Coefficient 
+
+Notation and function space. The vocabulary V is finite, with V⋆ = S  
+
+> T≥0
+
+VT ; a prompt is x ∈ X and a response is y ∈ V ⋆.The policy factorizes autoregressively as πθ (y | x) = Q 
+
+> t
+
+πθ (yt | x, y <t ), with parameters θ ∈ Θ ⊆ RP (an open set) and reference policy π0 = πθ0 . The residual-stream dimension is d; the state at layer ℓ is hℓ ∈ Rd; circuit unit k resides at layer ℓ(k)
+
+with map fk(·; θ) : Rd → Rd. The gradient of the target log-likelihood with respect to the final residual is the readout direction 
+
+wm := ∇hL
+
+P 
+
+> t
+
+log πθ (y⋆t | x, y ⋆<t ) ∈ Rd (the linear readout direction, at the final layer, of the metric used by attribution patching); the update Jacobian of layer ℓ′ is Jℓ′ := ∂  P  
+
+> k:ℓ(k)= ℓ′
+
+fk
+
+/∂h ℓ′
+
+. The control matrix has M = Mfam rows (one per task family, each averaged over its n probe samples) and K columns for the gated components. 
+
+Assumption A.1 (smoothness and integrability) . Write πθ (y | x; g) for the gated policy of Eq. (3) . For almost all (x, y ⋆) the map 
+
+(θ, g ) 7 → log πθ (y⋆ | x; g) is smooth ( C∞); for each m, log πθ (y⋆ | x; g) and its partial derivatives in θ and in g are dominated by Dm-integrable functions, so that expectation and differentiation commute. Hence ℓm(θ; g) = EDm [log πθ (y⋆ | x; g)] is smooth in both arguments, and so is Jm(θ; g), which differs from ℓm(θ; g) by the gate-independent constant EDm [log π0(y⋆ | x)] :every statement below may therefore be read for either object. 
+
+Assumption A.2 (nominal identity) . πθ (· | · ; 1) = πθ: at the nominal gate value the gated network is the original model. The gating is thus an analysis probe, and all control quantities are differentiated in a neighborhood of g = 1.Remark A.1 (scope of the smoothness assumption) . Assumption A.1 holds for transformers assembled from smooth components— SiLU/SwiGLU, softmax, RMSNorm—and the gates of Eq. (3) enter multiplicatively, so they preserve smoothness; every model studied here (Qwen2.5, Llama-3.2) is of this kind. Architectures with ReLU-type activations lie outside the stated scope. Every differentiability order used later follows: the second-order Taylor expansion of Proposition A.1, the third-order central-difference remainder of Theorem C.2, and the real-analyticity invoked in Theorem B.1. The integrability conditions of Assumption A.1 are a separate requirement and are not implied by smoothness. 
+
+Assumption A.3 (normalizer non-degeneracy) . There exists ϵ0 > 0 (set to 10 −4 in the implementation) such that every family admitted for analysis satisfies |ℓm(θ)| ≥ ϵ0; otherwise Eq. (4) is unidentifiable and the family is discarded. 
+
+Remark A.2 (why normalize by ℓm, not Jm). MCA customarily writes the coefficient as ∂ log Jm/∂ log gk, presuming a positive flux. Here Jm is a sign-indefinite log-likelihood-ratio margin (undefined under log when Jm ≤ 0) and can approach zero, so we normalize the shared gate-derivative ∂gk Jm = ∂gk ℓm by the target log-likelihood ℓm < 0, which stays bounded away from zero; the scaled form of Eq. (4) reduces to the classical log–log derivative only in the positive-flux regime. We also fix the reach of Jm:it is a teacher-forced likelihood margin on one reference target, not the sampling-time expected verifier reward, and raising it on a single y⋆ need not raise coverage. The control coefficient differentiates this margin, and the capability claims of Section 6.3 rest on the benchmark pass@ k measurements, not on Jm.
+
+Remark A.3 (the guard rarely binds; row signs are immaterial) . Assumption A.3 does not bind in practice: no family is discarded in our offline or training estimations, the smallest observed |ℓm| exceeding ϵ0 by more than an order of magnitude. The sign of a control row is likewise immaterial to the bottleneck, since Bshared depends on C only through CC ⊤, which is invariant under a sign flip of any row. 
+
+Remark A.4 (attribution patching) . For a metric M, the single-backward readout of the control coefficient linearizes an activation replacement ak ← a′ 
+
+> k
+
+by 
+
+M(ak ← a′
+
+> k
+
+) − M (ak) ≈ ∇ak M, a ′ 
+
+> k
+
+− ak , (16) 
+
+here with M = ℓm.
+
+Proposition A.1 (first-order expansion; main text Eq. (5)) . Under Assumptions A.1–A.3, with u = log g,
+
+ℓm(θ; eu) − ℓm(θ)
+
+ℓm(θ) = X
+
+> k
+
+Cm,k uk + O(∥u∥22).
+
+Proof. Let eℓm(u) = ℓm(θ; eu), which is smooth by Assumption A.1. The chain rule gives ∂uk
+
+eℓm|0 = ∂gk ℓm|g=1 · euk |0 =
+
+∂gk ℓm|g=1. A first-order Taylor expansion with Peano remainder, divided by ℓm(θ)̸ = 0 (Assumption A.3), and substituting 
+
+Cm,k = 1 
+
+> ℓm
+
+∂gk ℓm|g=1, yields the claim. 
+
+Corollary A.1 (logarithmic form) . Since ℓm < 0, writing z = δℓ m/ℓ m and log(1 + z) = z + O(z2) gives δ log |ℓm| =P 
+
+> k
+
+Cm,k δ log gk + O(∥δ log g∥22), the sign-robust analogue of the classical MCA log–log derivative. 
+
+Lemma A.1 (activation axis and control axis are not interchangeable) . There exist networks and task families for which no scalar 
+
+cm > 0 satisfies Cm, · = cmFm, ·.Proof. Jm is determined by the projection of hL onto wm. The first-order effect of gate gk on Jm propagates through Eq. (3) to 
+
+hL and is read along wm. Choose a circuit k whose write out k ⊥ wm and whose downstream Jacobian does not rotate it into 
+
+wm; then ∂gk Jm|g=1 = 0 , hence Cm,k ≈ 0, while Fm,k = E∥out k∥2 can be made independently large. Dually, a circuit with small write aligned with wm has low usage and high control. The coexistence makes the large-component supports of Cm, · and 
+
+Fm, · differ, excluding any positive proportionality. 
+
+## B Full Specification of the Shared Control Bottleneck 
+
+Proposition B.1 (failure of the summation theorem) . In general, P 
+
+> k
+
+Cm,k ̸ = 1 .Proof. By Eq. (4), P 
+
+> k
+
+gk∂gk ℓm|g=1 = ℓm
+
+P 
+
+> k
+
+Cm,k . If g 7 → ℓm(θ; g) were first-order homogeneous at g = 1, Euler’s theorem would give the left-hand side = ℓm, whence P 
+
+> k
+
+Cm,k = 1 . But the residual update in Eq. (3) contains the identity term hℓ: under uniform scaling g 7 → αg , hℓ does not scale with α, and layer normalization is not homogeneous, so ℓm(θ; αg ) is not first-order homogeneous in α, the left-hand side ̸ = ℓm, and therefore P 
+
+> k
+
+Cm,k ̸ = 1 .
+
+Remark B.1 (abandoning the coverage constraint) . Since P 
+
+> k
+
+Cm,k is not structurally centered at 1, (P 
+
+> k
+
+Cm,k − 1) 2 has no basis as a coverage constraint and is used only as a diagnostic. 
+
+Theorem B.1 (no single-gate monopoly; main text Theorem 1) . Under generic weights, ∂gk Jm|g=1̸ = 0 for every k.Proof. Differentiating for k / ∈ S, gate gk writes fk(hℓ(k); θ) at its resident layer and propagates through the subsequent layer Jacobians to hL:
+
+∂J m
+
+∂g k g=1
+
+= w⊤
+
+> m
+
+ QL−1
+
+> ℓ′=ℓ(k)+1
+
+(I + Jℓ′ )
+
+
+
+fk(hℓ(k); θ),
+
+with Jℓ′ the layer update Jacobian defined above. Vanishing at a given k requires the propagated write to lie in w⊥
+
+> m
+
+; for each k,with real-analytic activations this is the zero set of a not-identically-zero real-analytic function of θ, hence a measure-zero set in parameter space, and a finite intersection remains measure zero. Hence no gate derivative vanishes under generic weights, and in particular the control support is not a single gate. 
+
+Proposition B.2 (bounds, saturation, invariance of Bshared ). Let GX have eigenvalues λ1 ≥ · · · ≥ λM ≥ 0. Then (i) 
+
+1/M ≤ Bshared ≤ 1; (ii) = 1 ⇐⇒ rank( X) = 1 (collinear rows); (iii) = 1 /M ⇐⇒ λ1 = · · · = λM (orthogonal, equal-norm rows); (iv) invariant under X 7 → cX (c̸ = 0 ) and X 7 → XQ (QQ ⊤ = I). Proof. (i)–(iii): Bshared = λ1/ P 
+
+> i
+
+λi; P 
+
+> i
+
+λi ≤ M λ 1 gives the lower bound (equality ⇐⇒ all eigenvalues equal), and 
+
+λ1 ≤ P 
+
+> i
+
+λi the upper bound (equality ⇐⇒ λ≥2 = 0 ⇐⇒ rank one ⇐⇒ collinear rows). (iv): GcX = c2GX scales all eigenvalues by c2, leaving the ratio unchanged, while GXQ = XQQ ⊤X⊤ = GX .
+
+Proposition B.3 (gap range and characterization; main text Proposition 3) . As Bshared (F ) → 1: (i) ACG ∈ [0 , B shared (F ) −
+
+1/M ] → [0 , 1 − 1/M ]; (ii) ACG → 0 ⇐⇒ Bshared (C) → Bshared (F ); (iii) ACG is large ⇐⇒ Bshared (C) lies far below the ceiling. Proof. The range follows from Proposition B.2(i), Bshared (C) ∈ [1 /M, 1] , with Eq. (8); parts (ii)–(iii) are read from Eq. (8) and given mechanistic meaning via Proposition B.2(ii)–(iii). 
+
+Remark B.2 (correction to the narrative) . Empirically, the Bshared (C) of healthy reinforcement learning is already below that of the base model; reinforcement learning itself reduces control sharing. Our claim is therefore controlled-variable: on top of a matched recipe, our method depresses Bshared (C) the most. 
+
+Proposition B.4 (perturbation variance) . When the gate logarithms are perturbed by ξ ∼ N (0 , Σ) , the variance of the relative change is 
+
+Var 
+
+ δℓ m
+
+ℓm
+
+
+
+≈ C⊤
+
+> m, ·
+
+Σ Cm, ·
+
+> Σ= σ2I
+
+−−−−−→ σ2∥Cm, ·∥22.
+
+Proof. By Eq. (5), δℓ m/ℓ m ≈ C⊤
+
+> m, ·
+
+ξ; the variance of a zero-mean Gaussian linear form is C⊤
+
+> m, ·
+
+ΣCm, ·, which in the isotropic case equals σ2∥Cm, ·∥22.
+
+Corollary B.1 (concentration implies fragility) . At fixed total control energy tr( GC ), the larger Bshared (C), the more energy concentrates along the leading direction and the larger the perturbation variance of Proposition B.4 for aligned families. Proof. Immediate from Proposition B.4: at fixed tr( GC ), raising Bshared (C) = λmax / tr( GC ) raises λmax , which is the variance coefficient along the leading direction. This is a statement about the geometry of C alone; its connection to real deployment (quantization, pruning, out-of-distribution behavior) is left to future work. 
+
+## C Full Specification of the Control-Diverse Regularizer 
+
+Proposition C.1 (non-smoothness of the spectral extremum at degeneracy) . The spectral extremum has eigenvalue gradient and eigenvector sensitivity 
+
+∂λ 1
+
+∂C = 2 v1v⊤ 
+
+> 1
+
+C, ∂v 1
+
+∂C ∝ X
+
+> i≥2
+
+viv⊤
+
+> i
+
+λ1 − λi
+
+(Magnus and Neudecker 2019) ;
+
+the eigenvalue gradient 2v1v⊤ 
+
+> 1
+
+C stays bounded, but the eigenvector sensitivity diverges at top-eigenvalue degeneracy λ1 = λ2 as 
+
+v1 becomes non-unique, so backpropagation through the eigendecomposition is unstable there. Proposition C.2 (legitimacy of the spectral-moment-ratio proxy) . The spectral-moment ratio 
+
+R(C) = tr( G2 
+
+> C
+
+)tr( GC )2 = X
+
+> i
+
+ˆλ2
+
+> i
+
+is (i) purely polynomial (matvec, no eigendecomposition); (ii) co-monotone with Bshared = max i ˆλi with respect to the majorization order, sharing the extremal values {1, 1/M }; (iii) C∞ at C̸ = 0 , free of any 1/(λ1 − λi) singularity. Proof. (ii): both P 
+
+> i
+
+ˆλ2 
+
+> i
+
+and max i ˆλi are Schur-convex (Marshall, Olkin, and Arnold 2011) and co-monotone with respect to the spectral majorization order, attaining their lower bound at the uniform spectrum and upper bound at the single-point spectrum; since majorization is only a partial order, spectra incomparable under it may rank differently, so we track empirical agreement of the two during training. (i) and (iii) are immediate. 
+
+Lemma C.1 (closed-form sensitivity; main text Section 5.3) . W = ∂R/∂C | ¯C = 4tr( ¯G)2
+
+  ¯G ¯C − ¯R tr( ¯G) ¯C.Proof. With ∂ tr( G2)/∂C = 4 GC and ∂ tr( G)/∂C = 2 C, the quotient rule gives 
+
+∂R
+
+∂C = 4GC tr( G)2 − 2 tr( G2) tr( G) 2 C
+
+tr( G)4
+
+= 4tr( G)2
+
+ GC − R tr( G)C,
+
+which, evaluated at ¯C, yields the claim. 
+
+Theorem C.1 (irreplaceability of the control axis) . Replacing C(θ) by the activation usage Ak = E∥out k∥2 fails on two structural grounds: (i) it violates F̸ = C (Lemma A.1); (ii) the per-gate scalar wk = P 
+
+> m
+
+relu( Wm,k ) sums out the family dimension and cannot express per-task decoupling. Proof. (i) follows from Lemma A.1; (ii) Ak is family-independent and P 
+
+> m
+
+discards the per-task directional information in 
+
+W .
+
+Remark C.1. Empirically, minimizing P 
+
+> k
+
+wkAk at fixed reward cuts the usage of the high-flux shared directions used in common across families, forcing re-concentration and raising Bshared (C); this is the concentration spike seen on large models by early activation-usage implementations, not a claim we establish in closed form. 
+
+Theorem C.2 (single-backpropagation equivalence via central differences; main text Theorem 3) . Equation (13) holds: the proxy gradient is obtained by a single backpropagation and differs from ∇θ R by O(ϵ2).Proof. Decomposing the Frobenius inner product by rows and substituting Cm, · = 1 
+
+> ℓm
+
+∂g ℓm gives ⟨W, C ⟩ = P  
+
+> m1
+> ℓm
+
+DWm, · ℓm.Expanding ϕ(t) = ℓm(θ; 1 + t ˆWm, ·) at 0, we have ϕ(ϵ) − ϕ(−ϵ) = 2 ϵϕ ′(0) + O(ϵ3) (ϕ smooth by Assumption A.1) with 
+
+ϕ′(0) = D ˆWm, · ℓm; multiplying back by ∥Wm, ·∥2 restores the term with error O(ϵ2). The gate scalings 1 ± ϵ ˆW are constant vectors independent of θ, so the two forward-pass scalars are ordinarily differentiable in θ and a single backpropagation yields their gradient; the composition equals ∇θ ⟨W, C (θ)⟩ = ∇θ R, with difference the central-difference remainder O(ϵ2).
+
+Corollary C.1 (directional consistency) . The cosine between the proxy gradient and ∇θ R tends to 1 as ϵ → 0.Proof. By Theorem C.2 the two differ by O(ϵ2) while ∇θ R is fixed, so the angle between them vanishes with ϵ.At toy scale the measured cosine is ≈ 1.0.
+
+Remark C.2 (linear regime and necessity of normalization) . Let max m,k |Wm,k | = O(Λ) with Λ ≫ 1. One must perturb along the unit direction ˆWm, · and multiply back by ∥Wm, ·∥2, following ⟨Wm, ·, C m, ·⟩ = ∥Wm, ·∥2⟨ ˆWm, ·, C m, ·⟩. Perturbing directly by 
+
+ϵW m, · gives a displacement ϵ∥Wm, ·∥2 = O(ϵ√K Λ) that may greatly exceed 1, leaving the linear regime and pushing control toward rank-1 collapse. 
+
+Two safeguards follow: skip a family when ∥Wm, ·∥2 < 10 −12 , and when |ℓm| < ϵ 0 stabilize 1/ℓ m by 1/(ℓm ± ϵ0). The working point is ϵ = 0 .05 .
+
+Definition C.1 (inner-loop projection) . Take τ ∈ [1 /M, 1] , step size η, and cap Kmax . After each main update, iterate on the probe along −∇ θ Lproxy until Bshared (probe ) ≤ τ or Kmax is reached. Whereas λ governs a soft trade-off, (τ, K max , η ) turn it into a near-hard constraint that curbs the transient collinearity spike during warm-up. The working point is τ = 70 , Kmax = 12 ,
+
+η = 4 × 10 −3.Proposition C.3 (small-probe sufficiency) . Write each family row as a mean over n probe samples, C ∈ RMfam ×K , under a rank-one signal plus per-row noise C = s 1u⊤ + N (∥u∥2 = 1 ). Then (i) the sample complexity of locating the shared spike u
+
+is ∼ 1/gap 2, independent of K (Davis and Kahan 1970), so a few samples per family stabilize the leading direction; (ii) the concentration ratio Bshared (C) = λmax / tr( GC ) is a biased estimator: per-row noise adds to tr( GC ) = ∥C∥2 
+
+> F
+
+and shrinks as 
+
+1/n , so a small probe raises the denominator and under-reads concentration, making the estimate n-dependent. Proof. (i) is Davis–Kahan applied to the rank-one signal. (ii) With GC = s2Mfam ¯1¯1⊤ + ( zero-mean cross terms ) + N N ⊤, the trace is additive, tr( GC ) = s2Mfam + tr( N N ⊤) with E tr( N N ⊤) ∝ 1/n after averaging n samples per row; since λmax is signal-dominated, this extra denominator mass lowers the ratio at small n.
+
+Remark C.3 (consistency of measurement convention) . Family averaging fixes the row dimension at M = Mfam , so enlarging 
+
+n does not change the dimension but only lowers per-row estimation variance, reduced through offline averaging over multiple seeds and small probes; comparisons across models hold n fixed. The working point is n = 3 , an empirical operating point set by the probe compute budget rather than a sufficiency guarantee. 
+
+Remark C.4 (overhead and compatibility) . Once reduced to a single backpropagation via Theorem C.2: (i) the method is compatible with flash-attention and parameter sharding (ZeRO (Rajbhandari et al. 2020) / FSDP (Zhao et al. 2023)), and permits full-parameter fine-tuning up to 7B on a single GPU without LoRA; (ii) the per-step overhead stays minor, rollout generation dominating and the probe central difference not, which the controlled measurement of Appendix L puts at +7 .9% in the worst case, when the inner projection is active at essentially every step; (iii) the probe passes control the memory peak by micro-batch splitting and coexist with gradient checkpointing. 
+
+Remark C.5 (per-step operation count) . The “single backward pass” of Theorem C.2 names the final θ-gradient readout, not the entire step. On the small Mfam n-sequence probe (micro-batched at batch size 2), one engaged regularizer step adds: Mfam hooked forward passes, each with a first-order activation gradient, to build the stop-gradient control matrix ¯C (no create_graph ,hence flash-attention- and sharding-compatible); per family, two gated forward passes for the central difference ( ℓm at 1 ± ϵ ˆWm, ·)plus one nominal forward for the 1/ℓ m normalizer; and one backward pass for the whole proxy θ-gradient. No second-order graph is ever built. The near-hard projection re-runs this block up to Kmax times per step, but only while Bshared > τ . On the main Qwen2.5-7B β=0 run the regularizer engages every step ( 1500 /1500 ). Since the probe carries a handful of short sequences while a step is dominated by rollout generation, the same-GPU worst case is the +7 .9% of Appendix L. 
+
+## D CD-RFT Training Step 
+
+Algorithm 1 gives one training step of CD-RFT on top of a GRPO/PPO backbone, using the single-backward-pass first-order proxy of Section 5.4. Steps 2’s two gated forward passes carry constant gate scalings independent of θ, so the entire regularizer gradient is obtained by one backward pass and differs from ∇θ R by O(ϵ2) (Theorem C.2); the stopping test in Step 4 uses a cheap first-order readout of Bshared on the same probe. 
+
+## E Full Experimental Settings 
+
+Training data. Three families of verifiable tasks in a balanced mixture, each resampled to 3,000 prompts (9,000 total), Table E.1.             
+
+> Family Dataset Pool Sampled Math DeepScaleR (Luo et al. 2025) 40,315 3,000 Code code-r1-12k (Liu and Zhang 2025) 12,458 3,000 Logic GURU logic (Cheng et al. 2025) 3,126 3,000
+
+Table E.1: Training data. 
+
+Evaluation protocol. Nine held-out benchmarks, fixed temperature applied identically to all methods, audited for leakage below; max generation length 4096 for mathematics and 2048 for code/logic; hard set = AIME24/AIME25/Minerva (Table E.2). The summarized pass@ k of Table 2 therefore uses a per-benchmark k: pass@256 for the math anchors, pass@16 for MATH500 and ordering, pass@64 for code and Logic-graph. The value is the largest k each set supports at its sample count, subject to the set still discriminating between methods: on the easier benchmarks a large k saturates every arm near the ceiling, which hides both the ordering between methods and the large-k coverage degradation of the reward-maximizing baselines that Section 6.3 examines. AMC23 illustrates the saturated regime (pass@256 ≈ 100 for every method, Table G.1); the hard set retains headroom at the same k and is where the coverage comparison is read. Paired arms share initialization, data order, and schedule, so each capability comparison in Section 6.3 isolates the regularizer; the temperature sweep (Appendix H) and the checkpoint sweep (Appendix J) further test that reading. Algorithm 1 One CD-RFT training step 
+
+Require: policy θ; probe set Π; weight λ; step ϵ; target τ ; step sizes η, η proj ; cap Kmax  
+
+> 1:
+
+Backbone update: sample rollouts, compute Lpost and ∇θ Lpost  
+
+> 2:
+
+set sublayer gates g ← 1 on Π 
+
+> 3:
+
+for each family m do ▷ one ordinary backward, stop-grad θ 
+
+> 4:
+
+ℓm ← EΠm [log πθ (y⋆)] ; skip if |ℓm| < ϵ 0 
+
+> 5:
+
+¯Cm, · ← (1 /ℓ m) ∂g ℓm|g=1 
+
+> 6:
+
+end for  
+
+> 7:
+
+¯G ← ¯C ¯C⊤; ¯R ← tr( ¯G2)/ tr( ¯G)2 
+
+> 8:
+
+W ← 4tr( ¯G)2 ( ¯G ¯C − ¯R tr( ¯G) ¯C) ▷ closed form, Lemma C.1  
+
+> 9:
+
+Lproxy ← 0 
+
+> 10:
+
+for each family m do  
+
+> 11:
+
+ˆWm ← Wm, ·/∥Wm, ·∥ ▷ unit dir., Rmk. C.2  
+
+> 12:
+
+ℓ+ ← ℓm(θ; 1+ϵ ˆWm); ℓ− ← ℓm(θ; 1−ϵ ˆWm) 
+
+> 13:
+
+Lproxy ← L proxy + ∥Wm, ·∥ 
+
+> ℓm
+
+· ℓ+−ℓ− 
+
+> 2ϵ
+> 14:
+
+end for  
+
+> 15:
+
+∇θ Lproxy ← Backward (λLproxy ) ▷ single pass, flash-safe  
+
+> 16:
+
+θ ← θ − η(∇θ Lpost + ∇θ Lproxy ) 
+
+> 17:
+
+k ← 0 ▷ inner-loop projection, Def. C.1  
+
+> 18:
+
+while Bshared (Π; θ) > τ and k < K max do  
+
+> 19:
+
+recompute ¯C, W, Lproxy ; θ ← θ − ηproj ∇θ Lproxy ; k ← k + 1  
+
+> 20:
+
+end while  
+
+> 21:
+
+return θ                                        
+
+> Domain Benchmark #nTemp. Math MATH500 500 16 0.8 Math AMC23 40 256 0.8 Math AIME24 30 256 0.8 Math AIME25 30 256 0.8 Math Minerva 272 256 0.8 Code HumanEval+ 164 64 0.7 Code MBPP 500 64 0.7 Logic ordering-puzzle 100 64 0.7 Logic Logic-graph 100 64 0.7
+
+Table E.2: Evaluation protocol (primary experiment, Qwen2.5-7B). Benchmarks: MATH500 (Hendrycks et al. 2021), Minerva (Lewkowycz et al. 2022), HumanEval+ (Chen et al. 2021; Liu et al. 2023), MBPP (Austin et al. 2021), ordering-puzzle/Logic-graph (Cheng et al. 2025). The Llama-3.2-3B evaluation (Appendix K) uses the same benchmarks at the training rollout temperature. 
+
+Train/evaluation decontamination. We audit every held-out benchmark against every training pool at three levels: raw string identity; a normalized hash (lowercased, all non-alphanumeric characters stripped); and near-duplication by word 8-gram Jaccard over an inverted index, reported at thresholds .5 and .8. For the code family we additionally match the executable content, comparing normalized assertion sets of the evaluation test suites against the training functional tests. Table E.3 gives the audit. Eight of the nine benchmarks are clean at every level, with no exact, normalized, or near-duplicate hit and no shared assertion. The exception is MATH500, of which 7 items ( 1.4% ) are normalized-exact matches of items in the DeepScaleR pool. Because each family is resampled to 3,000 prompts from a much larger pool, pool membership overstates exposure: replaying the training shuffle shows that exactly 1 of those 7 items ( 0.2% of MATH500) was drawn into the data the runs actually saw. On that item the trained arms do not exceed the untrained base ( 9/16 correct for base, 8/16 for GRPO, 9/16 for CD-RFT), and on all 7 the base and GRPO ( β=0 ) pass@ 1 are identical ( 17 .9), so there is no memorization signature. We nonetheless re-score MATH500 with all 7 items removed, identically for every arm, as a conservative upper bound. Every arm gains between +0 .1 and +0 .7 points (the removed items are harder than average), and the paired CD-RFT −GRPO difference keeps its sign at k=1 , 2, 4, 8 on both axes; at k=16 , where MATH500 is near saturation ( ≈ 90 for all arms), the difference moves within ±0.4 points of zero on both pairs. No conclusion in Section 6.3 depends on the contaminated items. The logic row deserves a separate note: the logic training pool and the logic benchmarks are drawn from the same GURU generator family, so their 8-gram overlap ( max J = .35 on ordering-puzzle) measures shared templates, not shared instances; exact and normalized instance matches are zero, which is what leakage would require. Benchmark pool exact norm. near assert max J                                                            
+
+> MATH500 math 178—1.00 AMC23 math 000—.14 AIME24 math 000—.21 AIME25 math 000—.20 Minerva math 000—.02 GSM8K math 000—.06 HumanEval+ code 0000.02 MBPP code 0000.07 Logic-ordering logic 000—.35 Logic-graph logic 000—.01
+
+Table E.3: Train/evaluation contamination audit. “near” = word 8-gram Jaccard ≥ .8; “assert” = shared normalized test assertions (code only). max J is the largest Jaccard against any training item. 
+
+Hyperparameters (primary experiment, Qwen2.5-7B). On the primary model all methods share the same recipe, differing only in the regularizer/KL (Table E.4); the second-model Llama-3.2-3B setup and its differences are given in Appendix K.                          
+
+> Item Value Learning rate / schedule 2×10 −6/ cosine Max generation length 512 Samples per query G4Global batch 32 completions (8 prompts ×4) Training steps 1500 (report step-1000 at main table) Random seed 0 (training and rollout sampling) KL coefficient β0 or 0.01 (two paired axes) CD-RFT weight λ1CD-RFT probes n3 / family CD-RFT target concentration τ(%) 70 CD-RFT inner-loop cap 12 steps / training step CD-RFT difference step ϵ0.05
+
+Table E.4: Hyperparameters (primary experiment, Qwen2.5-7B). All arms share seed 0, so each paired comparison holds initialization and data order fixed. 
+
+Software and hardware. Sampling and evaluation use vLLM 0.23.0 with the rollout GPU-memory utilization set to 0.6; training, probing, and evaluation are each performed on a single GPU, on NVIDIA A100 (80GB) and NVIDIA RTX PRO 6000 (Blackwell) GPUs. Table E.5 lists the software stack.         
+
+> Component Version OS / Python Linux / 3.11 PyTorch (CUDA) 2.11 (CUDA 12), bf16 Transformers HuggingFace RL trainer TRL 1.6.0 (GRPO) Sampling / eval vLLM 0.23.0
+> Bshared probe backend eager attention (2nd-order)
+
+Table E.5: Software stack. 
+
+## F Additional Mechanistic Results 
+
+F.1 Activation-Level Metrics 
+
+Section 6.2 reports that two of the three activation-level metrics of Zhang et al. (2026) reproduce while the third does not; Tables F.1 and F.2 give the underlying numbers. All three are computed from EAP edge attributions (Syed, Rager, and Conmy 2024) on the both-correct subset of the base model and the method under test, the standard attribution-difference protocol. Because each pairing induces a slightly different both-correct subset, and the Base row shown is the subset baseline of the β=0 
+
+pairing, the tables are read within a column. Act. Intensity ↑ Dist. Kurtosis ↓                                    
+
+> Method MATH500 MBPP graph MATH500 MBPP graph Base .00098 .00157 .00159 359 542 277 GRPO ( β=0 ).00170 .00310 .00263 198 479 133
+> CD-RFT ( β=0 ).00137 .00165 .00191 206 499 197 GRPO ( β=0 .01 ).00146 .00260 .00379 178 424 191
+> CD-RFT ( β=0 .01 ).00147 .00273 .00297 204 433 255
+
+Table F.1: The two activation-level signatures of Zhang et al. (2026) that reproduce robustly: activation intensity rises and distribution kurtosis falls, for every method on every domain (12/12 each), relative to the base model. graph = Logic-graph. Activation intensity rises and kurtosis falls for every method on every domain (Table F.1). The signature that reinforcement learning raises circuit usage and flattens its magnitude distribution therefore reproduces not only for vanilla GRPO but for all four trained models, and forms the starting point on which the analysis builds.                   
+
+> Method MATH500 MBPP graph Base .271 ±.027 .255 ±.015 .491 ±.024 GRPO ( β=0 ).008 ±.030 .015 ±.004 .496 ±.057
+> CD-RFT ( β=0 ).219 ±.048 .270 ±.019 .568 ±.037
+> GRPO ( β=0 .01 ).142 ±.036 .020 ±.006 .009 ±.095
+> CD-RFT ( β=0 .01 ).036 ±.058 .011 ±.006 .080 ±.097
+
+Table F.2: Information complexity, the direction-unstable third metric. Bootstrap standard deviations ( B=2000 ) on the both-correct subset of each pairing ( n=73 –100 on MATH500/MBPP, n=19 –23 on Logic-graph). graph = Logic-graph, which carries the logic-domain evidence. Information complexity (Table F.2) does not behave this way. On MATH500 and MBPP it stays high under CD-RFT ( β=0 )while collapsing to near zero under the matched GRPO ( β=0 ), .219 ±.048 against .008 ±.030 and .270 ±.019 against .015 ±.004, gaps of several bootstrap standard deviations; the same ordering reappears on Logic-graph (.568 ±.037 against .496 ±.057). Yet the metric does not track capability: GRPO ( β=0 .01 ) is stronger than the base on every domain of Table 2, while its information complexity on MBPP falls from .255 to .020, a drop of more than 90% . A metric that splits this way between two equally healthy models cannot on its own say what reinforcement learning changed, which is what motivates moving to the control axis. The well-powered form of this reading is the β=0 pairing, where both arms sit high enough on mathematics and code to separate. 
+
+F.2 Random Reference for Bshared 
+
+The lower bound 1/M of Proposition 2 is attained only when the rows are exactly orthogonal with equal norms, which random rows in finite dimension never are, so 1/M is a bound and not the value a random control matrix would produce. We therefore estimate the random reference by simulation at the shape used throughout ( M =3 families, K=56 sublayer gates): drawing i.i.d. Gaussian rows over 50 ,000 trials gives 
+
+Brand shared = 42 .8 ± 3.4, p95 = 49 .0, p99 = 51 .9,
+
+against the bound 1/M = 33 .3. This reference depends only on (M, K ), hence is shared by every arm and every model in Figure F.3. All five base models of Figure F.3 exceed the p99 of the random reference: Qwen2.5-3B 59 .2, Qwen2.5-1.5B 64 .3,Llama-3.1-8B 71 .3, Llama-3.2-3B 80 .5, Qwen2.5-7B 83 .4, i.e. between +16 and +41 above it. These are the exact Bshared (C)
+
+values of that figure, on the same protocol as the Base row of Table 2. The cross-model reading of Section 6.2 therefore holds against a simulated random reference and not merely against the bound. 
+
+Bshared also responds to row-norm heterogeneity, not to direction alone. Proposition 2(iv) gives invariance under global scaling 
+
+C 7 → cC and under orthogonal gate reparameterization C 7 → CQ , but not under per-row rescaling, and each row of C carries its own normalizer 1/ℓ m, whose scale differs across families with target length. This is why every comparison we report is made at a fixed protocol and, for the method claim, as a same-seed same-probe paired difference (Figure F.2), both of which hold the row-norm structure of the estimator fixed; the cross-model panel, whose arms do not share a protocol, is read only by ordering. 
+
+F.3 Direction Versus Row Norm 
+
+Holding the protocol fixed still leaves a question the paired difference cannot answer on its own, so we separate the two contributions directly. Writing dm = ∥Cm, ·∥22, D = diag( d) and R for the matrix of row cosines, the Gram matrix factors as 
+
+GC = D1/2RD 1/2, and we report alongside Bshared two quantities computed from the same C:
+
+Bdir (C) = λmax (R)
+
+M , Bnorm (C) = max 
+
+> m
+
+dm
+
+P 
+
+> m′
+
+dm′
+
+. (17) Bshared Bdir Bnorm 
+
+> 40 60 80 100
+> concentration (%)
+> 1/ M
+
+(a) levels (mean±SE, 7 probe seeds)      
+
+> Base GRPO + CD-RFT 40 30 20 10 010
+> vs matched GRPO (pp)
+> s0 s1 s2 s3 s4 s5 s6 mean mean mean
+> 6/7 neg 7/7 neg 6/7 neg
+
+(b) paired per seed; bars = 95% CI, t6         
+
+> Bshared
+> Bdir
+> Bnorm
+> 40 30 20 10 010
+> Bnorm (pp)
+> 40
+> 30
+> 20
+> 10
+> 010
+> Bshared  (pp)
+> y=x
+> s6 r= 0.991
+
+(c) where the seed variance lives 
+
+> |cos|(code,logic) |cos|(code,math) |cos|(logic,math)
+> 0.0 0.1 0.2 0.3 0.4 0.5 0.6
+> |row cosine|
+
+(d) pairwise direction alignment Figure F.1: CD-RFT lowers direction sharing. (a) All three measures at the β=0 arms; Bdir sits far below Bshared at every arm, so 
+
+Bshared overstates how collinear the control directions are. (b) Paired per seed against the matched GRPO: ∆Bdir = −7.6 ± 2.1
+
+is negative on 7/7 seeds and its 95% interval excludes zero, while the interval on ∆Bshared does not. (c) The seed-to-seed variation of ∆Bshared lies on the diagonal against ∆Bnorm (r=0 .99 ): the row-norm term is what injects it, and the one seed that flips ∆Bshared positive (s6) still has ∆Bdir < 0. (d) Pairwise direction alignment in magnitude; the code–logic cosine falls from 
+
+0.48 to 0.16 , and CD-RFT is the lowest on all three pairs. 
+
+Bdir normalizes each row to unit length first, so it is invariant to per-row rescaling and measures direction sharing alone; it keeps the range [1 /M, 1] , attaining 1/M exactly when the rows are pairwise orthogonal and 1 when they are collinear. Bnorm is what 
+
+Bshared would equal if the rows were exactly orthogonal, i.e. the row-norm contribution alone. The two are not additive, so we plot them side by side rather than as a decomposition of Bshared .Figure F.1 reports both on the β=0 pair, over the seven probe seeds of Table 2. Direction sharing falls under CD-RFT: the paired ∆Bdir is −7.6 ± 2.1 points and negative on every seed, against 6/7 for ∆Bshared , and its 95% interval (Student t, six degrees of freedom) excludes zero where the interval on ∆Bshared does not. Removing the row norms therefore sharpens the effect rather than dissolving it, because the row-norm term carries most of the seed-to-seed variance: ∆Bshared tracks ∆Bnorm 
+
+across seeds at r = 0 .99 , and the single seed on which ∆Bshared turns positive is one where ∆Bdir remains negative. The row cosines move with it: in magnitude CD-RFT is the lowest of the three arms on every family pair, the code–logic pair dropping from 0.48 to 0.16 . Magnitudes are the relevant summary because a signed average over seeds cancels, and anti-alignment raises 
+
+λmax (R) just as alignment does. Because ∥Cm, ·∥2 = ∥∂g ℓm|g=1∥2/|ℓm|, a regularizer could in principle lower Bshared by inflating |ℓm| on the family that dominates the energy budget, which would work against the reward flux rather than with it. This is not what happens. On the family holding the largest share at baseline, |ℓm| rises by 12 .5% from the matched GRPO while its row norm falls by 63% , so the implied gate sensitivity ∥∂g ℓm∥2 falls by 59% : the normalizer accounts for about a fifth of the change and the rest is a genuine reduction in how strongly that family’s reward flux responds to the gates. β=0 pair β=0.01 pair 0.60 0.65 0.70 0.75 0.80 0.85 0.90       
+
+> B_shared(C)  (mean±SE, 7 probe seeds)  0.81
+> 0.69
+> 0.80
+> 0.73
+> Base 0.83
+> (a) Control bottleneck: CD-RFT below matched GRPO
+> GRPO (matched) CD-RFT (ours) −0.20 −0.15 −0.10 −0.05 0.00 0.05
+> paired Δ B_shared(C) (<0 = compression)
+> β=0.01 β=0
+> -0.061±0.059 -0.123±0.031
+> 0 (no compression)
+> (b) Paired Δ (shared noise removed)
+
+Figure F.2: Forest plot of the paired difference ∆ = Bshared (C)CD-RFT − Bshared (C)GRPO under the same seed and probes. CD-RFT ( β=0 ) shows a robust negative shift ( ∆ = −12 .3 ± 3.1, negative in 6 of 7 seeds); CD-RFT ( β=0 .01 ) is consistent in direction but smaller. 
+
+F.4 Paired Verification and Cross-Model Generality 
+
+Absolute Bshared (C) depends on which probe samples are drawn, so Figure F.2 re-reads the measurement of Table 2 as a same-seed, same-probe paired difference, which cancels the shared probe noise. Figure F.3 then checks that the bottleneck is not an artifact of the single model we intervene on, and Figure F.4 repeats the distributedness check of Figure 2(b) at the finer EAP edge granularity. The participation ratio of a control row is PR( Cm, ·) =   P  
+
+> k
+
+|Cm,k |2 P  
+
+> k
+
+C2
+
+> m,k
+
+, the effective number of gates it spreads over: PR = 1 when a single gate carries the row and PR = K when all gates carry it equally. 
+
+## G Additional Capability Results 
+
+G.1 Full Per-Benchmark pass@ k Ladder 
+
+Table G.1 gives the per-benchmark results behind the domain summary of Table 2 (step-1000, five matched methods). The coverage column reports the highest k of each set: pass@256 for the math anchors, pass@16 for MATH500 and ordering, pass@64 for code and Logic-graph. AMC23 (40 problems) is near-saturated there (pass@256 ≈ 100 for every method), which treats all methods alike; the hard-set coverage advantage is carried by AIME24/AIME25/Minerva. 
+
+Domain Bench (metric) Base G( β0) CD( β0) G( β. 01 ) CD( β. 01 )
+
+math MATH500 p@1 48.5 57.5 57.7 53.7 54.3 MATH500 p@16 89.0 89.4 89.4 89.4 90.0 
+
+math AMC23 p@1 30.9 35.7 37.3 33.1 34.9 AMC23 p@256 97.5 100.0 100.0 97.5 100.0 
+
+math AIME24 p@1 5.9 7.2 7.2 5.6 5.9 AIME24 p@256 63.3 50.0 63.3 60.0 63.3 
+
+math AIME25 p@1 3.9 4.0 4.1 3.6 4.1 
+
+AIME25 p@256 43.3 56.7 53.3 43.3 63.3 
+
+math Minerva p@1 10.7 13.0 13.6 11.7 12.2 Minerva p@256 63.2 64.3 65.1 62.5 63.6 code HE+ p@1 66.7 68.4 70.5 69.7 70.3 HE+ p@64 96.3 97.0 98.2 95.7 97.0 code MBPP p@1 42.3 47.6 50.6 48.4 49.6 MBPP p@64 87.8 88.8 88.6 89.8 89.2 logic ordering p@1 47.1 54.3 54.8 51.3 52.0 ordering p@16 94.6 96.2 95.7 94.2 96.1 logic Logic-graph p@1 19.3 25.0 26.1 21.7 20.8 Logic-graph p@64 87.0 92.0 94.0 90.0 91.0 
+
+Table G.1: Per-benchmark pass@ k ladder underlying Table 2. All entries are percentages. 0.0 0.2 0.4 0.6 0.8 
+
+base B_shared(C) (mean±SE, exact npf=3) 
+
+Qwen2.5-3B Qwen2.5-1.5B Llama-3.1-8B Llama-3.2-3B Qwen2.5-7B 
+
+0.592±0.028 0.643±0.017 0.713±0.030 
+
+0.805±0.054 0.834±0.038 
+
+Shared Control Bottleneck across models — the two intervened models (top) are deepest Figure F.3: Bshared (C) for five base models under the same multi-task probe and exact protocol. All lie above the 99 th percentile of the simulated random reference of Appendix F.2; the two models we train CD-RFT on (Qwen2.5-7B and Llama-3.2-3B, in blue) have the deepest bottlenecks, and hence the most decoupling headroom. 0 200 400 600 800 participation ratio (effective # of control edges) 
+
+> qwen_gsm8k_a0.03 qwen_gsm8k_a0.1 qwen_math_a0.03 qwen_gsm8k_a0.3 deepseek_math_a0.03 deepseek_gsm8k_a0.03 deepseek_college_math_a0.03 deepseek_college_math_a0.3 deepseek_college_math_a0.5 deepseek_gsm8k_a0.1 deepseek_math_a0.3 deepseek_gsm8k_a0.5 deepseek_college_math_a0.1 deepseek_math_a0.1 deepseek_gsm8k_a0.3 mistral_college_math_a0.1 mistral_gsm8k_a0.3 mistral_gsm8k_a0.03 mistral_gsm8k_a0.5 mistral_gsm8k_a0.1 mistral_college_math_a0.03 mistral_college_math_a0.3 mistral_college_math_a0.5
+
+(a) control is spread over ~10 2 edges (K 3221) 
+
+> single-gate monopoly (PR=1)
+
+0.0 0.2 0.4 0.6 0.8 1.0 fraction of edges (sorted by |C|) 0.0 0.2 0.4 0.6 0.8 1.0 cumulative | C| mass 
+
+(b) no single edge dominates 
+
+> uniform (fully distributed)
+
+Figure F.4: Distributedness of Figure 2(a) at the finer EAP edge granularity ( K ≈ 3221 ) on the offline Part-I control vectors. (a) 
+
+Participation ratio and (b) cumulative |C| mass give the same no-monopoly conclusion; the ratio is larger here only because the edge decomposition is finer, and aggregation into sublayers is non-orthogonal, so the sublayer figure reports the on-granularity value. −0.5 0.0 0.5 1.0 1.5 2.0 2.5 3.0               
+
+> MATH500 AMC23 AIME24 AIME25 Minerva HumanEval+ MBPP Ordering Logic-graph
+> +0.2 +1.6 +0.0 +0.1 +0.6 +2.1 +3.0 +0.5 +1.1
+> 8/9 win
+> CD-RFT − GRPO (β=0), pass@1
+> −5 0510 15
+> +0.0 +0.0 +13.3 -3.4 +0.8 +1.2 -0.2 -0.5 +2.0
+> 4/9 win
+> CD-RFT − GRPO (β=0), pass@k
+> −1.0 −0.5 0.0 0.5 1.0 1.5 2.0
+> Δ (pp)
+> MATH500 AMC23 AIME24 AIME25 Minerva HumanEval+ MBPP Ordering Logic-graph
+> +0.6 +1.8 +0.3 +0.5 +0.5 +0.6 +1.2 +0.7 -0.9
+> 8/9 win
+> CD-RFT − GRPO (β=0.01), pass@1
+> 0510 15 20
+> Δ (pp)
+> +0.6 +2.5 +3.3 +20.0 +1.1 +1.3 -0.6 +1.9 +1.0
+> 8/9 win
+> CD-RFT − GRPO (β=0.01), pass@k
+
+Paired gains: CD-RFT − matched GRPO, per benchmark Figure G.1: Per-benchmark paired gains, CD-RFT minus its matched GRPO baseline, across all nine benchmarks in four panels (β=0 / β=0 .01 crossed with pass@ 1 / pass@ k). The β=0 axis leads on pass@ 1 (8/9); the β=0 .01 axis leads on pass@ k
+
+coverage (8/9). 
+
+G.2 Per-Benchmark Paired Gains and Coverage 
+
+Figure G.1 resolves the domain summary of Table 2 into the per-benchmark paired gain of CD-RFT over its matched GRPO baseline, and Figure G.2 traces how the coverage advantage of the with-KL variant grows with k on the hard sets. 
+
+## H Full Temperature-Sweep Results 
+
+We repeat the evaluation at four temperatures (the sweep of each domain including its main-table working temperature) and count the fraction of paired × temperature cells (8 in total) in which “CD-RFT ≥ matched RL” holds (Table H.1; the trend is in Figure H.1). 
+
+Domain pass@1 pass@k Math hard set 8/8 7/8 Code 8/8 7/8 Logic 3/8 5/8 
+
+Table H.1: Temperature robustness: paired-ordering win rate (CD-RFT ≥ matched RL, out of 8). On the math hard set and on code, the pass@ 1 advantage of CD-RFT holds across all four temperatures (8/8 each) and pass@ k
+
+holds at 7/8. Lowering the temperature raises pass@ 1 and raising it raises pass@ k, yet the method ordering does not flip. The logic domain shows lower ordering consistency (pass@ 1 3/8), in line with the mild gain margin of this domain in the capability comparison, while the featured configuration CD-RFT ( β=0 ) shows no collapse on any domain. 1 16 64 128 256 
+
+k (log scale) 
+
+> 0.1 0.2 0.3 0.4 0.5 0.6
+> pass@k  (hard-set mean)
+> +8.1pp @k=256 CD-RFT(β=0.01) vs GRPO(β=0.01)
+
+Hard-set (AIME24/25/Minerva) pass@k: CD-RFT lifts coverage at high k 
+
+> Base GRPO(β=0) CD-RFT(β=0) GRPO(β=0.01) CD-RFT(β=0.01)
+
+Figure G.2: Hard-set (AIME24/AIME25/Minerva) mean pass@ k as a function of k (log scale). CD-RFT ( β=0 .01 ) widens its coverage advantage over GRPO ( β=0 .01 ) at large k, reaching +8.1pp at pass@256. 0.4 0.6 0.8 1.0 0.06 0.07 0.08 0.09 0.10 0.11 
+
+> pass@1
+
+Math (hard) 
+
+0.4 0.6 0.7 1.0 0.45 0.50 0.55 
+
+Code 
+
+0.4 0.6 0.7 1.0 0.20 0.25 0.30 0.35 0.40 0.45 
+
+Logic 
+
+0.4 0.6 0.8 1.0 
+
+sampling temperature 
+
+0.52 0.54 0.56 0.58 0.60 0.62 
+
+> pass@k
+
+0.4 0.6 0.7 1.0 
+
+sampling temperature 
+
+0.87 0.88 0.89 0.90 0.91 0.92 0.93 
+
+0.4 0.6 0.7 1.0 
+
+sampling temperature 
+
+0.86 0.88 0.90 0.92 0.94 
+
+Temperature robustness — CD-RFT (solid) vs matched GRPO (dashed), Base (dotted) 
+
+> vertical band = main-table operating temp (Math 0.8, Code/Logic 0.7)
+
+Base GRPO (β=0) CD-RFT (β=0, ours) GRPO (β=0.01) CD-RFT (β=0.01, ours) Figure H.1: Sampling-temperature sweep. Lowering the temperature raises pass@ 1 and raising it raises pass@ k; the method ordering on the math hard set and code does not flip across the four temperatures. I Proxy-Target Sensitivity 
+
+We sweep the target concentration τ ∈ { 55 , 65 , 70 } with every other setting fixed at the main recipe (Qwen2.5-7B, step-1000, matched protocol), so τ is the sole variable. Table I.1 gives pass@ 1 and the coverage pass@ k for each benchmark. The method is insensitive to τ across a broad band: the two looser settings, 70 and 65 , lie within a small margin of each other on every benchmark and simply exchange which axis they favour. The main working point 70 takes pass@ 1 on the discriminative benchmarks (MATH500, AMC23, code, Logic-graph), while the slightly tighter 65 trades that small deficit for large-k coverage on the harder or more open-ended sets (MATH500, Minerva, code, ordering). Only over-compression, τ =55 , breaks the pattern: it trails on both axes across essentially all discriminative benchmarks, marking a floor below which tightening the constraint costs single-shot accuracy without buying coverage. τ should therefore be kept in the loose band, its exact value chosen by whether the deployment weights single-shot accuracy ( 70 ) or coverage ( 65 ).                                                 
+
+> Benchmark pass@ 1(τ=55 /65 /70 )pass@ k(τ=55 /65 /70 )MATH500 54.7 / 56.4 / 57.7 88.4 / 90.4 / 89.4 AMC23 33.7 / 34.9 / 37.3 100.0 /100.0 /100.0
+> AIME24 6.3 / 5.8 / 7.2 63.3 / 60.0 / 63.3
+> AIME25 3.7 / 3.5 / 4.1 60.0 / 53.3 / 53.3 Minerva 12.6 / 14.5 / 13.6 64.3 / 66.2 / 65.1 code 49.7 / 51.5 / 55.5 90.2 / 91.7 / 91.0 ordering 26.9 / 28.7 / 28.7 71.0 / 73.0 / 70.0 Logic-graph 23.2 / 26.1 / 26.1 89.0 / 90.0 / 94.0
+
+Table I.1: Proxy-target sweep on Qwen2.5-7B (pass@ 1 / coverage pass@ k, for τ =55 /65 /70 ). Coverage k is the highest sampled per set (MATH500/ordering p@16 and p@64 respectively, math anchors p@256, code/Logic-graph p@64). Bold marks the best of the three. Logic-graph uses the mid-difficulty split, matching the main table. All entries are percentages. 
+
+## J Cross-Checkpoint Robustness 
+
+The main comparison reports one checkpoint (step-1000), fixed under the evaluation compute budget before any benchmark was scored and applied identically to all five arms; it is not the final step of training. Figure J.1 sweeps the β=0 pair across checkpoints: CD-RFT ( β=0 ) sits at or above its matched GRPO at every checkpoint on both axes. Table J.1 gives the per-benchmark ladder at the final step-1500 checkpoint under the full main-table protocol, the same benchmarks, sample counts, and temperatures as Table 2, applied identically to both arms, with the untrained base as an anchor.                                                                          
+
+> Domain Bench (metric) Base G( β0)CD( β0)
+> math MATH500 p@1 48.5 57.3 57.4
+> MATH500 p@16 89.0 92.0 90.4 math AMC23 p@1 30.9 35.6 37.3
+> AMC23 p@256 97.5 97.5 100.0
+> math AIME24 p@1 5.9 6.6 7.1
+> AIME24 p@256 63.3 66.7 56.7 math AIME25 p@1 3.9 4.2 4.0 AIME25 p@256 43.3 46.7 53.3
+> math Minerva p@1 10.7 12.9 13.6
+> Minerva p@256 63.2 64.0 66.5
+> code HE+ p@1 66.7 69.3 69.3
+> HE+ p@64 96.3 97.0 97.6
+> code MBPP p@1 42.3 47.7 50.5
+> MBPP p@64 87.8 88.8 88.8
+> logic ordering p@1 47.1 55.2 55.4
+> ordering p@16 94.6 95.5 94.2 logic Logic-graph p@1 19.3 24.9 24.5 Logic-graph p@64 87.0 88.0 90.0
+> overall p@1 35.9 40.6 41.2
+> overall pass@ k85.6 86.8 87.2
+
+Table J.1: Per-benchmark ladder at the final step-1500 checkpoint, β=0 pair, full main-table protocol (cf. Table G.1 at step-1000). G = GRPO, CD = CD-RFT; Base is untrained and step-independent. Bold marks the row-wise best. All entries are percentages. 750 1000 1250 1500    
+
+> training step
+> 0.350 0.352 0.354 0.356 0.358 0.360 0.362 0.364
+> overall pass@1 (domain-avg)
+> (a) pass@1
+> CD-RFT (β=0) GRPO (β=0)
+> 750 1000 1250 1500
+> training step
+> 0.785 0.790 0.795 0.800 0.805 0.810 0.815 0.820
+> overall pass@k (domain-avg, max-k)
+> (b) pass@k
+> CD-RFT (β=0) GRPO (β=0)
+> Cross-checkpoint robustness, β=0 pair (⚠ old sub-protocol)
+
+Figure J.1: Cross-checkpoint robustness for the β=0 pair: overall pass@ 1 and pass@ k versus training step. CD-RFT ( β=0 ) stays at or above GRPO ( β=0 ) at every checkpoint. The mathematics domain is scored here on subsampled MATH500 and Minerva, so the figure is read by ordering; Table J.1 gives the final checkpoint under the full main-table protocol. 
+
+## K Second Model: Llama-3.2-3B 
+
+This appendix details the second-model transfer experiment of Section 6.5: the setup differences from the primary Qwen2.5-7B run, the full per-benchmark pass@ k ladders, and the sampling-temperature behaviour. 
+
+Setup. The method, the training data (the balanced three-family mixture of Table E.1), and the benchmarks are shared with the primary experiment. The recipe is adapted for the weaker base model, and every adaptation is applied identically to the two trained arms, so the GRPO → CD-RFT comparison stays controlled; Table K.1 lists the differences. 
+
+Evaluation protocol. The trained arms are evaluated few-shot ( K=2 , K=4 for code) with the same demonstrations, because the plain Llama-3.2-3B template otherwise holds them below the ability they have already reached. The Base column is instead the zero-shot untrained model, which sits at the reward floor and degenerates into format-violating and repeated generations—the starting point from which reinforcement learning departs. Since the two protocols differ, the paired ∆ is computed only between GRPO and CD-RFT; Base serves as an untrained-floor reference and is not differenced against them .
+
+On the target τ . The value τ =50 was fixed before this line was evaluated, neither transferred from the primary model nor tuned against benchmark scores, and it enters only the CD-RFT arm; by the proxy-target sweep of Section 6.5 the comparison does not rest on its exact value. 
+
+Item Qwen2.5-7B Llama-3.2-3B KL β 0 and 0.01 0 only Prompt template plain ( \boxed ) R1 think/answer Few-shot 0 2 (code 4) Rollout temperature 0.6 0.5 Max generation length 512 1024 Target concentration τ (%) 70 50 Reported checkpoint step-1000 step-1122 
+
+Table K.1: Llama-3.2-3B setup, as differences from the primary Qwen2.5-7B recipe (Table E.4). All other knobs ( λ=1 , ϵ=0 .05 ,inner-loop cap 12 , learning rate/schedule) are unchanged and shared across arms. 
+
+Mechanism: control-sharing bottleneck. Table K.2 reports the exact Bshared (C) for the three arms under the same protocol as the primary model (Section 6.2; npf = 3 , second-order double-backward, five probe seeds paired to cancel shared-probe noise), using the Llama-3.2-3B tokenizer to build the probe. The signature reproduces: base > GRPO > CD-RFT, i.e. reinforcement learning lowers control sharing and the regularizer lowers it further, with the same-seed paired CD − RF T −GRPO = −5.5 ± 1.9
+
+(2.9σ, 4/5 seeds negative). Arm Bshared (C) ↓ Paired ∆ value Base 80 .5 ± 5.4 CD-RFT −GRPO −5.5 ± 1.9              
+
+> GRPO 77 .0±4.5CD-RFT −Base −9.0±3.8
+> CD-RFT 71 .5±3.5GRPO −Base −3.4±2.4
+
+Table K.2: Llama-3.2-3B exact Bshared (C) (step-1122, five probe seeds, mean ±SE), same protocol as Table 2. Same-seed paired differences at right. 
+
+Full pass@ k ladder. Table K.3 gives the complete ladder at the training rollout temperature, with all three arms evaluated few-shot under the fully matched protocol (so Base here is the few-shot untrained model, complementing the zero-shot floor anchor of Table 3). The paired CD-RFT −GRPO gap is positive at nearly every k and widens with k in every domain, the same signature as on Qwen2.5-7B; at k=64 on ordering-puzzle, GRPO drops below the few-shot base ( 37 .0 < 41 .0, the coverage collapse of Yue et al. (2025)) while CD-RFT restores it above ( 46 .0).                                                                                                                
+
+> p@1 p@2 p@4 p@8 p@16 p@32 p@64
+> GSM8K
+> Base 15.3 24.9 36.9 50.2 63.1 74.2 83.0 GRPO 16.4 26.3 38.5 51.7 64.1 74.6 83.0
+> CD-RFT 16.8 26.7 38.8 52.0 64.5 75.4 84.2
+> MATH500
+> Base 7.2 11.9 18.3 25.7 33.4 40.5 47.0 GRPO 7.4 12.3 18.9 26.8 35.0 42.5 48.4
+> CD-RFT 7.6 12.5 19.2 27.1 35.6 43.8 51.2
+> code
+> Base 26.5 35.2 43.4 50.8 57.3 62.7 67.5 GRPO 27.7 36.2 44.3 51.8 58.4 64.2 69.0
+> CD-RFT 28.1 36.7 44.9 52.4 58.9 64.8 69.9
+> Logic-ordering
+> Base 11.3 16.5 21.5 26.3 31.4 36.5 41.0 GRPO 11.7 16.8 21.6 26.1 30.4 34.1 37.0
+> CD-RFT 11.0 16.4 21.9 27.4 33.2 39.5 46.0
+> Logic-graph
+> Base 27.6 35.9 42.4 47.6 52.4 56.5 59.0 GRPO 29.4 38.4 45.8 52.2 58.4 64.4 70.0
+> CD-RFT 29.6 38.2 45.6 52.3 58.8 65.2 71.0
+
+Table K.3: Llama-3.2-3B full per-benchmark pass@ k ladder at the training rollout temperature; all three arms (Base / GRPO /
+
+CD-RFT) evaluated few-shot under the matched protocol. Bold marks the best of the three. GSM8K is held out from the training mixture of both models. All entries are percentages. 
+
+## L Computational Overhead of the Control Regularizer 
+
+Table L.1 measures what the control regularizer costs per step. The comparison is fully controlled: the same RTX PRO 6000 GPU, the same β=0 backbone, the same generation length, and the same first 1000 steps, with the finite-difference regularizer as the only variable toggled on or off.         
+
+> Method Mean step time Cumulative GRPO ( β=0 )30.5 s 8.5 h
+> CD-RFT ( β=0 )32.9 s 9.1 h Overhead +7.9% +0.6 h
+
+Table L.1: Per-step cost of the control regularizer (Qwen2.5-7B, single RTX PRO 6000, β=0 , first 1000 steps, only the regularizer toggled). This is the worst case: at β=0 the inner projection is active at essentially every step. The measurement is the worst case for our method by construction. At β=0 nothing else holds the concentration down, so the inner projection engages at essentially every step and pays its full cost; under the β=0 .01 backbone the KL penalty already suppresses Bshared , the projection fires on only 16 of 1500 steps, and the overhead is correspondingly smaller. We report only the fully-engaged configuration. Two details fix the reading. The reported value is the mean step time, and both arms include a few steps slowed by node contention, so on the median step the gap is somewhat wider ( 22 .8 → 25 .5 s, +11 .8% ). Wall-clock time is also not comparable across GPUs, because among the four main arms the CD-RFT models were trained on RTX PRO 6000 and the GRPO models on A100, and since the former is the faster GPU a direct wall-clock comparison would favour the proposed method. The overhead is therefore quoted only from the same-GPU, same-backbone measurement above, which isolates the regularizer itself. In either case the conclusion is the one that Remark C.4 anticipates, that rollout generation dominates the step, the central-difference probe is a small addition on top of it, and the regularizer remains a low-overhead component.

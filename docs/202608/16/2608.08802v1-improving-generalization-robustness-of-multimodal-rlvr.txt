@@ -1,0 +1,1673 @@
+Title: Improving Generalization Robustness of Multimodal RLVR
+
+URL Source: https://arxiv.org/pdf/2608.08802v1
+
+Published Time: Tue, 11 Aug 2026 01:51:28 GMT
+
+Number of Pages: 32
+
+Markdown Content:
+2026-06-22 
+
+# Improving Generalization Robustness of Multimodal RLVR 
+
+Pengfei Zhou 1 Zhiwei Tang 2,3,4 Xiaopeng Peng 6 Chenrui Zhou 1
+
+Lama Moukheiber 7 Yixing Ma 5 Bin Xu 8 Jiajun Song 9 Zhenglin Wan 1
+
+Wangbo Zhao 10 ‡ Jiasheng Tang 2,3‡ Bohan Zhuang 4 Fan Wang 2 Yang You 1‡              
+
+> 1National University of Singapore, HPC-AI Lab 2DAMO Academy, Alibaba Group 3Hupan Lab 4Zhejiang University
+> 5University of California, Berkeley 6Rochester Institute of Technology 7Georgia Institute of Technology
+> 8Inf Rec, Cardinal AI Lab 9Renmin University of China 10 Hong Kong University of Science and Technology
+> #wangbo.zhao96@gmail.com; #jiasheng.tjs@alibaba-inc.com; #yangyou@nus.edu.sg ‡Corresponding Author
+
+Abstract Reinforcement Learning with Verifiable Rewards (RLVR) makes Multimodal Large Language Models more accurate, but the gains are brittle: simply paraphrasing a question or changing the prompt template can degrade them, which challenges reliable deployment in high-stakes scenarios like medical VQA. We trace this to two issues of the standard RL objective. First, the binary verifier conflates format with content, so the reward signal cannot tell a wrong answer apart from a misformatted one. Second, the training distribution covers only a thin slice of the real-world prompts that the model might meet at deployment, so policies that perform well on the training distribution can behave differently under unseen prompts during test. Both failures call for a robust post-training method that helps the policy cover a broader distribution of semantically equivalent prompts, and we identify two measures that help achieve this objective: separating format from semantics in the reward, and applying policy invariance across perturbed prompts with equivalent semantics. We therefore propose Prompt-Invariant RLVR (PIRL) , consisting of a dynamic trinary reward and a consistency regularizer based on an embedding-space adversary. Under stress testing, PIRL’s average accuracy on benchmarks drops by only ≤ 1%, where GRPO drops ∼ 3%. On dynamic evaluation, PIRL also achieves the smallest performance drop. 
+
+## 1. Introduction 
+
+Reinforcement Learning with Verifiable Rewards (RLVR) drives substantial gains on visual question-answering (VQA) benchmarks for large language models and Multimodal Large Language Models (MLLMs) [20, 24, 32, 33, 35], optimizing policies against deterministic signals such as symbolic verification or template matching. The prevailing assumption is that such rule-based reward functions incentivize generalizable reasoning [6]. It fails under prompt perturbation. Fig. 1 shows that an RL-tuned MLLM beats its base model on the training prompt but degrades sharply when the same question is rephrased into a different template. We call this the prompt-robustness gap : a model that scores well on the training-template prompt fails on a paraphrased restatement of the same question. This gap matters most where it is least affordable: in high-stakes domains such as medical and legal VQA, a model that degrades under perturbation is unreliable in deployment regardless of its accuracy. The open question is whether current RLVR can learn prompt-invariant reasoning. The effect is amplified in the multimodal setting, where the visual side is high-dimensional and continuous while the format side is discrete and sparse. Optimization takes the easier route: exploit the textual format, leave visual understanding underdeveloped. This can be attributed to two issues. 
+
+Reward Entanglement. The widely-used rule-based binary rewards (e.g., regex matching) conflate arXiv:2608.08802v1 [cs.AI] 9 Aug 2026 Improving Generalization Robustness of Multimodal RLVR 
+
+Figure 1 | Standard RLVR (red) outperforms the base model (blue) on training-format prompts but degrades sharply under transformed prompts (Stress Test); PIRL (green ) preserves accuracy under Stress Test. 
+
+semantic correctness with format compliance via a multiplicative verifier 𝑉 = 𝑉 𝑓 · 𝑉 𝑐 . An obtained zero reward cannot distinguish multimodal reasoning failure and format non-compliance. We formalize the resulting loss of semantic reward variation in Theorem B.1 in the Appendix, which serves as a reward-level proxy for the gradient bias. 
+
+Prompt Dependency. Standard RLVR optimizes over a fixed distribution of training prompts, while de-ployment prompts may follow different formats. We formalize this as a quantitative non-identifiability result (Proposition B.5 in the Appendix): the training objective can assign the same training reward to policies that differ on separated unseen formats, allowing a test-time reward gap proportional to the test mass on those formats. Both failures share a single root: the training objective sees only the training distribution 𝑃 train 
+
+(Section 2.1) and cannot certify behavior on unobserved but semantics-preserving prompts. Therefore, we use a worst-case objective over the semantic equivalence class ⟦𝒙 ⟧: transformations that preserve task semantics are applied regardless of divergence from 𝑃 train (Section 2.4). For this objective we identify two design conditions, (C1) Reward Decomposition and (C2) Invariance Control , with explicit population-level and coverage-dependent consequences. Neither condition alone guarantees correctness or optimization convergence. Our proposed Prompt-Invariant RLVR (PIRL) instantiates (C1) with a Dynamic Trinary Reward and uses an embedding-space adversary plus consistency regularization as a practical surrogate for (C2). Our contributions are summarized as follows: • We reveal prompt-format overfitting as an issue of RLVR. We identify the prompt-robustness gap : RLVR-tuned MLLMs can improve on training-format prompts while degrading under semantics-preserving rephrasing. We show that this gap is rooted in the standard RLVR objective: binary rewards entangle format compliance with semantic correctness, and optimization over  
+
+> 𝑃 train
+
+cannot distinguish prompt-invariant reasoning from template-specific behavior. • We formulate prompt robustness as optimization over semantic equivalence classes. Rather than treating the observed prompt template as the unit of training, we define robustness over the semantic equivalence class ⟦𝒙 ⟧. This view yields two design principles: Reward Decomposition ,which restores reward variation within format buckets under a non-degeneracy assumption, and Invariance Control , which bounds coverage-averaged answer variation across semantics-preserving prompt transformations. 
+
+## 2Improving Generalization Robustness of Multimodal RLVR 
+
+• We operationalize the principle with Prompt-Invariant RLVR. PIRL applies a Dynamic Trinary Reward and an embedding-space prompt adversary with consistency regularization. The reward separates format compliance from semantic correctness, while the adversary perturbs the prompt embedding within a bounded neighborhood to encourage prompt-invariant behavior. • We evaluate PIRL against template augmentation. Across exam, medical, and legal VQA on Qwen2.5-VL-7B and Qwen3-VL-8B, GRPO often improves in-distribution accuracy but induces larger mean drops under stress testing. PIRL substantially reduces these gaps relative to GRPO and has numerically smaller mean degradation than the multi-template GRPO baseline under both template-stress and dynamic evaluation; the component ablation does not establish that DTR or the adversary is individually necessary beyond MT. 
+
+## 2. Theoretical Analysis of the Robustness Gap 
+
+2.1. Preliminary 
+
+An MLLM policy 𝜋 𝜃 ( 𝒚 | 𝒙 ) generates a response 𝒚 conditioned on a prompt 𝒙 = (𝒗 , 𝒒 , I) , where 𝒗 is a visual input, 𝒒 is a question, and I is an instruction specifying the output format via a delimiter such as \boxed{} . We define F (I) as the format constraint induced by the instruction I (e.g., the regular expression that the verifier matches against the response). Each supervised task instance carries a ground-truth answer 𝑎 ∗ = 𝑎 ∗ (𝒙 ); semantics-preserving transformations of 𝒙 inherit the same answer label. When the answer label is clear from context we suppress it in the reward notation. A verifier 𝑉 
+
+returns a binary reward 𝑟 ∈ { 0, 1} indicating whether 𝒚 satisfies the task. 𝑅 ( 𝒚 , 𝒙 ; 𝑎 ∗) ∈ [ 𝑅 min , 𝑅 max ]
+
+is defined as a more general reward, with 𝑅 = 𝑉 in the standard RLVR setting. Let D denote the distribution over task instances (visual-question pairs together with the fixed training-time instruction and answer labels). The standard RLVR objective (e.g., GRPO [24]) is max  
+
+> 𝜃
+
+𝔼 𝒙 ∼D 𝔼 𝒚 ∼𝜋 𝜃 (· | 𝒙 )
+
+𝑉 ( 𝒚 , 𝒙 ) . (1) GRPO optimizes Eq. (1) via group-relative advantages on 𝐺 rollouts per prompt; we define 𝐴 (𝑖 ) as the group-normalized advantage of rollout 𝑖 (full form in Appendix E). For a finite set 𝑆 , Δ(𝑆 ) denotes the probability simplex on 𝑆 ; for infinite 𝑆 , read Δ(𝑆 ) as probability measures on the relevant measurable space. Multi-template RLVR partially addresses prompt drift by drawing 𝒙 together with a template transformation 𝜏 ∼ 𝑃 train , where 𝑃 train ∈ Δ(T train ) is the training-time distribution over the training transformation set Ttrain of semantics-preserving instruction templates. Together with D, this induces the joint training distribution. In GRPO and its variants the verifier of Eq. (1) factorizes as a product of a format check and a correctness check,  
+
+> 𝑉
+
+( 𝒚 , 𝒙 ) = 𝑉 𝑓 ( 𝒚 , I) 𝑉 𝑐 ( 𝒚 , 𝒒 , 𝒗 ), 𝑉 𝑓 , 𝑉 𝑐 ∈ { 0, 1}, (2) where 𝑉 𝑓 = 1 iff 𝒚 matches the format constraint F (I) and 𝑉 𝑐 = 1 iff 𝒚 encodes the correct answer. Three of the four outcomes (𝑉 𝑓 , 𝑉 𝑐 ) ∈ { 0, 1}2 map to 𝑉 = 0 and only (1, 1) maps to 𝑉 = 1, so under group-relative advantage normalization (Appendix E) the three zero-reward rollouts share the same scalar advantage; the reward/advantage signal does not distinguish a format failure from a semantic failure or a joint failure. We identify two issues from this observation: a reward-variance bias that acts as a proxy for the gradient signal (Section 2.2, Theorem B.1 in the Appendix) and an objective-level non-identifiability (Section 2.3, Proposition B.5 in the Appendix). 
+
+2.2. Reward Entanglement 
+
+With 𝑝 𝑓 := Pr [𝑉 𝑓 =1] and 𝑝 𝑐 := Pr [𝑉 𝑐 =1] over rollouts on a fixed prompt 𝒙 , define the within-format reward-variance share Φwf := 𝔼 [Var (𝑉 | 𝑉 𝑓 )]/ Var (𝑉 ), the fraction of reward variance informative about 
+
+## 3Improving Generalization Robustness of Multimodal RLVR 
+
+𝑉 𝑐 . Under an independent verifier ( 𝑉 𝑓 ⊥ 𝑉 𝑐 ) it equals (1 − 𝑝 𝑐 )/( 1 − 𝑝 𝑓 𝑝 𝑐 ), strictly increasing in 𝑝 𝑓 with 
+
+Φwf → 1 as 𝑝 𝑓 ↑ 1 (Theorem B.1 in the Appendix). Thus low format compliance leaves only the limiting share 1 − 𝑝 𝑐 of reward variance tied to answer correctness, while high format compliance makes the remaining reward variance mostly semantic. Φwf is a reward-side proxy, not the full policy-gradient SNR; positive 𝑉 𝑓 –𝑉 𝑐 correlation only lowers it when the marginal 𝑝 𝑐 is held fixed within the feasible conditional-rate range (Appendix B.2), and DTR removes the 𝑝 𝑓 -dependence from its lower bound (Theorem B.8 in the Appendix). 
+
+2.3. Prompt Dependency 
+
+Let T be the family of semantics-preserving prompt transformations, and for a task instance 𝒙 =
+
+(𝒗 , 𝒒 , I) let ⟦𝒙 ⟧ := {𝜏 (𝒙 ) : 𝜏 ∈ T } be the semantic equivalence class . In the fixed-𝒙 analysis below, distributions such as 𝑃 train , 𝑃 test , and 𝜌 𝒙 are distributions over transformations 𝜏 ; their push-forward through 𝜏 ↦ → 𝜏 (𝒙 ) is the corresponding prompt distribution on ⟦𝒙 ⟧. For a policy 𝜋 and transformation distribution 𝜌 , define 
+
+R ( 𝜋, 𝜌 ; 𝒙 ) := 𝔼 𝜏 ∼𝜌 𝔼 𝒚 ∼𝜋 (· | 𝜏 (𝒙 ) ) 
+
+𝑅 ( 𝒚 , 𝜏 (𝒙 )) , (3) and R ( 𝜋, 𝜏 ; 𝒙 ) for the point mass 𝜌 = 𝛿 𝜏 . Consider restricted training coverage ( 𝑃 train supports only 
+
+Ttrain ⊊ T ) with a separated unseen format 𝜏 𝐵 whose verifier constraint is disjoint from the training formats. Under a 𝜏 -dependent verifier, two policies that agree on the training support and coincide away from 𝜏 𝐵 —one emitting a fixed training-time format on 𝜏 𝐵 , the other following the requested format—are both 𝑃 train -optimal, yet differ by 𝑚 𝐵 Δ𝑅 on any test distribution placing mass 𝑚 𝐵 on 𝜏 𝐵 
+
+(Δ𝑅 := 𝑅 max − 𝑅 min ). The training objective therefore cannot identify the prompt-invariant policy: some 𝑃 train -optimal policy has a 𝑃 test comparator gap ≥ 𝑚 𝐵 Δ𝑅 (Proposition B.5 in the Appendix, with assumptions and proof in Appendix B.3). 
+
+Extensions. The single-point construction extends to a separated set B ⊆ T \ T train for an integrated gap of 𝑃 test (B) Δ𝑅 , which is large only when the separated set itself carries large test mass (an infinite 
+
+T alone does not suffice), and to additive dense rewards under an explicit training-optimal condition (Appendix B.5). A broader measure-zero-support version, with a complexity tie-breaker for shortcuts, is given in Appendix B.4. 
+
+2.4. Conditions for Prompt Invariance 
+
+We take the worst-case prompt distribution on ⟦𝒙 ⟧ as the training target: max  
+
+> 𝜃
+
+𝔼 𝒙 ∼D 
+
+"
+
+inf   
+
+> 𝜌 𝒙 ∈Δ( T )
+
+𝔼 𝜏 ∼𝜌 𝒙 𝔼 𝒚 ∼𝜋 𝜃 (· | 𝜏 (𝒙 ) ) 
+
+𝑅 ( 𝒚 , 𝜏 (𝒙 ))  #
+
+. (4) Eq. (4) is a group-DRO-style population objective [22] in which each transformation-induced prompt condition acts as a group within the semantic equivalence class ⟦𝒙 ⟧. The setup differs from classical group DRO in one practical respect: where group DRO assumes a predefined partition of data, ⟦𝒙 ⟧ is 
+
+operator-generated (semantics-preserving paraphrases, format swaps, NLI-filtered rewrites). C( 𝒙 ) ⊆ T 
+
+denotes a finite semantics-preserving transformation pool whose elements satisfy 𝜏 (𝒙 ) ∈ ⟦ 𝒙 ⟧, used to state (C2). Eq. (4) is a population reference for the ideal group-DRO target. The adversary of Section 3.2 is a differentiable embedding-space relaxation, not a certificate that arbitrary perturbations are on-manifold elements of T .
+
+Two design conditions (full statements in Appendix A). (C1) Reward Decomposition (Definition A.1 in the Appendix): 𝑅 = 𝑅 𝑡 + 𝛼 rew 𝑅 𝑠 with fixed 𝛼 rew > 0, 𝑅 𝑡 ∈ {− 1, 0, +1} format-aware, and a bounded semantic score 𝑅 𝑠 ∈ [ 0, 1] giving, for the stochastic rollout laws in the policy class on which C1 is 
+
+## 4Improving Generalization Robustness of Multimodal RLVR GT Responses  Responses to  𝑥 ′                               
+
+> Responses to 𝑥
+> 𝑥 𝑥 ′
+> MLLM Policy 𝝅 𝜽
+> Instruction delimiter template
+> Multimodal embedding
+> Please provide your answer in \box{}
+> Rollout 1
+> Rollout 2
+> Provide your $u answer in
+> 2#4 <\answer> <answer>
+> Adversarial Agent 𝝅 𝝓
+> DTR
+> Adversarial Consistency Objective
+> Group Compute Group Compute
+> DTR
+> 𝑦 𝑦 ∗𝑦 ′
+> Adversarial Mutations
+> 𝑥 𝑥 ′
+> Rewards Rewards
+> Policy Obj Adv Obj
+> Original Prompt 𝑥 Mutated Prompt 𝑥 ′
+> Dynamic Trinary Reward (DTR)
+> Advantages Advantages
+> AB = AC = AD. If ∠BAC = 28 °
+> and AD ∥ BC, then ∠D = ?
+> Question: As shown in the figure,
+> AB = AC = AD. If ∠BAC = 28 °
+> and AD ∥ BC, then ∠D = ?
+> Question: As shown in the figure,
+> Benchmarks
+> Legal Exam Med
+> Delimiter 𝐷
+> \box{}
+> Trinary Reward
+> Prompt
+> Answers
+> oExact y=𝑦 ∗
+> oEntail
+> oPartial
+> oRedundant
+> oNeutral
+> oContradict
+
++o 𝐴  = 𝐴 ∗        
+
+> o𝐴 ≠ 𝐴 ∗∧ 𝐷 ≠ 𝜙
+> o𝐷 = 𝜙
+> Validity Rules
+> Semantic Rules
+> Dynamically
+> changing weight
+> Semantic Reward
+> Answer Parsing
+> Parse Instruction 𝐼 𝑥
+> 𝑅 𝑠 ∈ [0,1]
+> Responses
+> MLLM 𝑦 GT 𝑦 ∗
+
+𝜶    
+
+> MLLM 𝐴 GT 𝐴 ∗
+
+Figure 2 | PIRL targets reward decomposition via DTR + DAN and prompt-invariant learning via an embedding-space adversary plus a consistency regularizer. asserted, Var (𝑅 | 𝑉 𝑓 = 𝑣 ′) ≥ 𝑐 > 0 whenever the format bucket {𝑉 𝑓 = 𝑣 ′} has positive probability, so the reward-variance share Φ𝑅 
+
+wf := 𝔼 [Var (𝑅 | 𝑉 𝑓 )]/ Var (𝑅 ) is bounded below independently of 𝑝 𝑓 ;boundedness alone is not the non-degeneracy assumption. (C2) Invariance Control (Definition A.2 in the Appendix): under the prompt-conditioned answer marginal induced by the deterministic extractor A𝜏 , 𝔼 𝜏 1,𝜏 2∼𝜌 𝒙 [𝐷 (𝜋 A𝜏 1 
+
+> 𝜃
+
+(· | 𝜏 1 (𝒙 )) ∥ 𝜋 A𝜏 2 
+
+> 𝜃
+
+(· | 𝜏 2 (𝒙 )))] ≤ 𝜀 for some non-degenerate coverage 
+
+𝜌 𝒙 ∈ Δ(C( 𝒙 )) and an 𝑓 -divergence 𝐷 with Pinsker constant 𝜅 𝐷 (for the KL used here, 𝜅 𝐷 = 1/√2). We require invariance only at the answer level; the per-token adversarial-to-clean KL penalty of Section 3.2 is a tractable training surrogate, not a strict upper bound on (C2) (Appendix A). For the population-level comparison below, the delimiter extractor is assumed to be format-consistent: if a response in F𝜏 encodes answer 𝑎 , then A𝜏 returns 𝑎 , while a response in a format family disjoint from 
+
+F𝜏 returns ∅ under A𝜏 .Together, (C1) and (C2) give the population-level consequences used below (Proposition B.10 in the Appendix): (C1) gives a 𝑝 𝑓 -independent lower bound on Φ𝑅 
+
+wf , while (C2) with small 𝜀 excludes the format-fixed branch 𝜋 1 of Proposition B.5 in the Appendix and admits the deterministic correct-answer branch 𝜋 2 on the coverage support. Moreover, for common bounded answer-level rewards, any (C2)-feasible policy has 𝜌 𝒙 -averaged pairwise answer-reward difference at most Δ𝑅 𝜅 𝐷 
+
+√𝜀 .
+
+Coverage transfer. (C2) is regularized on the pool C( 𝒙 ) ⊆ T rather than on ⟦𝒙 ⟧ itself. Proposition B.11 in the Appendix bounds the resulting shift: the test mean reward of any fixed policy differs from its training-coverage mean by at most Δ𝑅 𝜂 , 𝜂 := TV (𝑃 test , 𝜌 𝒙 ) (tight; it transfers a policy’s own reward). The two knobs are decoupled: 𝜀 is a training-time invariance control, 𝜂 a pool-design control. 
+
+## 3. Method: Prompt-Invariant RLVR 
+
+PIRL instantiates (C1) through a Dynamic Trinary Reward (DTR, Section 3.1), applied to the standard GRPO advantage with a small normalization adjustment (DAN, Section 3.1); it regularizes toward (C2) through an embedding-space adversary plus a consistency regularizer (Section 3.2). The reward-adversarial sampler (Section 3.3) is a hard-prompt sampling heuristic inspired by Eq. (4); the policy update remains a clipped GRPO surrogate with DAN advantages. In the full configuration, we first draw a discrete training template 𝜏 0 ∼ 𝑃 train from the same five-template pool used by GRPO-MT 
+
+## 5Improving Generalization Robustness of Multimodal RLVR 
+
+and then apply the embedding adversary around 𝜏 0 (𝒙 ). We absorb this initial template draw into the prompt notation below; the no-MT ablation sets 𝜏 0 to the identity. 
+
+3.1. Dynamic Trinary Reward (DTR) 
+
+DTR rewards each rollout with 𝑅 = 𝑅 𝑡 + 𝛼 rew 𝑅 𝑠 , where 𝑅 𝑡 ∈ {− 1, 0, +1} is a format-aware trinary verifier and 𝑅 𝑠 ∈ [ 0, 1] is a format-independent semantic score. Let 𝑎 𝜏 ( 𝒚 ) := A ( 𝒚 ; 𝑑 𝜏 ) be the answer extracted at the delimiter 𝑑 𝜏 specified by the current instruction, and let 𝑎 ∗ be the ground-truth answer. The trinary verifier is 
+
+𝑅 𝑡 =
+
+
+
++1, 𝑎 𝜏 ( 𝒚 ) = 𝑎 ∗,
+
+0, 𝑎 𝜏 ( 𝒚 ) ∉ {∅ , 𝑎 ∗},
+
+−1, 𝑎 𝜏 ( 𝒚 ) = ∅,
+
+(5) which distinguishes correct answer ( +1), wrong answer in correct format (0), and format failure (−1). 𝑅 𝑠 is the entailment score from a fixed NLI scorer [3]; for the variance-floor theorem, 𝑅 𝑠 is not collapsed to a single ∅ value on format failures. The total DTR reward is 
+
+𝑅 DTR ( 𝒚 , 𝒙 ; 𝑎 ∗) = 𝑅 𝑡 + 𝛼 rew 𝑅 𝑠 , (6) with a fixed reward weight 𝛼 rew > 0. In our experiments 𝛼 rew = 0.01 < 1, which preserves the ordering correct-and-formatted > wrong-but-formatted > format failure for all 𝑅 𝑠 ∈ [ 0, 1]; the variance result itself only needs 𝛼 rew > 0. For a transformed prompt 𝜏 (𝒙 ), the ground-truth label remains the label of the underlying task instance; when clear we write 𝑅 DTR ( 𝒚 , 𝜏 (𝒙 )) as shorthand for 𝑅 DTR ( 𝒚 , 𝜏 (𝒙 ); 𝑎 ∗).Under the non-degeneracy condition formalized in Appendix B.6, the bounded semantic score 𝑅 𝑠 
+
+injects within-bucket reward variance even when the format outcome is fixed, so the reward-variance lower bound does not collapse as the format-valid rate 𝑝 𝑓 changes: the 𝑝 𝑓 -dependence of Theorem B.1 in the Appendix drops out, and while the realized ΦDTR wf can still vary with 𝑝 𝑓 through Var (𝑅 ), its numerator has a lower bound independent of 𝑝 𝑓 . We defer the formal statement, its non-degeneracy assumption, and the proof to Appendix B.6. 
+
+Decoupled advantage normalization (DAN). Naive group-normalization ˆ 𝐴 = Norm (𝑅 𝑡 + 𝛼 rew 𝑅 𝑠 )
+
+couples 𝑅 𝑡 and 𝑅 𝑠 at the batch level when their empirical scales differ. We z-score 𝑅 𝑡 and 𝑅 𝑠 separately within each rollout group, combine, and re-normalize at the batch level: 
+
+𝑍 𝑖 = Norm G (𝑅 (𝑖 ) 
+
+> 𝑡
+
+) + 𝛼 adv Norm G (𝑅 (𝑖 ) 
+
+> 𝑠
+
+),
+
+ˆ𝐴 𝑖 = clip (Norm B (𝑍 𝑖 ), −5, 5) , (7) where Norm 𝑆 (𝑧 ) = (𝑧 − ¯𝑧 )/( 𝜎 𝑧 + 𝜖 norm ) uses the same numerical-stability 𝜖 norm > 0 as standard GRPO. Here 𝛼 adv > 0 is the advantage-mixing coefficient after z-scoring; it is distinct from the scalar reward coefficient 𝛼 rew in Eq. (6). DAN does not change the DTR reward definition used in Theorem B.8 in the Appendix; in finite batches the realized advantage scale depends on the within-group correlation between the two components. 
+
+3.2. Adversarial agent and consistency 
+
+We approximate the worst-case distribution in Eq. (4) with an adversarial sampler 𝑞 𝜙 that perturbs the prompt in embedding space. In the projected-gradient implementation, 𝑞 𝜙 can be read as the point mass at the final perturbation; a stochastic perturbation head gives the distributional version of the same notation. This sampler is distinct from the C2 coverage distribution 𝜌 𝒙 ; the consistency term regularizes sampled clean/adversarial pairs rather than certifying the full C2 expectation. Given an 
+
+## 6Improving Generalization Robustness of Multimodal RLVR 
+
+Table 1 | Accuracy (%) under standard and template-stress (T-Stress) evaluation. MMK12 pools the Math/Science subsets; Olym-Phys is OlympiadBench-Physics; Legal VQA is DocVQA. ID/OOD: in-/out-of-distribution; MT: Multi-Template. Best per model category in bold .
+
+Backbone Method Exam VQA Medical VQA Legal VQA ID OOD ID OOD OOD       
+
+> MMK12 MathVista Olym-Phys RAD Path GMAI DocVQA
+
+Qwen2.5 VL-7B 
+
+Base Model 53.1 68.4 8.5 64.7 43.0 44.8 66.8 
+
+T-Stress 54.1 69.6 7.2 66.3 42.4 42.4 67.2 
+
+> Δ
+
+T +1.0 ±0.4 +1.2 ±0.4 -1.3 ±0.7 +1.6 ±0.5 -0.6 ±0.6 -2.4 ±0.6 +0.4 ±0.5
+
+GRPO 54.9 70.1 7.5 73.5 48.1 42.1 69.1 
+
+T-Stress 54.1 65.7 5.9 71.2 41.4 39.7 66.7 
+
+> Δ
+
+T -0.8 ±0.4 -4.4 ±0.4 -1.6 ±0.7 -2.3 ±0.5 -6.7 ±0.6 -2.4 ±0.6 -2.4 ±0.5
+
+GRPO-MT 54.9 70.0 7.8 71.0 45.8 42.2 68.9 
+
+T-Stress 54.0 69.3 7.6 69.7 43.2 40.9 68.0 
+
+> Δ
+
+T -0.9 ±0.4 -0.7 ±0.4 -0.2 ±0.7 -1.3 ±0.5 -2.6 ±0.6 -1.3 ±0.6 -0.9 ±0.5
+
+PIRL (Ours) 55.3 68.6 9.6 72.6 49.3 44.8 69.5 
+
+T-Stress 55.7 68.9 10.7 73.4 48.5 42.1 69.7 
+
+> Δ
+
+T +0.4 ±0.4 +0.3 ±0.4 +1.1 ±0.7 +0.8 ±0.5 -0.8 ±0.6 -2.7 ±0.6 +0.2 ±0.5
+
+Qwen3 VL-8B 
+
+Base Model 60.3 68.9 25.3 68.1 49.1 46.0 70.3 
+
+T-Stress 59.9 69.6 25.7 68.7 49.2 46.2 71.0 
+
+> Δ
+
+T -0.4 ±0.4 +0.7 ±0.4 +0.4 ±0.7 +0.6 ±0.5 +0.1 ±0.6 +0.2 ±0.6 +0.7 ±0.5
+
+GRPO 60.5 69.1 27.1 77.2 49.9 46.2 72.7 
+
+T-Stress 60.0 67.5 26.0 76.1 48.1 44.8 71.4 
+
+> Δ
+
+T -0.5 ±0.4 -1.6 ±0.4 -1.1 ±0.7 -1.1 ±0.5 -1.8 ±0.6 -1.4 ±0.6 -1.3 ±0.5
+
+GRPO-MT 58.7 72.8 21.5 77.4 49.8 46.2 72.6 
+
+T-Stress 57.8 73.1 21.5 76.1 47.2 44.9 72.2 
+
+> Δ
+
+T -0.9 ±0.4 +0.3 ±0.4 0.0 ±0.7 -1.3 ±0.5 -2.6 ±0.6 -1.3 ±0.6 -0.4 ±0.5
+
+PIRL (Ours) 60.9 72.0 27.4 78.8 50.0 46.3 73.1 
+
+T-Stress 60.1 72.4 26.3 79.6 49.2 43.6 73.6 
+
+> Δ
+
+T -0.8 ±0.4 +0.4 ±0.4 -1.1 ±0.7 +0.8 ±0.5 -0.8 ±0.6 -2.7 ±0.6 +0.5 ±0.5
+
+instance 𝒙 = (𝒗 , 𝒒 , I) and the current policy, let 𝒆 I (𝒙 ) denote the instruction-token embeddings. The main adversary emits a bounded additive perturbation on this instruction block, ˜ 𝒆 I (𝒙 ) = 𝒆 I (𝒙 ) + 𝜹 
+
+with ∥𝜹 ∥2 ≤ 𝜖 emb , and we write 𝜏 𝜙 (𝒙 ) for the resulting perturbed prompt. The perturbation explores the 𝜖 emb -ball around the instruction representation to drive down the policy’s expected DTR reward, approximating local prompt variation under reworded instructions; the image, question content, and answer target are held fixed. For embedding-space perturbations, the surface delimiter used by the extractor is not changed: 𝑑 𝜏 𝜙 = 𝑑 𝒙 . Discrete template transformations use their own requested delimiter 𝑑 𝜏 .
+
+Consistency regularization. The adversary alone only discovers low-reward local prompt pertur-bations. We add an adversarial-to-clean KL penalty on paired token distributions. For a prefix distribution 𝜈 𝑡 (sampled-prefix for the sequence-KL view, teacher-forced in the implementation) over 
+
+𝒚 <𝑡 , let 𝑝 𝒙  
+
+> 𝑡
+
+= 𝜋 𝜃 (· | 𝒚 <𝑡 , 𝒙 ) and 𝑝 𝜏 𝑡 = 𝜋 𝜃 (· | 𝒚 <𝑡 , 𝜏 𝜙 (𝒙 )) . We use 
+
+Lcons (𝜃 ; 𝒙 , 𝜙 ) = 1
+
+𝑇 
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡
+
+=1
+
+𝔼 𝒚 <𝑡 ∼𝜈 𝑡 𝐷 KL 
+
+ 𝑝 𝜏 𝑡 sg ( 𝑝 𝒙  
+
+> 𝑡
+
+) , (8) where sg (·) stops gradients through the clean-prompt anchor. This is a tractable per-token proxy for the sequence-level divergence; we adopt the per-token form because it is differentiable end-to-end and its per-token gradients are dense (its relation to the full-sequence 𝐷 KL is discussed in Appendix A). 
+
+3.3. Overall objective 
+
+Let LDAN G (𝜋 𝜃 , 𝑞 ; 𝑅 𝑡 , 𝑅 𝑠 ) denote the clipped GRPO loss evaluated on prompts from 𝑞 , with DAN advan-tages from Eq. (7) and an optional reference-KL penalty (full form in Appendix E); its coefficient is set to zero in our experiments. The ideal relaxed adversarial target is max  
+
+> 𝜙
+
+𝔼 𝒙 ∼D 𝔼 𝜏 ∼𝑞 𝜙 (· | 𝒙 ) 𝔼 𝒚 ∼𝜋 𝜃 (· | 𝜏 (𝒙 ) ) 
+
+−𝑅 DTR ( 𝒚 , 𝜏 (𝒙 )) , (9) 
+
+## 7Improving Generalization Robustness of Multimodal RLVR 
+
+Table 2 | Accuracy (%) under standard and dynamic-test (D-Test) evaluation over the full operator pool. For each backbone, PIRL has the smallest mean gap across the seven benchmarks among trained methods. Best per model category in bold .
+
+Backbone Method Exam VQA Medical VQA Legal VQA ID OOD ID OOD OOD 
+
+MMK12 MathVista Olym-Phys RAD Path GMAI DocVQA 
+
+Qwen2.5 VL-7B 
+
+Base Model 53.1 68.4 8.5 64.7 43.0 44.8 66.8 
+
+D-Test 53.5 21.4 4.4 66.1 40.4 37.3 46.1 
+
+ΔD +0.4 ±0.5 -47.0 ±0.8 -4.1 ±0.7 +1.4 ±0.6 -2.6 ±0.6 -7.5 ±0.6 -20.7 ±0.5
+
+GRPO 54.9 70.1 7.5 73.5 48.1 42.1 69.1 
+
+D-Test 51.3 21.6 4.4 61.4 42.3 34.5 46.3 
+
+ΔD -3.6 ±0.5 -48.5 ±0.8 -3.1 ±0.7 -12.1 ±0.6 -5.8 ±0.6 -7.6 ±0.6 -22.8 ±0.5
+
+GRPO-MT 54.9 70.0 7.8 71.0 45.8 42.2 68.9 
+
+D-Test 54.2 21.3 4.3 61.9 42.1 34.5 47.7 
+
+ΔD -0.7 ±0.5 -48.7 ±0.8 -3.5 ±0.7 -9.1 ±0.6 -3.7 ±0.6 -7.7 ±0.6 -21.2 ±0.5
+
+PIRL (Ours) 55.3 68.6 9.6 72.6 49.3 44.8 69.5 
+
+D-Test 54.2 21.4 5.5 65.3 46.2 37.6 49.0 
+
+ΔD -1.1 ±0.5 -47.2 ±0.8 -4.1 ±0.7 -7.3 ±0.6 -3.1 ±0.6 -7.2 ±0.6 -20.5 ±0.5
+
+Qwen3 VL-8B 
+
+Base Model 60.3 68.9 25.3 68.1 49.1 46.0 70.3 
+
+D-Test 60.2 21.8 20.7 69.0 46.7 38.6 49.8 
+
+ΔD -0.1 ±0.5 -47.1 ±0.8 -4.6 ±0.7 +0.9 ±0.6 -2.4 ±0.6 -7.4 ±0.6 -20.5 ±0.5
+
+GRPO 60.5 69.1 27.1 77.2 49.9 46.2 72.7 
+
+D-Test 56.5 20.8 23.7 64.9 44.1 38.9 50.7 
+
+ΔD -4.0 ±0.5 -48.3 ±0.8 -3.4 ±0.7 -12.3 ±0.6 -5.8 ±0.6 -7.3 ±0.6 -22.0 ±0.5
+
+GRPO-MT 58.7 72.8 21.5 77.4 49.8 46.2 72.6 
+
+D-Test 58.4 23.8 18.2 68.2 46.2 38.6 51.8 
+
+ΔD -0.3 ±0.5 -49.0 ±0.8 -3.3 ±0.7 -9.2 ±0.6 -3.6 ±0.6 -7.6 ±0.6 -20.8 ±0.5
+
+PIRL (Ours) 60.9 72.0 27.4 78.8 50.0 46.3 73.1 
+
+D-Test 60.1 24.6 22.8 71.2 49.0 39.5 52.8 
+
+ΔD -0.8 ±0.5 -47.4 ±0.8 -4.6 ±0.7 -7.6 ±0.6 -1.0 ±0.6 -6.8 ±0.6 -20.3 ±0.5
+
+Table 3 | Ablation of multi-template (MT), dynamic trinary reward (DTR), and adversarial prompt-ing (ADV). Mean ±std over 3 seeds ( ΔT within ±1.5 pp inconclusive). Exam VQA Avg = mean of MMK12/MathVista/Olym-Phys. 
+
+Components Exam VQA Avg. Olym-Phys MT ADV DTR Std. T-Stress D-Test ΔT ΔD Std. T-Stress D-Test ΔT ΔD
+
+× × × 44 .2±0.4 41 .9±0.5 25 .8±0.6 −2.3±0.5 −18 .4±0.7 7.5±0.5 5.9±0.5 4.4±0.5 −1.6±0.5 −3.1±0.5
+
+× ✓ ✓ 44 .3±0.4 43 .4±0.5 26 .0±0.7 −0.9±0.5 −18 .3±0.7 10 .3±0.5 10 .4±0.5 4.4±0.5 +0.1±0.5 −5.9±0.5
+
+✓ × ✓ 44 .4±0.4 44 .4±0.5 26 .8±0.7 0.0 ±0.5 −17 .6±0.7 10 .1±0.5 9.8±0.5 4.2±0.5 −0.3±0.5 −5.9±0.5
+
+✓ ✓ ✓ 44.5 ±0.4 45.1 ±0.5 27.0 ±0.7 +0.6±0.5 −17 .5±0.7 9.6 ±0.5 10.7 ±0.5 5.5 ±0.5 +1.1±0.5 −4.1±0.5
+
+with 𝑞 𝜙 supported on the 𝜖 emb instruction-embedding ball. In the algorithm, let b𝜙 𝐾 (𝜃 ) denote the parameter returned by 𝐾 projected-ascent steps toward Eq. (9), and let ¯ 𝜙 = sg ( b𝜙 𝐾 (𝜃 )) denote the frozen adversarial sample used by the outer update. The policy objective is min 
+
+𝜃 𝔼 𝒙 ∼D 
+
+h
+
+LDAN G
+
+ 𝜋 𝜃 , 𝑞 ¯𝜙 (· | 𝒙 ); 𝑅 𝑡 , 𝑅 𝑠 
+
+ + 𝜆 Lcons (𝜃 ; 𝒙 , ¯𝜙 )
+
+i
+
+, (10) During the policy update, the resulting perturbations are treated as fixed adversarial samples; we do not differentiate through the inner ascent trajectory or claim exact bilevel optimization. Advantages are normalized by DAN (Eq. (7)), and 𝜆 > 0 weights the invariance penalty. Algorithm 2 in the Appendix gives the full loop. 
+
+## 4. Experiments 
+
+4.1. Setup 
+
+We conduct extensive experiments to evaluate our framework across diverse benchmarks: Exam VQA 
+
+(train/ID eval MMK12 [20], ID eval MathVista [16], OOD eval Olym-Phys [7]), Medical VQA (train 
+
+## 8Improving Generalization Robustness of Multimodal RLVR 1 5 10 15    
+
+> # prompt templates
+> 48 49 50 51
+> Accuracy (%)
+> In-Distribution (ID)
+> 1510 15
+> # prompt templates
+> 30 32 34 36 38 40
+> Out-of-Distribution (OOD)
+> Base GRPO-MT GRPO PIRL (Ours)
+
+Figure 3 | Effect of prompt-template count on Exam VQA ID/OOD accuracy. GRPO degrades on ID as more unseen templates appear; GRPO-MT and PIRL stay flat, with PIRL highest on both. Lingshu [11]; ID eval VQA-RAD [12] and PathVQA [8]; OOD eval GMAI-MMBench [4]), and Legal VQA (train DUDE [26]; OOD eval DocVQA [19]). Base models: Qwen2.5-VL-7B [2] and Qwen3-VL-8B [1]. Baselines: GRPO [24] and GRPO-MT (augmented with 5 templates). Protocols: Standard 
+
+(training template), T-Stress (sample one from 𝑛 ∈ { 1, . . . , 15 } semantics-preserving templates), and 
+
+D-Test (operator-based input mutations from Yang et al. [30]; Appendix D). ΔT and ΔD denote the Standard →T-Stress and Standard →D-Test gaps (negative = degradation). All reported accuracies are means over 3 seeds. 
+
+4.2. Template Stress Test 
+
+Table 1 reports Standard and T-Stress accuracy, and Figure 5 summarizes the mean gap per method. On general Exam VQA , standard GRPO gains in-template accuracy but loses sharply under template shift: on Qwen2.5-VL-7B MathVista drops by 4 .4 and Olym-Phys by 1 .6, whereas PIRL is flat-to-positive (ΔT = +0.3 on MathVista, +1.1 on Olym-Phys) and matches or beats the five-template GRPO-MT baseline (MathVista +0.3 vs. GRPO-MT −0.7). Absent an invariance constraint of the kind in (C2), Proposition B.5 in the Appendix gives a mechanism for gaps that scale with the unseen-template mass, which is the pattern GRPO and GRPO-MT display on Exam VQA. 
+
+High-stakes VQA. The Medical and Legal blocks of Table 1 target deployment-oriented domains, where an answer that flips under a reworded instruction is of little use when the downstream decision carries operational cost. On medical VQA , GRPO degrades under template stress (Qwen2.5-VL-7B: VQA-RAD −2.3, PathVQA −6.7) while PIRL stays near flat (VQA-RAD +0.8, PathVQA −0.8); the exception is GMAI, where PIRL’s drop ( −2.7) exceeds GRPO-MT ( −1.3) without dominating. On legal VQA (DocVQA), PIRL retains accuracy on both base models ( ΔT = +0.2 on Qwen2.5-VL-7B, +0.5 on Qwen3-VL-8B) whereas GRPO degrades ( −2.4 and −1.3) and GRPO-MT recovers only partly. 
+
+4.3. Effect of Template Count 
+
+We sweep 𝑁 , the number of different templates used in evaluation, on Exam VQA (Fig. 3). GRPO ID accuracy drops from 49 .5 at 𝑁 =1 to 47 .7 at 𝑁 ≥5, qualitatively consistent with the mass-dependent construction in Proposition B.5 in the Appendix; the proposition is not a fitted prediction of this curve. GRPO-MT flattens it (ID 49 .5, OOD 32 .3). PIRL keeps ID accuracy at 51 .1 and OOD accuracy increases up to 𝑁 =10 (40 .5 → 41 .2). 
+
+## 9Improving Generalization Robustness of Multimodal RLVR 
+
+4.4. Dynamic Evaluation 
+
+Under operator-based input mutations (Table 2; Appendix D), on general (Exam) VQA PIRL narrows the open-ended gap (MMK12 ΔD = −1.1 vs. GRPO −3.6 on Qwen2.5-VL-7B), whereas on MathVista every method collapses ( ∼− 47 to −49) because multi-choice questions are reconstructed into free-form QA rather than simple paraphrase. 
+
+High-stakes VQA. On medical VQA , PIRL is consistently the least-degraded trained method (Qwen2.5-VL-7B: VQA-RAD ΔD = −7.3 vs. GRPO −12 .1; PathVQA −3.1 vs. −5.8; GMAI −7.2 vs. −7.6). On legal VQA (DocVQA), document-layout mutations degrade every method by ∼20 points—a task-altering input mutation rather than a rewording—with PIRL degrading least ( ΔD = −20 .5 and −20 .3 vs. GRPO 
+
+−22 .8 and −22 .0). The document-VQA prompt-robustness claim therefore rests on template stress (Section 4.2), where the failure that matters is an answer that flips under a reworded instruction. 
+
+4.5. Ablation 
+
+Table 3 ablates multi-template (MT), adversarial prompts (ADV; embedding-space), and DTR on Exam VQA Avg. and Olym-Phys. Full PIRL has the strongest T-Stress result ( ΔT = +0.6 vs. GRPO −2.3). On the aggregate D-Test the four configurations cluster within noise ( ΔD from −18 .4 to −17 .5): the average is dominated by the multiple-choice math benchmark (MathVista) on which every method collapses (Table 2), so it does not separate components. The component signal is therefore on T-Stress, where full PIRL ( +0.6) and MT+DTR (0 .0) sit within noise of each other while both clearly beat GRPO ( −2.3); this ablation does not cleanly isolate DTR’s or the adversary’s individual contributions beyond MT. We thus present DTR and the adversary as principled additions with no detectable cost here, not as individually necessary for the leading-order T-Stress gain. On Olym-Phys, PIRL improves 
+
+> Δ
+
+T ( +1.1) and D-Test accuracy over GRPO, although its ΔD is worse ( −4.1 vs. −3.1) because the higher Standard accuracy enlarges the absolute drop. The adversary edits the instruction side only; image-side robustness is reported in Appendix C.1 (Figure 4). 
+
+4.6. Discussion 
+
+Against the ∼1.5 pp inconclusive threshold, the PathVQA/MathVista wins ( −0.8, +0.3 vs. GRPO 
+
+−6.7, −4.4) clear it, while the GMAI gap ( −2.7 vs. GRPO-MT −1.3) does not. On Pass@8 (Table 6) PIRL is flat vs. base and +0.6 to +2.5 vs. GRPO; the ceiling is set by the base, and PIRL’s robustness objective is consistent with evidence that RLVR often reweights existing probability mass rather than enlarging the reasoning frontier [15, 32]. 
+
+## 5. Related Work 
+
+RL for reasoning. RLVR is widely used to improve reasoning in LLMs and MLLMs [6, 20, 33, 35], but outcome-based optimization also exposes Goodhart-style failures where policies exploit reward or evaluator artifacts [25, 32], with reported biases such as length and reward hacking [9, 15, 17, 28]. While prior reasoning frameworks rely heavily on static environments, we study how a multiplicative verifier can reduce correctness-informative reward variation when format compliance is low. 
+
+Robust RL and reward generalization. RL-tuned MLLMs overfit to response templates under imperfect rewards [9, 34]. Robustness work uses RL to search adversarial prompts or red-team [5, 14, 21] or studies perception-side perturbations [13]; we instead train with an in-loop adversary that perturbs the prompt embedding. Reward-side methods (reward-prompt evolution, preference augmentation, process rewards [10, 18, 27, 29, 31, 34]) are complementary for our framework. 
+
+## 10 Improving Generalization Robustness of Multimodal RLVR 
+
+## 6. Conclusion 
+
+We formalize the prompt-robustness gap through reward-signal entanglement and population-level objective non-identifiability, and identify Reward Decomposition (C1) and Invariance Control (C2) as the corresponding design conditions. PIRL instantiates these conditions through a Dynamic Trinary Reward, an embedding-space prompt adversary, and consistency regularization. Experiments across multimodal reasoning benchmarks show that PIRL reduces template-induced degradation while largely preserving accuracy. 
+
+## Limitations 
+
+Scope of the invariance objective. PIRL promotes invariance within a continuous instruction-embedding neighborhood, a tractable relaxation of the semantic equivalence class. Although individual perturbations need not decode to literal prompts, this design enables efficient exploration beyond a finite template pool, while the token-level KL provides a practical surrogate for answer-level invariance. 
+
+Theoretical scope and scaling considerations. Our non-identifiability and C1/C2 results are population-level under coverage assumptions that isolate the underlying mechanism. Finite-sample learnability guarantees and scaling beyond the 7–8B models evaluated here are promising directions that the framework is well positioned to support. 
+
+## References 
+
+[1] Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, Wenbin Ge, Zhifang Guo, Qidong Huang, Jie Huang, Fei Huang, Binyuan Hui, Shutong Jiang, Zhaohai Li, Mingsheng Li, Mei Li, Kaixin Li, Zicheng Lin, Junyang Lin, Xuejing Liu, Jiawei Liu, Chenglong Liu, Yang Liu, Dayiheng Liu, Shixuan Liu, Dunjie Lu, Ruilin Luo, Chenxu Lv, Rui Men, Lingchen Meng, Xuancheng Ren, Xingzhang Ren, Sibo Song, Yuchong Sun, Jun Tang, Jianhong Tu, Jianqiang Wan, Peng Wang, Pengfei Wang, Qiuyue Wang, Yuxuan Wang, Tianbao Xie, Yiheng Xu, Haiyang Xu, Jin Xu, Zhibo Yang, Mingkun Yang, Jianxin Yang, An Yang, Bowen Yu, Fei Zhang, Hang Zhang, Xi Zhang, Bo Zheng, Humen Zhong, Jingren Zhou, Fan Zhou, Jing Zhou, Yuanzhi Zhu, and Ke Zhu. Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 , 2025. [2] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, Jiabo Ye, Xi Zhang, Tianbao Xie, Zesen Cheng, Hang Zhang, Zhibo Yang, Haiyang Xu, and Junyang Lin. Qwen2.5-vl technical report. arXiv preprint arXiv:2502.13923 , 2025. [3] Oana-Maria Camburu, Tim Rocktäschel, Thomas Lukasiewicz, and Phil Blunsom. e-SNLI: Natural language inference with natural language explanations. Advances in Neural Information Processing Systems , 31, 2018. [4] Pengcheng Chen, Jin Ye, Guoan Wang, Yanjun Li, Zhongying Deng, Wei Li, Tianbin Li, Haodong Duan, Ziyan Huang, Yanzhou Su, Benyou Wang, Shaoting Zhang, Bin Fu, Jianfei Cai, Bohan Zhuang, Eric J. Seibel, Yu Qiao, and Junjun He. GMAI-MMBench: A comprehensive multimodal evaluation benchmark towards general medical ai. Advances in Neural Information Processing Systems , 37:94327–94427, 2024. [5] Xuan Chen, Yuzhou Nie, Wenbo Guo, and Xiangyu Zhang. When llm meets drl: Advancing jailbreaking efficiency via drl-guided search. Advances in Neural Information Processing Systems , 37:26814–26845, 2024. [6] DeepSeek-AI. DeepSeek-R1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948 , 2025. 
+
+## 11 Improving Generalization Robustness of Multimodal RLVR 
+
+[7] Chaoqun He, Renjie Luo, Yuzhuo Bai, Shengding Hu, Zhen Leng Thai, Junhao Shen, Jinyi Hu, Xu Han, Yujie Huang, Yuxiang Zhang, Jie Liu, Lei Qi, Zhiyuan Liu, and Maosong Sun. Olympiadbench: A challenging benchmark for promoting agi with olympiad-level bilingual multimodal scientific problems. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 3828–3850, 2024. [8] Xuehai He, Yichen Zhang, Luntian Mou, Eric Xing, and Pengtao Xie. Pathvqa: 30000+ questions for medical visual question answering. arXiv preprint arXiv:2003.10286 , 2020. [9] Jian Hu, Jason Klein Liu, Haotian Xu, and Wei Shen. Reinforce++: Stabilizing critic-free policy opti-mization with global advantage normalization. arXiv preprint arXiv:2501.03262 , 2025. [10] Zae Myung Kim, Chanwoo Park, Vipul Raheja, Suin Kim, and Dongyeop Kang. Toward evaluative thinking: Meta policy optimization with evolving reward models. arXiv preprint arXiv:2504.20157 , 2025. [11] LASA Team, Weiwen Xu, Hou Pong Chan, Long Li, Mahani Aljunied, Ruifeng Yuan, Jianyu Wang, Chenghao Xiao, Guizhen Chen, Chaoqun Liu, Zhaodonghui Li, Yu Sun, Junao Shen, Chaojun Wang, Jie Tan, Deli Zhao, Tingyang Xu, Hao Zhang, and Yu Rong. Lingshu: A generalist foundation model for unified multimodal medical understanding and reasoning. arXiv preprint arXiv:2506.07044 , 2025. [12] Jason J. Lau, Soumya Gayen, Asma Ben Abacha, and Dina Demner-Fushman. A dataset of clinically generated visual questions and answers about radiology images. Scientific Data , 5(1):180251, 2018. [13] Yuting Li, Lai Wei, Kaipeng Zheng, Jingyuan Huang, Linghe Kong, Lichao Sun, and Weiran Huang. Vision matters: Simple visual perturbations can boost multimodal math reasoning. arXiv preprint arXiv:2506.09736 , 2025. [14] Jiayi Lin, Liangcai Su, Junzhe Li, and Chenxiong Qian. R1-fuzz: Specializing language models for textual fuzzing via reinforcement learning. arXiv preprint arXiv:2509.20384 , 2025. [15] Zichen Liu, Changyu Chen, Wenjun Li, Penghui Qi, Tianyu Pang, Chao Du, Wee Sun Lee, and Min Lin. Understanding r1-zero-like training: A critical perspective. arXiv preprint arXiv:2503.20783 , 2025. [16] Pan Lu, Hritik Bansal, Tony Xia, Jiacheng Liu, Chunyuan Li, Hannaneh Hajishirzi, Hao Cheng, Kai-Wei Chang, Michel Galley, and Jianfeng Gao. Mathvista: Evaluating mathematical reasoning of foundation models in visual contexts. In The Twelfth International Conference on Learning Representations , 2024. [17] Yi Lu, Jianing Wang, Linsen Guo, Wei He, Hongyin Tang, Tao Gui, Xuanjing Huang, Xuezhi Cao, Wei Wang, and Xunliang Cai. R-horizon: How far can your large reasoning model really go in breadth and depth? arXiv preprint arXiv:2510.08189 , 2025. [18] Liyuan Mao, Haoran Xu, Amy Zhang, Weinan Zhang, and Chenjia Bai. Information-theoretic reward decomposition for generalizable rlhf. arXiv preprint arXiv:2504.06020 , 2025. [19] Minesh Mathew, Dimosthenis Karatzas, and C. V. Jawahar. Docvqa: A dataset for vqa on document images. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision , pages 2199–2208, 2021. [20] Fanqing Meng, Lingxiao Du, Zongkai Liu, Zhixiang Zhou, Quanfeng Lu, Daocheng Fu, Tiancheng Han, Botian Shi, Wenhai Wang, Junjun He, Kaipeng Zhang, Ping Luo, Yu Qiao, Qiaosheng Zhang, and Wenqi Shao. MM-Eureka: Exploring the frontiers of multimodal reasoning with rule-based reinforcement learning. arXiv preprint arXiv:2503.07365 , 2025. [21] Jiazhen Pan, Bailiang Jian, Paul Hager, Yundi Zhang, Che Liu, Friedrike Jungmann, Hongwei Bran Li, Chenyu You, Junde Wu, Jiayuan Zhu, Fenglin Liu, Yuyuan Liu, Niklas Bubeck, Christian Wachinger, Chen Chen, Zhenyu Gong, Cheng Ouyang, Georgios Kaissis, Benedikt Wiestler, and Daniel Rueckert. Beyond benchmarks: Dynamic, automatic and systematic red-teaming agents for trustworthy medical language models. arXiv preprint arXiv:2508.00923 , 2025. 
+
+## 12 Improving Generalization Robustness of Multimodal RLVR 
+
+[22] Shiori Sagawa, Pang Wei Koh, Tatsunori B. Hashimoto, and Percy Liang. Distributionally robust neu-ral networks for group shifts: On the importance of regularization for worst-case generalization. In 
+
+International Conference on Learning Representations , 2020. [23] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy opti-mization algorithms. arXiv preprint arXiv:1707.06347 , 2017. [24] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. DeepSeekMath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. [25] Damien Teney, Kushal Kafle, Robik Shrestha, Ehsan Abbasnejad, Christopher Kanan, and Anton van den Hengel. On the value of out-of-distribution testing: An example of Goodhart’s law. In Advances in Neural Information Processing Systems , pages 407–417, 2020. [26] Jordy Van Landeghem, Rubèn Tito, Łukasz Borchmann, Michał Pietruszka, Paweł Józiak, Rafał Powalski, Dawid Jurkiewicz, Mickaël Coustaty, Bertrand Ackaert, Ernest Valveny, Matthew B. Blaschko, Sien Moens, and Tomasz Stanisławek. Document understanding dataset and evaluation (dude). In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 19528–19540, 2023. [27] Jiongxiao Wang, Junlin Wu, Muhao Chen, Yevgeniy Vorobeychik, and Chaowei Xiao. Rlhfpoison: Reward poisoning attack for reinforcement learning with human feedback in large language models. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 2551–2570, 2024. [28] Xiangqi Wang, Yue Huang, Yujun Zhou, Xiaonan Luo, Kehan Guo, and Xiangliang Zhang. Causally-enhanced reinforcement policy optimization. arXiv preprint arXiv:2509.23095 , 2025. [29] Yuanfu Wang, Pengyu Wang, Chenyang Xi, Bo Tang, Junyi Zhu, Wenqiang Wei, Chen Chen, Chao Yang, Jingfeng Zhang, Chaochao Lu, Yijun Niu, Keming Mao, Zhiyu Li, Feiyu Xiong, Jie Hu, and Mingchuan Yang. Adversarial preference learning for robust llm alignment. arXiv preprint arXiv:2505.24369 , 2025. [30] Yue Yang, Shuibai Zhang, Wenqi Shao, Kaipeng Zhang, Yi Bin, Yu Wang, and Ping Luo. Dynamic multimodal evaluation with flexible complexity by vision-language bootstrapping. In International Conference on Learning Representations , 2025. [31] Ziyu Ye, Rishabh Agarwal, Tianqi Liu, Rishabh Joshi, Sarmishta Velury, Quoc V Le, Qijun Tan, and Yuan Liu. Reward-guided prompt evolving in reinforcement learning for llms. In Forty-second International Conference on Machine Learning , 2025. [32] Yang Yue, Zhiqi Chen, Rui Lu, Andrew Zhao, Zhaokai Wang, Yang Yue, Shiji Song, and Gao Huang. Does reinforcement learning really incentivize reasoning capacity in llms beyond the base model? Advances in Neural Information Processing Systems , 38:57654–57689, 2025. [33] Kaiyan Zhang, Yuxin Zuo, Bingxiang He, Youbang Sun, Runze Liu, Che Jiang, Yuchen Fan, Kai Tian, Guoli Jia, Pengfei Li, Yu Fu, Xingtai Lv, Yuchen Zhang, Sihang Zeng, Shang Qu, Haozhan Li, Shijie Wang, Yuru Wang, Xinwei Long, Fangfu Liu, Xiang Xu, Jiaze Ma, Xuekai Zhu, Ermo Hua, Yihao Liu, Zonglin Li, Huayu Chen, Xiaoye Qu, Yafu Li, Weize Chen, Zhenzhao Yuan, Junqi Gao, Dong Li, Zhiyuan Ma, Ganqu Cui, Zhiyuan Liu, Biqing Qi, Ning Ding, and Bowen Zhou. A survey of reinforcement learning for large reasoning models. arXiv preprint arXiv:2509.08827 , 2025. [34] Zhilong Zhang, Tian Xu, Xinghao Du, Xingchen Cao, Yihao Sun, and Yang Yu. Improving reward model generalization from adversarial process enhanced preferences. In Forty-second International Conference on Machine Learning , 2025. [35] Guanghao Zhou, Panjia Qiu, Cen Chen, Jie Wang, Zheming Yang, Jian Xu, and Minghui Qiu. Rein-forced mllm: A survey on rl-based reasoning in multimodal large language models. arXiv preprint arXiv:2504.21277 , 2025. 
+
+## 13 Improving Generalization Robustness of Multimodal RLVR 
+
+## A. Formal Definitions of (C1) and (C2) 
+
+We give the formal versions of the two design conditions stated informally in Section 2.4 of the main paper. Throughout, total variation uses the standard convention TV (𝑃, 𝑄 ) = sup 𝐴 |𝑃 ( 𝐴 ) − 𝑄 ( 𝐴 )| ,equivalently 12 ∥𝑃 − 𝑄 ∥1 on countable spaces. All transformation distributions in the population statements are probability measures on (T , ΣT ); finite-pool distributions are viewed as zero-extended measures on this same space. 
+
+Definition A.1 ((C1) Reward Decomposition) . The reward 𝑅 admits an additive decomposition 
+
+𝑅 = 𝑅 𝑡 + 𝛼 rew 𝑅 𝑠 with fixed 𝛼 rew > 0, 𝑅 𝑡 ∈ {− 1, 0, +1} format-aware, and 𝑅 𝑠 ∈ [ 0, 1] a bounded measurable semantic score. Fix the stochastic rollout-law class on which the condition is asserted, and let e𝑉 𝑐 denote the reward-side correctness indicator used for the bucket decomposition: for the binary verifier e𝑉 𝑐 = 𝑉 𝑐 , while for extraction-based DTR e𝑉 𝑐 = 1{A 𝜏 ( 𝒚 ) = 𝑎 ∗}. There exist constants 𝑚, 𝑐 > 0, independent of the 𝑝 𝑓 values under consideration, such that for every rollout distribution in that class, every joint bucket (e𝑉 𝑐 , 𝑉 𝑓 ) = (𝑣, 𝑣 ′) with positive probability satisfies Var (𝑅 𝑠 | e𝑉 𝑐 =𝑣, 𝑉 𝑓 =𝑣 ′) ≥ 𝑚 , and every format bucket with positive probability satisfies Var (𝑅 | 𝑉 𝑓 = 𝑣 ′) ≥ 𝑐 .
+
+Definition A.2 ((C2) Invariance Control (answer-level)) . Let C( 𝒙 ) ⊆ T be a finite semantics-preserving transformation pool for the fixed task instance 𝒙 , with every 𝜏 ∈ C( 𝒙 ) satisfying 𝜏 (𝒙 ) ∈ ⟦ 𝒙 ⟧. Let 
+
+Yans denote the answer space, and equip Yans ∪ {∅} with the discrete sigma-algebra, with ∅ ∉ Yans .For each transformation 𝜏 , let A𝜏 ( 𝒚 ) := A ( 𝒚 ; 𝑑 𝜏 ) ∈ Y ans ∪ {∅} be the measurable deterministic answer-extraction map using the delimiter requested by 𝜏 (the extractor used in Eq. (5) in the main paper). Write 
+
+𝜋 A𝜏  
+
+> 𝜃
+
+(· | 𝜏 (𝒙 )) := (A 𝜏 )#𝜋 𝜃 (· | 𝜏 (𝒙 )) (11) for the induced prompt-conditioned answer marginal, where the countable-token special case gives 
+
+𝜋 A𝜏  
+
+> 𝜃
+
+(𝑎 | 𝜏 (𝒙 )) = Í𝒚 :A𝜏 ( 𝒚 )=𝑎 𝜋 𝜃 ( 𝒚 | 𝜏 (𝒙 )) , 𝑃 𝜃 𝜏 := 𝜋 A𝜏  
+
+> 𝜃
+
+(· | 𝜏 (𝒙 )) , and F𝜏 denotes the format requested by 
+
+𝜏 . For an extractor-consistent format family, if a response in F𝜏 encodes answer 𝑎 , then A𝜏 returns 𝑎 ; if the response is in a format family disjoint from F𝜏 , then A𝜏 returns ∅. The C1/C2 consequences proof uses this delimiter-separated extractor convention. For an 𝑓 -divergence 𝐷 admitting a Pinsker-type bound TV (𝑃, 𝑄 ) ≤ 𝜅 𝐷 √︁ 𝐷 (𝑃 ∥𝑄 ) (for the natural-log KL used here, 𝜅 𝐷 = 1/√2), the training procedure fixes a non-degenerate coverage distribution 𝜌 𝒙 ∈ Δ(C( 𝒙 )) and imposes 
+
+𝔼 𝜏 1,𝜏 2∼𝜌 𝒙 
+
+h
+
+𝐷 
+
+
+
+𝑃 𝜃 𝜏 1 𝑃 𝜃 𝜏 2
+
+i 
+
+≤ 𝜀. (12) The non-degeneracy requirement means |{ 𝜏 ∈ C( 𝒙 ) : 𝜌 𝒙 ({ 𝜏 }) > 0}| ≥ 2, ruling out the vacuous point-mass choice 𝜌 𝒙 = 𝛿 𝜏 . This condition only controls transformations receiving coverage mass. 
+
+Lemma A.3 (Data-processing inequality for the answer marginal) . Let 𝐷 be any 𝑓 -divergence and let 
+
+A# 𝑃 denote the push-forward of a sequence distribution 𝑃 under a fixed deterministic extraction map A.For any two prompts 𝜏 1 (𝒙 ), 𝜏 2 (𝒙 ), write 𝑃 𝑖 = 𝜋 𝜃 (· | 𝜏 𝑖 (𝒙 )) . Then 
+
+𝐷 (A # 𝑃 1 ∥ A # 𝑃 2) ≤ 𝐷 (𝑃 1 ∥ 𝑃 2) , (13) 
+
+where the right-hand side is the divergence between full sequence distributions. Proof. 𝒚 ↦ → A ( 𝒚 ) is a deterministic data-processing channel; the data processing inequality for 
+
+𝑓 -divergences gives the bound. □
+
+## 14 Improving Generalization Robustness of Multimodal RLVR 
+
+Relation to the per-token estimator used in Eq. (8) in the main paper. The penalty Lcons is computed per token and length-normalized. With 𝑝 𝜏 𝑡 := 𝜋 𝜃 (· | 𝒚 <𝑡 , 𝜏 𝜙 (𝒙 )) and 𝑝 𝒙  
+
+> 𝑡
+
+:= 𝜋 𝜃 (· | 𝒚 <𝑡 , 𝒙 ),
+
+Lcons (𝜃 ; 𝒙 , 𝜙 ) = 1
+
+𝑇 
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡 =1
+
+𝔼 𝒚 <𝑡 ∼𝜈 𝑡 𝐷 KL 
+
+ 𝑝 𝜏 𝑡 sg ( 𝑝 𝒙  
+
+> 𝑡
+
+) , (14) not on the full sequence distribution. The stop-gradient does not change the KL value, only the update direction. At a fixed 𝜃 and 𝜙 , KL obeys a chain rule: if 𝜈 𝑡 is the prefix law induced by the perturbed-prompt policy under a fixed truncation/stopping convention, the full-sequence 𝐷 KL (𝜋 𝜃 (· | 
+
+𝜏 𝜙 (𝒙 )) ∥ 𝜋 𝜃 (· | 𝒙 )) equals the unnormalized per-token sum averaged over prefixes drawn from 𝜋 𝜃 (· | 
+
+𝜏 𝜙 (𝒙 )) . Thus, for that sampled-prefix choice, 𝑇 Lcons estimates this truncated sequence KL; Lcons itself is a length-normalized surrogate. Teacher-forced prefixes use a different 𝜈 𝑡 and do not give this equality exactly; they are an implementation surrogate for the same local consistency pressure. We therefore do not claim that Lcons is a uniform upper bound on the right-hand side of Lemma A.3. The lemma applies only when the same deterministic extractor is used on both sequence distributions; (C2) uses the prompt-conditioned family A𝜏 . Thus the per-token penalty is a tractable, differentiable surrogate rather than a formal certificate of (C2). The empirical question, whether optimizing the per-token surrogate decreases the answer-level divergence, remains open and is consistent with the observed robustness in Section 4 of the main paper. 
+
+## B. Full Proofs 
+
+B.1. Binary-verifier within-format reward-variance share (Theorem B.1) Theorem B.1 (Binary-verifier within-format reward-variance share) . Under 𝑉 𝑓 ⊥ 𝑉 𝑐 with 𝑝 𝑓 , 𝑝 𝑐 ∈ ( 0, 1),the variance of 𝑉 in Eq. (2) in the main paper decomposes via the law of total variance as 
+
+Var (𝑉 ) = 𝑝 𝑓 𝑝 𝑐 (1−𝑝 𝑐 )
+
+| {z }
+
+> within-format
+
++ 𝑝 2 
+
+> 𝑐
+
+𝑝 𝑓 (1−𝑝 𝑓 )
+
+| {z }
+
+> between-format
+
+= 𝑝 𝑓 𝑝 𝑐 (1−𝑝 𝑓 𝑝 𝑐 ).
+
+(15) 
+
+The within-format reward-variance share is 
+
+Φwf ( 𝑝 𝑓 , 𝑝 𝑐 ) := 𝔼 [Var (𝑉 | 𝑉 𝑓 )] 
+
+Var (𝑉 ) = 1 − 𝑝 𝑐 
+
+1 − 𝑝 𝑓 𝑝 𝑐 
+
+, (16) 
+
+strictly increasing in 𝑝 𝑓 on (0, 1), with lim 𝑝 𝑓 ↑1 Φwf = 1 and lim 𝑝 𝑓 ↓0 Φwf = 1 − 𝑝 𝑐 .
+
+For 𝐺 independent rollouts from the same prompt distribution, the expected count of format-valid samples is 𝐺 𝑝 𝑓 .
+
+Proof. By the law of total variance applied to 𝑉 = 𝑉 𝑓 𝑉 𝑐 with 𝑉 𝑓 ⊥ 𝑉 𝑐 , we decompose the variability of 𝑉 
+
+into the conditional variance given 𝑉 𝑓 and the variance induced by the randomness of 𝑉 𝑓 :Var (𝑉 ) = 𝔼 Var (𝑉 | 𝑉 𝑓 ) + Var  𝔼 [𝑉 | 𝑉 𝑓 ]. (17) The conditional moments are direct: since 𝑉 = 𝑉 𝑐 when 𝑉 𝑓 = 1 and 𝑉 = 0 when 𝑉 𝑓 = 0, 
+
+𝔼 [𝑉 | 𝑉 𝑓 = 1] = 𝔼 [𝑉 𝑐 ] = 𝑝 𝑐 ,
+
+𝔼 [𝑉 | 𝑉 𝑓 = 0] = 0,
+
+Var (𝑉 | 𝑉 𝑓 = 1) = Var (𝑉 𝑐 ) = 𝑝 𝑐 (1 − 𝑝 𝑐 ),
+
+Var (𝑉 | 𝑉 𝑓 = 0) = 0.
+
+(18) 
+
+## 15 Improving Generalization Robustness of Multimodal RLVR 
+
+Therefore 𝔼 Var (𝑉 | 𝑉 𝑓 ) = 𝑝 𝑓 · 𝑝 𝑐 (1 − 𝑝 𝑐 ),
+
+Var  𝔼 [𝑉 | 𝑉 𝑓 ] = 𝑝 𝑓 · 𝑝 2 
+
+> 𝑐
+
+− ( 𝑝 𝑓 𝑝 𝑐 )2
+
+= 𝑝 2 
+
+> 𝑐
+
+𝑝 𝑓 (1 − 𝑝 𝑓 ),
+
+(19) and summing, Var (𝑉 ) = 𝑝 𝑓 𝑝 𝑐 (1 − 𝑝 𝑐 ) + 𝑝 2 
+
+> 𝑐
+
+𝑝 𝑓 (1 − 𝑝 𝑓 )
+
+= 𝑝 𝑓 𝑝 𝑐 
+
+(1 − 𝑝 𝑐 ) + 𝑝 𝑐 (1 − 𝑝 𝑓 )
+
+= 𝑝 𝑓 𝑝 𝑐 (1 − 𝑝 𝑓 𝑝 𝑐 ),
+
+(20) which matches Eq. (15). The within-format reward-variance share therefore is 
+
+Φwf ( 𝑝 𝑓 , 𝑝 𝑐 ) = 𝔼 [Var (𝑉 | 𝑉 𝑓 )] 
+
+Var (𝑉 )
+
+= 𝑝 𝑓 𝑝 𝑐 (1 − 𝑝 𝑐 )
+
+𝑝 𝑓 𝑝 𝑐 (1 − 𝑝 𝑓 𝑝 𝑐 ) = 1 − 𝑝 𝑐 
+
+1 − 𝑝 𝑓 𝑝 𝑐 
+
+.
+
+(21) Differentiating with respect to 𝑝 𝑓 at fixed 𝑝 𝑐 ∈ ( 0, 1),
+
+𝜕 𝜕𝑝 𝑓 
+
+1 − 𝑝 𝑐 
+
+1 − 𝑝 𝑓 𝑝 𝑐 
+
+= (1 − 𝑝 𝑐 ) 𝑝 𝑐 
+
+(1 − 𝑝 𝑓 𝑝 𝑐 )2 > 0, (22) so Φwf is strictly increasing in 𝑝 𝑓 on (0, 1). Its continuous extension satisfies lim 𝑝 𝑓 ↑1 Φwf ( 𝑝 𝑓 , 𝑝 𝑐 ) = 1and lim 𝑝 𝑓 ↓0 Φwf ( 𝑝 𝑓 , 𝑝 𝑐 ) = 1− 𝑝 𝑐 . The original ratio is not defined at 𝑝 𝑓 = 0 because then Var (𝑉 ) = 0. □
+
+B.2. Proof of the Positive-Correlation Tightening 
+
+Drop the independence assumption and reparametrize by the conditional success rates 𝑝 := Pr [𝑉 𝑐 =
+
+1 | 𝑉 𝑓 = 1] and 𝑞 := Pr [𝑉 𝑐 = 1 | 𝑉 𝑓 = 0], with 𝑝 𝑓 ∈ ( 0, 1) and feasible 𝑝, 𝑞 ∈ [ 0, 1]. The marginal is 
+
+𝑝 𝑐 = 𝑝 𝑓 𝑝 + ( 1 − 𝑝 𝑓 ) 𝑞 . Independence corresponds to 𝑝 = 𝑞 = 𝑝 𝑐 .Since 𝑉 = 𝑉 𝑓 𝑉 𝑐 , the value of 𝑉 𝑐 when 𝑉 𝑓 = 0 is irrelevant: 𝑉 ≡ 0 on that event. The conditional moments become 𝔼 [𝑉 | 𝑉 𝑓 = 1] = 𝑝, 
+
+𝔼 [𝑉 | 𝑉 𝑓 = 0] = 0,
+
+Var (𝑉 | 𝑉 𝑓 = 1) = 𝑝 (1 − 𝑝 ),
+
+Var (𝑉 | 𝑉 𝑓 = 0) = 0,
+
+(23) and exactly the same algebra as in Section B.1 yields Var (𝑉 ) = 𝑝 𝑓 𝑝 (1 − 𝑝 𝑓 𝑝 ),
+
+Φwf ( 𝑝 𝑓 , 𝑝 ) = 1 − 𝑝 
+
+1 − 𝑝 𝑓 𝑝 . (24) The ratio is defined for 𝑝 > 0; the boundary 𝑝 = 0 has Var (𝑉 ) = 0 because the multiplicative verifier never emits reward 1. The positive-correlation comparison below has 𝑝 > 𝑝 𝑐 with 𝑝 𝑐 ∈ ( 0, 1), so it stays away from this degenerate boundary. Note that 𝑞 does not appear: the share depends only on the conditional 𝑝 = Pr [𝑉 𝑐 =1 | 𝑉 𝑓 =1]. Differentiating, 
+
+𝜕 Φwf 
+
+𝜕𝑝 = −( 1 − 𝑝 𝑓 𝑝 ) + 𝑝 𝑓 (1 − 𝑝 )(1 − 𝑝 𝑓 𝑝 )2
+
+= 𝑝 𝑓 − 1
+
+(1 − 𝑝 𝑓 𝑝 )2 < 0 for 𝑝 𝑓 ∈ ( 0, 1).
+
+(25) 
+
+## 16 Improving Generalization Robustness of Multimodal RLVR 
+
+Holding the marginal 𝑝 𝑐 fixed and staying within the feasible range 𝑞 ∈ [ 0, 1], the constraint 𝑝 𝑐 = 𝑝 𝑓 𝑝 +(1− 𝑝 𝑓 )𝑞 requires 𝜕𝑝 /𝜕𝑞 = −( 1− 𝑝 𝑓 )/ 𝑝 𝑓 , so increasing the correlation between 𝑉 𝑓 and 𝑉 𝑐 (i.e., increasing 
+
+𝑝 at the expense of 𝑞 with marginal 𝑝 𝑐 fixed) strictly decreases Φwf . Independence corresponds to 
+
+𝑝 = 𝑝 𝑐 . Thus positive correlation ( 𝑝 > 𝑝 𝑐 ) gives a strictly smaller share than the independent formula, while nondegenerate negative correlation (0 < 𝑝 < 𝑝 𝑐 ) reverses the inequality. The independent formula is an upper envelope only over the nonnegative/positive-correlation regime. □
+
+B.3. Quantitative non-identifiability (Proposition B.5) 
+
+We use the family T of semantics-preserving transformations and the reward functional R ( 𝜋, 𝜌 ; 𝒙 ) of Section 2.3 of the main paper; for 𝜏 (𝒙 ) = (𝒗 , 𝒒 , I𝜏 ) write F𝜏 := F (I 𝜏 ).
+
+Assumption B.2 (Restricted prompt coverage) . There are measurable sets ∅ ≠ 𝑆 train ⊆ T train ⊊ T with 
+
+Ttrain , 𝑆 train ∈ ΣT and 𝑃 train (𝑆 train ) = 1. 
+
+Assumption B.3 (Disjoint unseen format) . There exists 𝜏 𝐵 ∈ T \ T train whose verifier format constraint 
+
+F𝐵 := F𝜏 𝐵 is disjoint from Ftrain := Ð𝜏 ∈ T train F𝜏 .
+
+Assumption B.4 (Policy-class extension realizability) . The policy class contains two measurable deterministic branches 𝜋 1, 𝜋 2 that coincide on every 𝜏 ∈ T \ { 𝜏 𝐵 }. On 𝑆 train they emit the correct answer 𝑎 ∗ in the requested format. At 𝜏 𝐵 , 𝜋 1 emits 𝑎 ∗ in a format requested by some transformation in 𝑆 train , while 𝜋 2 emits 𝑎 ∗ in F𝐵 .
+
+Proposition B.5 (Quantitative non-identifiability) . Under Assumptions B.2, B.3, and B.4, with a 
+
+𝜏 -dependent verifier and reward 𝑅 ∈ [ 𝑅 min , 𝑅 max ] such that a correct response in F𝜏 receives 𝑅 max and any response lying in a format constraint disjoint from F𝜏 receives 𝑅 min , the two branches 𝜋 1 ≠ 𝜋 2
+
+from Assumption B.4 are 𝑃 train -optimal with equal training reward, yet for the separated 𝜏 𝐵 and any 
+
+𝑃 test ∈ Δ(T ) with atomic mass 𝑚 𝐵 := 𝑃 test ({ 𝜏 𝐵 }) > 0, where Δ𝑅 := 𝑅 max − 𝑅 min ,
+
+R ( 𝜋 2, 𝑃 test ; 𝒙 ) − R ( 𝜋 1, 𝑃 test ; 𝒙 ) ≥ 𝑚 𝐵 Δ𝑅 . (26) 
+
+Hence the 𝑃 train -optimum set has diameter ≥ 𝑚 𝐵 Δ𝑅 under 𝑃 test -reward; this is a population-level identifi-ability statement about the objective. Proof. By Assumption B.3, take a 𝜏 𝐵 ∈ T \ T train whose formatting instruction induces a constraint F𝐵 
+
+disjoint from Ftrain (the union of formats demanded by 𝜏 ∈ T train ). Assumption B.4 places the two extensions used below in the policy class. 
+
+Construction. Use the two branches supplied by Assumption B.4. They coincide on 𝑆 train and emit a correct semantic answer in the requested format there. Choose the training-set format used by 𝜋 1 at 
+
+𝜏 𝐵 and call it F0 = F𝜏 0 ⊆ F train for some 𝜏 0 ∈ 𝑆 train ; at 𝜏 𝐵 , 𝜋 1 emits a correct semantic answer matching 
+
+F0, while 𝜋 2 emits a correct semantic answer matching F𝐵 . This makes 𝜋 1 ≠ 𝜋 2 while keeping the two policies identical on 𝑆 train .
+
+Training-reward equality. On the 𝑃 train -full set 𝑆 train , the two policies are identical by construction and emit a correct response in the requested format. The endpoint reward condition gives reward 𝑅 max 
+
+on each transformation in 𝑆 train , so both policies are 𝑃 train -optimal and 
+
+R ( 𝜋 1, 𝑃 train ; 𝒙 ) = R ( 𝜋 2, 𝑃 train ; 𝒙 ), (27) proving Eq. (27). 
+
+Test-time gap. For any 𝑃 test ∈ Δ(T ) assigning atomic mass 𝑚 𝐵 = 𝑃 test ({ 𝜏 𝐵 }) > 0 to 𝜏 𝐵 , the 𝜏 𝐵 -verifier requires F𝐵 . On 𝜏 𝐵 , 𝜋 1 receives 𝑅 min and 𝜋 2 receives 𝑅 max . On every other transformation the two 
+
+## 17 Improving Generalization Robustness of Multimodal RLVR 
+
+policies coincide, so the pointwise difference R ( 𝜋 2, 𝜏 ; 𝒙 ) − R ( 𝜋 1, 𝜏 ; 𝒙 ) is zero and is exactly Δ𝑅 at 𝜏 𝐵 .Therefore R ( 𝜋 2, 𝑃 test ; 𝒙 ) − R ( 𝜋 1, 𝑃 test ; 𝒙 )≥ 𝑚 𝐵 · ( 𝑅 max − 𝑅 min )
+
+= 𝑚 𝐵 Δ𝑅 ,
+
+(28) proving Eq. (26). The bound is tight on this construction. 
+
+Diameter of the 𝑃 train -optimum set. The training objective constrains behavior only on the 𝑃 train -full training set; behavior on the unseen 𝜏 𝐵 is unconstrained by the training objective. Since both policies attain 𝑅 max on 𝑆 train , both are 𝑃 train -optimal; their 𝑃 test -rewards differ by 𝑚 𝐵 Δ𝑅 . Hence the diameter of the 𝑃 train -optimum set under 𝑃 test -reward is at least 𝑚 𝐵 Δ𝑅 , and some 𝑃 train -optimal policy (specifically 
+
+𝜋 1) has a 𝑃 test comparator gap ≥ 𝑚 𝐵 Δ𝑅 relative to 𝜋 2. We do not claim every 𝑃 train -optimal policy has such a gap, since 𝜋 2 itself is 𝑃 train -optimal. The proposition is a population-level identifiability statement about the objective, not a learnability claim about any particular training algorithm. □
+
+B.4. Measure-zero training support and low-complexity shortcuts 
+
+The prompt-transformation construction above is a finite-support instance of a broader identifiability obstruction. 
+
+Proposition B.6 (Measure-zero training support) . Let W ⊆ ℝ𝐷 be measurable and let the deployment distribution 𝑃 𝑊 satisfy 𝑃 𝑊 ≪ 𝜆 𝐷 , where 𝜆 𝐷 is 𝐷 -dimensional Lebesgue measure. Let Ω ⊆ W be measurable, and let the training distribution 𝑃 tr satisfy 𝑃 tr (Ω) = 1, where Ω is finite or contained in a measurable 
+
+𝑑 -dimensional embedded submanifold with 𝑑 < 𝐷 . Let the answer space Yans carry the discrete sigma-algebra and contain at least two distinct labels, and let the deployment semantic rule 𝐴 ★ : W → Y ans be measurable. For any measurable bounded reward 𝑅 and training objective 
+
+𝐽 (𝜋 ) = 𝔼 𝑥 ∼𝑃 tr 𝔼 𝑦 ∼𝜋 (· | 𝑥 ) [𝑅 (𝑥, 𝑦 )] (29) 
+
+evaluated only under 𝑃 tr , any two policies that agree on Ω in their conditional output laws have the same objective value. Consequently, without additional structural restrictions on admissible rules, there are infinitely many measurable shortcut rules 𝑎 : W → Y ans such that 𝑎 = 𝐴 ★ on Ω but 𝑃 𝑊 ({ 𝑥 : 𝑎 (𝑥 ) ≠
+
+𝐴 ★(𝑥 )}) > 0, and each deterministic policy 𝜋 𝑎 (· | 𝑥 ) = 𝛿 𝑎 (𝑥 ) is training-equivalent to 𝜋 𝐴 ★ . If training-optimal policies are then selected by the tie-breaker arg min 𝜋 ∈Π★ 𝐶 (𝜋 ), where Π★ = {𝜋 : 𝐽 (𝜋 ) = 𝐽 ★}, and if 
+
+𝜋 𝐴 ★ ∈ Π★, then every training-equivalent shortcut also lies in Π★; any such shortcut with 𝐶 (𝜋 𝑎 ) < 𝐶 (𝜋 𝐴 ★ )
+
+is preferred to the semantic policy by that tie-breaker. Proof. Finite sets and lower-dimensional embedded submanifolds have 𝜆 𝐷 -measure zero, so 𝑃 𝑊 (Ω) = 0by absolute continuity. Since 𝑃 tr (Ω) = 1, the objective 𝐽 only depends on a policy’s conditional output law on Ω; policies agreeing there are therefore identical under 𝐽 .It remains to show that many disagreeing extensions exist. Choose two distinct labels 𝑏 0, 𝑏 1 ∈ Y ans .Because 𝑃 𝑊 ≪ 𝜆 𝐷 is non-atomic and 𝑃 𝑊 (W \ Ω) = 1, there are infinitely many measurable sets 
+
+𝐵 ⊆ W \ Ω with 𝑃 𝑊 (𝐵 ) > 0. For each such 𝐵 , define 
+
+𝑎 𝐵 (𝑥 ) =
+
+
+
+𝐴 ★(𝑥 ), 𝑥 ∉ 𝐵, 𝑏 1, 𝑥 ∈ 𝐵 and 𝐴 ★(𝑥 ) = 𝑏 0,𝑏 0, 𝑥 ∈ 𝐵 and 𝐴 ★(𝑥 ) ≠ 𝑏 0.
+
+(30) Then 𝑎 𝐵 = 𝐴 ★ on Ω and 𝑎 𝐵 ≠ 𝐴 ★ on 𝐵 , so the deployment disagreement has positive 𝑃 𝑊 -mass while 
+
+𝐽 (𝜋 𝑎 𝐵 ) = 𝐽 (𝜋 𝐴 ★ ). Finally, if 𝜋 𝐴 ★ ∈ Π★, then under the stated minimum-complexity tie-breaker over Π★,
+
+## 18 Improving Generalization Robustness of Multimodal RLVR 
+
+any training-equivalent shortcut with smaller 𝐶 than 𝜋 𝐴 ★ prevents 𝜋 𝐴 ★ from being selected. This is an identifiability and tie-breaking statement, not a claim that arbitrary optimization dynamics must find such a shortcut. □
+
+B.5. Dense Rewards Without Invariant Semantic Coverage 
+
+This extension of the non-identifiability construction (Section 2.3 of the main paper) is orthogonal to the main paper, which uses the trinary reward of Section 3 of the main paper; we include it for completeness. 
+
+Proposition B.7 (Dense rewards without invariant semantic coverage) . Suppose the dense reward can be decomposed, after absorbing component weights, as 
+
+𝑅 ( 𝒚 , 𝜏 (𝒙 )) = 𝑅 dep ( 𝒚 , 𝜏 (𝒙 )) + 𝑅 inv ( 𝒚 , 𝒙 ), (31) 
+
+where 𝑅 dep contains the prompt-dependent verifier or formatting components and 𝑅 inv is prompt-invariant. For 𝑗 ∈ { dep , inv }, write R 𝑗 (𝜋, 𝜏 ; 𝒙 ) for the expected value of 𝑅 𝑗 under 𝒚 ∼ 𝜋 (· | 𝜏 (𝒙 )) . Assume the components are measurable and integrable under the policies considered. Let Π be the admissible policy class. Define 
+
+𝐽 dense (𝜋 ) :=𝔼 𝜏 ∼𝑃 train 𝔼 𝒚 ∼𝜋 (· | 𝜏 (𝒙 ) ) 
+
+𝑅 dep ( 𝒚 , 𝜏 (𝒙 )) + 𝑅 inv ( 𝒚 , 𝒙 ) . (32) 
+
+Assume there is a measurable policy kernel ¯𝜋 ∈ arg max 𝜋 ∈Π 𝐽 dense (𝜋 ). Assume Π can extend ¯𝜋 to two measurable policies that agree 𝑃 train -a.s., agree away from 𝜏 𝐵 , and use the two unseen 𝜏 𝐵 branches from Proposition B.5. For the resulting extensions 𝜋 1, 𝜋 2, define the unseen-format component gaps 
+
+Δdep := Rdep (𝜋 2, 𝜏 𝐵 ; 𝒙 ) − R dep (𝜋 1, 𝜏 𝐵 ; 𝒙 ),
+
+Δinv := Rinv (𝜋 1, 𝜏 𝐵 ; 𝒙 ) − R inv (𝜋 2, 𝜏 𝐵 ; 𝒙 ). (33) 
+
+Then 𝜋 1 and 𝜋 2 are both 𝑃 train -optimal, the training equality in Eq. (27) still holds, and for any 
+
+𝑃 test ∈ Δ(T ) with 𝑚 𝐵 = 𝑃 test ({ 𝜏 𝐵 }) > 0,
+
+R ( 𝜋 2, 𝑃 test ; 𝒙 ) − R ( 𝜋 1, 𝑃 test ; 𝒙 ) = 𝑚 𝐵 (Δdep − Δinv ). (34) 
+
+Thus the dense-reward construction yields a positive test-time comparator gap between equally 𝑃 train -optimal policies whenever Δdep > Δinv . If the argmax assumption is replaced by a nonattained supremum, the same construction with any ¯𝜋 𝜁 ∈ Π satisfying 𝐽 dense ( ¯𝜋 𝜁 ) ≥ sup 𝜋 ∈Π 𝐽 dense (𝜋 ) − 𝜁 and admitting the same extensions gives two equally 𝜁 -optimal extensions with the same training equality and test-gap identity. Proof. For the fixed task instance 𝒙 , consider the dense training objective max  
+
+> 𝜃
+
+𝔼 𝜏 ∼𝑃 train 𝔼 𝒚 ∼𝜋 𝜃 (· | 𝜏 (𝒙 ) ) 
+
+𝑅 dep ( 𝒚 , 𝜏 (𝒙 )) + 𝑅 inv ( 𝒚 , 𝒙 ) . (35) This fixed-𝒙 objective is still evaluated only under 𝜏 ∼ 𝑃 train . Choose the dense-objective optimum ¯𝜋 from the assumption and extend it in two ways: 𝜋 1 and 𝜋 2 both equal ¯ 𝜋 𝑃 train -a.s. and share any behavior outside that full-measure set except at 𝜏 𝐵 ; at 𝜏 𝐵 , 𝜋 1 emits the fixed training-time format 
+
+F0 and 𝜋 2 emits the requested format F𝐵 , as in Proposition B.5. Because the training objective is insensitive to changes outside a 𝑃 train -full set, both extensions have the same dense training value as ¯ 𝜋 and are therefore 𝑃 train -optimal. Component-wise equality on that full-measure set also gives Eq. (27). If only a 𝜁 -optimal branch is available, the same off-support extension argument preserves that 𝜁 -optimality and all displayed equalities below. 
+
+## 19 Improving Generalization Robustness of Multimodal RLVR 
+
+On every transformation other than 𝜏 𝐵 the two policies also coincide in the construction, so the dense test-reward difference is concentrated on 𝜏 𝐵 . At 𝜏 𝐵 , the prompt-dependent contribution to 
+
+R ( 𝜋 2, 𝜏 𝐵 ; 𝒙 ) − R ( 𝜋 1, 𝜏 𝐵 ; 𝒙 ) is Δdep , while the prompt-invariant contribution is −Δinv by definition. Multiplying by the test mass 𝑚 𝐵 = 𝑃 test ({ 𝜏 𝐵 }) gives the displayed identity. If the prompt-invariant component assigns equal value to the two semantically correct answers, then Δinv = 0 and the positive gap is exactly 𝑚 𝐵 Δdep . More generally, prompt-invariant components only remove this particular comparator-gap construction when their advantage for 𝜋 1 is at least the prompt-dependent advantage of 𝜋 2, i.e., Δinv ≥ Δdep . □
+
+B.6. DTR reward-variation floor Theorem B.8 (𝑝 𝑓 -independent reward-side share under DTR) . Let 𝑅 = 𝑅 𝑡 + 𝛼 rew 𝑅 𝑠 be the DTR reward of Eq. (6) in the main paper, with 𝑅 𝑡 ∈ {− 1, 0, +1} assigned by Eq. (5) in the main paper, 𝑅 𝑠 ∈ [ 0, 1], and fixed 𝛼 rew > 0. Write 𝑝 𝑓 := Pr [𝑉 𝑓 = 1] ∈ ( 0, 1). Let 𝑉 𝑓 be the requested-format indicator and assume the extractor is format-exact on this prompt: A𝜏 ( 𝒚 ) ≠ ∅ iff 𝑉 𝑓 = 1. Define the extractor-induced correctness indicator 𝑉 ext  
+
+> 𝑐
+
+= 1{A 𝜏 ( 𝒚 ) = 𝑎 ∗}. Then Eq. (5) in the main paper gives 𝑅 𝑡 = −1 when 𝑉 𝑓 = 0 and 
+
+𝑅 𝑡 = 𝑉 ext  
+
+> 𝑐
+
+when 𝑉 𝑓 = 1. Assume 𝑅 𝑠 has non-degenerate within-bucket dispersion: for some feasible constant 
+
+𝑚 ∈ ( 0, 1/4], independent of the 𝑝 𝑓 values in the analyzed rollout-law class, Var (𝑅 𝑠 | 𝑉 ext  
+
+> 𝑐
+
+=𝑣, 𝑉 𝑓 =𝑣 ′) ≥ 𝑚 
+
+in every extractor-induced joint bucket (𝑣, 𝑣 ′) with positive probability. Then Var (𝑅 | 𝑉 𝑓 =𝑣 ′) ≥ 𝛼 2rew 𝑚 for each positive-probability format bucket 𝑣 ′ ∈ { 0, 1}, so for ΦDTR wf := 𝔼 [Var (𝑅 | 𝑉 𝑓 )]/ Var (𝑅 ),
+
+ΦDTR wf ≥ 4𝛼 2rew 𝑚 
+
+(𝛼 rew + 2)2 . (36) 
+
+This lower bound does not depend on 𝑝 𝑓 .Proof. Recall 𝑅 = 𝑅 𝑡 + 𝛼 rew 𝑅 𝑠 with 𝑅 𝑡 ∈ {− 1, 0, +1} assigned by Eq. (5) in the main paper, 𝑅 𝑠 ∈ [ 0, 1],and 𝛼 rew > 0 a fixed reward weight. Write 𝜎 2 
+
+> 𝑣,𝑣 ′
+
+:= Var (𝑅 𝑠 | 𝑉 ext  
+
+> 𝑐
+
+= 𝑣, 𝑉 𝑓 = 𝑣 ′) for joint buckets with positive probability and 𝑚 ≤ 𝜎 2 
+
+> 𝑣,𝑣 ′
+
+over those buckets, with the same 𝑚 ∈ ( 0, 1/4] for the rollout distributions in the analyzed class (the assumption of Theorem B.8: 𝑅 𝑠 is non-degenerate within every positive-probability joint bucket). We take 𝑝 𝑓 ∈ ( 0, 1) so both format buckets have well-defined conditional variances. 
+
+Conditional variance under 𝑉 𝑓 = 0. When 𝑉 𝑓 = 0, 𝑅 𝑡 = −1 is constant and 𝑅 = −1 + 𝛼 rew 𝑅 𝑠 . By the law of total variance applied conditionally on 𝑉 𝑓 = 0, Var (𝑅 | 𝑉 𝑓 = 0) = 𝛼 2rew Var (𝑅 𝑠 | 𝑉 𝑓 = 0)≥ 𝛼 2rew 𝔼 
+
+h
+
+𝜎 2  
+
+> 𝑉 ext
+> 𝑐 ,0
+
+| 𝑉 𝑓 = 0
+
+i
+
+≥ 𝛼 2rew 𝑚, 
+
+(37) where the second inequality drops the (non-negative) between-𝑉 ext  
+
+> 𝑐
+
+term and uses 𝜎 2  
+
+> 𝑉 ext
+> 𝑐 ,0
+
+≥ 𝑚 .
+
+Conditional variance under 𝑉 𝑓 = 1. When 𝑉 𝑓 = 1, 𝑅 𝑡 = 𝑉 ext  
+
+> 𝑐
+
+and 𝑅 = 𝑉 ext  
+
+> 𝑐
+
++ 𝛼 rew 𝑅 𝑠 . By the same total-variance step, Var (𝑅 | 𝑉 𝑓 = 1) ≥ 𝔼 
+
+h
+
+𝛼 2rew 𝜎 2  
+
+> 𝑉 ext
+> 𝑐 ,1
+
+| 𝑉 𝑓 = 1
+
+i
+
+≥ 𝛼 2rew 𝑚. 
+
+(38) 
+
+Lower bound on 𝔼 [Var (𝑅 | 𝑉 𝑓 )] .
+
+𝔼 Var (𝑅 | 𝑉 𝑓 ) = 𝑝 𝑓 Var (𝑅 | 𝑉 𝑓 =1) + ( 1−𝑝 𝑓 ) Var (𝑅 | 𝑉 𝑓 =0)≥ 𝛼 2rew 𝑚 for all 𝑝 𝑓 ∈ ( 0, 1). (39) 
+
+## 20 Improving Generalization Robustness of Multimodal RLVR 
+
+The bound is independent of 𝑝 𝑓 .
+
+Upper bound on Var (𝑅 ). With 𝛼 rew fixed and 𝑅 𝑠 ∈ [ 0, 1], 𝑅 ∈ [− 1, 𝛼 rew + 1], so Popoviciu’s inequality gives Var (𝑅 ) ≤ ( 𝛼 rew + 2)2/4. 
+
+Lower bound on ΦDTR wf .
+
+ΦDTR wf = 𝔼 [Var (𝑅 | 𝑉 𝑓 )] 
+
+Var (𝑅 )≥ 4𝛼 2rew 𝑚 
+
+(𝛼 rew + 2)2 for all 𝑝 𝑓 ∈ ( 0, 1).
+
+(40) The bound depends only on 𝛼 rew and 𝑚 , not on 𝑝 𝑓 , so the C1 variance-floor requirement is satisfied. 
+
+Remark. Popoviciu’s inequality is tight only for two-point distributions on the endpoints, so the closed-form constant can be loose. We report it for concreteness; the qualitative content (the 𝑝 𝑓 -independence of the reward-side share floor) is the load-bearing claim, not the numerical value of the constant. □
+
+B.7. Embedding-space adversary as local ascent on a relaxed inner objective Proposition B.9 (Local ascent on the relaxed adversarial objective) . For a fixed policy, Eq. (49) is an embedding-space relaxation of the negative inner objective of Eq. (4) in the main paper, restricted to the 𝜖 emb -ball {𝜹 : ∥𝜹 ∥2 ≤ 𝜖 emb }. When the relaxed objective is smooth (or when only the stop-gradient score-function component is optimized), projected ascent gives a local first-order ascent method for that restricted objective/component; the stochastic implementation should be read as a local search heuristic, not as a per-step monotonicity guarantee or a claim of reaching the global inner infimum of Eq. (4) in the main paper. Proof. For a deterministic perturbation, or after fixing a single reparameterized sample from 𝑞 𝜙 ,Eq. (49) reduces locally to maximizing 
+
+J𝜙 (𝜹 ) := − 𝔼 𝒚 ∼𝜋 𝜃 (· | 𝜏 𝜙 (𝒙 ) ) 
+
+𝑅 DTR ( 𝒚 , 𝜏 𝜙 (𝒙 )) , ∥𝜹 ∥2 ≤ 𝜖 emb . (41) This is the negative relaxed inner objective over the 𝜖 emb -ball, where 𝜏 𝜙 (𝒙 ) is the prompt with perturbed instruction embedding 𝒆 I (𝒙 ) + 𝜹 . For a stochastic 𝑞 𝜙 , the objective is the expectation of this quantity over the sampled perturbation. When the reward path through 𝜏 𝜙 is treated as a stop-gradient, the REINFORCE estimator (Eq. (48)) provides a stochastic estimate of the score-function component of 
+
+∇𝜹 J𝜙 ; if the reward is differentiable through 𝜏 𝜙 , the pathwise term described in Section C must be added for the full gradient. For exact gradients of an 𝐿 -smooth relaxed objective, projected gradient ascent with sufficiently small step size has the usual first-order local ascent property unless the iterate is already first-order stationary for the constrained problem. With stochastic rollouts, the update inherits this interpretation only under standard unbiased-or-positive-correlation and bounded-variance assumptions, and need not increase J𝜙 on every realized step. This is the approximation statement; it does not imply global minimax convergence or attainment of the unrestricted Δ(T ) 
+
+infimum. □
+
+B.8. Population-level consequences of C1/C2 (Proposition B.10) Proposition B.10 (Population-level consequences of C1/C2) . Under 𝜏 -dependent extraction A ( 𝒚 ; 𝑑 𝜏 )
+
+and bounded reward 𝑅 ∈ [ 𝑅 min , 𝑅 max ], the following claims hold. (i) (C1) bounds Φ𝑅  
+
+> wf
+
+below independently of 𝑝 𝑓 . (ii) If the coverage 𝜌 𝒙 places masses 𝑤 tr , 𝑤 𝐵 > 0 on some 𝜏 train ∈ 𝑆 train from Assumption B.2 and on the separated 𝜏 𝐵 , then the format-fixed branch 𝜋 1 of Prop. B.5 violates (C2) whenever 𝜀 < 𝑤 tr 𝑤 𝐵 /𝜅 2
+
+> 𝐷
+
+:
+
+## 21 Improving Generalization Robustness of Multimodal RLVR 
+
+its answer-marginal collapses to 𝛿 𝑎 ∗ under 𝜏 train and to 𝛿 ∅ under 𝜏 𝐵 . If the deterministic correct-answer branch 𝜋 2 from Prop. B.5 is realizable on the finite atom support {𝜏 ∈ C( 𝒙 ) : 𝜌 𝒙 ({ 𝜏 }) > 0} of 𝜌 𝒙 ,it extracts 𝑎 ∗ throughout that atom support and is (C2)-feasible. (iii) (C1) supplies non-degenerate within-format reward variation; by itself it does not guarantee that the semantic score is aligned with correctness. Selecting the high-reward instruction-following branch additionally requires a semantically aligned 𝑅 𝑠 and population optimization over the C2-feasible class. Algorithmic convergence is a separate empirical question. (iv) For finite 𝜀 , if the reward is a common bounded function of the prompt-conditioned extracted answer used in (C2), the 𝜌 𝒙 -averaged absolute pairwise expected reward difference is at most 
+
+Δ𝑅 𝜅 𝐷 
+
+√𝜀 , where Δ𝑅 := 𝑅 max − 𝑅 min ; if a semantic scorer reads the full response or changes with the prompt, the same bound requires C2 on that score-relevant marginal or an additional term for reward-function shift. Proof. Part (i): (C1) implies bounded Φ𝑅  
+
+> wf
+
+. Definition A.1 states that under (C1), each positive-probability format bucket has conditional variance at least 𝑐 , hence 𝔼 [Var (𝑅 | 𝑉 𝑓 )] ≥ 𝑐 . The total Var (𝑅 ) is upper-bounded by (𝑅 max − 𝑅 min )2/4 (bounded range). Hence 
+
+Φ𝑅  
+
+> wf
+
+= 𝔼 [Var (𝑅 | 𝑉 𝑓 )] 
+
+Var (𝑅 )≥ 4𝑐 
+
+(𝑅 max − 𝑅 min )2 > 0,
+
+(42) independently of 𝑝 𝑓 ; the analogous reward-variance floor removes the 𝑝 𝑓 -dependence present in Theorem B.1. 
+
+Part (ii): (C2) blocks the prompt-dependent branch. Definition A.2 fixes a non-degenerate coverage distribution 𝜌 𝒙 ∈ Δ(C( 𝒙 )) and requires 
+
+𝔼 𝜏 1,𝜏 2∼𝜌 𝒙 
+
+h
+
+𝐷 
+
+
+
+𝑃 𝜃 𝜏 1 𝑃 𝜃 𝜏 2
+
+i 
+
+≤ 𝜀, (43) where 𝑃 𝜃 𝜏 := 𝜋 A𝜏  
+
+> 𝜃
+
+(· | 𝜏 (𝒙 )) is the answer marginal under the 𝜏 -dependent extraction A ( 𝒚 ; 𝑑 𝜏 ) of Eq. (5) in the main paper: a rollout whose surface format matches 𝜏 extracts a valid answer, otherwise the extractor returns ∅. Assume 𝜌 𝒙 places masses 𝑤 tr := 𝜌 𝒙 (𝜏 train ) > 0 on some 𝜏 train ∈ 𝑆 train and 
+
+𝑤 𝐵 := 𝜌 𝒙 (𝜏 𝐵 ) > 0 on the separated 𝜏 𝐵 from Assumption B.3. As 𝜀 → 0, every prompt pair in this support with positive mass must induce matching answer-marginals. For the training transformation 𝜏 train and separated 𝜏 𝐵 in the construction, 𝜋 1 emits a training-compatible formatted string in both cases. Under 𝜏 train , the extractor returns the correct answer 𝑎 ∗;under 𝜏 𝐵 , the emitted format lies in F0 ⊆ F train , which is disjoint from F𝐵 , so extractor consistency gives ∅. The answer-marginal of 𝜋 1 is therefore 𝛿 𝑎 ∗ under 𝜏 train and 𝛿 ∅ under 𝜏 𝐵 , two atoms on disjoint support of Yans ∪ {∅} . Their total variation distance is 1, so any divergence satisfying the Pinsker-type condition in Definition A.2 must obey 𝐷 (𝛿 𝑎 ∗ ∥𝛿 ∅ ) ≥ 1/𝜅 2
+
+> 𝐷
+
+; for KL the divergence is infinite. Consequently the left-hand side of (C2) is at least 𝑤 tr 𝑤 𝐵 /𝜅 2 
+
+> 𝐷
+
+(conservatively using one ordered pair), and 𝜋 1 violates (C2) whenever 𝜀 < 𝑤 tr 𝑤 𝐵 /𝜅 2
+
+> 𝐷
+
+. In particular, it is excluded in the 𝜀 → 0 regime. If the deterministic correct-answer branch 𝜋 2 is realizable on {𝜏 ∈ C( 𝒙 ) : 𝜌 𝒙 ({ 𝜏 }) > 0}, then 𝜋 2 emits a correctly formatted string under each 𝜏 in that support, so every prompt-conditioned extractor returns the same 𝑎 ∗. Thus for every ordered pair (𝜏 1, 𝜏 2) in the support of 𝜌 𝒙 , both answer marginals are 𝛿 𝑎 ∗ and 
+
+𝐷 
+
+
+
+𝜋 A𝜏 1 
+
+> 2
+
+(· | 𝜏 1 (𝒙 )) 𝜋 A𝜏 2 
+
+> 2
+
+(· | 𝜏 2 (𝒙 )) 
+
+
+
+= 0. (44) Therefore the (C2) expectation is zero and 𝜋 2 satisfies (C2) at every 𝜀 ≥ 0. 
+
+## 22 Improving Generalization Robustness of Multimodal RLVR 
+
+Thus (C2) at the answer level admits the prompt-following branch 𝜋 2 and excludes the format-fixed branch 𝜋 1 in the 𝜀 → 0 regime, the exact direction needed to remove this non-identifiable branch from Prop. B.5. (C1) provides non-degenerate within-format reward variation. It does not, by itself, prove that the gradient prefers semantic correctness; that stronger optimization claim additionally requires the semantic score 𝑅 𝑠 to be aligned with correctness and population optimization over the C2-feasible class. 
+
+Finite-𝜀 expected-reward-difference bound (averaged form). Let 𝜋 𝜀 denote any policy satisfying (C2) at level 𝜀 under the coverage distribution 𝜌 𝒙 , and write 𝜋 𝜀, A𝜏 for its prompt-conditioned answer marginal under extractor A𝜏 . Definition A.2 restricts 𝐷 to an 𝑓 -divergence satisfying a Pinsker-type bound TV (𝑃, 𝑄 ) ≤ 𝜅 𝐷 √︁ 𝐷 (𝑃 ∥𝑄 ) (for the natural-log KL used here, 𝜅 𝐷 = 1/√2). Since (C2) is an expectation under 𝜌 𝒙 , we bound the 𝜌 𝒙 -averaged pairwise expected reward difference rather than pointwise regret. For this finite-𝜀 bound we additionally require the evaluated reward to be a common answer-level function for the fixed task instance: there is a bounded 𝑟 𝒙 : Yans ∪ {∅} → [ 𝑅 min , 𝑅 max ] such that 
+
+𝑅 ( 𝒚 , 𝜏 (𝒙 )) = 𝑟 𝒙 (A 𝜏 ( 𝒚 )) for every 𝜏 in the coverage support. This holds for prompt-independent answer-level exact-match and numerical-tolerance rewards after extraction. If 𝑅 𝑠 reads the full reasoning trace, or if the reward function itself changes with 𝜏 , the same argument requires C2 on the corresponding score-relevant marginal or an additional reward-function-shift term. Under the common answer-level reward condition, Pinsker applies exactly at the answer-marginal level. For compactness write 
+
+𝑃 𝜀 𝑖 := 𝜋 𝜀, A𝜏 𝑖 (· | 𝜏 𝑖 (𝒙 )) ,𝑚 𝜀 𝑖 := 𝔼 𝑎 ∼𝑃 𝜀 𝑖 [𝑟 𝒙 (𝑎 )] . (45) 
+
+𝔼 𝜏 1,𝜏 2∼𝜌 𝒙 𝑚 𝜀  
+
+> 1
+
+− 𝑚 𝜀 
+
+> 2
+
+≤ Δ𝑅 𝔼 𝜏 1,𝜏 2∼𝜌 𝒙 TV  𝑃 𝜀 
+
+> 1
+
+, 𝑃 𝜀 
+
+> 2
+
+
+
+≤ Δ𝑅 𝜅 𝐷 𝔼 𝜏 1,𝜏 2∼𝜌 𝒙 √︃ 𝐷  𝑃 𝜀  
+
+> 1
+
+∥ 𝑃 𝜀 
+
+> 2
+
+
+
+≤ Δ𝑅 𝜅 𝐷 √︃ 𝔼 𝜏 1,𝜏 2∼𝜌 𝒙 𝐷  𝑃 𝜀  
+
+> 1
+
+∥ 𝑃 𝜀 
+
+> 2
+
+
+
+≤ Δ𝑅 𝜅 𝐷 
+
+√𝜀, 
+
+(46) where the third inequality is Jensen on the concave √· and the last applies (C2). The 𝜌 𝒙 -averaged answer-level mean reward difference of 𝜋 𝜀 thus vanishes as 𝜀 → 0. A uniform pointwise bound requires the stronger sup-variant of (C2) (sup 𝜏 1,𝜏 2 𝐷 ≤ 𝜀 ). □
+
+B.9. Coverage-dependent transfer bound Proposition B.11 (Coverage-dependent transfer bound) . Let the evaluated reward satisfy 𝑅 ( 𝒚 , 𝜏 (𝒙 )) ∈ [𝑅 min , 𝑅 max ] for all 𝒚 and 𝜏 , and write Δ𝑅 := 𝑅 max − 𝑅 min . Let 𝑃 test ∈ Δ(T ) be any test transformation distribution and let 𝜌 𝒙 be any coverage distribution on C( 𝒙 ), viewed as a probability measure on T by zero extension outside C( 𝒙 ). Define the coverage gap 𝜂 := TV (𝑃 test , 𝜌 𝒙 ). For any policy 𝜋 ,
+
+R ( 𝜋, 𝑃 test ; 𝒙 ) − R ( 𝜋, 𝜌 𝒙 ; 𝒙 ) ≤ Δ𝑅 𝜂. (47) 
+
+That is, the test-time mean reward of 𝜋 differs from its training-coverage mean by at most Δ𝑅 𝜂 . The bound vanishes as 𝜌 𝒙 approximates 𝑃 test in TV. If 𝑃 test is non-atomic while 𝜌 𝒙 is a finite zero-extended pool, this TV gap can be 1, so the statement is useful only when small 𝜂 is a genuine coverage assumption or the comparison is made on the same discrete transformation pool. This distribution-shift bound does not use (C2); (C2) matters only when the coverage reward is used as a proxy for other prompts. 
+
+Important scope. This bound transfers 𝜋 ’s own reward across distributions; it does not bound the regret of 𝜋 against an ⟦𝒙 ⟧-optimal 𝜋 ★. A constant-wrong, 0-C2-feasible policy is a counter-example 
+
+## 23 Improving Generalization Robustness of Multimodal RLVR 
+
+to any regret-vs-𝜋 ★ statement at 𝜂 =0: invariance does not imply optimality. Closing the gap to 𝜋 ★
+
+additionally requires semantically aligned rewards and successful population optimization; (C1) only requires non-degenerate within-bucket reward variation. Proof. For any bounded 𝑓 : T → ℝ with osc ( 𝑓 ) ≤ Δ𝑅 and probability measures 𝑃, 𝑄 on T , |𝔼 𝑃 [ 𝑓 ] − 
+
+𝔼 𝑄 [ 𝑓 ]| ≤ osc ( 𝑓 ) TV (𝑃, 𝑄 ) ≤ Δ𝑅 TV (𝑃, 𝑄 ). Apply this with 𝑓 (𝜏 ) := 𝔼 𝒚 ∼𝜋 (· | 𝜏 (𝒙 ) ) [𝑅 ( 𝒚 , 𝜏 (𝒙 ))] (whose oscillation is at most Δ𝑅 ), 𝑃 = 𝑃 test , 𝑄 = 𝜌 𝒙 : the bound is Δ𝑅 𝜂 . □
+
+Tightness of 𝜂 Δ𝑅 . For the TV transfer inequality itself, the bound is sharp even with non-degenerate coverage. Let 𝜌 𝒙 = (1 − 𝛾 )𝛿 𝜏 1 + 𝛾𝛿 𝜏 2 for 𝛾 ∈ ( 0, 1), and let 𝑃 test = (1 − 𝛾 − 𝜂 )𝛿 𝜏 1 + 𝛾𝛿 𝜏 2 + 𝜂𝛿 𝜏 3 with 
+
+𝜏 3 ∉ {𝜏 1, 𝜏 2} and 𝜂 ≤ 1−𝛾 . Construct 𝜋 so that its answer marginals on 𝜏 1 and 𝜏 2 are identical (hence it is 0-C2-feasible on the support of 𝜌 𝒙 ), with R ( 𝜋, 𝜏 1; 𝒙 ) = R ( 𝜋, 𝜏 2; 𝒙 ) = 𝑅 max , and let R ( 𝜋, 𝜏 3; 𝒙 ) = 𝑅 min 
+
+outside the coverage support. Then TV (𝑃 test , 𝜌 𝒙 ) = 𝜂 and the left-hand side of Eq. (47) equals 𝜂 Δ𝑅 .
+
+## C. Embedding-Space Adversary Details 
+
+The main adversary sampler 𝑞 𝜙 perturbs the instruction in embedding space: it adds a bounded perturbation 𝜹 to the instruction-token embeddings, ˜ 𝒆 I (𝒙 ) = 𝒆 I (𝒙 )+ 𝜹 with ∥𝜹 ∥2 ≤ 𝜖 emb , and minimizes the policy’s expected DTR reward within this instruction-embedding ball. In the projected-gradient implementation below, 𝑞 𝜙 is the point mass at the final perturbation; with a stochastic perturbation head, expectations over 𝑞 𝜙 are over reparameterized perturbation samples. We write 𝜏 𝜙 (𝒙 ) for the prompt carrying the perturbed instruction embedding. The parser/reward keeps the original surface delimiter for embedding perturbations, 𝑑 𝜏 𝜙 = 𝑑 𝒙 .
+
+Estimator. For 𝐺 > 1, treating the reward evaluation as a stop-gradient with respect to the pertur-bation, the score-function gradient of the negative reward with respect to the directly optimized instruction perturbation 𝜹 (or a reparameterized perturbation sample, after the chain rule to 𝜙 ) is estimated by ˆ𝒈 ≈ 1
+
+𝐺 
+
+> 𝐺
+
+∑︁ 
+
+> 𝑖 =1
+
+( ¯𝑅 −𝑖 − 𝑅 𝑖 ) ∇ 𝜹 log 𝜋 𝜃 ( 𝒚 𝑖 | 𝜏 𝜙 (𝒙 )) , (48) where 𝑅 𝑖 = 𝑅 DTR ( 𝒚 𝑖 , 𝜏 𝜙 (𝒙 )) and ¯ 𝑅 −𝑖 = 1
+
+> 𝐺 −1
+
+Í𝑗 ≠𝑖 𝑅 𝑗 is a leave-one-out baseline independent of 𝒚 𝑖 
+
+conditional on the current perturbation. The sign uses ¯ 𝑅 −𝑖 − 𝑅 𝑖 because the adversary ascends the negative reward. If the reward function is differentiated directly through 𝜏 𝜙 , an additional pathwise term −∇ 𝜹 𝑅 DTR appears; our implementation treats the verifier output as non-differentiable and uses the score-function term as the attack direction. 
+
+Objective. The adversary maximizes the negation of the policy’s expected DTR reward over the 
+
+𝜖 emb -ball: max  
+
+> 𝜙
+
+𝔼 𝒙 ∼D 
+
+h
+
+− 𝔼 𝜏 ∼𝑞 𝜙 (· | 𝒙 ) 𝔼 𝒚 ∼𝜋 𝜃 (· | 𝜏 (𝒙 ) ) 𝑅 DTR ( 𝒚 , 𝜏 (𝒙 )) 
+
+i
+
+, (49) where 𝜏 ∼ 𝑞 𝜙 (· | 𝒙 ) denotes sampling a bounded perturbation 𝜹 and applying it to the instruction embedding. 
+
+Perturbation set. The main perturbation acts on the instruction-token embedding block. We use an ℓ2
+
+trust region of radius 𝜖 emb and project 𝜹 back onto {∥ 𝜹 ∥2 ≤ 𝜖 emb } after each step. An optional entropy regularizer on a stochastic 𝑞 𝜙 (a perturbation head with learned mean and diagonal covariance) keeps the adversary from collapsing onto a single direction, so the policy can be trained against a spread of worst-case perturbations rather than one fixed attack. The image content, question content, and answer target are never modified; only the instruction embedding block is perturbed in the main method. 
+
+## 24 Improving Generalization Robustness of Multimodal RLVR 
+
+Algorithm 1 Embedding-space adversary one-step (per prompt 𝒙 )                                              
+
+> 1: Input: prompt 𝒙 , radius 𝜖 emb , ascent steps 𝐾 adv , step size 𝜂 adv , adversary group size 𝐺 adv , current policy 𝜋 𝜃 .2: Initialize 𝜹 ←0.3: for 𝑗 =1, . . . , 𝐾 adv do
+> 4: Sample a rollout group {𝒚 𝑖 }𝐺 adv
+> 𝑖 =1∼𝜋 𝜃 (· | 𝜏 𝜙 (𝒙 )) at the current perturbation. 5: Estimate ˆ 𝒈 via Eq. (48) (REINFORCE on −𝑅 DTR ). 6: Ascend and project: 𝜹 ←Π∥ · ∥ 2≤𝜖 emb
+>  𝜹 +𝜂 adv ˆ𝒈 .7: end for
+> 8: Return perturbed prompt 𝜏 𝜙 (𝒙 )with instruction embedding 𝒆 I(𝒙 ) + 𝜹 .
+
+Algorithm. At each adversarial step on input 𝒙 with current policy 𝜋 𝜃 :
+
+Hyperparameters. We set the trust-region radius 𝜖 emb to 10% of the median instruction-embedding norm, ascent steps 𝐾 adv = 4, and a rollout size 𝐺 = 4 for the gradient estimate (a smaller group than the training group 𝐺 = 16, to keep adversary cost bounded). The adversary update is performed every 4 policy updates to amortize cost. 
+
+Why embedding-space. Perturbing the instruction embedding is a differentiable, model-agnostic surrogate for the worst-case rewording in ⟦𝒙 ⟧: it needs no candidate enumeration and directly models continuous instruction-embedding variation, at the cost that an arbitrary 𝜹 need not decode to a literal token sequence. A discrete, on-manifold variant that searches a semantics-preserving substitution pool with gradient guidance is naturally an extension that we leave to the future work. 
+
+Compute cost. Per prompt per adversary step, the adversary requires: (a) one rollout of size 𝐺 to estimate the REINFORCE gradient ˆ 𝒈 (Eq. (48)); if this group is sampled at the final perturbation, it can be reused by the policy update, otherwise it is counted as additional adversary sampling cost; (b) one backward pass to the instruction-embedding block, 𝑂 (| instruction | · 𝑑 ); repeated over 𝐾 adv ascent steps. With 𝐾 adv = 4 this is roughly 𝐾 adv forward–backward-pass-equivalents per adversary update. Running the adversary update once every 4 policy updates limits the measured wall-clock overhead to about 25% above plain GRPO on Qwen2.5-VL-7B. 
+
+C.1. Image- vs instruction-side perturbation 
+
+Our main adversary perturbs the instruction (text) embedding only (Section 3.2 of the main paper). Fig. 4 ablates the training-time perturbation modality (image, text, or both) against test-time pertur-bations on Qwen2.5-VL-7B. The instruction-side (Text) adversary recovers most of the robustness to prompt rewording—the Text and joint (Both) columns—whereas robustness to image-side perturba-tion requires image-side adversarial training, and jointly perturbing both inputs is only marginally better than the text adversary on the rewording columns. We therefore adopt the instruction-side adversary in the main method and report the image-side variant here for completeness. 
+
+C.2. Full PIRL training loop 
+
+Algorithm 2 summarizes the complete PIRL training procedure. For each task instance, full PIRL first samples 𝜏 0 ∼ 𝑃 train from the five-template training pool, then constructs an adversarial instruction perturbation around 𝜏 0 (𝒙 ) through projected ascent on the negative DTR reward, and finally samples a training rollout group under the resulting perturbed prompt. The no-MT ablation uses 𝜏 0 = id. The corresponding DTR scores and DAN-normalized advantages are used in the clipped policy objective of Eq. (10) in the main paper, together with the token-level consistency loss in Eq. (8) in the main paper that regularizes the policy distributions under the clean template-conditioned and adversarial prompts. During the policy update, the generated adversarial prompt is treated as fixed. 
+
+## 25 Improving Generalization Robustness of Multimodal RLVR Clean Image Text Both                            
+
+> Testing Perturbation
+> Std GRPO PIRL (Image) PIRL (Text) PIRL (Both)
+> Training Method  49.5 39.3 28.8 26.7 49.6 40.4 28.6 27.4 50.1 39.5 31.5 28.7 50.2 40.5 31.7 29.1
+> In-Distribution (Avg)
+> Clean Image Text Both
+> Testing Perturbation
+> Std GRPO PIRL (Image) PIRL (Text) PIRL (Both)
+> Training Method  32.0 29.9 27.4 26.6 32.1 30.7 27.3 27.0 32.5 30.0 28.9 27.6 32.7 30.8 29.0 27.9
+> OOD (Avg)
+
+Figure 4 | Ablation on training–testing perturbation combinations for Qwen2.5-VL-7B (in-distribution and OOD averages). Rows vary the adversarial perturbation applied during training (none for Std GRPO; image, text, or both for PIRL); columns vary the test-time perturbation, where “Clean” applies none and “Both” applies joint image+text perturbation. The instruction-side (Text) adversary of our main method drives robustness to prompt rewording (Text and Both columns), whereas image robustness requires image-side adversarial training. As formalized in Definition A.2, C2 promotes answer-level invariance across semantics-preserving prompt transformations by constraining the expected (f)-divergence between the answer marginals induced by transformation-dependent extractors under a non-degenerate coverage distribution. This formulation permits variations in prompt wording and required output format while encouraging the policy to preserve the same underlying semantic answer. As shown in Proposition B.10, suffi-ciently strong invariance control excludes format-dependent shortcut solutions within the covered transformation set. In practice, we optimize the length-normalized token-level consistency loss in Eq. (8) in the main paper as a tractable differentiable surrogate for C2, rather than treating it as a formal certificate of answer-level invariance. The complete PIRL training procedure is presented in Algorithm 2. 
+
+C.3. Instrumentation for the empirical Φwf trajectory 
+
+The hooks below produce a single-run diagnostic check of Theorems B.1 and B.8 without re-training. For each rollout 𝒚 𝑖 in a prompt group, log 𝑉 𝑓 ( 𝒚 𝑖 , I) from the format checker and the realized reward 
+
+𝑅 ( 𝒚 𝑖 , 𝒙 ) (binary 𝑉 for GRPO; 𝑅 𝑡 + 𝛼 rew 𝑅 𝑠 for PIRL). At each training step, aggregate per-prompt-group estimates of the conditional reward variances cVar (𝑅 | 𝑉 𝑓 = 𝑣 ) for 𝑣 ∈ { 0, 1} using Bessel-corrected sample variance when the bucket contains at least two samples; buckets with fewer than two samples are pooled across prompt groups at the same step before variance estimation, and the step’s bΦwf 
+
+diagnostic is omitted if no pooled estimate is available for each required realized bucket. Then form 
+
+bΦwf := b𝔼 [ cVar (𝑅 | 𝑉 𝑓 )]/ cVar (𝑅 ). Under the independence and approximately fixed-𝑝 𝑐 diagnostic model of Theorem B.1, the GRPO trajectory should rise toward 1 as ˆ 𝑝 𝑓 → 1. Under the non-degeneracy assumption of Theorem B.8, PIRL has a 𝑝 𝑓 -independent numerator floor 𝛼 2rew 𝑚 for the reward-variance share; combining it with Popoviciu’s inequality gives the distribution-uniform constant in Theorem B.8, while 𝛼 2rew 𝑚 / cVar (𝑅 ) is only a data-dependent diagnostic floor. These are diagnostic checks of the theory’s assumptions, not standalone proofs of training dynamics. 
+
+## 26 Improving Generalization Robustness of Multimodal RLVR 
+
+Algorithm 2 PIRL training pipeline 
+
+1: Input: policy 𝜋 𝜃 , dataset D, template distribution 𝑃 train , radius 𝜖 emb , ascent steps 𝐾 adv , step size 𝜂 adv , group sizes 
+
+> 𝐺 adv , 𝐺 train
+
+, refresh cadence 𝐶 adv , weight 𝜆 .2: for each adversary refresh (once per 𝐶 adv policy updates) do 
+
+3: Set rollout policy 𝜃 old ← 𝜃 .4: Sample B = {( 𝒙 , 𝑎 ∗)} ∼ D and 𝜏 0 ∼ 𝑃 train per instance; form B0 = {( 𝒙 0, 𝑎 ∗) : 𝒙 0 = 𝜏 0 (𝒙 )} .5: for each 𝒙 0 ∈ B 0 do 
+
+6: Initialize 𝜹 ← 0.7: Let 𝜏 𝜙 (𝒙 0) denote the prompt induced by the current 𝜹 .8: for 𝑗 = 1, . . . , 𝐾 adv do 
+
+9: Sample { 𝒚 𝑖 }𝐺 adv  
+
+> 𝑖 =1
+
+∼ 𝜋 𝜃 old (· | 𝜏 𝜙 (𝒙 0)) ; estimate ˆ 𝒈 via Eq. (48); ascend and project 𝜹 ← Π∥ · ∥ 2 ≤𝜖 emb (𝜹 + 𝜂 adv ˆ𝒈 ).10: Update 𝜏 𝜙 (𝒙 0) to use instruction embedding 𝒆 I (𝒙 0) + 𝜹 .11: end for 
+
+12: 𝜏 𝜙 (𝒙 0) ← prompt with instruction embedding 𝒆 I (𝒙 0) + 𝜹 ; sample {˜𝒚 𝑖 }𝐺 train  
+
+> 𝑖 =1
+
+∼ 𝜋 𝜃 old (· | 𝜏 𝜙 (𝒙 0)) .13: Compute trinary/semantic scores from Eqs. (5) and (6) in the main paper and DAN advantages ˆ 𝐴 𝑖 from Eq. (7) in the main paper. 14: Store the frozen adversarial prompt 𝜏 ¯𝜙 𝒙 0 (𝒙 0) ← 𝜏 𝜙 (𝒙 0) and its rollout group. 15: end for 
+
+16: for 𝑐 = 1, . . . , 𝐶 adv do 
+
+17: Compute the batch consistency loss |B 0 |−1 Í𝒙 0 ∈ B 0 Lcons (𝜃 ; 𝒙 0, ¯𝜙 𝒙 0 ) via Eq. (8) in the main paper, using teacher-forced prefixes in our implementation. 18: Update 𝜋 𝜃 via Eq. (10) in the main paper, using the stored adversarial prompts and treating them as fixed. 19: end for 
+
+20: end for 
+
+## D. Dynamic Evaluation: Operator Set and Class-Decomposed Results 
+
+We implement dynamic evaluation by applying controlled transformations intended to preserve the task label, building on Dynamic Multimodal Evaluation with Vision-Language Bootstrapping [30]. Unlike T-Stress, D-Test is not restricted to prompt transformations in T : image, layout, and QA-format operations can change task difficulty and may occasionally alter answer-relevant content. We therefore treat D-Test as a broader empirical robustness stress test, not as a clean evaluation of the C2 equivalence class. 
+
+Operator pool. The D-Test applies the following mutations to input instances: • Text: rephrase (paraphrase or reorder wording without changing meaning); narrative distraction (add plausible but irrelevant sentences); option shuffle / equivalent replacement; format switch (QA ↔ MC); choice expansion (e.g., ABCD → ABCDEF); answer negation (“None of the above”). • Image: resize+padding (rescale with aspect-preserving padding); crop (center/random crop with ROI safeguards); rotation when the question is not orientation-sensitive; salt-and-pepper noise; color inversion when color is not the queried attribute; style transfer (lightweight filter-based style shift). These safeguards reduce, but do not eliminate, label-change risk. 
+
+Implementation. Our integration adds a dynamic/original branch to each per-benchmark loader in the evaluation harness; the aggregate D-Test in Table 2 in the main paper averages over the full operator pool. 
+
+## E. Supplementary Method Details 
+
+E.1. RLVR and GRPO Preliminaries 
+
+We define the MLLM as a policy 𝜋 𝜃 that generates a response 𝒚 = ( 𝑦 1, . . . , 𝑦 𝑇 ) conditioned on an input prompt 𝒙 . A verifier 𝑉 deterministically assigns a binary reward 𝑟 = 𝑉 ( 𝒚 , 𝒙 ) ∈ { 0, 1}, where 
+
+## 27 Improving Generalization Robustness of Multimodal RLVR 
+
+𝑟 = 1 indicates that the final answer satisfies task-specific correctness constraints (e.g., template-based numeric matching). The RLVR objective (e.g., GRPO) maximizes the expected verifiable reward: max  
+
+> 𝜃
+
+𝔼 𝒙 ∼D 𝔼 𝒚 ∼𝜋 𝜃 (· | 𝒙 )
+
+𝑉 ( 𝒚 , 𝒙 ), (50) where D denotes the empirical prompt distribution. 
+
+Group Relative Policy Optimization (GRPO). GRPO is a RLVR algorithm that optimizes policies using group-wise relative rewards. Given a prompt 𝒙 , GRPO samples a group 𝒀 = { 𝒚 (𝑖 ) }𝐺 𝑖 =1 from the behavior policy 𝜋 𝜃 old and computes one normalized advantage per response from the group’s verifier outcomes. For 𝒚 (𝑖 ) = ( 𝑦 (𝑖 ) 
+
+> 1
+
+, . . . , 𝑦 (𝑖 ) 
+
+> 𝑇 𝑖
+
+), the clipped surrogate is token-level, as in PPO [23]: 
+
+𝑞 𝐺  
+
+> old
+
+(· | 𝒙 ) := 𝜋 ⊗𝐺 𝜃 old (· | 𝒙 ),𝑤 𝑖,𝑡 (𝜃 ) := 𝜋 𝜃 ( 𝑦 (𝑖 ) 
+
+> 𝑡
+
+| 𝒙 , 𝒚 (𝑖 ) 
+
+> <𝑡
+
+)
+
+𝜋 𝜃 old ( 𝑦 (𝑖 ) 
+
+> 𝑡
+
+| 𝒙 , 𝒚 (𝑖 ) 
+
+> <𝑡
+
+) ,𝑐 𝑖,𝑡 (𝜃 ) := clip  𝑤 𝑖,𝑡 (𝜃 ), 1 − 𝜖 low , 1 + 𝜖 high 
+
+ ,𝑀 𝑖,𝑡 (𝜃 ) := min 
+
+
+
+𝑤 𝑖,𝑡 (𝜃 ) 𝐴 (𝑖 ) , 𝑐 𝑖,𝑡 (𝜃 ) 𝐴 (𝑖 ) 
+
+,𝑑 ref  
+
+> 𝑖,𝑡
+
+(𝜃 ) := 𝐷 KL 
+
+
+
+𝜋 𝜃 (· | 𝒙 , 𝒚 (𝑖 ) 
+
+> <𝑡
+
+) 𝜋 ref (· | 𝒙 , 𝒚 (𝑖 ) 
+
+> <𝑡
+
+)
+
+
+
+,𝐵 𝜃 (𝒙 , 𝒀 ) := 1
+
+𝐺 
+
+> 𝐺
+
+∑︁ 
+
+> 𝑖 =1
+
+1
+
+𝑇 𝑖 𝑇 𝑖 ∑︁ 
+
+> 𝑡 =1
+
+h
+
+𝑀 𝑖,𝑡 (𝜃 ) − 𝛽𝑑 ref  
+
+> 𝑖,𝑡
+
+(𝜃 )
+
+i
+
+.
+
+(51) 
+
+JGRPO = 𝔼 𝒙 ∼D 𝔼 𝒀 ∼𝑞 𝐺   
+
+> old (· | 𝒙 )
+
+[𝐵 𝜃 (𝒙 , 𝒀 )] . (52) The reference policy appears separately in the optional KL penalty. Here 𝜖 low and 𝜖 high are the lower and upper clipping radii and 𝛽 is the KL strength; the expectation is over 𝒙 ∼ D and old-policy rollout groups. 𝐴 (𝑖 ) is the group-relative advantage: 
+
+𝐴 (𝑖 ) = 𝑟 (𝑖 ) − 𝜇 𝑟 
+
+𝜎 𝑟 + 𝜖 norm 
+
+, (53) 
+
+𝜇 𝑟 = 1
+
+𝐺 
+
+> 𝐺
+
+∑︁ 
+
+> 𝑗 =1
+
+𝑟 ( 𝑗 ) , (54) 
+
+𝜎 2 
+
+> 𝑟
+
+= 1
+
+𝐺 
+
+> 𝐺
+
+∑︁ 
+
+> 𝑗 =1
+
+(𝑟 ( 𝑗 ) − 𝜇 𝑟 )2, (55) with 𝜖 norm > 0 a small constant for numerical stability. 
+
+Generalized loss for the prompt-invariance objective. As defined in Eq. (10) in the main paper, we write LDAN G (𝜋 𝜃 , 𝑞 ; 𝑅 𝑡 , 𝑅 𝑠 ) for the clipped GRPO loss in which transformations are sampled from the adversarial sampler 𝑞 for a fixed task instance 𝒙 ; this 𝑞 is not the C2 coverage distribution 𝜌 𝒙 .
+
+## 28 Improving Generalization Robustness of Multimodal RLVR 
+
+Advantages are computed from the decomposed rewards by Eq. (7) in the main paper. Define 
+
+𝑤 𝑖,𝑡 (𝜃, 𝜏 ) := 𝜋 𝜃 ( 𝑦 (𝑖 ) 
+
+> 𝑡
+
+| 𝜏 (𝒙 ), 𝒚 (𝑖 ) 
+
+> <𝑡
+
+)
+
+𝜋 𝜃 old ( 𝑦 (𝑖 ) 
+
+> 𝑡
+
+| 𝜏 (𝒙 ), 𝒚 (𝑖 ) 
+
+> <𝑡
+
+) ,𝑐 𝑖,𝑡 (𝜃, 𝜏 ) := clip  𝑤 𝑖,𝑡 (𝜃, 𝜏 ), 1 − 𝜖 low , 1 + 𝜖 high 
+
+ ,𝑑 ref  
+
+> 𝑖,𝑡
+
+(𝜃, 𝜏 ) := 𝐷 KL 
+
+
+
+𝜋 𝜃 (· | 𝜏 (𝒙 ), 𝒚 (𝑖 ) 
+
+> <𝑡
+
+) 𝜋 ref (· | 𝜏 (𝒙 ), 𝒚 (𝑖 ) 
+
+> <𝑡
+
+)
+
+
+
+,𝑀 𝑖,𝑡 (𝜃, 𝜏 ) := min 
+
+
+
+𝑤 𝑖,𝑡 (𝜃, 𝜏 ) ˆ𝐴 𝑖 , 𝑐 𝑖,𝑡 (𝜃, 𝜏 ) ˆ𝐴 𝑖 
+
+
+
+,
+
+¯𝑀 𝜃 (𝜏, 𝒀 ) := 1
+
+𝐺 
+
+> 𝐺
+
+∑︁ 
+
+> 𝑖 =1
+
+1
+
+𝑇 𝑖 𝑇 𝑖 ∑︁ 
+
+> 𝑡 =1
+
+𝑀 𝑖,𝑡 (𝜃, 𝜏 ),
+
+¯𝐷 ref (𝜃, 𝜏, 𝒀 ) := 1
+
+𝐺 
+
+> 𝐺
+
+∑︁ 
+
+> 𝑖 =1
+
+1
+
+𝑇 𝑖 𝑇 𝑖 ∑︁ 
+
+> 𝑡 =1
+
+𝑑 ref  
+
+> 𝑖,𝑡
+
+(𝜃, 𝜏 ),𝑞 𝐺 𝜏 := 𝜋 ⊗𝐺 𝜃 old (· | 𝜏 (𝒙 )) .
+
+(56) Write LDAN := LDAN G (𝜋 𝜃 , 𝑞 ; 𝑅 𝑡 , 𝑅 𝑠 ).
+
+LDAN = − 𝔼 𝜏 ∼𝑞 𝔼 𝒀 ∼𝑞 𝐺 𝜏 
+
+ ¯𝑀 𝜃 (𝜏, 𝒀 ) + 𝛽 𝔼 𝜏 ∼𝑞 𝔼 𝒀 ∼𝑞 𝐺 𝜏 
+
+ ¯𝐷 ref (𝜃, 𝜏, 𝒀 ) . (57) ˆ𝐴 𝑖 is the DAN-normalized advantage of Eq. (7) in the main paper on the pair (𝑅 𝑡 , 𝑅 𝑠 ), conditional on the sampled minibatch used by Norm B . Thus the practical policy-gradient objective is not ordinary GRPO on the scalar reward alone; DAN is how DTR is plugged into GRPO. We do not isolate DAN in the ablation. 
+
+E.2. Interpretation of DTR 
+
+DTR combines a format-aware term and a semantic-score term additively, 𝑅 = 𝑅 𝑡 + 𝛼 rew 𝑅 𝑠 . The trinary 
+
+𝑅 𝑡 distinguishes correct-and-formatted, wrong-but-formatted, and format-failure cases, rather than collapsing all non-(1, 1) outcomes to the same 𝑉 = 0 value. The score 𝑅 𝑠 varies within each 𝑉 𝑓 bucket under the non-degeneracy assumption; when it is aligned with correctness, it can rank responses inside those buckets. A response with correct semantic reasoning but format failure still attains a total reward of −1 + 𝛼 rew 𝑅 𝑠 , which can remain negative but is strictly greater than −1 whenever 
+
+𝑅 𝑠 > 0; when 𝑅 𝑠 varies across such responses, the reward signal contains score variation within the format-failure bucket, which the binary verifier collapses to a single 𝑉 = 0 value. Theorem B.8 gives the corresponding reward-variance lower bound. 
+
+## F. Datasets, Licenses, and Reproducibility 
+
+This section consolidates dataset statistics, artifact licenses and intended use, the compute budget, full hyperparameters, and software versions, for reproducibility and responsible-research reporting. 
+
+F.1. Datasets and Statistics 
+
+Table 4 summarizes the benchmarks, their role (training, in-distribution, or out-of-distribution evalua-tion), domain, and evaluation-set size. Exam-VQA RL training draws prompts from the MMK12 pool (15 ,616 image–question pairs); each online-RL iteration samples 200 prompts with 𝐺 = 16 rollouts per prompt over 10 iterations. Medical and legal policies are trained on Lingshu [11] and DUDE [26], respectively. Exam evaluation-set sizes are measured directly from our evaluation harness; medical and legal sizes are the standard public test/validation splits. 
+
+## 29 Improving Generalization Robustness of Multimodal RLVR 
+
+Table 4 | Datasets used, with role, domain, number of instances used, and license. MMK12 reports train/evaluation counts; for the other Train rows the count is the training subset used, and † marks a standard public evaluation split. Exam evaluation sizes are measured from our harness. Licenses are reported to the best of our knowledge as distributed by the original sources.                                         
+
+> Dataset Role Domain #Used License (as distributed)
+> MMK12 [20] Train / ID eval Exam (math/science) 15 ,616 /2,000 Research use MathVista [16] ID eval Exam (math) 1,000 CC BY-SA 4.0 Olym-Phys [7] OOD eval Exam (physics) 451 MIT Lingshu [11] Train Medical 44 ,050 Research use VQA-RAD [12] ID eval Medical (radiology) 451 †CC0 1.0 PathVQA [8] ID eval Medical (pathology) 6,761 †MIT GMAI-MMBench [4] OOD eval Medical 5,000 †CC BY-NC-SA 4.0 DUDE [26] Train Legal / document 5,000 CC BY 4.0 DocVQA [19] OOD eval Legal / document 5,349 †Research use
+
+F.2. Licenses and Intended Use 
+
+Both base models, Qwen2.5-VL-7B-Instruct and Qwen3-VL-8B-Instruct, are released under Apache-2.0. Dataset licenses are listed in Table 4. All artifacts are used for non-commercial academic research consistent with their intended research use; benchmarks accessed under research-only terms (medical and legal VQA) are used solely in a research context and are not redistributed. The artifacts we create—trained policy checkpoints and dynamic-evaluation operators—are intended for research use only. Any release will carry its own license and notices; users remain responsible for the terms of the source datasets, which we do not redistribute. 
+
+F.3. Models, Compute, and Infrastructure 
+
+We train two instruction-tuned multimodal policies, Qwen2.5-VL-7B-Instruct and Qwen3-VL-8B-Instruct (7–8B parameters each, including the vision encoder). Training runs on 16 × NVIDIA H100-80GB GPUs with DeepSpeed ZeRO-3 and bf16 mixed precision; policy rollouts are served with vLLM. The embedding-space adversary adds about 25% wall-clock over plain GRPO (Section C); the total budget per trained policy is on the order of a few hundred H100 GPU-hours for the 10-iteration online-RL loop. 
+
+F.4. Training Hyperparameters 
+
+Table 5 lists the policy-optimization, sampling, and reward settings. The trinary reward 𝑅 𝑡 is combined with the semantic score 𝑅 𝑠 at weight 𝛼 rew = 0.01; the consistency penalty (the adversarial-to-clean token KL in Section 3.2 of the main paper) has weight 𝜆 = 1.0, and is distinct from the reference-KL coefficient, which we set to 𝛽 = 0; we instead rely on the asymmetric 0 .2/0.28 clipping rule to regularize the policy update, without claiming a hard trust-region bound. The adversary trust-region radius and ascent schedule are given in Section C. We did not run an extensive hyperparameter search: optimizer and clip settings follow GRPO’s settings, and 𝛼 rew , 𝜆 , and the adversary radius were set by small manual sweeps on the Exam validation split. 
+
+F.5. Software and Packages 
+
+Training uses a custom Qwen-VL RL framework (PyTorch 2.7, Transformers 4.57.x, DeepSpeed 0.16, FlashAttention 2.7.4) with vLLM for distributed rollout generation. Evaluation uses our improved 
+
+## 30 Improving Generalization Robustness of Multimodal RLVR 
+
+Table 5 | Training, rollout, and reward hyperparameters (GRPO with DTR/DAN and the embedding-space adversary). Adversary radius and ascent cadence are in Section C.                                                            
+
+> Hyperparameter Value Hyperparameter Value
+> Policy optimizer GRPO Rollout group size 𝐺 16 Learning rate 2×10 −6MM-projector LR 1×10 −5
+> Optimizer AdamW (𝛽 1, 𝛽 2, 𝜖 )(0.9,0.999 ,10 −8)
+> Weight decay 0.01 Max grad norm 1.0Clip range (low/high) 0.2/0.28 Reference-KL coef. 𝛽 0Online-RL iterations 10 Prompts per iteration 200 Policy steps per iter. ≤50 Per-device batch 2Grad. accumulation 2Max sequence length 8192 Max new tokens (rollout) 4096 Precision bf16 Rollout temperature 0.9Rollout top-𝑝 0.99
+> 𝛼 rew (semantic) 0.01 𝜆 (consistency) 1.0Adversary LR 𝜂 adv 5×10 −5ZeRO stage 3Tuned modules LLM + MLP Frozen modules vision enc. Random seed 42 /43 /44 Eval decoding greedy ( 𝑇 =0)
+
+MedEvalKit harness with vLLM and Transformers 4.57.x. Its scoring stack includes nltk 3.9.1, 
+
+rouge 1.0.1, mathruler 0.1.0, and qwen-vl-utils : exact-match and numeric answers are scored with mathruler , and open-ended answers are graded by an LLM judge (GPT-4.1-nano) under greedy decoding. Unless otherwise noted, evaluation generation uses temperature 0, top-𝑝 0.01, at most 1024 new tokens, and pass@1. 
+
+## G. Potential Risks 
+
+Our method centers on an adversary that perturbs instruction embeddings to surface worst-case rewordings, together with a suite of controlled input operators for dynamic evaluation. This machinery is dual-use: rather than hardening a model, an adversary could in principle repurpose the embedding-space search or the operator suite to craft prompt perturbations that degrade a deployed model, or to probe for inputs on which it is brittle. We mitigate this risk in several ways. First, the technique is fundamentally defensive: its objective is to reduce the prompt-induced performance gap, and the released recipe strengthens robustness rather than providing a turnkey attack. Second, the main adversary operates in continuous embedding space, and its perturbations need not decode to literal, transferable text prompts (Section 3.2 of the main paper; Limitations), so it is not directly usable as a black-box textual attack. Third, the dynamic-evaluation operators are controlled stress transformations meant for measuring robustness, not for generating misleading or harmful content; as noted in Appendix D, they are not all certified members of the semantic-equivalence class. We therefore release code and operators for research use only, documented as evaluation and robustness-training tools, and we recommend pairing any deployment with standard input validation and robustness monitoring. 
+
+Table 6 | Pass@8 accuracy under standard evaluation (%). Cited in Section 4.6 of the main paper. 
+
+Benchmark OOD Qwen2.5-VL-7B GRPO PIRL (Ours) 
+
+VQA_RAD × 76.99 75.66 77.43 
+
+PathVQA × 58.81 58.22 58.86 
+
+GMAI-MMbench ✓ 44.85 42.39 44.90 
+
+## 31 Improving Generalization Robustness of Multimodal RLVR 
+
+Finally, robustness is not correctness: a prompt-stable model can still be confidently wrong. In the high-stakes medical and legal domains studied here, PIRL-trained policies are intended to support, not replace, expert human judgment, and should not be deployed as autonomous decision-makers. 
+
+## H. Pass@8 Results Qwen2.5-VL-7B Qwen3-VL-8B 
+
+> 3.0
+> 2.5
+> 2.0
+> 1.5
+> 1.0
+> 0.5
+> 0.0 0.5
+> Mean template-stress gap  T (pp)
+> 0.0 +0.3 -2.9 -1.3 -1.1 -0.9 -0.1 -0.5
+> RL training breaks robustness PIRL restores it
+> Base GRPO GRPO-MT PIRL (Ours)
+
+Figure 5 | Mean template-stress gap ΔT (over 7 benchmarks; closer to 0 is more robust), recomputed from Table 1. Single-template GRPO sharply degrades robustness (Qwen2.5: ≈ 0 → − 2.9 pp); GRPO-MT partly mitigates ( −1.1); PIRL restores it to base level ( ≈ 0) under the full PIRL configuration. The effect is milder on the more robust Qwen3-VL-8B. 
+
+## I. Supplementary Discussion 
+
+This section provides additional discussion to complement the findings in the main content, offering nuanced interpretations of the prompt-robustness gap. • RLVR optimization can systematically impair prompt-level robustness. While RL-tuned models (e.g., Qwen2.5-VL) can outperform their base versions on static VQA benchmarks [24], they can be more fragile under distribution shift. A standard GRPO-tuned model on the Lingshu medical VQA dataset [11] drops about 10% under dynamic evaluation, a larger degradation than the non-RL base model. This is consistent with the mechanism in Proposition B.5: unconstrained optimization on 𝑃 train can allow the policy to occupy a non-identifiable corner of the policy space that under-performs on the rest of ⟦𝒙 ⟧.• Failure can be amplified under rigorous stress testing. Fragility is amplified under stressed evaluation settings, where the prompt distribution during test differs from training (Table 1 in the main paper). The test-mass scaling in Proposition B.5 is consistent with this pattern when the stress distribution places substantial mass on separated unseen prompt formats. • Reasoning shortcuts vs. latent capacity. Our analysis suggests RLVR optimization can favor a narrow slice of the prompt manifold that maximizes reward efficiency. In the formal model, this corresponds to an out-of-distribution generalization failure: 𝑃 train is concentrated on a specific template, while 𝑃 test spreads mass over unseen prompt transformations. The policy overfits to prompt syntax rather than learning the underlying reasoning ability [17, 32]. 
+
+## 32

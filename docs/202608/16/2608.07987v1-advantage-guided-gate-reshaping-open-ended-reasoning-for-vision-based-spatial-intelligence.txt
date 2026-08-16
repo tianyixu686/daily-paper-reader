@@ -1,0 +1,2165 @@
+Title: Advantage-Guided Gate: Reshaping Open-Ended Reasoning for Vision-Based Spatial Intelligence
+
+URL Source: https://arxiv.org/pdf/2608.07987v1
+
+Published Time: Tue, 11 Aug 2026 00:31:10 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+1
+
+# Advantage-Guided Gate: Reshaping Open-Ended Reasoning for Vision-Based Spatial Intelligence 
+
+Ling Lin, Yang Bai, Congcong Zhu, Jiangming Shi, Meng Wang, Yang Long, Senior Member IEEE ,Jingrun Chen, Ling Shao, Fellow IEEE , Huazhu Fu, Senior Member IEEE 
+
+Abstract —Multimodal large language models (MLLMs) have demonstrated significant potential in complex spatial scene un-derstanding and reasoning tasks. However, their open-ended reasoning process is prone to decision errors and error accu-mulation, leading to instability in answer quality. To address this, we propose an advantage-guided gating framework that dynamically intervenes in and corrects deviations during the reasoning process. Specifically, we model step-by-step reasoning as a finite-horizon decision process and introduce Monte Carlo value evaluation on the reasoning tree to provide intermediate supervision signals. The framework includes Step-Advantage Gate and Trajectory-Advantage Gate, which dynamically select high-value reasoning steps and high-quality complete reasoning trajectories, respectively. During training, we perform supervised learning for the gates using reasoning trees generated via multi-branch sampling, and combine shared-parameter initialization with task-specific heads to achieve cross-task robustness and diversity. During inference, the model greedily selects high-value prefix reasoning steps while choosing the optimal reasoning head based on the problem type, thereby significantly improving the accuracy of the final answer. Furthermore, we constructed the Reasoning-Tree-160k dataset and performed two-stage learning on it. Extensive experiments demonstrate that this advantage-guided gating framework effectively enhances the performance of benchmark MLLMs in visual-based spatial understanding and reasoning tasks. The code is open to the public for research: https://github.com/LingLin-ll/Advantage-Guided-Gate. 
+
+Index Terms —Multimodal Large Language Models, Reasoning Tree, Open-Ended Reasoning, Finite-Horizon Decision Process, Monte Carlo Evaluation. 
+
+I. I NTRODUCTION 
+
+# MULTIMODAL large models demonstrate significant po-tential in understanding and reasoning about complex environments. In spatial scenes, such models must not only 
+
+Ling Lin, Congcong Zhu, and Jingrun Chen are with the School of Artificial Intelligence and Data Science, University of Science and Technology of China, Hefei 230000, China, and Suzhou Institute for Advanced Research, USTC, Suzhou 215123, China. E-mail: linglin00d@gmail.com; cczly@ustc.edu.cn; jingrunchen@ustc.edu.cn. Yang Bai and Huazhu Fu are with Institute of Advanced Intelligence and Computing (IAIC), Agency for Science, Technology and Research (A*STAR), Singapore (E-mail: bai yang@a-star.edu.sg; hzfu@ieee.org). Jiangming Shi is with the School of Computer Science and Technology, East China Normal University, Shanghai, China (E-mail: jmshi@cs.ecnu.edu.cn). Meng Wang is with the Centre for Innovation & Precision Eye Health, Department of Ophthalmology, Yong Loo Lin School of Medicine, National University of Singapore, Singapore (E-mail: wang.m@nus.edu.sg). Yang Long is with the Department of Computer Science, Durham Univer-sity, United Kingdom (E-mail: yang.long@durham.ac.uk). Ling Shao is with the UCAS-Terminus AI Lab, University of Chinese Academy of Sciences, Beijing, China (E-mail:ling.shao@ieee.org). (Corresponding author: Yang Bai) (a) Spa'al Instruc'on Tuning Models   
+
+> Output
+> Input
+> …
+> (b) Tree of Thoughts (ToT)
+> Output
+> Input
+> Suscep'ble to incorrect rules
+> Heuris'c state evalua'on
+> Error accumula'on
+> Ignores intermediate steps
+> Reliance on zero-shot Judge evaluation
+> Output
+> Input (c) Advantage-Guided Gate (Ours)
+> 0.8 0.5 0.7 0.1 0.5 0.7 0.5 0.9 0.8 0.3
+> Step value Trajectory value
+> Value-guided step selection Reduced error propaga'on Retains high-value reasoning branches
+
+Fig. 1. (a) Spatial instruction-tuned models generate a single autoregressive reasoning chain without explicitly evaluating intermediate-step quality, mak-ing them susceptible to incorrect spatial rules and accumulated errors. (b) Tree of Thoughts (ToT) explores multiple candidate branches, but its state selection relies on heuristic, zero-shot judge evaluation. (c) Our Advantage-Guided Gate estimates step- and trajectory-level values to suppress low-value intermediate steps and guide generation toward higher-value reasoning branches, thereby reducing downstream error propagation. Circles denote intermediate reasoning steps. Green circles and arrows indicate the selected reasoning steps and branches, while pink circles represent candidate nodes that are not selected for the final reasoning trajectory. The numerical scores denote the estimated prefix step or trajectory values. 
+
+perform precise spatial reasoning but also execute subsequent instructions based on the results of that reasoning; this ca-pability is a critical link in effectively connecting general artificial intelligence (AGI) with real-world applications [1]– [6]. Current research primarily follows two approaches to data acquisition: The first assumes that the model has access to additional 3D or 2.5D information (such as point clouds [7]– [9], camera parameters, or depth maps [10]–[13]) in addition to traditional 2D visual inputs (images or videos). However, this reliance on additional data sources significantly limits the models’ broad applicability in real-world scenarios. The second category of research relies solely on monocular video inputs from the scene; under these conditions, the model’s spatial understanding and reasoning capabilities are typically referred to as “vision-based spatial intelligence” [14]–[19]. Although some progress has been made in this domain, the reliability of reasoning by existing multimodal large models in 3D environments that require complex spatial reasoning remains unsatisfactory. The core challenge lies in the deviation of reasoning mechanisms during video-based spatial reasoning, where local discrepancies in intermediate reasoning stages are propagated and amplified, leading to severe error accumulation along the reasoning trajectory. This deficiency is intrinsically linked to arXiv:2608.07987v1 [cs.CV] 8 Aug 2026 2
+
+the autoregressive formulation of MLLMs. When conditioned on multimodal inputs, early erroneous outputs distort the soft probability distributions of subsequent tokens, thereby intro-ducing permanent biases into the remaining Chain of Thought (CoT) trajectory. Under conventional end-to-end generative paradigms, once such intermediate biases are sampled, they are mathematically irreversible, leading to inevitable error amplification. A natural solution is to shift from holistic gen-eration to a model that combines step-by-step CoT synthesis with step-level verification. However, implementing this fine-grained control faces a fundamental theoretical bottleneck: how to precisely evaluate the fidelity of generated steps within an unconstrained, nearly infinite search space? Compared to structured reasoning (such as mathematical derivations, where intermediate steps can be formally verified), open-ended spatiotemporal reasoning lacks deterministic verification trajectories, making it extremely challenging to estimate the quality of intermediate reasoning states. To mitigate the aforementioned challenges, we propose an Advantage-Guided Gating framework. As illustrated in Fig. 1, our method differs from existing spatial reasoning paradigms by explicitly suppressing low-value intermediate steps through learned value guidance. Specifically, we formulate step-wise reasoning as a finite-horizon Markov decision process (MDP), where each reasoning step constitutes an action, and the final correctness of the answer defines the terminal reward. Within this framework, an ideal step-level gate corresponds to a value-based policy improvement operator. Given that the true action-value function is latent and not directly observable, we construct reasoning trees and estimate prefix values via Monte Carlo rollouts. To substantiate this approach and facilitate training, we systematically constructed the Reasoning-Tree-160k dataset by generating extensive reasoning trees. Driven by the law of large numbers, the empirical subtree return asymptotically converges to the true action value as the rollout budget scales. To parameterize this mechanism, we introduce two distinct variants: the trajectory-advantage gate, which esti-mates trajectory-level terminal returns, and the step-advantage gate, which learns a discrete approximation of the ideal value-based gate. Theoretically, the performance gap between the ideal and the learned gating mechanisms can be decomposed into Monte Carlo estimation error and classification approxi-mation error. Finally, we empirically and theoretically verify the performance gains using a lower confidence bound (LCB) on held-out task rewards. Our main contributions can be summarized as the following:  
+
+> •
+
+We establish a theoretical framework for advantage-guided open-ended reasoning and prove that advantage-guided gating yields policy improvement and reasoning-space contraction toward high-quality solution regions.  
+
+> •
+
+We construct and release a large-scale reasoning tree dataset containing over 160K reasoning states and tra-jectories, providing hierarchical supervision signals for studying open-ended multimodal reasoning.  
+
+> •
+
+We propose a hierarchical advantage supervision mecha-nism that derives intermediate reasoning preferences from terminal outcomes through multi-branch reasoning tree construction and backward propagation.  
+
+> •
+
+We develop a plug-and-play reasoning control frame-work that reshapes inference-time reasoning distributions without modifying the underlying MLLM parameters, enabling reasoning enhancement. II. R ELATED WORK 
+
+A. Spatial Reasoning in Multimodal Large Language Models 
+
+The emergence of MLLMs has significantly enhanced cross-modal understanding capabilities [20]–[26]. In recent years, endowing MLLMs with spatial reasoning capabili-ties—specifically, the ability to perceive, localize, and reason logically about the three-dimensional physical world—has become a hot topic in academic research [27]–[30]. Based on the underlying geometric representations, existing research primarily follows two technical approaches: enhancement mechanisms based on explicit 3D representations, and spatial intelligence driven by monocular video. 
+
+Enhancement mechanisms based on explicit 3D repre-sentations. A mainstream research approach focuses on en-hancing MLLMs’ spatial awareness by introducing explicit 3D geometric primitives into traditional 2D inputs. For example, Hong et al. [31] proposed the 3D-LLM framework, which addresses the model’s lack of global spatial awareness by reconstructing 3D point clouds from multi-view images and aligning them semantically with text. Xu et al. [32] developed PointLLM. This model incorporates a native 3D encoder that directly processes raw color point clouds, significantly improving accuracy in 3D bounding box prediction and object classification. Ji et al. [33] proposed the JM3D framework, which achieves deep fusion of point cloud, text, and image features through a Structured Multimodal Organizer (SMO) and Joint Multi-modal Alignment (JMA). 
+
+Spatial intelligence driven by monocular video. Although explicit 3D methods have made significant progress, they are often constrained by the high cost of acquiring 3D data and rely heavily on specialized sensors. To overcome these physical limitations, another paradigm has emerged that fo-cuses on enabling spatial reasoning directly from ubiquitous monocular video or 2D observation data. Wherever possible, Huang et al. [34] proposed the Chat-Scene++ framework, which structures complex 3D scenes into context-aware object sequences, enabling object-centric spatial representation and interaction. Similarly, Wu et al. [18] introduced the novel Spatial-MLLM framework, designed to perform visual-spatial reasoning under the constraint of purely 2D observational data. To completely eliminate the reliance on explicit 3D priors, Chen et al. [35] proposed the 3DThinker framework, which effectively extracts and utilizes the rich geometric informa-tion implicitly embedded in images to enable 3D reasoning. Furthermore, to rigorously benchmark this paradigm, Yang et al. [15] constructed VSI-Bench, a visual-spatial intelligence benchmark dataset tailored specifically for video-based spatial reasoning. This monocular video paradigm relies solely on widely available single-camera footage, offering exceptional flexibility and scalability, and is considered a more viable path toward general-purpose open-world spatial intelligence. 3
+
+B. Path Search and Step Evaluation in LLM Reasoning 
+
+To enhance the complex reasoning capabilities of large language models, Chain-of-Thought enables step-by-step task solving by generating intermediate reasoning steps [36]. Al-though CoT significantly improves model interpretability and accuracy, its inherently single-path autoregressive generation makes it highly susceptible to inheriting and amplifying biases from earlier stages, rendering it impossible to avoid catas-trophic error accumulation. To broaden the search space, the Tree of Thoughts (ToT) [37] extends the reasoning process into a tree-based search, generating multiple candidate lines of thought and filtering them through scoring to achieve a more comprehensive exploration of reasoning. Furthermore, the Graph of Thoughts (GoT) [38] generalizes the reasoning topology to a directed graph, enabling different thinking units to combine and aggregate across paths, thereby enhancing the flexibility of reasoning and the ability to reuse information. However, the scoring of intermediate steps during reasoning in these classical path-search methods primarily relies on the LLM’s own zero-shot prompts. This heuristic evaluation mechanism not only lacks clear training supervision objectives but also often lacks direct statistical correlation between the scores and the quality of the final answer [39]. To move beyond heuristic evaluation, recent studies have explored explicit supervision for intermediate reasoning qual-ity. Lightman et al. [39] introduced a Process Reward Model (PRM) based on large-scale manual annotation for stepwise verification of mathematical reasoning. However, such anno-tation is costly and subjective, and its reliance on explicit correctness criteria limits generalization to open-ended rea-soning without gold intermediate steps. Math-Shepherd [40] reduces annotation costs by generating PRM labels through large-scale sampling, deterministic rules, and LLM-based error localization, but still assumes that intermediate states are directly verifiable. More recently, Wang et al. [41] proposed a Hierarchical Reward Model that estimates state values through online Monte Carlo Tree Search. Although effective in do-mains with reliable value signals, such methods depend on precise intermediate feedback and are therefore difficult to apply to open-domain reasoning, where intermediate states are uncertain and lack discrete correctness boundaries. Unlike the methods described above, our approach avoids computationally intensive online search and instead extracts supervised signals through offline-constructed reasoning trees. Rather than attempting to learn the elusive absolute state value, we derive a “Relative Advantage” signal between Competing Reasoning Prefixes and distill it into a lightweight gating module. This gating module enables efficient, precise control of reasoning trajectories during inference without requiring tree search or rule verification. III. P OLICY IMPROVEMENT PERSPECTIVE ON STEP -WISE 
+
+REASONING 
+
+We formulate step-wise reasoning control from a policy-improvement perspective. Specifically, the reasoning process of an MLLM is viewed as a sequential decision-making procedure, in which a reasoning gate modifies the underlying policy by selectively suppressing intermediate steps with low expected utility for the final prediction. We first introduce an ideal value-based gating policy and establish its policy-improvement interpretation. We then show how reasoning-tree rollouts provide Monte Carlo supervision for approximating the required action values, thereby connecting the idealized formulation to the learned reasoning gate instantiated in our framework. 
+
+A. Step-wise Reasoning as a Finite-Horizon Decision Process 
+
+We model step-by-step reasoning as a finite-horizon de-cision process. At reasoning step t, the state is ht =(x, q, τ 1: t−1), where x is the visual input, q is the question, and τ1: t−1 = ( r1, . . . , r t−1) is the accepted reasoning prefix. The original MLLM samples the next reasoning step according to π0(rt | ht). A complete trajectory is denoted by τ1: K and receives a bounded terminal return R(τ1: K ) ∈ [0 , 1] .The usefulness of a candidate step can be characterized by its true action value under the original reasoning policy: 
+
+Qπ0 
+
+> t
+
+(ht, r t) = Eτ ∼π0 [R(τ ) | ht, r t], (1) which measures the expected terminal return after selecting rt
+
+and continuing the subsequent reasoning process with π0. The corresponding state value is 
+
+V π0 
+
+> t
+
+(ht) = Ert∼π0 [Qπ0 
+
+> t
+
+(ht, r t)] . (2) Suppose that the true action value is observable. An oracle value gate retains only reasoning steps whose action values exceed a threshold T :
+
+π∗ 
+
+> T
+
+(rt | ht) = π0(rt | ht)1[Qπ0 
+
+> t
+
+(ht, r t) ≥ T ]
+
+ZT (ht) , (3) where ZT (ht) = Pr rt∼π0 [Qπ0 
+
+> t
+
+(ht, r t) ≥ T ] denotes the probability mass assigned by π0 to reasoning steps satisfying the gating criterion. Whenever ZT (ht) > 0, the gated policy is well-defined as a valid probability distribution. 
+
+Proposition 1. Ideal Gating Guarantees Trajectory-Level Performance Monotonicity. 
+
+Let π0 be the baseline inference policy and π∗ 
+
+> T
+
+be the ideal gating policy thresholded at T . For any history state ht ∈ H 
+
+with a non-empty acceptance set, the single-step gated policy satisfies: 
+
+Ert∼π∗  
+
+> T(·| ht)
+
+[Qπ0 
+
+> t
+
+(ht, r t)] ≥ Ert∼π0(·| ht) [Qπ0 
+
+> t
+
+(ht, r t)] . (4) 
+
+Consequently, under zero intermediate rewards ( R(ht, r t) = 0 for t < K), the overall expected return of the gated reasoning policy monotonically dominates that of the baseline policy, i.e., 
+
+J(π∗ 
+
+> T
+
+) = Eτ ∼π∗ 
+
+> T
+
+[R(τ )] ≥ Eτ ∼π0 [R(τ )] = J(π0). (5) 
+
+Proof Sketch. The proof proceeds in two main steps: establish-ing local single-step improvement via conditional expectation decomposition, and propagating this advantage across the trajectory via reverse induction. 4
+
+Single-Step Amplification: Let S = Qπ0 
+
+> t
+
+(ht, r t) where 
+
+rt ∼ π0(· | ht), and let A = {S ≥ T } denote the acceptance event under the threshold T . For Pr( A) > 0, by the law of total expectation: 
+
+E[S] = Pr( A)E[S | A] + Pr( A′)E[S | A′].
+
+Since every element in A satisfies S ≥ T > S ′ for any 
+
+S′ ∈ A′, it follows that E[S|A] ≥ E[S|A′], which naturally yields E[S|A] ≥ E[S]. Re-substituting S into the conditional expectation E[S|A] = Ert∼π∗ 
+
+> T(·| ht)
+
+[Qπ0 
+
+> t
+
+(ht, r t)] directly yields Eq. (4). 
+
+Trajectory-Level Propagation: Utilizing the dynamic pro-gramming operator, the local advantage at step t propagates backwards. Since V π∗
+
+> T
+> t+1
+
+(ht+1 ) ≥ V π0
+
+> t+1
+
+(ht+1 ) has been estab-lished for all reachable future states ht+1 at step t + 1 , we have: 
+
+V π∗ 
+
+> T
+> t
+
+(ht) = Ert∼π∗
+
+> T
+
+h
+
+E
+
+h
+
+V π∗
+
+> T
+> t+1
+
+(ht+1 ) ht, r t
+
+ii 
+
+≥ Ert∼π∗
+
+> T
+
+E V π0
+
+> t+1
+
+(ht+1 ) ht, r t
+
+ 
+
+= Ert∼π∗ 
+
+> T
+
+[Qπ0 
+
+> t
+
+(ht, r t)] 
+
+≥ V π0 
+
+> t
+
+(ht).
+
+(6) By induction from the terminal step K down to t = 1 , we obtain J(π∗ 
+
+> T
+
+) = V π∗ 
+
+> T
+> 1
+
+(h1) ≥ V π0 
+
+> 1
+
+(h1) = J(π0). A rigorous and complete formal proof is provided in Appendix A.2. 
+
+B. Reasoning Tree as Monte Carlo Policy Evaluation 
+
+Since the true action-value function Qπ0 
+
+> t
+
+(ht, r t) defined above cannot be observed directly, we approximate it via Monte Carlo rollouts constructed on a reasoning tree. Specifically, given the current state ht and a sampled action 
+
+rt, we generate m independent subsequent reasoning comple-tions: τ (1) , . . . , τ (m) ∼ π0(· | ht, r t). Each rollout completes the trajectory to termination and receives a final return R(τ (j)).The empirical Monte Carlo estimate of Qπ0 
+
+> t
+
+(ht, r t) is then computed as: 
+
+bQm(ht, r t) = 1
+
+m
+
+> m
+
+X
+
+> j=1
+
+R(τ (j)). (7) By the Strong Law of Large Numbers, this estimator is consistent, satisfying bQm(ht, r t) a.s. 
+
+−−→ Qπ0 
+
+> t
+
+(ht, r t) as m →∞. Furthermore, standard concentration inequalities guarantee that the estimation error decays at the standard Monte Carlo rate of O(m−1/2). Specifically, for a target failure probability 
+
+η ∈ (0 , 1) (corresponding to a confidence level 1 − η), the estimation error is bounded with probability at least 1 − η by: 
+
+bQm(ht, r t) − Qπ0 
+
+> t
+
+(ht, r t) ≤ ϵMC ,
+
+where ϵMC =
+
+r log(2 /η )2m .
+
+(8) The formal derivation of this error bound via Hoeffding’s inequality is deferred to Appendix A.3. 
+
+C. Approximate Policy Improvement with Learned Gates 
+
+In practical deployment, the ideal value-gated policy π∗
+
+> T
+
+cannot be executed directly, as evaluating true action values 
+
+Qπ0 
+
+> t
+
+(ht, r t) requires intractable expectation computations. To bridge this gap, we substitute Qπ0 
+
+> t
+
+with its empirical Monte Carlo estimator bQm(ht, r t) defined in Eq. (8), yielding an empirical gating operator: 
+
+bgm(ht, r t) = 1[ bQm(ht, r t) ≥ T ]. (9) Furthermore, we fit a parameterized gating module 
+
+gϕ(ht, r t) ∈ [0 , 1] to approximate bgm. The resulting learned reasoning policy is formulated as: 
+
+πϕ(rt | ht) = π0(rt | ht)gϕ(ht, r t)
+
+Zϕ(ht) , (10) where Zϕ(ht) = Ert∼π0 [gϕ(ht, r t)] ensures distribution nor-malization. The performance gap between the deployed policy πϕ and the ideal oracle policy π∗ 
+
+> T
+
+originates from two coupled error sources:  
+
+> •
+
+Monte Carlo estimation error induced by finite rollout sampling;  
+
+> •
+
+Approximation error of the learnable gating operator. By decomposing the trajectory-level value difference via standard performance difference lemmas in finite-horizon de-cision processes, the performance degradation of the learned policy πϕ relative to the baseline π0 is lower-bounded by: 
+
+J(πϕ) − J(π0) ≥ ∆∗ − δ1K
+
+r log(2 /η )2m − δ2Kϵ gate , (11) where ∆∗ = J(π∗ 
+
+> T
+
+) − J(π0) ≥ 0 represents the theoretical maximum gain from ideal thresholding, K is the reasoning horizon, and δ1, δ 2 > 0 are constants depending on reward bounds and policy margins. Eq. (11) delivers a clear theoretical insight: as the number of Monte Carlo rollouts increases ( m → ∞ ) and the gating model achieves higher classification accuracy ( ϵgate → 0), the empirical policy improvement J(πϕ) − J(π0) converges monotonically toward the ideal oracle bound ∆∗.IV. A DVANTAGE -G UIDED LONG -H ORIZON REASONING 
+
+FRAMEWORK 
+
+The ideal gated reasoning policy is intractable because the underlying action-value function is unobservable. To approxi-mate it, we construct Monte Carlo reasoning trees to estimate trajectory returns, train learnable gating modules from sampled trajectories, and perform step-wise gated decoding during inference. As illustrated in Fig. 2, we construct Monte Carlo reasoning trees and derive hierarchical supervision through terminal-answer evaluation and bottom-up value propagation. 52. Terminal Answer Evaluation 
+
+> 𝑟 !!
+
+1. Monte Carlo Reasoning Tree Construction        
+
+> 𝑟 "!𝑟 ""
+> 𝑟 #!𝑟 #"𝑟 ##𝑟 #$
+> 𝜏 !:& =(𝑟 !, … , 𝑟 &)
+> Quality Score
+> 𝑠(𝜏 !:# )𝜏 !:# !
+> …
+> 𝜏 !:# $
+> 𝜏 !:# %
+> 𝜏 !:# &
+> 𝜏 !:# '
+> 𝜏 !:# '(!
+> 𝜏 !:# '($
+> Terminal Trajectory 1.00 0.95 0.82 0.53 0.31 0.08 …Terminal Evalua<on
+> Predicted Answer
+> 𝑦 &(𝜏 !:# )
+> Error
+> 𝑒 𝜏 !:# =𝐷(𝑦 &, 𝑦 ))
+> Quality Score
+> 𝑠 𝜏 !:# =11 + 𝜆𝑒(𝜏 !:# )
+
+3. Monte Carlo Backpropagation         
+
+> 0.65
+> 1.00 0.95 0.82 0.65 0.53 0.31 0.08 0.83 0.75 0.37 0.68 0.91 0.92 (0.09) 0.62 (0.23) 0.78 (0.12) 0.31 (0.23) 0.86 (0.16) 0.56 (0.36) 0.71 (0.21)
+> Depth 1
+> (𝑡 = 1)
+> Depth 2
+> (𝑡 = 2)
+> Depth K
+> (𝑡 = 𝐾)
+> Depth 3
+> (𝑡 = 3)
+> …
+> MC Tree Construction process
+> 𝝉 𝟏:𝑲
+> 𝝉 𝟏:𝑲(𝟏
+> 𝝉 𝟏:𝟐
+> 𝝉 𝟏:𝟏
+> …
+> MC Backpropagation Process
+> Each Trajectory shows 𝑌(𝜏 !:-)
+> (Top: 𝑉 1 (𝜏 !:-),Bottom: 𝜎(𝜏 !:-))
+> Prefix-level Supervision Trajectory-level Supervision
+
+4. Hierarchical Supervision ConstrucBon                       
+
+> 𝜏 !:-!𝜏 !:-$𝜏 !:-'
+> 𝜏 !:-%Depth 𝑡
+> Trajectories …
+> 𝑌(𝜏 !:-)0.82 0.77 0.63 0.30 …Relative Ranking 123m…Top -𝜌 ℓ./0
+> At each depth 𝑡 , rank prefixes by 𝑌(𝜏 !:-)
+> 𝜏 !:# !𝜏 !:# $𝜏 !:# '
+> 𝜏 !:# %Terminal Trajectories …
+> Error 𝑒(𝜏 !:-)0.00 1.05 1.22 12.50 …RelaQve Ranking
+
+- 1 2 m…Trajectory Label ℓ1234    
+
+> Rank terminal trajectories by final error 𝑒(𝜏 !:-)
+> Leaf Node 𝑟 )Intermediate Node 𝑟 *
+
+Legend Trajectory Supervision Labels MC Backpropagation Process (Bottom-up) MC Tree Construction Process (Top-down) 
+
+Fig. 2. Construction and annotation of the Monte Carlo reasoning tree. The reasoning tree is first expanded top-down by recursively sampling candidate reasoning steps until terminal trajectories are obtained. Each terminal answer is then evaluated against the ground truth and converted into a trajectory-quality score. These terminal scores are propagated bottom-up to estimate the values of intermediate prefixes. Finally, hierarchical supervision is constructed at two levels: prefixes at each depth are ranked by their Monte Carlo estimates to generate Top-ρ accept/reject labels for SAG, while terminal trajectories are ranked by answer error to generate trajectory-level labels for TAG. 
+
+A. Monte Carlo Reasoning Tree Construction 
+
+To obtain the empirical value estimates required for gating supervision, we explicitly formulate the step-by-step genera-tion process as a multi-branch reasoning tree. For a given vi-sual question-answering instance Ii = ( xi, q i, y i) with ground-truth answer yi, we construct a corresponding reasoning tree 
+
+Ti = ( Vi, Ei).Each node in Vi corresponds to a specific reasoning state 
+
+ht = ( xi, q i, τ 1: t−1). The root node initializes the process with an empty prefix. To expand the tree top-down, we recursively sample candidate reasoning steps from the baseline MLLM policy π0(· | ht). This multi-branch generation continues until a termination signal is produced, forming a leaf node. The set of all leaf nodes constitutes the terminal trajectories 
+
+Vtraj 
+
+i . Each complete trajectory τ1: K ∈ Vtraj 
+
+i yields a final predicted answer ˆy(τ1: K ), which is evaluated against the ground-truth yi to produce a deterministic trajectory-quality score ( i.e. , the terminal return R(τ1: K )). 
+
+1) Backward Propagation of Terminal Feedback on the Reasoning Tree: After obtaining the terminal quality of the terminal trajectory, we propagate the terminal quality upward along the tree structure to estimate the oracle value of each intermediate reasoning prefix. For any intermediate prefix τ1: t,let L(τ1: t) denote the set of all reachable leaf nodes in the sampling subtree rooted at prefix τ1: t. The value score of prefix 
+
+τ1: t is defined as: 
+
+bV (τ1: t) = 1
+
+|L(τ1: t)|
+
+X
+
+τ1: K ∈L(τ1: t)
+
+s(τ1: K ). (12) It should be noted that bV (τ1: t) is not used to determine whether the current reasoning step itself is locally correct, but rather to characterize the long-term impact of the current reasoning state on the ultimate success of the task. Therefore, 
+
+bV (τ1: t) can be viewed as a finite-sample Monte Carlo estimate of the oracle action-value, with supervision derived from statistical feedback over reachable terminal trajectories. Compared to directly labeling intermediate reasoning steps for local correctness, this long-horizon value estimation based on final result feedback is better suited for open-ended reason-ing scenarios. This is because the local validity of intermediate reasoning steps is often difficult to assess independently, whereas their true value typically lies in whether subsequent reasoning continues to lead to high-quality final answers. Furthermore, to characterize the stability among different subsequent branches under the same reasoning prefix, we introduce uncertainty in the subtree quality distribution: 
+
+σ(τ1: t) = Std {s(τ1: K ) | τ1: K ∈ L(τ1: t)}.
+
+Based on this, we define the exploration-aware value score: 
+
+Y (τ1: t) = bV (τ1: t) + ασ (τ1: t),
+
+where α controls the weight of the uncertainty term, this formulation can be interpreted as an optimistic value estima-tion, where the uncertainty term characterizes the potential exploratory benefits of the current reasoning state. This design simultaneously encapsulates the expected final quality of the reasoning trajectory and accounts for the potential diversity and optimization space of its subsequent reasoning branches. Compared to value estimation relying exclusively on mean statistics, the introduction of the uncertainty term enables the system to preserve certain reasoning states with high potential utility but substantial branch volatility, thereby mitigating the risk of premature search space constriction and insufficient exploration during open-ended reasoning. 
+
+2) Hierarchical Supervision Construction: Based on the exploration-aware value score Y (τ1: t), we further construct hierarchical supervision signals: prefix-level supervision for intermediate reasoning prefixes and trajectory-level supervi-sion for complete reasoning trajectories. Since the scale of value scores varies across different problems, reasoning trees, and depths, we do not directly apply a fixed global threshold. Instead, we perform relative ranking within each tree to align the supervision distributions across different samples. 
+
+Prefix-level Supervision Construction. For a set of inter-mediate nodes at the same depth in a reasoning tree: 
+
+Vi,t = {τ1: t ∈ V i | d(τ1: t) = t}.6
+
+where d(·) represents the depth. We rank the prefixes based on their exploration-aware value scores Y (τ1: t) and define the prefixes with higher relative rankings as high-value reasoning prefixes: 
+
+ℓ1: t =
+
+(
+
+1, τ1: t ∈ Top ρ(Vi,t ; Y ),
+
+0, otherwise . (13) where ℓ1: t ∈ { 0, 1} represents the supervised label of a node, and Top ρ(·) denotes the set of the top ρ nodes ranked by 
+
+Y (τ1: t). This relative-ranking-based supervision scheme offers two advantages. First, it naturally aligns supervision signals across different samples and tasks by relying on relative ordering rather than absolute value scales. Second, it learns the relative advantage among candidate reasoning prefixes under similar reasoning contexts instead of estimating precise values. As a result, the learning objective becomes more stable and easier to optimize, which is particularly beneficial for open-ended reasoning with noisy terminal rewards. 
+
+Trajectory-level Supervision Construction. In addition to the supervision signal for intermediate reasoning prefixes, we further construct trajectory-level supervision for the complete reasoning trajectories corresponding to leaf nodes. For any terminal trajectory τ1: K , its supervision label is defined as: 
+
+ℓ1: K = A(e(τ1: K ), rank( τ1: K )) ,
+
+where e(τ1: K ) represents the error of the final answer, 
+
+rank( τ1: K ) denotes the relative ranking based on error within the current reasoning tree, and A(·) denotes the label mapping function. Specifically, trajectory-level labels account for both the correctness of the final answer and its relative quality among candidate trajectories within the tree. Completely cor-rect trajectories are assigned the highest-quality label; for the remaining trajectories, quality is tiered based on their relative error rankings. Consequently, trajectory-level supervision not only captures whether the final answer is correct but also preserves the quality ranking information among different candidate trajectories, thereby forming a more discriminative trajectory-level supervision. For notation simplicity, we denote 
+
+ℓ1: t and ℓ1: K as ℓpfx and ℓtraj , respectively. Following the above process, each reasoning tree ultimately generates two types of hierarchical supervision data. The first type is prefix-level supervision corresponding to intermediate reasoning prefixes: 
+
+Dprefix = {(xi, q i, τ 1: t, ℓ pfx ) | τ1: t ∈ V i\V traj  
+
+> i
+
+}.
+
+The second type is trajectory-level supervision correspond-ing to complete reasoning trajectories: 
+
+Dtraj = {(xi, q i, τ 1: K , ˆy(τ1: K ), ℓ traj ) | τ1: K ∈ V traj  
+
+> i
+
+}.
+
+Consequently, the original open-ended, multi-branch, and non-deterministic reasoning generation process is transformed into a hierarchical, trajectory-aware supervision framework. Compared to supervision that relies solely on final answers, this approach leverages information from both intermediate reasoning states and final reasoning trajectories, expanding sparse final feedback into a hierarchical supervision signal that spans the entire reasoning trajectory. This provides a more fine-grained learning basis for modeling the quality of long-horizon reasoning. 
+
+B. Advantage-Guided Gated Learning 
+
+After constructing the reasoning tree, we further train an advantage-guided gating model to filter intermediate reasoning prefixes during the reasoning process and select the most reliable output from multiple complete reasoning answers at the final stage. As illustrated in Fig. 3, our Advantage-Guided Gate framework integrates two-stage advantage learning with stepwise gated decoding and trajectory reranking. Given a sample (xi, q i) and its reasoning prefix τ1: t,we model the reasoning path representation and the visual-problem context representation separately. Given the current reasoning prefix τ1: t, we use an MLLM-based reasoning encoder to extract its dynamic representation: 
+
+eτ1: t = fθ (τ1: t)
+
+where eτ1: t is used to characterize the semantic reasoning state corresponding to the current reasoning prefix. Meanwhile, since the visual input and the semantic meaning of the question remain consistent across different reasoning prefixes within the same sample, we further construct static visual-question context representations: 
+
+ectx = fctx (xi, q i).
+
+Next, the context representation is mapped to a feature space compatible with the reasoning representation using a lightweight context projection module: 
+
+˜ectx = gω (ectx ),
+
+where gω denotes the context projection module. Finally, we concatenate the reasoning prefix representation with the projected context representation: 
+
+ˆe = [ eτ1: t ; ˜ ectx ].
+
+The fused representation is then passed to prediction branches that estimate the latent value of the intermediate prefix and the final quality of the complete trajectory. 
+
+1) Stage I: Joint Step-Trajectory Advantage Learning: 
+
+Based on the fused representation ˆe, we further construct two distinct predictive branches, corresponding to the Step-Advantage Gate (SAG) and the Trajectory-Advantage Gate (TAG) , respectively. Specifically, the Step-Advantage Gate models the long-horizon latent advantage of intermediate reasoning states, whereas the Trajectory-Advantage Gate quan-tifies the terminal-quality advantage associated with the com-plete reasoning trajectory. 
+
+Step-Advantage Gate. For any intermediate reasoning prefix τ1: t, the Step-Advantage Gate outputs its advantage probability: 7TRAINING PHASE INFERENCE PHASE 
+
+Ques%on 𝑞 !
+
+Reasoning Trajectory 𝜏 
+
+Inputs & Context 
+
+Visual Input 𝑥 !
+
+Stage I: Joint Step-Trajectory Advantage Learning Stage II: SWA-based MulA-head Trajectory SpecializaAon 
+
+𝑥 !
+
+> LoRA
+> 🔥
+
+𝑞 !, 𝜏  
+
+> Text Tokenizer
+> ❄
+
+LLM  
+
+> ❄
+
+𝑒 "#$ 
+
+𝑒 %
+
+𝑒̃ "#$ 
+
+> 𝑔 !
+> 🔥
+
+𝑒̂ 
+
+> Vision Encoder
+> ❄
+
+𝑥 !
+
+> LoRA
+> ❄
+
+𝑞 !, 𝜏 
+
+LLM  
+
+> ❄
+
+𝑒 "#$ 
+
+𝑒 %
+
+𝑒̃ "#$ 
+
+> 𝑔 !
+> ❄
+
+𝑒̂ 
+
+> ❄
+> Text Tokenizer
+
+ℒ#&'( 
+
+SAG 
+
+> 🔥
+
+TAG 
+
+> 🔥
+
+SAG 
+
+> 🔥
+
+TAG (2) 
+
+TAG (𝒋 )
+
+…
+
+TAG (1) 
+
+> 🔥
+> 🔥
+> 🔥
+
+Advantage-Guided Gate 
+
+𝑝 #&'( 
+
+ℒ)*$ 
+
+Θ++,'&-. 
+
+Task-wise Best Snapshots Training Start 
+
+> Vision Encoder
+> ❄
+
+Θ++,'&-. 
+
+Θ++,'&-. 
+
+… ℒ#&'( 
+
+End 
+
+𝑝 )*$ 
+
+𝑝 #&'( 
+
+𝑝 #&'( 
+
+{Θ /∗}{Θ /∗}
+
+SWA Eq.(27) 
+
+𝑝 )*$ 
+
+ℒ)*$ 
+
+Stepwise Advantage-Guided Decoding and Trajectory Reranking 
+
+MLLM 
+
+𝜋 1 
+
+> Generate 𝑀
+> Candidates
+
+Input 
+
+Visual 𝑥 !
+
+Ques%on 𝑞 !
+
+Current Pre6ix 𝜏 2:452 
+
+…
+
+𝑟 4     
+
+> Step 𝑡 − 1 Step 𝑡 Step 𝑡 + 1
+
+SAG 
+
+𝜏 2:4 
+
+𝜏 2:4 
+
+𝜏 2:4 
+
+…
+
+𝜏 2:6 
+
+𝜏 2:6 
+
+𝜏 2:4 
+
+…
+
+𝜏 2:4 
+
+𝝉 𝟏:𝒕 …
+
+𝑝 )*$ Eq.(28) 
+
+> Greedy Selec5on
+
+TAG 
+
+… 𝜏 2:6 
+
+𝜏 2:6 
+
+…
+
+> Terminal Trajectory Pool
+
+… 𝜏 2:6 
+
+𝜏 2:6 
+
+… & (𝑥 !, 𝑞 !)
+
+> Reranking
+
+𝑝 #&'( 
+
+𝝉 𝟏:𝑲 
+
+…
+
+𝜏 2:6 
+
+𝜏 2:6 … … 
+
+> High-quality Terminal Trajectory 𝜏 ":$ ∗
+
+Step-Advantage Gate (SAG) 
+
+Trajectory-Advantage Gate (TAG) 
+
+𝑒̂ MLP Prefix Classifier Head 
+
+𝑒̂ MLP Trajectory Classifier Head 
+
+Concat  
+
+> ❄
+
+Frozen 🔥 Learnable Leaf Node Intermediate Node Data Stream 
+
+𝑝 )*$ 
+
+𝑝 #&'( 
+
+Fig. 3. Overview of the proposed Advantage-Guided Gate framework. The training phase consists of two stages. Stage I jointly optimizes the Step-Advantage Gate (SAG) and Trajectory-Advantage Gate (TAG) using prefix- and trajectory-level supervision, while retaining task-wise best checkpoints. Their shared parameters are aggregated through stochastic weight averaging (SWA) to initialize Stage II, where the shared representation and SAG are preserved and multiple task-specialized TAG heads are further optimized. During inference, the frozen MLLM generates multiple candidates at each reasoning step, SAG greedily retains the most promising prefix for continued expansion, and TAG reranks the resulting terminal trajectories to select the final high-quality solution. Snowflakes and flames denote frozen and learnable modules, respectively. 
+
+ppfx (ℓpfx ) = PϕSAG (ℓpfx = 1 | xi, q i, τ 1: t),
+
+where ℓpfx denotes the prefix-level supervision label obtained based on the relative advantage ranking within the tree. Since high-advantage reasoning prefixes typically constitute only a small fraction of the open-ended reasoning space, prefix-level supervision inherently suffers from class distribu-tion imbalance. Therefore, we adopt a weighted binary cross-entropy objective: 
+
+Lpfx = WBCE( ppfx (τ1: t), ℓ pfx ),
+
+where positive samples correspond to highly advantageous reasoning prefixes with higher exploration-aware value scores 
+
+Y (τ1: t) in intra-layer reasoning competition, while negative samples correspond to relatively less advantageous prefixes. This supervised approach does not learn absolute reasoning values, but rather learns relative advantage relationships among different reasoning prefixes. 
+
+Trajectory-Advantage Gate. For a complete reasoning trajectory τ1: K and its final answer ˆy(τ1: K ), the Trajectory-Advantage Gate outputs a trajectory-level quality distribution: 
+
+ptraj (ℓtraj ) = PϕTAG (ℓtraj | xi, q i, τ 1: K , ˆy(τ1: K )) ,
+
+where ℓtraj denotes the trajectory-level supervision label. Similar to the Step-Advantage Gate, since high-advantage trajectories typically constitute only a minority in an open-ended reasoning space, trajectory-level supervision also ex-hibits an imbalanced distribution. Therefore, we adopt areweighted cross-entropy objective: 
+
+Ltraj =
+
+− X 
+
+> τ1: K∈D traj
+
+wℓtraj log PϕTAG (ℓtraj | xi, q i, τ 1: K , ˆy(τ1: K )) .
+
+(14) where 
+
+wℓtraj ∝ 1
+
+Nℓtraj 
+
+.
+
+where Nℓtraj denotes the number of training samples belonging to the trajectory label ℓtraj . This reweighting strategy miti-gates the bias in the supervision distribution across different trajectory advantage levels, thereby preventing the model from becoming overly biased toward high-frequency, low-advantage trajectories during training. The joint optimization objective in Stage I is defined as 
+
+L(1) = Lpfx + Ltraj .
+
+During this stage, the MLLM backbone remains frozen, while only the parameter-efficient adaptation modules, the con-text projection module gω , the Step-Advantage Gate, and the Trajectory-Advantage Gate are updated. By jointly optimizing the prefix-level and trajectory-level supervision signals, Stage I learns a shared long-horizon reasoning representation that captures both the potential value of intermediate reasoning prefixes and the quality of complete reasoning trajectories. 8
+
+2) Task-wise Optimal State Selection: Since different task types exhibit significant differences in reasoning patterns and trajectory-level answer preferences, they typically achieve op-timal performance at different stages of the training process. This suggests that, although the first stage focuses on learning shared long-horizon reasoning representations, different tasks still achieve optimal generalization capabilities at different points along the optimization trajectory. Based on this observation, during the first training phase, the historical best model snapshots that performed best on the validation set for each task type c will be saved separately: 
+
+Θ∗ 
+
+> c
+
+= arg max Eval c(Θ (1) ), c ∈ C .
+
+where C = {1, . . . , C }, and Θ(1) denotes the Stage I opti-mization trajectory comprising all model states recorded at validation snapshots. This yields the task-wise best snapshots: 
+
+B = {Θ∗ 
+
+> c
+
+}Cc=1 .
+
+It is important to note that these snapshots do not correspond to multiple independent models, but rather represent different optimization states along the same shared optimization trajec-tory. They reflect the task-wise optimal states achieved when optimal generalization performance is attained for different task types, and will serve as the initialization source for subsequent trajectory specialization. 
+
+3) Stage II: SWA-based Multi-head Trajectory Specializa-tion: Given the collection of task-wise optimal states obtained in Stage I, we further perform trajectory-level specialization in Stage II. We first perform stochastic weight averaging (SWA) on the shared parameters of the task-wise optimal states: 
+
+¯Θshared = 1
+
+C
+
+> C
+
+X
+
+> c=1
+
+Θ∗
+
+> shared ,c
+
+. (15) where these shared parameters include efficient adaptation parameters and context projection modules. By aggregating the shared parameters of multiple task-wise optimal states, SWA constructs a parameter initializa-tion shared across tasks. This effectively mitigates the op-timization bias introduced by single-task optimal states and provides a more stable shared representation space for subse-quent trajectory-level specialization. After SWA is completed, the shared parameters are frozen, leaving the Trajectory-Advantage Gate and the Step-Advantage Gate to participate in subsequent optimization. Building on this foundation, we further employ a multi-head trajectory-specialized architecture, where each head has the same structure but is initialized with different task-wise optimal states. For the j-th trajectory head, its output is defined as: 
+
+p(j)traj (τ1: K ) = Pϕ(j)
+
+> TAG
+
+(ℓtraj | xi, q i, τ 1: K , ˆy(τ1: K )) .
+
+where 
+
+Θ∗ 
+
+> c
+
+→ ϕ(j)
+
+> TAG
+
+,
+
+indicates that the j-th trajectory head is initialized using the Trajectory-Advantage Gate parameters extracted from the corresponding task-wise optimal state. Therefore, in Stage II, the parameters ϕ(j) 
+
+> TAG
+
+of all Trajectory-Advantage heads and the Step-Advantage Gate are updated. At this stage, the optimization focus shifts from relearning shared long-horizon reasoning representations to a more structured exploration of the trajectory-level answer-selection space. At each validation cycle, all trajectory heads are evaluated across task types, and the best historical head and snapshot for each task are updated: 
+
+j∗ 
+
+> c
+
+= arg max  
+
+> j
+
+Eval c(Θ (2)  
+
+> j
+
+).
+
+where j∗ 
+
+> c
+
+denotes the index of the trajectory-specialized head that achieves the best validation performance for task type c.It is important to note that the multi-head architecture does not imply a one-to-one correspondence between different heads and specific task types. Instead, all trajectory heads share the full training dataset and are independently optimized starting from different task-wise optimal states. Therefore, the different heads can be viewed as multiple optimization explorations of the trajectory-level answer selection space, thereby enhancing the robustness and generalization ability of the final trajectory selection. 
+
+C. Advantage-Guided Decoding and Trajectory Reranking 
+
+During inference, we perform stepwise candidate-level ad-vantage selection. Given the current reasoning prefix τ1: t,the model samples M next-step candidates from the original generation policy: 
+
+{r(m) 
+
+> t+1
+
+}Mm=1 .
+
+Each candidate is concatenated with the current reasoning prefix to form a new candidate prefix: 
+
+τ (m)1: t+1 = ( τ1: t, r (m) 
+
+> t+1
+
+).
+
+For candidate prefixes that have generated a final answer, their corresponding complete reasoning trajectories τ (m)1: t+1 and answers ˆy(m) are added to the trajectory candidate pool for subsequent trajectory-level quality evaluation. For candidate prefixes that have not yet terminated, they are further fed into the Step-Advantage Gate together with the visual input xi
+
+and the question qi to evaluate their long-horizon reasoning potential: 
+
+p(m)pfx = PϕSAG (ℓpfx = 1 | xi, q i, τ (m)1: t+1 ).
+
+Ultimately, we adopted a greedy policy, selecting the can-didate with the highest probability of success as the prefix for the next reasoning step: 
+
+m∗ = arg max   
+
+> m∈{ 1,...,M }
+
+p(m)pfx ,τ1: t+1 = τ (m∗)1: t+1 .
+
+(16) This process iterates step by step until the maximum infer-ence depth is reached or a termination token is generated. 9
+
+For the trajectory candidates ultimately generated in the trajectory candidate pool, the model further employs the Trajectory-Advantage Gate to evaluate the final quality of the fully reasoned trajectories. We input (xi, q i, τ 1: K , ˆy(τ1: K )) 
+
+into the optimal Trajectory-Advantage head for the corre-sponding task type and compute the probability that it belongs to the highest-quality class: 
+
+ptraj = PϕTAG (ℓtraj = ℓmax | xi, q i, τ 1: K , ˆy(τ1: K )) .
+
+The candidate with the highest probability of achieving a high-quality terminal result is selected as the final output: 
+
+τ ∗ 
+
+> 1: K
+
+= arg max 
+
+> τ1: K
+
+ptraj . (17) Overall, the inference stage does not rely on fixed thresholds to independently accept or reject individual candidates, but rather compares the relative advantages of multiple candidates within the same inference state. The Step-Advantage Gate is responsible for progressively selecting reasoning prefixes with greater long-horizon potential, while the Trajectory-Advantage Gate is responsible for selecting the answer with the highest final-state quality from the complete candidate trajectories. From a theoretical perspective, this reasoning process cor-responds to a stepwise greedy approximation of the advantage policy. According to Equ. A.22, the deviation of the learned policy from the ideal advantage gain ∆∗ primarily stems from Monte Carlo sampling error and gate approximation error. Therefore, the two-stage advantage-guided optimization framework proposed in this paper aims further to reduce ϵgate 
+
+through hierarchical advantage supervision and trajectory-level specialization, thereby improving the overall return of the long-horizon reasoning policy. V. E XPERIMENT 
+
+A. Experimental Settings 
+
+We evaluate the proposed advantage-guided gating method across four 3D scene datasets: ScanNet [42], ScanNet++ [43], Matterport3D [44], and HM3D [45]. Based on the ground-truth 3D annotations for each dataset, we construct a spatial question-answering task and generate counterfactual questions by combining different question types to reduce the likelihood that the model will rely on perception shortcuts to answer directly. Following the settings of VSI-Bench [15] and Spatial-MLLM [18], the task covers six categories of spatial questions: object counting, absolute distance estimation, relative distance judgment, object size estimation, room size estimation, and relative direction judgment. The visual input for each question consists of multi-frame images of the corresponding scene or room region. ScanNet and ScanNet++ use video keyframes; Matterport3D uses NFOV multi-view images aligned with the region; and HM3D employs room-level multi-view images ob-tained through coverage-aware camera sampling. Additionally, we constructed the Reasoning-Tree-160K dataset for training gated models. This dataset contains multi-branch reasoning trees along with step-level and trajectory-level supervision signals, used to learn filtering of intermediate reasoning steps and evaluation of final answers. 
+
+Evaluation Metrics. For evaluation metrics, we follow the set-tings specified by VSI-Bench. For multiple-choice questions, we use accuracy: a score of 1 is assigned when the predicted option matches the correct answer, and 0 otherwise. For numerical questions, we use Mean Relative Accuracy (MRA) to evaluate the predictive performance. MRA calculates the average of the relative accuracy across a set of confidence thresholds ¯C = {0.50 , 0.55 , . . . , 0.95 }:
+
+MRA 1
+
+| ¯C| 
+
+X 
+
+> ¯θ∈¯C
+
+I
+
+ |ˆy − y|
+
+y < 1 − ¯θ
+
+
+
+,
+
+where ˆy and y denote the predicted and true values, re-spectively, and I(·) is the indicator function. We report the average scores for each question type separately, as well as the overall average across all question types. Following Spatial-MLLM [18], we report Avg. as the micro-averaged score over all evaluation samples. 
+
+Implementation Details. Our gating model employs a two-stage training process, using Qwen3-VL-4B [46] as the value estimation backbone network, on which a lightweight gating module is trained. The batch sizes for the two stages are set to 16 and 32, respectively; the gradient accumulation steps are set to 4; the learning rate is set to 2 × 10 −4; and the number of training iterations is 3 for both stages. In the first stage, we jointly train the shared projection module, LoRA parameters, Step-Advantage Gate (SAG), and Trajectory-Advantage Gate (TAG) after training the vision-language backbone network to estimate the values of the prefix node and the terminal answer node, respectively. We split the training and validation sets in a 9 : 1 ratio and select the optimal parameters based on validation set performance. In the second stage, we initialize the model based on the optimal parameters from the first stage: we perform stochastic weighted averaging (SWA) on the LoRA parameters and the shared projection MLP, and initialize independent TAGs for different question types. During train-ing, we freeze the vision-language backbone network, LoRA parameters, and the shared projection MLP, updating only the SAG and the TAGs for each question type. During the testing phase, the prefix node is scored by SAG, while the terminal answer node is scored by inputting the corresponding TAG based on the question type. Based on the ablation results on the number of candidates, each inference step generates 20 next-step candidates by default, with a maximum inference depth of K = 6 .
+
+B. Main Results and Analysis 
+
+Tables I–IV present the main experimental results of the proposed Advantage-Guided Gate method on four 3D scene benchmarks. Overall, the method achieves consistent performance improvements across different base models and datasets. For example, on ScanNet, Advantage-Guided Gate boosts the overall scores of GPT-5.4 [58] and Gemini-3.1-pro-preview [59] from 34.1 and 36.1 to 44.6 and 49.0, respectively; on ScanNet++, GPT-5.4’s overall score increased from 28.7 to 43.8, representing a gain of 15.1 percentage points. Similar improvement trends were also observed on Matterport3D and HM3D, indicating that the proposed method is not limited 10 
+
+TABLE I QUANTITATIVE COMPARISON ON SCAN NET . N UMERICAL AND MULTIPLE -CHOICE QUESTIONS ARE EVALUATED BY MRA AND ACCURACY ,
+
+> RESPECTIVELY
+
+. A VG . IS USED FOR RANKING . BOLD DENOTES THE BEST RESULT IN EACH COLUMN . G REEN ROWS SHOW RESULTS WITH 
+
+ADVANTAGE -G UIDED GATE , WITH COLORED VALUES INDICATING ABSOLUTE CHANGES FROM THE CORRESPONDING STEPWISE BASELINE . SI DENOTES SPATIAL INSTRUCTION TUNING . A LL SCORES ARE PERCENTAGES .Methods Numerical Multiple-Choice Avg. Rank Obj. Cnt. Abs. Dist. Obj. Size Room Size Rel. Dist. Rel. Dir.                                                                                                                                                                                                                                               
+
+> Proprietary Models (API)
+> Gemini-2.5-pro 20.4 29.2 27.8 13.9 26.8 38.0 28.9 22 Gemini-3.1-pro-preview (CoT) 37.4 23.2 42.6 0.0 46.3 53.3 40.8 4GPT-5.4 (CoT) 35.6 38.0 33.8 1.4 24.4 44.0 35.3 7GPT-5.4 (Self-Consistency-20) 28.2 40.8 33.4 9.3 29.3 49.3 36.5 5ToT (GPT-5.4) 33.0 52.2 35.4 6.1 39.0 48.7 40.9 3
+> Open-source General Models
+> MiMo-VL-7B-SFT [47] 29.8 35.4 29.6 0.0 17.1 43.3 32.4 13 MiMo-VL-7B-RL [47] 25.0 20.2 34.2 2.5 24.4 42.0 30.7 20 LLaMA-3.2V-11B [48] 27.2 22.8 23.2 17.5 31.7 39.3 30.8 19 LLaMA-3.2V-11B-CoT [49] 30.8 23.4 23.6 15.4 26.8 40.7 31.2 18 Kimi-VL-16B-A3B [50] 14.6 8.0 19.4 34.3 31.7 37.3 27.0 23 Kimi-VL-16B-A3B-Thinking [50] 17.0 25.2 30.0 4.3 26.8 33.3 26.6 24 Deepseek-VL2-27B-A4.5 [51] 35.0 16.0 35.6 11.8 31.7 37.3 31.3 17 Qwen3-VL-8B [46] 10.6 23.2 10.2 2.9 24.4 40.7 25.4 26 Qwen3-VL-32B [46] 19.8 34.4 39.8 2.9 24.4 42.7 33.0 11 LLaVA-NeXT-Video-34B [52] 10.0 17.8 38.0 1.1 19.5 27.3 22.3 28 InternVL3-78B [53] 24.4 40.2 37.0 39.6 19.5 32.7 32.2 14
+> Open-source SI Models
+> SpaceLLaVA-13B [54] 26.2 21.8 25.2 3.6 26.8 30.7 25.6 25 SpaceR-7B [55] 9.6 35.6 29.2 17.1 24.4 36.7 29.0 21 SenseNova-SI-1.1-Qwen2.5-VL-7B [56] 23.2 41.6 32.0 18.6 26.8 37.3 32.7 12 SenseNova-SI-1.1-Qwen3-VL-8B [56] 2.2 34.0 14.4 10.7 14.7 38.0 24.7 27 SenseNova-SI-1.3-InternVL3-8B [56] 32.0 27.6 30.2 42.5 31.7 37.3 34.1 9VST-7B-SFT [57] 27.8 23.0 43.8 15.7 24.4 36.0 31.4 16 Spatial-MLLM-v1.1-135K [18] 32.6 40.4 30.4 22.5 17.1 35.3 32.0 15 Spatial-MLLM-v1.1-820K [18] 44.2 31.2 33.0 53.6 22.0 34.0 35.0 8GPT-5.4 (Stepwise) 36.8 47.2 38.4 16.1 29.3 31.3 34.1 9
+> + Advantage-Guided Gate 46.6 (9.8) ↑49.8 (2.6) ↑40.0 (1.6) ↑29.3 (13.2) ↑46.3 (17.0) ↑46.0 (14.7) ↑44.6 (10.5) ↑2Gemini-3.1-pro-preview (Stepwise) 41.8 33.8 40.6 15.0 39.0 36.7 36.1 6
+> + Advantage-Guided Gate 45.2 (3.4) ↑30.8 (3.0) ↓45.4 (4.8) ↑47.1 (32.1) ↑51.2 (12.2) ↑57.3 (20.6) ↑49.0 (14.0) ↑1
+
+to specific base models or data distributions but can adapt to different scene structures, visual observation patterns, and spatial distribution characteristics. Compared with reasoning-time augmentation methods such as CoT [36], Self-Consistency [60], and Tree-of-Thought (ToT) [37], the key distinction of the method proposed in this paper lies in its explicit modeling of the selection mechanism for candidate reasoning steps, aligning its optimization objec-tive with the final task return. CoT relies on the autoregressive expansion of a single reasoning chain and is susceptible to the propagation of early errors; Self-Consistency improves prediction stability through multiple sampling and answer aggregation, but does not directly evaluate or intervene in intermediate reasoning steps; although ToT introduces branch expansion and node filtering, its selection process typically relies on model self-evaluation, prompt scoring, or predefined search rules, and thus retains a strong heuristic nature—local scores may not accurately reflect the actual contribution of the current step to the quality of the final answer. Consequently, expanding the candidate search space may still retain branches that appear reasonable on the surface but fail to lead to the correct answer. In contrast, we construct step-level and trajectory-level supervision based on the quality of subse-quently reachable answers in the reasoning tree, and estimate the values of prefix nodes and terminal answer nodes via SAG and TAG, respectively, thereby transforming candidate screening into a supervised learning problem focused on the quality of the final answer. The performance advantages of ToT over other methods demonstrate that the key to spatial reasoning search lies not only in the generation and expansion of candidate paths, but also in the ability to effectively select candidates based on clear objectives aligned with task returns. The method described in this paper adopts a different capability enhancement paradigm from spatial instruction fine-tuning models such as SpaceLLaVA [54], SpaceR [55], SenseNova-SI [56], VST [57], and Spatial-MLLM [18]. The aforementioned methods primarily update model parameters using spatial instruction data, encoding spatial knowledge and task patterns into the model itself; the coverage of the training data often influences their performance, the distri-bution of tasks, and the architecture of the base model. In contrast, this paper does not update the original parameters of the evaluated MLLM. Instead, it uses a gated model as a plug-and-play inference control module to perform value evaluation and dynamic selection within the candidate spaces generated by the base model. Specifically, the gated versions of GPT-5.4 and Gemini-3.1-pro-preview outperformed the best-performing spatial instruction fine-tuned models across all four benchmarks, demonstrating that general-purpose MLLMs can achieve competitive spatial reasoning performance simply by reshaping the selection distribution of candidate reasoning paths. This consistent advantage further illustrates that the generative space of existing MLLMs already contains a certain proportion of high-quality spatial reasoning trajectories; how-ever, without a reliable mechanism for trajectory identification and selection, these potentially correct trajectories are difficult to retain and convert into consistent final predictions. Task-level results further reveal the differentiated benefits of advantage-guided gating across different spatial reasoning tasks. Across four datasets and two baseline models, the 11 
+
+TABLE II QUANTITATIVE COMPARISON ON SCAN NET ++. N UMERICAL AND MULTIPLE -CHOICE QUESTIONS ARE EVALUATED BY MRA AND ACCURACY ,
+
+RESPECTIVELY . A VG . IS USED FOR RANKING . BOLD DENOTES THE BEST RESULT IN EACH COLUMN . G REEN ROWS SHOW RESULTS WITH 
+
+ADVANTAGE -G UIDED GATE , WITH COLORED VALUES INDICATING ABSOLUTE CHANGES FROM THE CORRESPONDING STEPWISE BASELINE . SI DENOTES SPATIAL INSTRUCTION TUNING . A LL SCORES ARE PERCENTAGES .Methods Numerical Multiple-Choice Avg. Rank Obj. Cnt. Abs. Dist. Obj. Size Room Size Rel. Dist. Rel. Dir. 
+
+Proprietary Models (API) 
+
+Gemini-2.5-pro 20.6 21.0 38.4 11.4 30.0 32.0 27.2 17 Gemini-3.1-pro-preview (CoT) 26.4 31.4 31.4 3.8 30.0 45.3 32.4 4GPT-5.4 (CoT) 30.4 39.6 29.2 6.0 28.0 36.7 30.4 8GPT-5.4 (Self-Consistency) 28.2 40.8 29.6 0.6 30.0 32.0 28.2 13 ToT (GPT-5.4) 31.0 33.2 30.2 10.6 26.0 32.7 28.6 11 
+
+Open-source General Models 
+
+MiMo-VL-7B-SFT [47] 21.8 18.8 31.6 0.0 36.0 39.3 28.3 12 MiMo-VL-7B-RL [47] 26.0 14.4 22.0 0.0 26.0 36.0 24.6 22 LLaMA-3.2V-11B [48] 23.0 10.8 16.8 21.0 26.0 28.0 22.7 26 LLaMA-3.2V-11B-CoT [49] 21.0 14.4 19.6 17.6 22.0 33.3 24.3 25 Kimi-VL-16B-A3B [50] 24.2 9.6 22.4 24.6 24.0 30.7 24.6 22 Kimi-VL-16B-A3B-Thinking [50] 17.8 30.0 16.0 9.8 16.0 39.3 26.0 21 Deepseek-VL2-27B-A4.5 [51] 17.4 9.4 27.2 25.8 28.0 34.7 26.5 19 Qwen3-VL-8B [46] 13.0 15.0 5.4 0.0 24.0 36.7 20.9 28 Qwen3-VL-32B [46] 11.4 38.6 28.8 17.8 26.0 34.0 28.1 14 LLaVA-NeXT-Video-34B [52] 17.0 12.2 21.4 5.0 18.0 34.7 22.2 27 InternVL3-78B [53] 21.4 22.8 32.2 42.2 28.0 34.7 31.3 6
+
+Open-source SI Models 
+
+SpaceLLaVA-13B [54] 26.2 23.0 16.0 6.6 26.0 41.3 27.7 15 SpaceR-7B [55] 13.0 25.0 33.2 16.6 22.0 35.3 27.0 18 SenseNova-SI-1.1-Qwen2.5-VL-7B [56] 15.6 21.6 23.8 16.0 22.0 40.0 27.4 16 SenseNova-SI-1.1-Qwen3-VL-8B [56] 4.0 20.0 18.8 11.4 34.0 36.0 24.5 24 SenseNova-SI-1.3-InternVL3-8B [56] 32.8 20.0 23.2 32.8 24.0 39.3 31.3 6VST-7B-SFT [57] 19.4 27.2 24.2 2.4 26.0 36.7 26.2 20 Spatial-MLLM-v1.1-135K [18] 27.2 34.6 16.6 27.0 20.0 34.7 28.7 9Spatial-MLLM-v1.1-820K [18] 42.8 30.0 23.8 42.4 18.0 34.0 32.4 4GPT-5.4 (Stepwise) 30.6 33.4 31.0 4.2 36.0 31.3 28.7 9
+
++ Advantage-Guided Gate 45.8 (15.2) ↑ 38.4 (5.0) ↑ 38.4 (7.4) ↑ 39.4 (35.2) ↑ 44.0 (8.0) ↑ 48.0 (16.7) ↑ 43.8 (15.1) ↑ 2Gemini-3.1-pro-preview (Stepwise) 42.6 43.2 29.2 15.2 40.0 30.7 34.0 3
+
++ Advantage-Guided Gate 42.6 (0.0) 44.0 (0.8) ↑ 43.6 (14.4) ↑ 32.6 (17.4) ↑ 40.0 (0.0) 53.3 (22.6) ↑ 45.4 (11.4) ↑ 1TABLE III QUANTITATIVE COMPARISON ON MATTERPORT 3D. N UMERICAL AND MULTIPLE -CHOICE QUESTIONS ARE EVALUATED BY MRA AND ACCURACY ,
+
+RESPECTIVELY . A VG . IS USED FOR RANKING . BOLD DENOTES THE BEST RESULT IN EACH COLUMN . G REEN ROWS SHOW RESULTS WITH 
+
+ADVANTAGE -G UIDED GATE , WITH COLORED VALUES INDICATING ABSOLUTE CHANGES FROM THE CORRESPONDING STEPWISE BASELINE . SI DENOTES SPATIAL INSTRUCTION TUNING . A LL SCORES ARE PERCENTAGES .Methods Numerical Multiple-Choice Avg. Rank Obj. Cnt. Abs. Dist. Obj. Size Room Size Rel. Dist. Rel. Dir. 
+
+Proprietary Models (API) 
+
+Gemini-2.5-pro 23.8 30.0 30.8 1.4 34.0 35.3 28.3 9Gemini-3.1-pro-preview (CoT) 33.2 25.0 36.8 2.8 36.0 40.7 32.0 6GPT-5.4 (CoT) 11.2 29.0 30.8 1.6 22.0 41.3 27.3 15 GPT-5.4 (Self-Consistency) 14.2 27.4 29.4 0.0 26.0 38.0 26.4 17 ToT (GPT-5.4) 9.0 35.2 32.2 9.8 38.0 34.0 28.3 9
+
+Open-source General Models 
+
+MiMo-VL-7B-SFT [47] 27.2 23.8 27.6 0.0 34.0 37.3 28.1 11 MiMo-VL-7B-RL [47] 30.0 15.4 17.0 0.0 30.0 34.0 24.3 21 LLaMA-3.2V-11B [48] 21.0 12.6 28.6 6.2 12.0 43.0 26.6 16 LLaMA-3.2V-11B-CoT [49] 13.0 7.8 17.8 14.4 24.0 31.3 21.4 27 Kimi-VL-16B-A3B [50] 12.2 9.6 20.6 21.6 24.0 29.3 22.0 26 Kimi-VL-16B-A3B-Thinking [50] 23.4 23.0 30.0 10.2 32.0 34.0 27.6 13 Deepseek-VL2-27B-A4.5 [51] 20.4 4.8 26.4 20.0 24.0 41.3 27.5 14 Qwen3-VL-8B [46] 12.4 10.6 10.4 0.0 14.0 36.7 19.7 28 Qwen3-VL-32B [46] 9.8 31.6 27.0 3.6 18.0 30.7 22.8 24 LLaVA-NeXT-Video-34B [52] 12.6 5.8 24.0 2.2 24.0 36.7 22.3 25 InternVL3-78B [53] 7.8 26.6 24.2 22.4 26.0 32.0 25.4 20 
+
+Open-source SI Models 
+
+SpaceLLaVA-13B [54] 23.2 13.0 19.8 4.8 28.0 32.7 23.3 23 SpaceR-7B [55] 6.0 11.2 34.0 23.4 14.0 35.3 24.3 21 SenseNova-SI-1.1-Qwen2.5-VL-7B [56] 13.8 18.2 16.6 17.0 24.0 38.7 25.7 19 SenseNova-SI-1.1-Qwen3-VL-8B [56] 9.8 27.8 28.4 0.8 24.0 38.7 25.9 18 SenseNova-SI-1.3-InternVL3-8B [56] 21.0 29.8 33.0 22.8 14.0 44.7 31.8 7VST-7B-SFT [57] 26.0 14.0 33.4 4.8 24.0 42.0 28.5 8Spatial-MLLM-v1.1-135K [18] 28.4 37.2 41.6 13.8 12.0 44.7 33.4 4Spatial-MLLM-v1.1-820K [18] 23.8 36.6 42.8 14.8 24.0 38.7 32.3 5GPT-5.4 (Stepwise) 24.2 39.6 31.4 10.2 16.0 33.3 27.7 12 
+
++ Advantage-Guided Gate 14.8 (9.4) ↓ 41.6 (2.0) ↑ 38.6 (7.2) ↑ 14.6 (4.4) ↑ 36.0 (20.0) ↑ 43.3 (10.0) ↑ 34.5 (6.8) ↑ 3Gemini-3.1-pro-preview (Stepwise) 33.2 31.2 31.4 10.8 48.0 41.3 34.8 2
+
++ Advantage-Guided Gate 30.6 (2.6) ↓ 42.6 (11.4) ↑ 38.0 (6.4) ↑ 11.8 (1.0) ↑ 54.0 (6.0) ↑ 50.7 (9.4) ↑ 41.9 (7.1) ↑ 1
+
+average gain from gating reached 15.7 and 15.8 percent-age points for room size estimation and relative direction judgment, respectively, and also achieved improvements of 9.9 and 7.7 percentage points for relative distance judgment and object size estimation; in contrast, the average gains for object counting and absolute distance estimation were only 12 
+
+TABLE IV QUANTITATIVE COMPARISON ON HM3D. N UMERICAL AND MULTIPLE -CHOICE QUESTIONS ARE EVALUATED BY MRA AND ACCURACY , RESPECTIVELY .AVG . IS USED FOR RANKING . BOLD DENOTES THE BEST RESULT IN EACH COLUMN . G REEN ROWS SHOW RESULTS WITH ADVANTAGE -G UIDED GATE , 
+
+> WITH COLORED VALUES INDICATING ABSOLUTE CHANGES FROM THE CORRESPONDING
+
+STEPWISE BASELINE . SI DENOTES SPATIAL INSTRUCTION TUNING . A LL SCORES ARE PERCENTAGES .Methods Numerical Multiple-Choice Avg. Rank Obj. Cnt. Abs. Dist. Obj. Size Room Size Rel. Dist. Rel. Dir.                                                                                                                                                                                                                                               
+
+> Proprietary Models (API)
+> Gemini-2.5-pro 15.8 17.0 33.8 10.2 30.0 35.3 26.6 10 Gemini-3.1-pro-preview (CoT) 19.0 20.8 30.4 2.6 38.0 40.0 28.9 6GPT-5.4 (CoT) 14.0 18.0 20.0 11.8 26.0 34.7 24.2 20 GPT-5.4 (Self-Consistency) 11.0 18.6 20.2 0.6 22.0 38.7 23.5 22 ToT (GPT-5.4) 13.8 16.2 27.2 10.0 40.0 44.0 29.9 3
+> Open-source General Models
+> MiMo-VL-7B-SFT [47] 15.4 4.0 33.8 0.0 28.0 40.7 25.4 14 MiMo-VL-7B-RL [47] 17.8 9.4 25.4 0.0 14.0 31.3 20.1 25 LLaMA-3.2V-11B [48] 13.0 7.4 20.2 11.0 30.0 35.3 23.5 22 LLaMA-3.2V-11B-CoT [49] 8.4 4.2 17.2 16.6 22.0 38.7 25.5 13 Kimi-VL-16B-A3B [50] 13.2 4.4 17.8 20.8 20.0 27.3 19.8 26 Kimi-VL-16B-A3B-Thinking [50] 10.2 7.0 31.8 15.2 22.0 38.0 25.0 18 Deepseek-VL2-27B-A4.5 [51] 22.0 7.4 24.6 26.8 22.0 33.3 25.4 14 Qwen3-VL-8B [46] 7.2 10.6 8.0 0.0 22.0 34.7 19.0 28 Qwen3-VL-32B [46] 7.4 20.2 18.6 10.8 16.0 35.3 22.4 24 LLaVA-NeXT-Video-34B [52] 9.0 5.2 21.0 0.0 16.0 35.3 19.7 27 InternVL3-78B [53] 5.4 15.2 26.6 27.6 40.0 32.7 26.6 10
+> Open-source SI Models
+> SpaceLLaVA-13B [54] 21.6 12.6 15.6 5.2 36.0 38.7 25.9 12 SpaceR-7B [55] 7.6 13.0 31.8 12.4 24.0 37.3 25.1 17 SenseNova-SI-1.1-Qwen2.5-VL-7B [56] 19.0 16.0 23.2 15.0 30.0 42.7 28.9 6SenseNova-SI-1.1-Qwen3-VL-8B [56] 5.6 11.0 20.0 12.8 24.0 41.3 24.7 19 SenseNova-SI-1.3-InternVL3-8B [56] 23.8 11.8 32.6 12.4 32.0 40.0 29.1 5VST-7B-SFT [57] 21.8 15.4 28.2 5.0 10.0 36.0 23.6 21 Spatial-MLLM-v1.1-135K [18] 18.0 15.0 29.0 13.8 20.0 39.3 26.7 9Spatial-MLLM-v1.1-820K [18] 23.8 20.4 27.0 4.4 26.0 44.0 29.2 4GPT-5.4 (Stepwise) 11.2 18.2 24.0 12.4 34.0 34.0 25.2 16
+> + Advantage-Guided Gate 18.0 (6.8) ↑22.8 (4.6) ↑35.2 (11.2) ↑22.8 (10.4) ↑48.0 (14.0) ↑46.3 (12.3) ↑36.1 (10.9) ↑2Gemini-3.1-pro-preview (Stepwise) 25.6 21.4 25.8 3.2 38.0 33.3 26.8 8
+> + Advantage-Guided Gate 29.8 (4.2) ↑23.0 (1.6) ↑34.0 (8.2) ↑15.4 (12.2) ↑40.0 (2.0) ↑53.0 (19.7) ↑38.0 (11.2) ↑1
+
+3.4 and 3.1 percentage points, respectively. This discrepancy is closely related to the primary sources of error for different tasks: the former typically rely on the aggregation of cross-view information and the inference of continuous scale or spatial relationships, and are therefore more susceptible to the accumulation of intermediate errors; SAG’s filtering of low-value prefixes and TAG’s final evaluation of complete trajectories can effectively mitigate such error propagation; In contrast, object counting and absolute distance estimation are more heavily influenced by underlying perception errors such as object omissions, cross-view instance association, and vi-sual scale calibration; therefore, the benefits achievable solely through reasoning-based path selection are relatively limited. The above results indicate that the method proposed in this paper primarily enhances candidate selection and error control capabilities during multi-step reasoning, rather than replacing underlying visual perception and spatial measurement. Cross-dataset results further validate the method’s adapt-ability to different scene representations and visual acquisi-tion methods. ScanNet and ScanNet++ use video keyframes from real-world scan sequences as visual input. In contrast, Matterport3D and HM3D use region-aligned NFOV multi-view images and room-level multi-view images, respectively, obtained through coverage-aware sampling. These datasets exhibit significant differences in viewpoint continuity, image overlap, scene complexity, and spatial distribution. Never-theless, answer-guided gating consistently achieves overall gains across all four benchmarks, indicating that it learns not fixed heuristic rules dependent on a specific dataset or visual sampling method, but rather a relatively stable correlation between reasoning steps and the quality of the final answer. In other words, as long as the base model can generate candidate inference paths with a certain degree of diversity, the proposed method can use value estimation to increase the probability that high-quality paths are retained and ultimately selected. In summary, the results of the main experiment support the core hypothesis of this paper: the performance bottleneck in open-space reasoning lies not only in generating potentially correct reasoning paths, but also in continuously identifying and retaining high-value branches from a large-scale candidate space. By integrating the screening of intermediate steps with the selection of the final answer into a value-learning framework driven by terminal returns, the method proposed in this paper suppresses the expansion of low-quality reasoning branches, reshapes the effective output distribution of the foundation model, and increases the relative proportion of high-quality reasoning trajectories in the final prediction. 
+
+C. Ablation on Gating Components and Task Specialization 
+
+Table V analyzes the contributions of various gating com-ponents and training designs to overall performance. When SAG and TAG were introduced separately, the overall scores improved by 1.7 and 3.4 percentage points, respectively, compared to the Stepwise baseline, indicating that both have independent effects but differ fundamentally in their opti-mization objectives. SAG focuses on the reasoning expansion process; its primary goal is not to directly select the final answer, but to increase the density of high-quality reasoning 13                                        
+
+> TABLE V ABLATION STUDY OF THE PROPOSED FRAMEWORK . T HE UPPER PART EVALUATES THE CONTRIBUTIONS OF SAG AND TAG, WHILE THE LOWER PART ANALYZES THE SHARED INITIALIZATION AND TAG SPECIALIZATION DESIGNS . U NLESS OTHERWISE SPECIFIED , TAG ADOPTS THE DEFAULT MULTI -HEAD ARCHITECTURE .Variant SAG TAG Avg. ∆
+> Gating component analysis
+> Stepwise baseline ✗✗34.1 –SAG only ✓✗35.8 +1.7 TAG only ✗✓37.5 +3.4 Full model ✓✓44.6 +10.5
+> Initialization and head design
+> w/o SWA shared initialization ✓✓43.3 -1.3 TAG with a single head ✓✓40.1 -4.5 Full model ✓✓44.6 –
+
+trajectories in the candidate solution space by continuously filtering out low-value prefixes. As shown in the theoretical analysis in Appendix B, SAG can contract the original open-ended reasoning space into a higher-quality feasible subspace. However, an increase in the number of high-quality answers in the candidate set does not necessarily translate directly into final accuracy; in the absence of a reliable mechanism for selecting the final answer, even if the proportion of high-quality answers increases significantly, the final prediction may still fail to select the correct answer. Therefore, SAG alone yields only modest direct gains. TAG, on the other hand, directly evaluates the value of the complete inference trajectory and its final answer, thereby achieving a more pronounced performance improve-ment within the original candidate space. However, due to the limited number of high-quality trajectories in the original candidate space, TAG’s selection ceiling remains constrained by the initial quality of the candidates. When SAG and TAG are enabled simultaneously, the overall score reaches 44.6, representing a 10.5 improvement over the baseline and sig-nificantly exceeding the gains achieved when either module is used alone. This result reveals the complementary relationship between the two: SAG first increases the density of high-quality trajectories in the candidate solution space, and TAG subsequently identifies and selects the optimal answer from this reshaped candidate space, thereby fully translating the improvement in solution space quality into final prediction per-formance. In other words, SAG addresses the issue of “whether enough high-quality candidates can be generated,” while TAG addresses the issue of “whether high-quality answers can be reliably selected from the candidates”; together, they constitute a complete value-guided process ranging from space reshaping to final decision-making. The lower half of the table further validates the effectiveness of shared initialization and task-specific design. Removing SWA’s shared initialization resulted in a 1.3 percentage-point decline in overall performance, indicating that although the six types of spatial question-answering tasks have different answer formats and reasoning objectives, they share funda-mental spatial knowledge across object recognition, cross-view information aggregation, spatial relationship understanding, and scale modeling. By aggregating the shared parameters from the optimal states of each task, SWA preserves common spatial representations across tasks and provides a more robust general initialization. In contrast, replacing the multi-head TAG with a single-head structure results in a 4.5 percentage-point drop in performance, indicating that different problem types exhibit distinct task-specific preferences for evaluating termination trajectories. A single-head TAG must evaluate can-didate trajectories with different answer formats, error patterns, and reasoning bases using a unified standard, which can easily lead to cross-task interference; in contrast, a multi-head TAG learns task-specific end-state value functions for each prob-lem type based on shared spatial representations, achieving further task-oriented optimization. Therefore, SWA extracts transferable general spatial knowledge from six categories of spatial question-answering tasks. At the same time, multi-head TAG further learns task-specific value judgment criteria on this basis, forming a hierarchical modeling mechanism that progresses from shared spatial representations to specialized end-state evaluation. 
+
+D. Effect of Candidate Budget 
+
+Figure. 4 compares the overall performance of Self-Consistency, ToT, and Advantage-Guided Gate (AG) under different numbers of candidates. All three methods achieve in-ference gains by expanding the candidate search space; there-fore, the number of candidates directly determines the search budget during inference. The results show that expanding the search space only consistently translates into performance improvements when combined with an effective candidate utilization mechanism. As the number of candidates increased from 5 to 20, Self-Consistency’s overall score rose only from 34.6 to 36.5, indicating that while repeated sampling expanded the coverage of possible answers, simple aggregation struggled to utilize the additional candidates fully; ToT’s overall score fluctuated between 36.4 and 40.9, indicating that branch-and-bound search based on heuristic node evaluation is sensitive to the number of candidates, and expanding the search space does not necessarily yield stable gains. In contrast, AG achieved higher performance across all candidate budgets, reaching 42.8 with only 5 candidates—already surpassing the results of Self-Consistency and ToT with 20 candidates. When the number of candidates increased to 20, AG’s overall score further improved to 44.6, exceeding SC@20 and ToT@20 by 8.1 and 3.7 percentage points, respectively. This demonstrates that AG not only expands the coverage of potential high-quality inference paths by increasing the number of candidates but also effectively identifies and retains candidates where they are most likely to lead to the correct answer through a value-guided mechanism, thereby more fully converting the search budget into final performance. Taking both the search budget and the best overall performance within the current candidate set into account, this paper sets the default number of candidates to 20. 
+
+E. Candidate Solution Space Reshaping by SAG 
+
+Figure 5 compares the quality of the candidate solution space between Stepwise reasoning and the approach incorpo-rating SAG, to examine the impact of step-level gating on the final candidate distribution in isolation. Specifically, under 14 5 10 15 20 32 34 36 38 40 42 44 46                     
+
+> Score (%)
+> 34.6 34.9 36.0 36.5 37.6 36.4 38.1 40.9 42.8 40.1 42.8 44.6
+> Overall
+> 510 15 20 25 30 35 40 45 50
+> Object Counting
+> 510 15 20 35 40 45 50 55
+> Absolute Distance
+> 510 15 20 30 32 34 36 38 40 42 44 46
+> Object Size
+> 510 15 20
+> Candidate count
+> 510 15 20 25 30
+> Score (%)
+> Room Size
+> 510 15 20
+> Candidate count
+> 25 30 35 40 45 50 55 60
+> Relative Distance
+> 510 15 20
+> Candidate count
+> 36 38 40 42 44 46 48 50
+> Relative Direction
+> Scores are shown as %
+> Method
+> Self-Consistency ToT AG
+> Candidate Count Ablation: Self-Consistency vs. ToT vs. AG
+
+Fig. 4. Effect of candidate budget on Self-Consistency, Tree-of-Thought (ToT), and the proposed Advantage-Guided Gate (AG) on ScanNet. Overall and task-specific performance is reported using 5, 10, 15, and 20 candidates. The horizontal axis denotes the number of candidates, and the vertical axis denotes the score (%). AG achieves the best overall performance across all budgets, indicating more effective use of additional candidates. 0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 
+
+> Mean score
+> 69.6 62.6 55.9 51.1 45.8 39.8 36.4 32.5 28.2 24.2 21.9 21.3 18.9 17.4 15.7 14.3 13.4 12.5 10.6 8.1 70.8 66.1 60.5 55.0 50.0 46.5 42.7 37.1 33.2 30.1 26.6 24.1 22.7 20.6 18.8 16.0 14.0 12.9 11.4 8.0
+
+Overall Answer Candidate Quality by Rank 
+
+Stepwise SAG 
+
+1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 
+
+Answer rank 
+
+0.05 
+
+0.00 0.05 
+
+> SAG - Stepwise
+> +1.2 +3.5 +4.6 +3.9 +4.2 +6.7 +6.3 +4.6 +5.0 +5.9 +4.7 +2.8 +3.8 +3.2 +3.1 +1.7 +0.6 +0.4 +0.8 -0.1
+
+Fig. 5. Comparison of candidate solution-space quality between Stepwise reasoning and Stepwise reasoning with SAG on ScanNet. For each question, 20 complete reasoning trajectories and their answers are scored against the ground truth and ranked in descending order, where Rank 1 denotes the highest-quality candidate. Scores at the same rank are then averaged over the test set. The upper panel reports the mean candidate quality at each rank, while the lower panel shows the absolute difference between SAG and Stepwise. SAG improves candidate quality across nearly all ranks, indicating a systematic reshaping of the candidate solution space rather than an isolated improvement of the best candidate. All scores are reported as percentages. 
+
+the same reasoning budget and decoding configuration, both methods generate 20 complete reasoning trajectories and their answers for each problem, and score each candidate based on the ground truth. Next, for each question, the 20 candidates are sorted by their true scores from highest to lowest, where Rank 1 represents the highest-quality solution in the current set of candidates and Rank 20 represents the lowest-quality solution; finally, the scores of candidates at the same rank position in the test set are averaged. The upper half of the figure shows the average candidate quality at each rank position for the two methods, while the lower half shows the rank-wise gain of SAG relative to Stepwise. Since the ranking is based solely on the direct scores of the answers—without involving TAG prediction or selection—this experiment directly reflects SAG’s role in reshaping the candidate solution space itself. The experimental results show that SAG achieved perfor-mance improvements across 19 out of 20 ranking positions, in-dicating that its improvements are not concentrated on a small number of candidates but rather have a broad impact across the entire candidate distribution. Where candidates ranked 2nd through 15th all saw steady improvements, the gains were par-ticularly significant for those ranked 6th through 10th, reaching 4.6–6.7 percentage points. Furthermore, the average quality of the top 5, top 10, and top 15 candidates improved by 3.5, 4.6, and 4.2 percentage points, respectively, and the average score of all 20 candidates rose from 30.0 to 33.4. This distribution pattern indicates that SAG’s effect is not limited to improving a single optimal candidate but also systematically enhances the medium- to high-quality regions of the candidate solution space. The top-ranked candidate represents the highest-quality 15 
+
+solution that the base model can generate under the current search budget, and its performance is already close to the upper bound of the candidate space’s capability; on this basis, SAG still raises its average quality from 69.6 to 70.8, indicating that gating can further improve the upper limit of the candidate space’s quality. More notably, candidates ranked 2nd through 15th all saw consistent improvements, with the gains most pronounced in the mid-range. This indicates that SAG, by suppressing the continued expansion of low-value prefixes, directs more generated trajectories into the medium-to-high-quality range, thereby expanding the set of high-quality candi-dates and increasing their relative proportion within the entire solution space. This result is consistent with the theoretical analysis in the appendix B: by progressively restricting low-value branches, SAG contracts and reshapes the open-ended inference space, increasing the relative density of high-quality inference trajectories and providing a more favorable solution space foundation for TAG to reliably identify high-quality answers from the candidate set in subsequent stages. 
+
+F. Effect of the Top-ρ Labeling Ratio 
+
+Figure 6 analyzes the impact of the Top-ρ labeling threshold on the gated training data. Specifically, samples within the Top-ρ percentile of scores among candidates in the same layer are labeled as “accept,” while the remaining samples are labeled as “reject.” Overall performance exhibits a non-monotonic variation with respect to Top-ρ: when ρ increases from 15% to 25%, the overall score rises from 43.7 to 44.6; when ρ is further increased to 35%, performance drops to 43.1. This indicates that the Top-ρ threshold requires an appropriate trade-off between the selectivity of high-value samples and the coverage of positive supervision. A smaller ρ value marks only a small number of high-scoring candidates as ‘accept,‘ which, while ensuring high-quality positive samples, may also misclassify candidates with reasonable inference potential as “reject,” causing the model to learn an overly conservative acceptance boundary. Conversely, a larger ρ expands the coverage of positive samples but also includes more candidates of relatively limited value in the “accept” set, narrowing the quality gap between positive and negative samples and increasing supervisory noise. In contrast, ρ = 25% strikes a more reasonable balance between candidate quality and supervision diversity, thereby achieving the best overall perfor-mance. Although different tasks vary in their sensitivity to ρ,considering both overall performance and cross-task stability, this paper adopts ρ = 25% as the default setting. VI. C ONCLUSION 
+
+This work presented Advantage-Guided Gate (AG), a plug-and-play framework for improving open-ended spatial rea-soning in MLLMs without modifying the evaluated model parameters. By constructing Monte Carlo reasoning trees, we transform terminal answer feedback into hierarchical su-pervision for intermediate prefixes and complete trajectories. The resulting Step-Advantage Gate filters low-value reasoning prefixes, while the Trajectory-Advantage Gate selects high-quality terminal trajectories. Extensive experiments on Scan-15% 25% 35%   
+
+> Accept threshold
+> 42 44 46
+> Score
+> 43.7 44.6 43.1
+> Overall Performance
+> Object Counting Absolute Distance Object Size Room Size Relative Distance Relative Direction
+> Question type
+> 010 20 30 40 50 60
+> Score
+> 49.4 46.0 44.4 18.6 43.9 45.3 46.6 49.8 40.0 29.3 46.3 46.0 47.8 44.2 37.2 30.0 31.7 48.7
+> Performance by Question Type
+> Accept threshold 15% 25% 35%
+> Gate Label Threshold Ablation
+
+Fig. 6. Effect of the Top-ρ labeling ratio used to construct SAG training labels on ScanNet. At each tree level, candidates ranked within the top ρ
+
+are labeled as accept, while the remaining candidates are labeled as reject. The upper panel reports overall performance under different labeling ratios, and the lower panel shows the corresponding task-specific results. The best performance is achieved at ρ = 25% , indicating a better balance between positive-sample quality and supervision coverage. Scores are reported in %. 
+
+Net, ScanNet++, Matterport3D, and HM3D demonstrate con-sistent improvements across different base models and visual observation settings. Theoretical analysis and ablation studies further show that SAG and TAG play complementary roles in reshaping the candidate solution space and improving final-answer selection. These results indicate that reliable spatial reasoning depends not only on generating diverse reasoning paths, but also on effectively identifying and retaining high-value trajectories. Future work will explore adaptive reasoning budgets and tighter integration between reasoning control and spatial perception. REFERENCES [1] J. Zhang, M. Zhang, Y. Peng, H. Liu, C. Wang, Y. Long, H. Huang, D. Li, N. Duan, H. Shen et al. , “Embodied3dbench: Benchmarking low-level embodied spatial intelligence of vision language models,” arXiv preprint arXiv:2605.29074 , 2026. [2] S. Yang, R. Xu, Y. Xie, S. Yang, M. Li, J. Lin, C. Zhu, X. Chen, H. Duan, X. Yue et al. , “Mmsi-bench: A benchmark for multi-image spatial intelligence,” ICLR , 2026. [3] Y. Cong, M. Y. Yang, and B. Rosenhahn, “Reltr: Relation transformer for scene graph generation,” IEEE TPAMI , vol. 45, no. 9, pp. 11 169– 11 183, 2023. [4] L. Gao, J.-M. Sun, K. Mo, Y.-K. Lai, L. J. Guibas, and J. Yang, “Scenehgn: Hierarchical graph networks for 3d indoor scene generation with fine-grained geometry,” IEEE TPAMI , vol. 45, no. 7, pp. 8902– 8919, 2023. [5] Y. Wei, M. R. Min, G. Vosselman, L. E. Li, and M. Y. Yang, “Planner3d: Llm-enhanced graph prior meets 3d indoor scene explicit regularization,” 
+
+IEEE TPAMI , 2025. [6] S. Tan, M. Ge, D. Guo, H. Liu, and F. Sun, “Knowledge-based embodied question answering,” IEEE TPAMI , vol. 45, no. 10, pp. 11 948–11 960, 2023. [7] J. Deng, T. He, L. Jiang, T. Wang, F. Dayoub, and I. Reid, “3d-llava: Towards generalist 3d lmms with omni superpoint transformer,” in CVPR , 2025, pp. 3772–3782. [8] H. Huang, Y. Chen, Z. Wang, R. Huang, R. Xu, T. Wang, L. Liu, X. Cheng, Y. Zhao, J. Pang et al. , “Chat-scene: Bridging 3d scene and large language models with object identifiers,” NeurIPS , vol. 37, pp. 113 991–114 017, 2024. 16 
+
+[9] S. Chen, X. Chen, C. Zhang, M. Li, G. Yu, H. Fei, H. Zhu, J. Fan, and T. Chen, “Ll3da: Visual interactive instruction tuning for omni-3d understanding reasoning and planning,” in CVPR , 2024, pp. 26 428– 26 438. [10] Y. Lu, J. Zhang, T. Fang, J.-D. Nahmias, Y. Tsin, L. Quan, X. Cao, Y. Yao, and S. Li, “Matrix3d: Large photogrammetry model all-in-one,” in CVPR , 2025, pp. 11 250–11 263. [11] Y. Liu, Z. Min, Z. Wang, J. Wu, T. Wang, Y. Yuan, Y. Luo, and C. Guo, “Worldmirror: Universal 3d world reconstruction with any-prior prompting,” arXiv preprint arXiv:2510.10726 , 2025. [12] C. Zhu, T. Wang, W. Zhang, J. Pang, and X. Liu, “Llava-3d: A simple yet effective pathway to empowering lmms with 3d capabilities,” in ICCV ,2025, pp. 4295–4305. [13] D. Zheng, S. Huang, and L. Wang, “Video-3d llm: Learning position-aware video representation for 3d scene understanding,” in CVPR , 2025, pp. 8995–9006. [14] Y. Li, Y. Zhang, T. Lin, X. Liu, W. Cai, Z. Liu, and B. Zhao, “Sti-bench: Are mllms ready for precise spatial-temporal world understanding?” in 
+
+ICCV , 2025, pp. 5622–5632. [15] J. Yang, S. Yang, A. W. Gupta, R. Han, L. Fei-Fei, and S. Xie, “Thinking in space: How multimodal large language models see, remember, and recall spaces,” in CVPR , 2025, pp. 10 632–10 643. [16] R. Zhao, Z. Zhang, J. Xu, J. Chang, D. Chen, L. Li, W. Sun, and Z. Wei, “Spacemind: Camera-guided modality fusion for spatial reasoning in vision-language models,” arXiv preprint arXiv:2511.23075 , 2025. [17] D. Zheng, Y. Li, L. Wang et al. , “Learning from videos for 3d world: Enhancing mllms with 3d vision geometry priors,” NeurIPS , vol. 38, pp. 20 560–20 586, 2026. [18] D. Wu, F. Liu, Y.-H. Hung, and Y. Duan, “Spatial-mllm: Boosting mllm capabilities in visual-based spatial intelligence,” NeurIPS , vol. 38, pp. 13 569–13 597, 2026. [19] Y. Wang, Y. Li, Y. Di, and S. Gao, “S 3-TIR: Coupled spatial-spectral splatting for thermal infrared novel view synthesis,” in IJCAI , 2026. [20] K. Zou, Y. Bai, B. Liu, Y. Chen, Z. Chen, Y. Zhou, X. Yuan, M. Wang, X. Shen, X. Cao et al. , “Uncertainty-aware medical diagnostic phrase identification and grounding,” IEEE TPAMI , 2025. [21] N. An, S. Xu, L. Ma, Z. Liu, G. Han, T. Ma, and R. Liu, “Inter-task weaving in image enhancement: From a new unified architecture to a better meta-representation learning,” in ACM MM , 2025, pp. 7336–7345. [22] W. Zhang, W. Wu, W. Xu, J. Luo, H. Zhi, Y. Huang, S. Ren, Z. Liu, and J. Zhang, “World2vlm: Distilling world model imagination into vlms for dynamic spatial reasoning,” arXiv preprint arXiv:2604.26934 , 2026. [23] Y. Bai, Y. Zhou, J. Zhou, R. S. M. Goh, D. S. W. Ting, and Y. Liu, “From generalist to specialist: Adapting vision language models via task-specific visual instruction tuning,” arXiv preprint arXiv:2410.06456 ,2024. [24] N. An, L. Ma, G. Han, X. Fan, and R. Liu, “Striving for faster and better: A one-layer architecture with auto re-parameterization for low-light image enhancement,” IEEE TCSVT , 2025. [25] Y. Bai, X. Xu, Y. Liu, S. Khan, F. Khan, W. Zuo, R. S. M. Mong, and C.-M. Feng, “Sentence-level prompts benefit composed image retrieval,” in ICLR , vol. 2024, 2024, pp. 30 531–30 548. [26] N. An, L. Ma, T. Ma, Z. Liu, Y. Liu, and R. Liu, “Biprolora: Bilevel prompt lora for real scene recovery,” in CVPR , 2026, pp. 15 465–15 475. [27] J. Liu, H. Sun, W. Li, Y. Zhang, R. Yang, Z. Zhu, Y. Yang, S. Zheng, N. Jiang, J. Jiang et al. , “Openspatial: A principled data engine for em-powering spatial intelligence,” arXiv preprint arXiv:2604.07296 , 2026. [28] W. Ma, C. Wang, R. Yuan, H. Chen, N. Dai, S. K. Zhou, Y. Yang, A. Yuille, and J. Chen, “Causalspatial: A benchmark for object-centric causal spatial reasoning,” arXiv preprint arXiv:2601.13304 , 2026. [29] Y. Gong, L. Huang, and L. Chen, “Person re-identification method based on color attack and joint defence,” in CVPR , 2022, pp. 4313–4322. [30] Y. Gong, Y. Hou, J. Shi, K. DIEP, and M. Jiang, “A theory-inspired framework for few-shot cross-modal sketch person re-identification,” in 
+
+AAAI , 2026. [31] Y. Hong, H. Zhen, P. Chen, S. Zheng, Y. Du, Z. Chen, and C. Gan, “3d-llm: Injecting the 3d world into large language models,” NeurIPS ,vol. 36, pp. 20 482–20 494, 2023. [32] R. Xu, X. Wang, T. Wang, Y. Chen, J. Pang, and D. Lin, “Pointllm: Empowering large language models to understand point clouds,” in 
+
+ECCV . Springer-Verlag, 2024, p. 131–147. [33] J. Ji, H. Wang, C. Wu, Y. Ma, X. Sun, and R. Ji, “Jm3d & jm3d-llm: Elevating 3d representation with joint multi-modal cues,” IEEE TPAMI ,vol. 47, no. 4, pp. 2475–2492, 2024. [34] H. Huang, Y. Chen, Z. Wang, J. Pang, and Z. Zhao, “Chat-scene++: Exploiting context-rich object identification for 3d llm,” IEEE TPAMI ,2026. [35] Z. Chen, M. Zhang, X. Yu, X. Luo, M. Sun, Z. Pan, X. An, Y. Feng, P. Pei, X. Cai et al. , “Think with 3d: Geometric imagination grounded spatial reasoning from limited views,” in CVPR , 2026, pp. 2613–2624. [36] J. Wei, X. Wang, D. Schuurmans, M. Bosma, F. Xia, E. Chi, Q. V. Le, D. Zhou et al. , “Chain-of-thought prompting elicits reasoning in large language models,” NeurIPS , vol. 35, pp. 24 824–24 837, 2022. [37] S. Yao, D. Yu, J. Zhao, I. Shafran, T. Griffiths, Y. Cao, and K. Narasimhan, “Tree of thoughts: Deliberate problem solving with large language models,” NeurIPS , vol. 36, pp. 11 809–11 822, 2023. [38] M. Besta, N. Blach, A. Kubicek, R. Gerstenberger, M. Podstawski, L. Gianinazzi, J. Gajda, T. Lehmann, H. Niewiadomski, P. Nyczyk et al. ,“Graph of thoughts: Solving elaborate problems with large language models,” in AAAI , vol. 38, no. 16, 2024, pp. 17 682–17 690. [39] H. Lightman, V. Kosaraju, Y. Burda, H. Edwards, B. Baker, T. Lee, J. Leike, J. Schulman, I. Sutskever, and K. Cobbe, “Let’s verify step by step,” in ICLR , vol. 2024, 2024, pp. 39 578–39 601. [40] P. Wang, L. Li, Z. Shao, R. Xu, D. Dai, Y. Li, D. Chen, Y. Wu, and Z. Sui, “Math-shepherd: Verify and reinforce llms step-by-step without human annotations,” in ACL , 2024, pp. 9426–9439. [41] T. Wang, Z. Jiang, Z. He, S. Tong, W. Yang, Y. Zheng, Z. Li, Z. He, H. Gong, Z. Ye et al. , “Towards hierarchical multi-step reward models for enhanced reasoning in large language models,” arXiv preprint arXiv:2503.13551 , 2025. [42] A. Dai, A. X. Chang, M. Savva, M. Halber, T. Funkhouser, and M. Nießner, “Scannet: Richly-annotated 3d reconstructions of indoor scenes,” in CVPR , 2017, pp. 5828–5839. [43] C. Yeshwanth, Y.-C. Liu, M. Nießner, and A. Dai, “Scannet++: A high-fidelity dataset of 3d indoor scenes,” in ICCV , 2023, pp. 12–22. [44] A. Chang, A. Dai, T. Funkhouser, M. Halber, M. Niebner, M. Savva, S. Song, A. Zeng, and Y. Zhang, “Matterport3d: Learning from rgb-d data in indoor environments,” in 3DV . IEEE, 2017, pp. 667–676. [45] S. K. Ramakrishnan, A. Gokaslan, E. Wijmans, O. Maksymets, A. Clegg, J. M. Turner, E. Undersander, W. Galuba, A. Westbury, A. X. Chang et al. , “Habitat-matterport 3d dataset (hm3d): 1000 large-scale 3d environments for embodied ai,” in NeurIPS , 2021. [46] S. Bai, Y. Cai, R. Chen, K. Chen, X. Chen, Z. Cheng, L. Deng, W. Ding, C. Gao, C. Ge et al. , “Qwen3-vl technical report,” arXiv preprint arXiv:2511.21631 , 2025. [47] J. Li, J. Chen, Y. Qu, S. Xu, Z. Lin, J. Zhu, B. Xu, W. Tan, P. Fu, J. Ju et al. , “Xiaomi mimo-vl-miloco technical report,” arXiv preprint arXiv:2512.17436 , 2025. [48] A. Grattafiori, A. Dubey, A. Jauhri, A. Pandey, A. Kadian, A. Al-Dahle, A. Letman, A. Mathur, A. Schelten, A. Vaughan et al. , “The llama 3 herd of models,” arXiv preprint arXiv:2407.21783 , 2024. [49] G. Xu, P. Jin, Z. Wu, H. Li, Y. Song, L. Sun, and L. Yuan, “Llava-cot: Let vision language models reason step-by-step,” in ICCV , 2025, pp. 2087–2098. [50] K. Team, A. Du, B. Yin, B. Xing, B. Qu, B. Wang, C. Chen, C. Zhang, C. Du, C. Wei et al. , “Kimi-vl technical report,” arXiv preprint arXiv:2504.07491 , 2025. [51] Z. Wu, X. Chen, Z. Pan, X. Liu, W. Liu, D. Dai, H. Gao, Y. Ma, C. Wu, B. Wang et al. , “Deepseek-vl2: Mixture-of-experts vision-language models for advanced multimodal understanding,” arXiv preprint arXiv:2412.10302 , 2024. [52] Y. Zhang, J. Wu, W. Li, B. Li, Z. Ma, Z. Liu, and C. Li, “Video instruction tuning with synthetic data, 2024,” URL https://arxiv. org/abs/2410.02713 , vol. 17, 2024. [53] J. Zhu, W. Wang, Z. Chen, Z. Liu, S. Ye, L. Gu, H. Tian, Y. Duan, W. Su, J. Shao et al. , “Internvl3: Exploring advanced training and test-time recipes for open-source multimodal models,” arXiv preprint arXiv:2504.10479 , 2025. [54] B. Chen, Z. Xu, S. Kirmani, B. Ichter, D. Sadigh, L. Guibas, and F. Xia, “Spatialvlm: Endowing vision-language models with spatial reasoning capabilities,” in CVPR , 2024, pp. 14 455–14 465. [55] K. Ouyang, Y. Liu, H. Wu, Y. Liu, H. Zhou, J. Zhou, F. Meng, and X. Sun, “Spacer: Reinforcing mllms in video spatial reasoning,” arXiv preprint arXiv:2504.01805 , 2025. [56] Z. Cai, R. Wang, C. Gu, F. Pu, J. Xu, Y. Wang, W. Yin, Z. Yang, C. Wei, T. Zhou et al. , “Scaling spatial intelligence with multimodal foundation models,” in CVPR , 2026, pp. 7879–7890. [57] R. Yang, Z. Zhu, Y. Li, J. Huang, S. Yan, S. Zhou, Z. Liu, X. Li, S. Li, W. Wang et al. , “Visual spatial tuning,” arXiv preprint arXiv:2511.05491 , 2025. [58] A. Singh, A. Fry, A. Perelman, A. Tart, A. Ganesh, A. El-Kishky, A. McLaughlin, A. Low, A. Ostrow, A. Ananthram et al. , “Openai gpt-5 system card,” arXiv preprint arXiv:2601.03267 , 2025. 17 
+
+[59] Google DeepMind, “Gemini 3.1 pro: Model card,” https://storage.googleapis.com/deepmind-media/Model-Cards/ Gemini-3-1-Pro-Model-Card.pdf, Feb. 2026, accessed: 2026-07-23. [60] X. Wang, J. Wei, D. Schuurmans, Q. V. Le, E. H. Chi, S. Narang, A. Chowdhery, and D. Zhou, “Self-consistency improves chain of thought reasoning in language models,” in ICLR , 2023. 
+
+Ling Lin is currently pursuing the Ph.D. degree with the School of Artificial Intelligence and Data Science, University of Science and Technology of China (USTC). His research interests include multimodal large language models, out-of-distribution research, multimodal reasoning, and 3D scene understanding. He has published papers in several leading journals and conferences such as IEEE TIP, TNNLS, TCSVT, ICASSP, and ICME. 
+
+Yang Bai Yang Bai received the M.S. degree in computer science from Newcastle University, U.K., in 2018, and the Ph.D. degree in computer science from Durham University, U.K., in 2023. He is currently a Scientist at the Institute of High Performance Computing (IHPC), A*STAR, Singapore. His research interests include multimodal foundation models, vision–language learning, and medical artificial intelligence, with a focus on medical image understanding and clinical multimodal reasoning. 
+
+Congcong Zhu (Member, IEEE) received the Ph.D. degree from the School of Computer Engineering and Science, Shanghai University, Shanghai, China, in 2022. He is currently an Associate Researcher at the Suzhou Institute for Advanced Research, University of Science and Technology of China, Suzhou, China. His research interests include embodied artificial intelli-gence, multimodal content generation, and multimodal understanding. He has published papers in several journals, including IEEE Transactions on Image Processing, IEEE Transactions on Multimedia, IEEE Transactions on Circuits and Systems for Video Technology, Pattern Recognition, and IEEE Transactions on Instrumentation and Measurement, as well as in leading conferences, including ICML, CVPR, ICCV, AAAI, and ACM MM. He was nominated for the Shanghai Computer Society’s Outstanding Doctoral Dissertation Award, received the Outstanding Graduate Student Award of Shanghai, and was recognized as an Outstanding Postdoctoral Fellow in Jiangsu Province, China. 
+
+Jiangming Shi is currently an Assistant Professor with the School of Computer Science and Technology, East China Normal University, China. He received the Ph.D. degree from Xiamen University, China, in 2026. His research interests include spatial intelligence foundation models, robust mul-timodal learning, and all-weather visual perception. He has published nearly ten first-authored papers in leading international journals and conferences, including NeurIPS, ICCV, ECCV, and AAAI. He was a recipient of the Best Paper Award at CCHI. 
+
+Meng Wang Meng Wang received the Ph.D. degree in signal and information processing from Soochow University, China, in 2021. He is currently an Assistant Professor at the Centre for Innovation & Precision Eye Health and the Department of Ophthalmology, Yong Loo Lin School of Medicine, National University of Singapore. His research interests include artificial intelligence, medical image analysis, multimodal foundation models, and clinical AI, with a focus on developing trustworthy and clinically deployable AI methods for precision healthcare. 
+
+Yang Long (Senior Member, IEEE) Yang Long is an Associate Professor in the Department of Computer Science, Durham University, U.K. He is also an MRC Innovation Fellow aiming to design scalable AI solutions for large-scale healthcare applications. His research background is in the interdisciplinary field of computer vision and machine learning. He is passionate about unveiling the black-box of AI and transferring the knowledge to seek scalable, interactable, interpretable, and sustainable solutions for other disciplinary researches, e.g., physical activity, mental health, design, education, security, and geoengineering. He has authored/coauthored 30+ top-tier papers in refereed journals/conferences such as IEEE TPAMI, TIP, CVPR, AAAI, and ACM MM, and holds a patent and a Chinese National Grant. 
+
+Jingrun Chen received the B.S. degree from Nanjing University, China, in 2005, and the PhD degree from the Chinese Academy of Sciences, China, in 2010. From 2010 to 2015, he served as a Visiting Assistant Professor at the University of California, Santa Barbara, and from 2015 to 2021, he was a Distinguished Professor at Soochow University. He is currently a Professor at the Suzhou Institute for Advanced Research/School of Mathematical Sciences at the University of Science and Technology of China. His main work has been published in academic journals on applied and computational mathematics such as the SIAM series, Mathematics of Computation, and Journal of Computational Physics, as well as in interdisciplinary academic journals like Nature Communications and Materials Horizons. 
+
+Ling Shao (Fellow, IEEE) Ling Shao is a Distinguished Professor with the UCAS-Terminus AI Lab, University of Chinese Academy of Sciences, Beijing, China. He was the founder of the Inception Institute of Artificial Intelligence (IIAI) and the Mohamed bin Zayed University of Artificial Intelligence (MBZUAI), Abu Dhabi, UAE. His research interests include generative AI, vision and language, and AI for healthcare. He is a fellow of the IEEE, the IAPR, the BCS and the IET. 
+
+Huazhu Fu (Senior Member, IEEE) Huazhu Fu is a Principal Scientist at the Institute of High Performance Computing (IHPC), A*STAR, Singapore. He earned his Ph.D. from Tianjin University in 2013. His research focuses on medical image analysis, AI for healthcare, and trustworthy AI. He is an Associate Editor for several distinguished journals, including IEEE Transactions on Medical Imaging, IEEE Transactions on Neural Networks and Learning Systems, and IEEE Journal of Biomedical and Health Informatics. 18 
+
+APPENDIX APOLICY IMPROVEMENT PERSPECTIVE ON STEP -WISE 
+
+REASONING 
+
+A.1 Step-wise Reasoning as a Finite-Horizon Decision Pro-cess 
+
+We model the step-by-step reasoning process of multimodal large language models (MLLMs) as a finite-horizon decision process. In the t-th inference step, the state is defined as: 
+
+ht = ( x, q, τ 1: t−1), (A.1) where x denotes the visual input, q denotes the problem, and 
+
+τ1: t−1 = ( r1, . . . , r t−1) denotes the accepted reasoning prefix generated before step t.The reasoning policy for the original MLLM is as follows: 
+
+π0(rt | ht). (A.2) where rt denotes the reasoning step generated at the current state ht, i.e. , the current reasoning action. The complete reasoning trajectory is recorded as follows: 
+
+τ1: K = ( r1, . . . , r K ).
+
+The corresponding terminal trajectory return is defined as: 
+
+R(τ1: K ) ∈ [0 , 1] .
+
+Furthermore, we define the true action-value function under the initial policy π0:
+
+Qπ0 
+
+> t
+
+(ht, r t) = Eτ ∼π0 [R(τ ) | ht, r t], (A.3) which represents the expected trajectory reward that can ultimately be obtained when, starting from the current state 
+
+ht, the inference step rt is selected, and subsequent inference continues according to the original policy π0.Accordingly, the state value function is defined as: 
+
+V π0 
+
+> t
+
+(ht) = Ert∼π0 [Qπ0 
+
+> t
+
+(ht, r t)] . (A.4) Ideally, if the true action-value function Qπ0 
+
+> t
+
+(ht, r t) is observable, an ideal gated policy can be defined as follows: 
+
+π∗ 
+
+> T
+
+(rt | ht) = π0(rt | ht)1[Qπ0 
+
+> t
+
+(ht, r t) ≥ T ]
+
+ZT (ht) , (A.5) where the normalization term is defined as: 
+
+ZT (ht) = Pr 
+
+> rt∼π0
+
+[Qπ0 
+
+> t
+
+(ht, r t) ≥ T ], (A.6) when ZT (ht) > 0, the aforementioned gating policy consti-tutes a valid probability distribution. 
+
+A.2 Ideal Value-Gated Policy Improvement 
+
+Proposition 2. Ideal Gating Amplifies the Single-Step Ex-pected Value. 
+
+For any history state ht ∈ H satisfying the condition 
+
+ZT (ht) > 0, the optimal gating policy π∗ 
+
+> T
+
+guarantees a non-negative enhancement over the baseline inference policy in terms of the single-step expected value, i.e., 
+
+Ert∼π∗  
+
+> T(·| ht)
+
+[Qπ0 
+
+> t
+
+(ht, r t)] ≥ Ert∼π0(·| ht) [Qπ0 
+
+> t
+
+(ht, r t)] .
+
+(A.7) 
+
+By the definition of the state-value function, Eq. A.7 can be equivalently formulated as: 
+
+Ert∼π∗  
+
+> T(·| ht)
+
+[Qπ0 
+
+> t
+
+(ht, r t)] ≥ V π0 
+
+> t
+
+(ht). (A.8) 
+
+Proof. Let the random variable be 
+
+S = Qπ0 
+
+> t
+
+(ht, r t), rt ∼ π0.
+
+The ideal gate policy corresponds to the accept event: 
+
+A = S ≥ T . 
+
+Therefore, the expected value after gating can be written as the conditional expected value: 
+
+E[S | A].
+
+By the law of total expectation, we have: 
+
+E[S] = Pr( A)E[S | A] + Pr( A′)E[S | A′].
+
+Since all samples in event A satisfy S ≥ T , and all samples in event A′ satisfy S < T , we have: 
+
+E[S | A] ≥ E[S | A′].
+
+This further yields: 
+
+E[S | A] ≥ E[S].
+
+Substituting back into the original definition, we obtain: 
+
+Ert∼π∗  
+
+> T(·| ht)
+
+[Qπ0 
+
+> t
+
+(ht, r t)] ≥ Ert∼π0(·| ht) [Qπ0 
+
+> t
+
+(ht, r t)] .
+
+The above inequality holds strictly when there exists a strictly lower-value action in the set of rejected actions. 
+
+Proposition 3. Ideal Gating Enhances Full-Trajectory Cu-mulative Return. 
+
+For any state ht, the gating policy satisfies: 
+
+Ert∼π∗  
+
+> T(·| ht)
+
+[Qπ0 
+
+> t
+
+(ht, r t)] ≥ V π0 
+
+> t
+
+(ht). (A.9) 
+
+then, the expected return of the complete trajectory of the gated reasoning policy will not be lower than that of the original reasoning policy, that is: 
+
+J(π∗ 
+
+> T
+
+) = Eτ ∼π∗ 
+
+> T
+
+[R(τ )] ≥ Eτ ∼π0 [R(τ )] = J(π0). (A.10) 
+
+Proof. The finite-horizon residual value function is defined as: 19 
+
+V πt (ht) = Eτ ∼π [R(τ ) | ht].
+
+For any policy π, according to the Bellman decomposition, we have: 
+
+V πt (ht) = Ert∼π [R(ht, r t) + E[V πt+1 (ht+1 ) | ht, r t]] . (A.11) In the inference-generation scenario of this paper, interme-diate reasoning steps do not yield immediate rewards; instead, the final reward is determined solely by the correctness of the answer upon termination of the complete reasoning trajectory. Consequently, for all non-terminal steps: 
+
+R(ht, r t) = 0 , t < K. 
+
+Thus, the Bellman decomposition can be simplified to: 
+
+V πt (ht) = Ert∼π [E[V πt+1 (ht+1 ) | ht, r t]] . (A.12) We will now prove this using reverse induction. At the termination step K, we have: 
+
+V π∗ 
+
+> T
+> K
+
+(hK ) = ErK ∼π∗ 
+
+> T
+
+[Qπ0 
+
+> K
+
+(hK , r K )] .
+
+According to the gating hypothesis, the following holds: 
+
+V π∗ 
+
+> T
+> K
+
+(hK ) ≥ V π0 
+
+> K
+
+(hK ).
+
+Suppose that for any step t+1 , for any reachable state ht+1 ,the following holds: 
+
+V π∗
+
+> T
+> t+1
+
+(ht+1 ) ≥ V π0
+
+> t+1
+
+(ht+1 ).
+
+Then: 
+
+V π∗ 
+
+> T
+> t
+
+(ht) = Ert∼π∗
+
+> T
+
+h
+
+E
+
+h
+
+V π∗
+
+> T
+> t+1
+
+(ht+1 ) ht, r t
+
+ii 
+
+≥ Ert∼π∗
+
+> T
+
+E V π0
+
+> t+1
+
+(ht+1 ) ht, r t
+
+ 
+
+= Ert∼π∗ 
+
+> T
+
+[Qπ0 
+
+> t
+
+(ht, r t)] 
+
+≥ V π0 
+
+> t
+
+(ht).
+
+(A.13) Therefore: 
+
+V π∗ 
+
+> T
+> t
+
+(ht) ≥ V π0 
+
+> t
+
+(ht).
+
+for all time steps. Finally, from: 
+
+J(π) = V π 
+
+> 1
+
+(h1),
+
+we obtain: 
+
+J(π∗ 
+
+> T
+
+) ≥ J(π0).
+
+Therefore, ideal value gating can be viewed as a policy re-finement process based on action-value estimates. It enhances the expected reward of the overall reasoning trajectory by filtering out low-value intermediate reasoning steps. 
+
+A.3 Reasoning Tree as Monte Carlo Policy Evaluation 
+
+Since the true action-value function Qπ0 
+
+> t
+
+(ht, r t) cannot be directly observed, we approximate it using Monte Carlo rollouts on a reasoning tree. Let the partial reasoning trajectory from step 1 to step t be denoted as: 
+
+τ1: t = ( r1, . . . , r t),
+
+which corresponds to a state-action pair (ht, r t).The definition of true action value is: 
+
+Qπ0 
+
+> t
+
+(ht, r t) = Eτ ∼π0 [R(τ ) | ht, r t].
+
+Since the above expectations cannot be computed directly, we start from the current partial trajectory τ1: t and sample multiple subsequent reasoning rollouts: 
+
+τ (1) , τ (2) , . . . , τ (m),
+
+where each rollout corresponds to a complete terminating reasoning trajectory and yields a termination return: 
+
+R(τ (j)).
+
+The Monte Carlo estimator is therefore defined as: 
+
+bQm(ht, r t) = 1
+
+m
+
+> m
+
+X
+
+> j=1
+
+R(τ (j)). (A.14) By the law of large numbers, as m → ∞ , we have: 
+
+bQm(ht, r t) a.s. 
+
+−−→ Qπ0 
+
+> t
+
+(ht, r t).
+
+Therefore, the supervisory signal constructed based on the reasoning tree rollout can essentially be viewed as a finite-sample Monte Carlo estimate of the latent action-value func-tion. Furthermore, by the Hoeffding inequality, for any ϵ > 0,we have: 
+
+Pr( | bQm(ht, r t) − Qπ0 
+
+> t
+
+(ht, r t)| ≥ ϵ) ≤ 2 exp( −2mϵ 2).
+
+(A.15) Note: 
+
+η = 2 exp( −2mϵ 2),
+
+let ϵ to ϵMC , from which we can solve for: 
+
+ϵMC =
+
+r log(2 /η )2m . (A.16) Thus, with probability at least 1 − η, we have: 
+
+| bQm(ht, r t) − Qπ0 
+
+> t
+
+(ht, r t)| ≤ ϵMC . (A.17) 20 
+
+A.4 Approximate Policy Improvement with Learned Gates 
+
+In practical scenarios, the true action-value function 
+
+Qπ0 
+
+> t
+
+(ht, r t) cannot be obtained directly and can only be approximated via finite Monte Carlo rollouts; therefore, the ideal gating policy cannot be implemented. Based on the Monte Carlo estimate bQm(ht, r t), we define the empirical gating operator: 
+
+bgm(ht, r t) = 1[ bQm(ht, r t) ≥ T ]. (A.18) We further introduce a learnable gating operator: 
+
+gϕ(ht, r t) ≈ bgm(ht, r t),
+
+where ϕ denotes the parameters of the gating model. Accordingly, the resulting gated reasoning policy is: 
+
+πϕ(rt | ht) = π0(rt | ht)gϕ(ht, r t)
+
+Zϕ(ht) , (A.19) where the normalization term is: 
+
+Zϕ(ht) = Ert∼π0 [gϕ(ht, r t)] .
+
+The discrepancy between the learned policy πϕ and the ideal gated policy π∗ 
+
+> T
+
+originates from two sources:  
+
+> •
+
+Monte Carlo estimation error induced by finite rollout sampling;  
+
+> •
+
+Approximation error of the learnable gating operator. From Section A.3, with probability at least 1−η, the Monte Carlo estimation error satisfies: 
+
+| bQm(ht, r t) − Qπ0 
+
+> t
+
+(ht, r t)| ≤ ϵMC ,
+
+where ϵMC =
+
+r log(2 /η )2m .
+
+Meanwhile, we define the gating approximation error as: 
+
+ϵgate = Pr[ gϕ(ht, r t)̸ = bgm(ht, r t)] . (A.20) Under bounded terminal returns and finite reasoning horizon 
+
+K, the policy improvement of the learned gated policy can be lower bounded by: 
+
+J(πϕ) − J(π0) ≥ ∆∗ − δ1Kϵ MC − δ2Kϵ gate , (A.21) where, 
+
+∆∗ = J(π∗ 
+
+> T
+
+) − J(π0),
+
+denotes the ideal policy improvement obtained by oracle gating. Substituting Eq. A.16 into Eq. A.21, we obtain: 
+
+J(πϕ) − J(π0) ≥ ∆∗ − δ1K
+
+r log(2 /η )2m − δ2Kϵ gate . (A.22) Therefore, as the number of Monte Carlo rollouts increases and the gating approximation error decreases, the learned gated reasoning policy progressively approaches the ideal value-gated policy improvement. APPENDIX BOPEN -ENDED REASONING SPACE RESHAPING 
+
+The preceding analysis has demonstrated, from the perspec-tive of improving finite-horizon policies, that the expected trajectory return of the ideal value-gated policy is no less than that of the original reasoning policy. In this section, we further characterize the role of step-wise gating from the perspective of an open-ended reasoning space. Specifically, by restricting the admissible actions at each reasoning state, step-wise gating contracts the support of the complete trajectory distribution and redistributes probability mass among the retained trajectories. Consequently, the orig-inal open-ended reasoning space is reshaped into a value-admissible reasoning subspace characterized by the action-value function. 
+
+B.1 Open-ended reasoning trajectory space 
+
+Let 
+
+T = {τ = ( r1, · · · , r Kτ ) : 1 ≤ Kτ ≤ K},
+
+denote the open-ended space of all terminating reasoning trajectories, where Kτ is the termination depth of trajectory 
+
+τ , and K is the maximum reasoning horizon. The trajectory distribution induced by an arbitrary reasoning policy π on T is 
+
+pπ (τ ) = 
+
+> Kτ
+
+Y
+
+> t=1
+
+π(rt | ht), (A.23) where ht = ( x, q, r 1: t−1) denotes the reasoning state before the generation of the tth reasoning step. Specifically, the trajectory distribution induced by the initial reasoning policy π0 is 
+
+p0(τ ) = 
+
+> Kτ
+
+Y
+
+> t=1
+
+π0(rt | ht). (A.24) Since reasoning actions are generated autoregressively in natural language, the model can produce highly diverse subse-quent content at each step, resulting in a trajectory space T that is both open-ended and vast. The original policy assigns non-zero probability mass to trajectories with different terminal returns, so its support typically encompasses both high-return and low-return reasoning trajectories. Recall the action-value function defined earlier: 
+
+Qπ0 
+
+> t
+
+(ht, r t) = Eτ ∼π0 [R(τ ) | ht, r t], (A.25) Given a value threshold T , define the ideal gate function as follows: 
+
+g∗ 
+
+> T
+
+(ht, r t) = 1[Qπ0 
+
+> t
+
+(ht, r t) ≥ T ]. (A.26) The corresponding ideal value-gated policy is 
+
+π∗ 
+
+> T
+
+(rt | ht) = π0(rt | ht)g∗ 
+
+> T
+
+(ht, r t)
+
+ZT (ht) , (A.27) where 21 
+
+ZT (ht) = Ert∼π0(·| ht)[g∗ 
+
+> T
+
+(ht, r t)] . (A.28) Equivalently 
+
+ZT (ht) = Pr 
+
+> rt∼π0(·| ht)
+
+(Qπ0 
+
+> t
+
+(ht, r t) ≥ T ). (A.29) Therefore, ZT (ht) represents the total probability mass assigned by the original policy to all admissible actions in state ht. After dividing by ZT (ht), the probabilities of the retained actions are renormalized to form a valid distribution. We assume that the admissible-action probability mass is uniformly positive at every state reachable under the original policy, i.e. ,
+
+ZT (ht) > 0 for all ht such that p0(ht) > 0.
+
+We further define the Oracle value-admissible trajectory space as 
+
+T ∗ 
+
+> T
+
+= {τ ∈ T : Qπ0 
+
+> t
+
+(ht, r t) ≥ T, ∀t ≤ Kτ }. (A.30) This set consists of all complete trajectories that satisfy the value constraint at every reasoning step. 
+
+Proposition 4. Support contraction of the reasoning trajec-tory space. 
+
+Ideal step-wise gating restricts the support of the trajectory distribution to the Oracle value-admissible trajectory space, as follows: 
+
+Supp( p∗ 
+
+> T
+
+) ⊆ T ∗ 
+
+> T
+
+⊆ T , (A.31) 
+
+where 
+
+p∗ 
+
+> T
+
+(τ ) = 
+
+> Kτ
+
+Y
+
+> t=1
+
+π∗ 
+
+> T
+
+(rt | ht). (A.32) 
+
+Proof. For any state-action pair (ht, r t), if 
+
+Qπ0 
+
+> t
+
+(ht, r t) < T, 
+
+according to the definition of Oracle Gate, 
+
+g∗ 
+
+> T
+
+(ht, r t) = 0 ,
+
+consequently, 
+
+π∗ 
+
+> T
+
+(rt | ht) = 0 .
+
+Consider now any complete reasoning trajectory τ =(r1, · · · , r Kτ ) that satisfies p∗ 
+
+> T
+
+(τ ) > 0.Since the probability of a trajectory factorizes into the product of step-wise conditional probabilities, p∗ 
+
+> T
+
+(τ ) > 0
+
+implies 
+
+π∗ 
+
+> T
+
+(rt | ht) > 0, ∀t ≤ Kτ .
+
+This means that for any t ≤ Kτ , we have 
+
+g∗ 
+
+> T
+
+(ht, r t) = 1 ,
+
+that is, 
+
+Qπ0 
+
+> t
+
+(ht, r t) ≥ T. 
+
+Based on the definition of T ∗ 
+
+> T
+
+, we have 
+
+τ ∈ T ∗ 
+
+> T
+
+.
+
+Therefore 
+
+Supp( p∗ 
+
+> T
+
+) ⊆ T ∗ 
+
+> T
+
+.
+
+On the other hand, T ∗ 
+
+> T
+
+is a subset obtained by applying stepwise value constraints to the original trajectory space T ;therefore 
+
+T ∗ 
+
+> T
+
+⊆ T .
+
+In summary, 
+
+Supp( p∗ 
+
+> T
+
+) ⊆ T ∗ 
+
+> T
+
+⊆ T . (A.33) 
+
+B.2 Trajectory-distribution reshaping 
+
+For any τ ∈ T ∗ 
+
+> T
+
+, every action in the trajectory passes through the Oracle Gate; therefore 
+
+g∗ 
+
+> T
+
+(ht, r t) = 1 , ∀t ≤ Kτ .
+
+Consequently 
+
+p∗ 
+
+> T
+
+(τ ) = 
+
+> Kτ
+
+Y
+
+> t=1
+
+π∗ 
+
+> T
+
+(rt | ht) = 
+
+> Kτ
+
+Y
+
+> t=1
+
+π0(rt | ht)
+
+ZT (ht) = p0(τ )
+
+> Kτ
+
+Y
+
+> t=1
+
+1
+
+ZT (ht) .
+
+(A.34) For any τ / ∈ T ∗ 
+
+> T
+
+, there is at least one step in the trajectory that does not satisfy the value constraint; therefore, p∗ 
+
+> T
+
+(τ ) = 0 .Therefore, the distribution of trajectories after gating can be uniformly expressed as 
+
+p∗ 
+
+> T
+
+(τ ) = p0(τ )
+
+> Kτ
+
+Y
+
+> t=1
+
+1[Qπ0 
+
+> t
+
+(ht, r t) ≥ T ]
+
+ZT (ht) . (A.35) This formulation indicates that step-wise gating has two effects on the distribution of complete trajectories. First, the generation probability of any trajectory containing a reasoning step with an action-value below the threshold is set to zero. Second, the probabilities of the retained admissible trajecto-ries are rescaled according to the normalization factors ZT (ht)
+
+associated with the states encountered along each trajectory. Since different trajectories may traverse different reasoning states, their corresponding normalization factors may also differ. Consequently, the gated trajectory distribution is not obtained by globally conditioning the original distribution on T ∗ 
+
+> T
+
+; rather, it results from a state-dependent, step-wise reweighting process. In other words, step-wise gating not only contracts the support of the trajectory distribution but also alters the relative probability mass assigned to the retained trajectories. This captures the distributional interpretation of reasoning-space reshaping. 22 
+
+B.3 Expected-return preservation under space reshaping 
+
+Combining Proposition 4 with the finite-horizon policy improvement result established in Section A.2, we obtain 
+
+J(π∗ 
+
+> T
+
+) ≥ J(π0), (A.36) where 
+
+J(π) = Eτ ∼pπ [R(τ )] .
+
+Equivalently, 
+
+X 
+
+> τ∈T
+
+p∗ 
+
+> T
+
+(τ )R(τ ) ≥ X 
+
+> τ∈T
+
+p0(τ )R(τ ). (A.37) Therefore, the value-admissible trajectory space induced by Oracle gating is not an arbitrary subspace of the original trajectory space. Rather, it is explicitly characterized by the action-value function under the original policy, and the result-ing trajectory distribution preserves or improves the expected return of complete reasoning trajectories. Therefore, the value-admissible trajectory space induced by Oracle gating is not an arbitrary subspace of the original trajectory space. Rather, it is characterized by the action-value function under the original policy, and its induced trajectory distribution preserves or im-proves the expected return of complete reasoning trajectories. 
+
+B.4 Approximate reshaping under a learnable gate 
+
+In practice, the true action-value function Qπ0 
+
+> t
+
+(ht, r t) can-not be obtained directly. This paper uses reasoning-tree roll-outs to construct a Monte Carlo estimate: 
+
+ˆQm(ht, r t) = 1
+
+m
+
+> m
+
+X
+
+> j=1
+
+R(τ (j)), τ (j) ∼i.i.d. pπ0 (· | ht, r t).
+
+Based on these Monte Carlo estimates, we train a learnable gating function gϕ(ht, r t) to approximate the Oracle gate induced by the true action-value function. The corresponding learned gated policy is 
+
+πϕ(rt | ht) = π0(rt | ht)gϕ(ht, r t)
+
+Zϕ(ht) , (A.38) where 
+
+Zϕ(ht) = Ert∼π0(·| ht)[gϕ(ht, r t)] .
+
+Define the expected return gain for Oracle gating as 
+
+∆∗ = J(π∗ 
+
+> T
+
+) − J(π0).
+
+According to the preceding approximate policy improve-ment analysis, under the assumptions that the terminal return is bounded, the reasoning horizon is finite, and the gating normalization term is uniformly bounded away from zero, we have 
+
+J(πϕ) − J(π0) ≥ ∆∗ − C1Kϵ MC − C2Kϵ gate , (A.39) where ϵMC represents the value estimation error generated by finite Monte Carlo rollouts, ϵgate represents the approximation error of the learned gate relative to the Oracle Gate, and C1
+
+and C2 are constants related to the normalization lower bound and the value-margin condition. Therefore, when 
+
+∆∗ > C 1Kϵ MC + C2Kϵ gate ,
+
+we have 
+
+J(πϕ) > J (π0).
+
+Furthermore, when 
+
+ϵMC → 0, ϵgate → 0,
+
+if the learned policy approximates the Oracle policy on the state-conditional distribution, then in a finite horizon, its trajectory distribution satisfies 
+
+TV( pϕ, p ∗ 
+
+> T
+
+) → 0.
+
+Due to 
+
+R(τ ) ∈ [0 , 1] ,
+
+we have 
+
+|J(πϕ) − J(π∗ 
+
+> T
+
+)| ≤ TV( pϕ, p ∗ 
+
+> T
+
+),
+
+consequently 
+
+J(πϕ) → J(π∗ 
+
+> T
+
+).
+
+As the Monte Carlo value estimates become more accurate and the learned gate more closely approximates the Ora-cle gate, the learned gating policy increasingly inherits the reasoning-space contraction, trajectory-distribution reshaping, and expected-return improvement properties of Oracle gating. 
+
+Summary of Theoretical Findings. 
+
+In summary, step-wise value gating reshapes the open-ended reasoning space at two levels: the support and the probability distribution. At the support level, 
+
+Supp( p∗ 
+
+> T
+
+) ⊆ T ∗ 
+
+> T
+
+⊆ T ,
+
+the gated trajectory distribution covers only those trajectories that satisfy the step-wise value constraints. At the distribution level, 
+
+p∗ 
+
+> T
+
+(τ ) = p0(τ )
+
+> Kτ
+
+Y
+
+> t=1
+
+1[Qπ0 
+
+> t
+
+(ht, r t) ≥ T ]
+
+ZT (ht) ,
+
+illustrates how step-wise gating applies state-dependent, incre-mental reweighting to the trajectory distribution. Based on the results of the previously mentioned policy improvements, the trajectory distribution after gating satisfies 
+
+J(π∗ 
+
+> T
+
+) ≥ J(π0).23 
+
+Therefore, step-wise gating does not merely filter individual reasoning actions in isolation. Instead, it reshapes the original open-ended trajectory distribution into a value-admissible dis-tribution characterized by the action-value function and having an expected return no lower than that of the original policy. APPENDIX CCOMPUTATIONAL COMPLEXITY AND INFERENCE COST 
+
+We further analyze the computational overhead of different inference enhancement methods. Let N be the number of problems, M the number of candidates generated per round, and K the maximum number of inference steps. Ctraj gen and 
+
+Cstep gen represent the costs of generating a complete inference trajectory and a single-step continuation, respectively. Further-more, Cvote represents the cost of using an expert LLM/VLM to evaluate or vote on a candidate, and Cgate represents the cost of the gating model assigning a value score to a candidate. Typically, there are 
+
+Ctraj gen ≈ Cstep gen , Cgate ≪ Cvote ,
+
+where the gated model performs only forward computations of the discriminator with a smaller parameter size, and candidate scoring can be performed in batches; in contrast, expert model evaluation Typically, it involves larger models and additional autoregressive decoding. 
+
+Direct CoT generates a complete reasoning trail for each problem, with a time complexity of 
+
+O(N KC traj gen ).
+
+Stepwise reasoning breaks down a complete trajectory into at most K stepwise generations, so its complexity is 
+
+O(N KC step gen ).
+
+The two approaches are comparable in terms of the number of tokens generated. Still, Stepwise requires multiple rounds of model calls and repeated context encoding, so it typically results in higher actual latency. 
+
+Self-Consistency independently samples M complete in-ference trajectories and aggregates the final answers; its main computational overhead is 
+
+O(N KM C traj gen ).
+
+The additional computations involved in this method are almost entirely devoted to expanding the sampling space, while there is no explicit control over the quality of intermediate candidates. 
+
+In ToT , each inference step generates M candidate con-tinuations, and an evaluation model selects the subsequent extension branch. Therefore, its complexity can be expressed as 
+
+O(N KM C step gen + N KM C vote ).
+
+If a single model invocation evaluates all candidates for the current step simultaneously, the number of evaluation invo-cations can be written as N K ; however, its input length and computational complexity still scale with M . Therefore, under token-level computational overhead, it remains approximately linearly dependent on the number of candidates. The additional voting cost for the final answer pool is O(N M C vote ), which can be absorbed by the main term mentioned above. The main additional overhead of ToT stems from node evaluation. Although the base model can be used directly for self-evaluation, weaker models often struggle to reliably assess the value of complex spatial reasoning steps. To ensure the quality of branch selection, practical applications typically require invoking a more capable LLM or VLM as an evaluator, making Cvote a non-negligible cost. 
+
+The AG and ToT methods described in this paper have similar candidate-generation complexities: each produces M
+
+candidates per step; the difference is that AG uses a trained SAG to score intermediate prefixes, while TAG selects the final answer. Therefore, its complexity is 
+
+O(N KM C step gen + N KM C gate ),
+
+where the main term can also absorb the TAG scoring cost of the final answer pool. From the perspective of the asymptotic order of N , K, and M , both AG and ToT belong to the 
+
+O(N KM ); however, there is a significant difference in their actual costs during the selection phase. AG’s gated model can be deployed locally and evaluate multiple candidates in a single discriminative forward pass, eliminating the need for repeated calls to large-scale expert models or for generating evaluation text. Since Cgate ≪ Cvote , AG significantly reduces the computational and invocation costs of value evaluation and branch selection while retaining the ability to perform incremental candidate search. It should be noted that AG’s efficiency advantage is pri-marily evident in the candidate selection phase; its candidate generation overhead is on the same order of magnitude as ToT’s and does not rely on reducing the search space to achieve acceleration. Under conditions where the generation length and candidate budget are fixed, the actual computational overhead typically satisfies: Direct CoT < Stepwise < Self-Consistency ≲ AG < ToT .
+
+Among these, Self-Consistency and AG have roughly equiv-alent computational overhead; AG incurs only a relatively lightweight gating-score cost, while ToT incurs additional overhead from evaluating candidates using a strong expert model. Consequently, while AG has a computational cost slightly higher than that of simple repeated sampling, it achieves explicit quality control over the candidate solution space. It selects more reliable inference paths at a selection cost significantly lower than that of an expert model search. APPENDIX DQUALITATIVE ANALYSIS OF ADVANTAGE -G UIDED GATING 
+
+Figure 7 illustrates how SAG and TAG intervene at different stages of the reasoning process. The SAG-accepted prefix first excludes visually similar but semantically irrelevant objects, such as sofas, tables, and shelves, and correctly identifies four 24 Question: Suppose the number of chair(s) in the room whose longest side is greater than 40.0 centimeters doubles. What is the current total number of chair(s) in the room?        
+
+> Step 1. Start from the largest seating objects and exclude non-chairs: red sectional sofa excluded, all tables excluded, toy shelves excluded. Remaining seating objects visible sum to four chairs.
+> Step 2. Remaining seating objects visible sum to four chairs. Counting by object type gives 4 chairs total now: 2 standard chairs plus 2 kids chairs. Interpreting the hypothetical as doubling the existing qualifying chair count and treating all current chairs as qualifying yields a new total of 8.
+> Answer: 8
+> Step 2. There are at least 4 chairs visible across the room, and no hidden area strongly suggests more. Since doubling the subset with longest side above 40 cm is hypothetical, the current total number of chairs remains the observed total: 4.
+> Answer: 4
+> Step 2. Because the question asks for the current total number of chairs, I first need the present chair count independent of the doubling scenario. Visually there seem to be four chairs in the room, with no extra chairs near the TV or sofa area.
+> Intermediate reasoning step
+> SAG Reject SAG Accept TAG Reject TAG Accept
+> Terminal reasoning step Terminal reasoning step
+
+Fig. 7. Qualitative illustration of hierarchical advantage-guided gating on a object-counting example. SAG accepts the visually grounded prefix that correctly identifies four chairs, while rejecting an intermediate step that incorrectly decouples the observed count from the hypothetical doubling operation. TAG subsequently evaluates each complete reasoning chain together with its final answer, accepting the trajectory that consistently applies the counterfactual transformation and outputs 8, while rejecting the locally plausible but globally inconsistent trajectory ending in 4. Green and red denote accepted and rejected reasoning candidates, respectively. 
+
+chairs in the scene. In contrast, the rejected intermediate step treats the current chair count as independent of the hypo-thetical doubling operation. Although its visual observation of four chairs is plausible, this interpretation is logically inconsistent with the counterfactual condition in the question. Once retained, such a semantic deviation would condition subsequent generation on an incorrect problem formulation and propagate the error along the remaining trajectory. SAG therefore serves as a prospective prefix filter: it preserves reasoning states that remain logically consistent with the task and suppresses locally plausible but directionally incorrect steps before they are further expanded. TAG operates at the terminal level and jointly evaluates the complete reasoning trajectory and its predicted answer. In this example, both terminal candidates are based on the same visual count of four chairs, but they differ in how the counterfactual condition is applied. The accepted trajectory consistently connects the visual evidence, the doubling op-eration, and the final answer of 8. By contrast, the rejected trajectory concludes that the total remains 4, producing an answer that is visually plausible but inconsistent with its required transformation. This demonstrates that TAG does not merely assess answer plausibility in isolation; instead, it considers both trajectory-level logical consistency and final-answer correctness. The two gates thus play complementary roles: SAG prevents early logical errors from contaminating subsequent reasoning, whereas TAG identifies residual errors that become evident only after examining the complete chain and answer. Their combination provides hierarchical control from intermediate reasoning preservation to final trajectory selection.
