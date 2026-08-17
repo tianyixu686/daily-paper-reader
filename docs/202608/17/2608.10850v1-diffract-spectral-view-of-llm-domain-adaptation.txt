@@ -1,0 +1,766 @@
+Title: Diffract: Spectral View of LLM Domain Adaptation
+
+URL Source: https://arxiv.org/pdf/2608.10850v1
+
+Published Time: Wed, 12 Aug 2026 01:18:30 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# Diffract: Spectral View of LLM Domain Adaptation 
+
+Nikita Borodin 1 Maria Krylova 1 Artem Zabolotnyi 1 2 Dmitry Aspisov 1 Egor Shikov 1 Nikita Tyuplyaev 1
+
+Oleg Travkin 1 Roman Alferov 1 Dmitry Vinichenko 1
+
+## Abstract 
+
+We study continual pre-training (CPT) as a mecha-nism for adapting general-purpose large language models to specialized domains: mathematics, in-struction, code, and natural text. Using singular value decomposition of weight matrices, we find that CPT leaves singular value spectra largely in-variant, with adaptation driven mainly by changes in singular vectors. An analysis of attention-head projection matrices reveals strong, domain-dependent head heterogeneity , which we exploit to define a head importance criterion: up to 60% 
+
+of head updates can be removed without mea-surable quality loss. Selectively rewinding low-importance heads to their pre-trained state im-proves benchmark accuracy by up to 4% versus the fully trained baseline. Finally, we identify 
+
+domain connectivity —linear interpolation be-tween CPT checkpoints yields smooth domain-quality interpolation without notable degradation on either domain—and release Diffract, an open-source toolkit for scalable spectral analysis of billion-parameter models. 
+
+## 1. Introduction 
+
+Continual pre-training (CPT) is now a well-established com-ponent of modern LLM training pipelines. It is central to producing domain-specialized models, such as DeepSeek-Math (Shao et al., 2024) and Code Llama (Rozi` ere et al., 2023); applying CPT to a general-purpose model yields better performance than training a specialized model from scratch under the same compute budget. CPT is used in many recent state-of-the-art models, such as OLMo 3 (OLMo Team: Ettinger, A. et al., 2026) and Llama 3 (Grattafiori et al., 2024) — the final pre-train stage uses curated, domain-specific data mixtures while the learning 
+
+> 1
+
+Risk AI Research Lab 2Applied AI Institute. Corre-spondence to: Dmitry Vinichenko <dmitry.vinichenko@risk-ai-research.tech >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). 
+
+rate is linearly annealed to zero. Empirical evidence sug-gests that this late-stage focus on cleaner, domain-relevant data improves mathematical and coding abilities without degrading general-language performance (Blakeney et al., 2024). However, the CPT stage of the LLM training pipeline is significantly less studied compared to the supervised fine-tuning (SFT) stage, where a rich set of phenomena has been documented—including linear mode connectivity (Frankle et al., 2020), task arithmetic (Ilharco et al., 2023), model soups (Wortsman et al., 2022), ability transfer (Yu et al., 2024) and low-rank subspace modification (Hu et al., 2022; Meng et al., 2024). To investigate whether similar phenomena exist for CPT, we conduct a series of pre-train and continual pre-training experiments on 1B, 7B, and 13B language models with OLMo 2 architecture for several do-mains: math, instruction, code, and text. We analyze the CPT delta ∆W = W domain − W pre-train , characterize its sparsity, and assess the ability to interpolate between check-points adapted to different domains. Additionally, we investigate the singular spectra of weight matrices for checkpoints along the pre-train trajectory and for weight increments after CPT, and uncover several novel phenomena. Prior random matrix theory-based work suggests that heavy-tailed singular value distributions are closely connected to the generalization ability (Mahoney & Martin, 2019; Martin & Mahoney, 2021; Yang et al., 2023). In our analysis, we consider singular spectra of weight ma-trices as well as the dynamics of singular vectors, which were earlier shown to play an important role in the model training process (Yunis et al., 2024). In summary, we highlight our key contributions: 1. Investigation of the dynamics of weight matrix singular value spectra, and identification of the development of complex spectral structure in attention head matrices along the pre-train stage, which cannot be described by heavy-tailed self-regularization theory (Mahoney & Martin, 2019). This is associated with an increase in quality on language tasks and faster domain adaptation on CPT. Moreover, we find that the spectra during CPT remain almost stable, and domain adaptation is 1arXiv:2608.10850v1 [cs.LG] 11 Aug 2026 Diffract: Spectral View of LLM Domain Adaptation 
+
+primarily driven by singular vector changes localized near the peaks in the SVD spectra. 2. Identification of head heterogeneity , namely, the vary-ing behavior of attention heads during CPT stages on different domains, which becomes more pronounced as the pre-train token budget increases. More specifi-cally, we observe that some heads demonstrate signifi-cant changes regardless of CPT domain, while others change in a domain-specific manner. We use this in-formation to put forward a criterion for ordering heads according to their effect on CPT quality, which enables us to achieve a quality increase of up to 4% for math CPT of the 7B model upon a partial head rewind. Addi-tionally, we discover that CPT deltas have redundancy in parameters, which increases with model size: up to 60 % of attention heads or up to 50 % of the small-est singular values in the CPT delta can be dropped without significant degradation of model quality. 3. Identification of the ability to linearly interpolate be-tween checkpoints after CPT on different domains without quality decrease, for which we coin the term 
+
+domain connectivity ; we find that interpolated model quality improves with the increase in pre-train stage token budget. 4. Implementation of an open-source tool for matrix spectra analysis—Diffract package—in order to en-sure the reproducibility of our findings and to fa-cilitate future research. The code is available at https://github.com/Risk-AI-Research/diffract 
+
+## 2. Methodology 
+
+In order to investigate the properties of model weight ma-trices, we employ several analytical methods centered on singular value decomposition (SVD) (Golub & Reinsch, 1970). For a matrix W ∈ Rm×n with m ≥ n, we write the SVD as 
+
+W = U ΣV ⊤,
+
+where U ∈ Rm×r and V ∈ Rn×r have orthonormal columns, Σ = diag( σ1, . . . , σ r ), r = rank( W ), and 
+
+σ1 ≥ · · · ≥ σr > 0. This notation is used consistently throughout our analysis. 
+
+Norms and Ranks. We characterize singular spectra Σ(W )
+
+through established spectral measures: the Frobenius norm 
+
+∥W∥F , spectral norm ∥W ∥2, stable rank Rs(W ), and ef-fective rank Re(W ). Complete definitions are provided in Appendices A.1 and A.2. 
+
+Singular Vector Agreement. SVD provides both spectral magnitudes and directional information through singular vectors. To analyze directional changes during training, we measure agreement between singular vectors of a given weight matrix along the training trajectory. Further imple-mentation details are presented in Appendix A.3. 
+
+Fitting Model Distributions. We model the empirical spec-tral density (ESD) using two complementary approaches: the Marchenko–Pastur distribution (Marˇ cenko & Pastur, 1967) for the bulk spectrum and power law models for heavy-tailed spectral regions. Estimation procedures and diagnostic methods are detailed in Appendix A.4. 
+
+## 3. Experimental Setup 
+
+3.1. Training Setup 
+
+We initialize all models using the OLMo 2 architecture and training stack (Walsh et al., 2025), training 1B, 7B, and 13B models. Our experimental pipeline consists of two sequential stages: 
+
+Stage 1: Pre-train. We pre-train models from scratch on mixtures sampled from DCLM (Li et al., 2024), using token budgets ranging from 20B to 400B. Training follows a cosine learning rate schedule with a warm-up phase; for each pre-train dataset size we use a full scheduling cycle. Due to computational constraints, this stage is conducted only for the 1B model; we also use 1B and 7B checkpoints pre-trained for 4T tokens, 13B checkpoint pre-trained for 5T tokens, and 32B checkpoint pre-trained for 6T tokens provided by OLMo team. 
+
+Stage 2: Continual pre-training (CPT). Starting from the pre-trained checkpoints listed above, we further train the models on several data mixtures to study domain shift and replay effects. We vary the CPT data composition to emphasize (i) DolminoMath-only data (MATH) (Walsh et al., 2025), (ii) balanced DCLM+DolminoMath mixtures, (iii) DCLM-heavy replay mixtures (TEXT), (iv) instruction data from FLAN (Wei et al., 2022) and Stack Exchange 1
+
+(INST), and (v) instruction data combined with Dolmino-Math and (vi) source code from StarCoder (CODE) (Li et al., 2023). The learning rate is initialized to the final value used in Stage 1 and is annealed to zero throughout this phase. Complete reproducibility details, including hyperparame-ters, training configurations, and data splits, are provided in Appendix B.2. The code can be found in Appendix B.3. 
+
+3.2. Evaluation Protocol 
+
+The quality of the model is evaluated using the OLMES framework (Gu et al., 2025). Language accuracy is mea-sured as the average performance across three datasets: ARC-Easy (Clark et al., 2018), HellaSwag (Zellers et al., 2019), and WinoGrande (Sakaguchi et al., 2020). Each of these language tasks is evaluated in a 5-shot setting, where 
+
+> 1https://archive.org/details/ stackexchange_20240930
+
+2Diffract: Spectral View of LLM Domain Adaptation a)        
+
+> 4T pre-train Math 0% Math 40% Math 100% Math 80% 10B CPT 20B CPT 50B CPT OLMo 2 0425 1B
+> 00.1 0.4 0.3 0.2 0.5 0.66 0.67 0.68 0.69 0.70 0.71 0.72 0.73 0.50 0.55 0.60 0.65 0.70 GSM8K accuracy GSM8K accuracy
+> Avg. language tasks accuracy Avg. language tasks accuracy
+> b) 20B pre-train 100B pre-train 400B pre-train 4T pre-train 20B CPT Math 0% Math 40% Math 80% Math 100%
+> 00.1 0.4 0.3 0.2 0.5
+
+Figure 1. Math–language quality trade-off with continual pre-training on the OLMo 2 1B backbone. The y-axis reports the average accuracy on WinoGrande, ARC-Easy, and HellaSwag. Hollow circles denote pre-train checkpoints; filled circles denote continual pre-training runs initialized from the corresponding pre-train checkpoints. Marker size encodes the CPT token budget (10B, 20B, 50B) on a mixture of math and text data; marker fill encodes the math proportion in the data (0%, 40%, 80%, 100%). Points with the same CPT token budget are connected. a) Overview across pre-train sizes (20B, 100B, 400B, 4T). For each pre-train checkpoint, we plot CPT runs with a fixed 20B-token budget (equal marker sizes) and varying math proportions; the leftmost hollow marker in each connected series is the corresponding pre-train checkpoint. b) Quality of CPT runs starting from 4T pre-train checkpoint (leftmost hollow marker). CPT runs vary both the token budget and the math proportion; the star marks the original OLMo 2 0425 1B CPT model (50B tokens with 10B math, i.e., 20%). Larger pre-train token budgets yield better results overall. Increasing the math proportion moves models rightward while typically lowering language-task accuracy, whereas larger token budgets shift the trade-off frontier outward. 
+
+answer choices are scored individually using LLM token probabilities in a cloze-style format. For math accuracy, we use an 8-shot evaluation on GSM8K (Cobbe et al., 2021) and 4-shot evaluation on MATH-500 (Lightman et al., 2024), computing exact-match accuracy between model predictions and the gold answers. To assess instruction following and reading comprehension, we evaluate on the DROP (Dua et al., 2019) and SQuAD (Ra-jpurkar et al., 2016) datasets. Finally, code generation capa-bilities are measured using HumanEval (Chen et al., 2021). 
+
+## 4. Main Results 
+
+4.1. CPT Quality Dynamics 
+
+First, we focus on identifying trends in the CPT quality as a function of token budget and CPT dataset composition. To that end, we study continual pre-training on the Dolmino-Math mathematics corpus, which demonstrates pronounced quality gains in GSM8K accuracy (Walsh et al., 2025). We run experiments on a 1B model with pre-train token bud-gets of 20B, 100B, 400B and 4T, and CPT token budgets of 10B, 20B, and 50B for CPT mixtures of DolminoMath and DCLM data. Our analysis reveals two key findings. First, we consider CPT runs starting from the 4T pre-train checkpoint, and find that the math performance plateaus at 20B (Fig. 1(b)). GSM8K accuracy for our 20B CPT run is higher than that of the OLMo 2 0425 1B checkpoint. Therefore, in further ex-periments with other pre-train token budgets, other domains, and the 7B model, we focus on a 20B-token CPT. For the 13B model, however, we use a 10B-token CPT budget, since our additional experiments indicate that this budget is al-ready sufficient to approach the quality close to the released OLMo 2 1124 13B checkpoint. Second, for 20B CPT runs starting from different pre-train budgets, we find that while math performance after pre-train is similarly low—consistent with the absence of do-main knowledge in the pre-train dataset mix—models with a longer pre-train stage achieve better final math quality met-rics after the CPT stage (Fig. 1(a)). Similar results hold for 10B and 50B CPT lengths, as we demonstrate in Appendix Fig. 7. In the next section, we propose a hypothesis for such behavior based on spectral analysis of model weight matrices. 3Diffract: Spectral View of LLM Domain Adaptation 1 4 12 8            
+
+> 2468
+> 050 100 150
+> 24
+> 110 120 130
+> 20B 100B 400B 4T 010 20
+> 20B 100B 400B 4T 1850 1900 1950 2000 QVFC2 Spectral norm Effective rank 16 9
+> 400B 20B
+> 0.5 1.0 1.5 2.0 2.5
+> 0.0 1.0 2.0 3.0
+> 0.0 1.0 2.0 00.2 0.4 0.6 0.8 1
+
+a) b) 100B   
+
+> 813 15 AGREEMENT LAYER
+
+Figure 2. Spectral shape and metrics evolution during pre-train. a) Rows (top to bottom) correspond to W Q, W V, and W FC 2 weight matrices, while columns (left to right) report the Spectral norm and the Effective rank. Each subplot overlays jittered per-matrix values with box plots summarizing the distributions for models pre-trained on 20B, 100B, 400B, and 4T tokens. Points denote individual matrices and are color-coded by the corresponding layer index. b) Singular value spectra for W Q (layer 6, heads 8, 9, 13, 15) at 20B, 100B, and 400B tokens. Jitter points represent singular values and are colored by the left singular vector agreement between each pre-train checkpoint and the corresponding CPT endpoint on math domain. Note the increasingly complex spectral shape that poorly conforms to MP and PL models. Starting at 100B the singular vectors that change during the CPT stage are increasingly localized in narrow spectral bands. 
+
+4.2. Spectral Evolution Along the Pre-Train Stage 
+
+To gain insight into pre-train dynamics, we first consider weight matrix norms and ranks (Fig. 2(a)). We highlight the non-monotonic behavior of Frobenius and spectral norms, which reach maximum values at around 100B tokens of pre-train. Effective rank also demonstrates an inflection point around 100B tokens: a substantial number of layer-level outliers with significantly lower rank emerge. We go beyond basic statistics and perform a detailed exam-ination of the shapes of the singular spectra for attention weights of 1B, 7B, and 13B models. For 1B we consider pre-train budgets from 20B to 400B (Fig. 2(b)). At ini-tialization, weight matrices are random, and their singular spectra follow the Marchenko-Pastur law (Marˇ cenko & Pas-tur, 1967). After 20B pre-train, the power law tail starts to form in the spectra of the heads (Fig. 2(b), top panel), in accordance with heavy-tailed self-regularization theory (HTSR) (Martin & Mahoney, 2021). However, at 100B and larger pre-train budgets the complexity of attention heads spectra increases—namely, the appearance of outliers and multiple narrow peaks. The same holds for both 7B and 1B models after a 4T pre-train, and for 13B model after a 5T pre-train (Appendix Fig. 8(b)), moreover we observed the same trend on original OLMo 2 checkpoints after CPT for 13B and 32B (Appendix Fig. 9). These empirical dis-tributions deviate significantly from HTSR models. We hypothesize that such complex structure is a prerequisite for faster domain adaptation of models with larger pre-train token budgets and note that these findings call for the devel-opment of more complex models for the singular spectra of attention heads. The spectral structure of MLP blocks stays close to the HTSR model with power law tail—resembling the spectra of attention heads at 20B (Fig. 2(b), top panel, Appendix Fig. 10)—for any pre-train token budget. However, we note that the power law (PL) tail already forms after 20B pre-train, as determined by goodness-of-fit—Kolmogorov-Smirnov (KS) distance (Clauset et al., 2009) (Appendix Fig. 11, bottom panels), and the agreement with this model deteriorates with the increase in pre-train tokens and with the increase in model quality (Fig. 1). From these observations, we can conclude that the formation of a power law tail in the singular spectra is a necessary but not sufficient prerequisite for the model performance increase. 
+
+4.3. Spectral Evolution Along the CPT Stage—Head Heterogeneity 
+
+First, we highlight that the CPT stage does not induce sig-nificant changes in the singular spectra of model weight matrices. Apart from the similarity of matrix properties, we confirm this experimentally—namely, the model qual-ity after CPT does not change after transplanting singular spectra from W pre-train into W domain (see Appendix Fig. 15). This allows us to investigate the effects of CPT by consid-4Diffract: Spectral View of LLM Domain Adaptation     
+
+> Figure 3. Head heterogeneity —effect of the CPT domain on vector agreement with the pre-trained model vs. pre-train budget: 4T tokens (top) and 20B (bottom). a) Heatmaps show mean CPT–pre-train vector agreement for individual heads of WQacross domains (math, instruct, text). Lower agreement indicates larger weight rotations from pre-train. b) Agreement difference (math minus text): blue/red indicate larger changes under math/text CPT. With larger pre-train budgets, outlier heads emerge (a) and become domain-specialized (b). Text CPT preserves the strongest agreement; math and instruct induce larger rotations.
+
+ering only row-maximum singular vector agreement (Ap-pendix A.3). Vector agreement analysis can be carried out in two ways, supported by the Diffract package. First, for each singular value in the spectrum one can consider the agreement of the corresponding vector in W pre-train and W domain (Fig. 2(b)). This mode allows us to infer that the most significantly changing vectors are associated with peaks in singular value spectra. Next, one can consider agreement in an aggregated mode over all vectors in a matrix—this enables the quan-tification of the degree of change for each attention head or MLP layer in the model (Fig. 3(a)). We apply this analysis to study the behavior of attention heads after CPT on the domains of math, instruct, and text, and establish the head heterogeneity effect. Namely, for the longer 4T pre-train, attention heads change differently during CPT: some heads exhibit substantial changes during CPT across all domains, while others change in a domain-specific manner. This is shown in Fig. 3(a) for 1B model, Appendix Fig. 12(a) for 7B model, and Appendix Fig. 13(a) for 13B model. In contrast, for the shorter 20B pre-train, the changes are more uniformly distributed across heads. The onset of head heterogeneity occurs simultaneously with the increase in complexity of attention heads singular spectra; we hypothesize that both phenomena are related to the increase in CPT quality and more rapid improvement with CPT token budget. In order to further quantify the dynamics induced by CPT we consider the Frobenius norm of the CPT delta ∆W =
+
+W domain − W pre-train . A comparative analysis of CPT deltas across the same domains of math, instruct, and text re-veals highly consistent behavior of Frobenius norms for 1B (Fig. 14(a)), 7B and 13B (Appendix Fig. 14(b)) mod-els. For MLP layers, we observe larger changes in later layers—a trend consistent across domains. We note that such layer specialization arises with the increase in pre-train budget (Fig. 14(a)). For attention matrices, we note the high within-layer variance of CPT delta, consistent with the head heterogeneity observation above. Next, we turn to quantify-ing the effect of head heterogeneity on model quality after CPT. 
+
+4.4. Drivers of Domain Quality in CPT Deltas 
+
+In order to quantify the effect of head heterogeneity on model quality after CPT, we carry out head-wise rewind analysis and investigate CPT delta compressibility by trun-cating its singular spectrum. 
+
+Head-wise rewind. We assess the importance of individual attention heads for CPT quality as follows—we order all heads by one of the scalar importance criteria defined below and then incrementally rewind the heads in that order to the pre-train state. 5Diffract: Spectral View of LLM Domain Adaptation 100 80 60 40 20 00.15 0.2 0.25 0.3 0.35 0.4 0.45 0.5 0.55       
+
+> random
+> Fraction of heads rewound (%) GSM8K accuracy
+> frob norm diff asc PL KS desc agreement desc greedy asc greedy desc Math CPT a) b)
+> 100 80 60 40 20 00.55 0.6 0.65 0.7 Fraction of heads rewound (%) GSM8K accuracy
+> Math CPT frob norm diff asc frob norm diff desc random 7B model 1B model greedy asc greedy desc agreement desc
+
+Figure 4. CPT delta head-wise rewind results. a) GSM8K accuracy versus fraction of heads rewound for the 1B model for different head ordering schemes: average singular vector agreement between CPT and pre-train (solid red), PL-KS distance (blue), and random (red dashed line with std band). Greedy ordering (green for descending and purple for ascending) is provided as a baseline. b) GSM8K accuracy versus fraction of heads rewound for the 7B model. The difference-in-scaled-Frobenius-norms metric, highlighted in orange (ascending), demonstrates significantly improved ordering and surpasses greedy baseline. 
+
+We evaluate the following types of ordering criteria. As a simple baseline, we rewind heads several times in different random orders. Next, we use the decrease in CPT quality upon the single-head rewind as a “greedy” ordering criterion. We treat this ranking as a “ground truth” reference measure of head importance. Additionally, we consider head or-derings based on spectral properties of the corresponding weight matrices of model checkpoints and CPT deltas. For pre-train checkpoints, we use PL–KS distance and the PL exponent α; for CPT deltas, we use the Frobenius norm and the singular vector agreement between W pre-train and 
+
+W domain .We study CPT on math domain for 1B and 7B models after 4T pre-train, shown in Fig. 4 for 1B- and 7B-parameter models, and also instruct CPT for 7B model and math CPT for 1B model from a much smaller 20B pre-train, shown in Appendix Fig. 16. We further extend this analysis to larger-scale settings, including our 13B math and instruct CPT runs with a 10B-token CPT budget starting from the 5T pre-train checkpoint (Appendix Fig. 17), the released OLMo 2 13B CPT checkpoints trained from 5T pre-train tokens, and the released 32B OLMo 2 CPT checkpoints trained from 6T pre-train tokens (Appendix Fig. 18). Across all these settings, we observe qualitatively similar behavior. This multi-domain analysis reveals three main observations. First, rewinding any single head changes CPT quality by less than two percentage points on average, and for some heads even improves it (see Appendix Fig. 19). Second, among the simple matrix properties, performance is largely comparable to the random baseline and is outmatched by the “greedy” strategy, suggesting that head-wise spectral metrics are not very useful for assessing head importance. Finally, we demonstrate additional evidence for the emergence of head heterogeneity along the pre-train stage. Rewinding the heads of a model with much smaller 20B pre-train budget results in a rapid decline in quality (Appendix Fig. 16(b)), consistent with the homogeneous pattern of head-wise changes during CPT (Fig. 3(a), lower panel). Motivated by the head heterogeneity concept introduced in the previous section (Fig. 3), we propose a novel head ordering criterion that allows us (i) to achieve a quality increase—of up to + 4% for math CPT of a 7B model upon rewinding around 15% of heads, and (ii) to rewind up to 
+
+60 % of heads without a significant quality drop. Specifically, we define the text CPT as a reference domain, since it is carried out on text data similar to the pre-train stage, while other CPTs are considered as target domains that focus on specialized knowledge. For each target domain, we order heads by the amount of change during its CPT compared to the reference CPT—such as the quantity demonstrated in Fig. 3(b). However, for 7B and 13B models, we find that a similar metric based on Frobenius norms of CPT deltas, per the equation below, performs better: 
+
+sl,h = scale [0 ,1] 
+
+
+
+∥W domain  
+
+> l,h
+
+− W pre-train  
+
+> l,h
+
+∥F
+
+
+
+− scale [0 ,1] 
+
+
+
+∥W reference  
+
+> l,h
+
+− W pre-train  
+
+> l,h
+
+∥F
+
+
+
+.
+
+(1) where l and h index layer and head, respectively, and 
+
+scale [0 ,1] denotes min–max normalization, scale [0 ,1] (X) = (X − Xmin )/(Xmax − Xmin ).Empirically, this novel methodology helps elucidate domain-specific changes via a comparison with a reference text domain, and outperforms not only standard spectral heuris-tics, but also the greedy ranking strategy (see Appendix Table 4). We hypothesize that further research of more complex models for singular spectra reflective of the rich 6Diffract: Spectral View of LLM Domain Adaptation 100 80 60 40 20 0020 40 60 80 100 Fraction of singular values truncated in CPT delta (%) 13B model 7B model 1B model GSM8K relative accuracy decrease (%)   
+
+> Figure 5. CPT delta SVD redundancy analysis. GSM8K relative accuracy as a function of the fraction of singular values retained after SVD truncation of the CPT delta. Curves show models with different scales and pre-train budgets: 13B/5T tokens (pink), 7B/4T tokens (blue), 1B/4T tokens (red), 1B/400B tokens (green), 1B/100B tokens (purple), 1B/20B tokens (orange). The 13B and 7B models retain quality upon aggressive truncation (70% and 50% of singular values removed, respectively), while 1B models degrade more rapidly, suggesting the larger model learns more redundant representations during CPT.
+
+structure observed in Fig. 2(b), will enable the development of more powerful head ranking criteria. 
+
+SVD truncation of CPT delta. To assess CPT parameter redundancy, we analyze the low-rank structure of the CPT delta. For each matrix, we compute an SVD of ∆W , zero out the smallest singular values, reconstruct a truncated 
+
+∆ fW , and evaluate W pre-train + ∆ fW . Truncation is applied only to attention (head-wise) and MLP matrices; all other matrices are taken directly from W domain .For the 1B model, CPT deltas remain high-rank, and trun-cation tolerance does not improve monotonically with the pre-train token budget. More concretely, truncating 30% of the CPT delta leads to a relative drop of ≈ 10 % in GSM8K accuracy for both the 100B-token and 4T-token pre-trained models. In contrast to the token budget, model scale has a substantial effect on truncation tolerance, suggesting that larger architectures accommodate more redundant task di-rections. As shown in Fig. 5, for the 7B model one can remove up to 50% of singular values without a measurable drop in GSM8K accuracy, whereas for the 13B model up to 70 % can be removed; pronounced degradation, however, begins beyond 80% singular value removal for the 7B model and beyond 90% for the 13B model. 
+
+4.5. Domain Connectivity 
+
+Inspired by linear mode connectivity (Frankle et al., 2020) in fine-tuning of large language and vision models, we observe a similar phenomenon for continual pre-training. We study 
+
+domain connectivity between pairs of models initialized from the same W pre-train checkpoint and continually pre-trained on different domains: math, text, code, and instruct for 20B tokens, considering both 1B and 7B models, and additionally between 13B math and instruct checkpoints obtained with a 10B-token CPT budget. Specifically, we form interpolants: 
+
+W interp (ω) = (1 − ω) W dom 1 + ω W dom 2 ω ∈ [0 , 1] 
+
+(2) which we refer to as “ model soups ”. Additionally, we eval-uate models trained on different domain mixtures (see Ap-pendix Table 2). We present results for math – instruct and math – text interpolation for 1B, 7B, and 13B models in Fig. 6; additionally, we report results for instruct – text in Appendix Fig. 20(a) and instruct – code and math – code in Appendix Fig. 21(a, b). For the math domain (Fig. 6), for all interpolation pairs, the model soup quality lies below the chord connecting the endpoints (i.e., is concave) at 20B, is approximately linear 
+
+at 400B, becomes mildly convex at 4T for the 1B model, and is clearly convex at 4T for the 7B model, as well as at 5T for the 13B model. This trend indicates that interpolation quality improves with both the pre-train token budget and model size. We hypothesize that the transition from concave to convex behavior may be related to the development of complex spectral structure in attention heads. Additionally, across pre-train budgets and model sizes, linear interpolation under-performs CPT trained directly on dataset mixtures. This, in turn, may limit the applicability of simple task-vector-style linear combinations, but a more systematic study is left for future work. 
+
+## 5. Related Work 
+
+Continual pre-training. A primary challenge in CPT is mitigating catastrophic forgetting while efficiently adapting models to new domains. To combat forgetting directly, in-terleaving a small fraction of replay data from the original pre-train distribution during CPT is a simple yet power-ful method to anchor the model’s general representations (Wang et al., 2024; Qi et al., 2025; Hickok, 2025). The optimization process itself is crucial, as empirical findings demonstrate that learning rate re-warming and re-decaying is necessary to overcome initial instability and adapt opti-mization dynamics to the new data, even in the absence of a distribution shift (Gupta et al., 2023; Ibrahim et al., 2024). Furthermore, data selection strategies that choose samples based on their similarity to the target task or their novelty and diversity are highly effective for adaptation (Xie et al., 2024; Que et al., 2024). 
+
+Model weight spectrum interventions. Weight matri-7Diffract: Spectral View of LLM Domain Adaptation GSM8K accuracy 0.1 0.2 0.3 0.4 0.5 0.6 0.7              
+
+> 1B model 20B pre-train
+> 13B model 5T pre-train 1B model 100B pre-train 1B model 400B pre-train 1B model 4T pre-train 7B model 4T pre-train 1B model 20B pre-train
+> 0.55 0.65 0.75 0.5 0.6 0.7 0.8 0.85 00.1 0.2 0.3 0.4 0.6 0.7 0.5 DROP F1 score GSM8K accuracy
+> 1B model 20B pre-train
+> 13B model 5T pre-train 7B model 4T pre-train 1B model 4T pre-train 1B model 400B pre-train 1B model 100B pre-train
+> Avg. language tasks accuracy
+> a) b)
+> 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0
+
+Figure 6. Domain connectivity demonstration. Quality of linear interpolation between pairs of checkpoints on different domains, step size ω = 0 .1. a) DROP F1 score vs. GSM8K accuracy for different pre-train token budgets and model sizes. The purple pentagon marker denotes models trained on 10B DolminoMath + 10B FLAN: from bottom to top, they correspond to the 1B model with 20B pre-train tokens, the 1B model with 4T pre-train tokens, and the 7B model with 4T pre-train tokens. b) Average language-task accuracy vs. GSM8K accuracy for different pre-train token budgets and model sizes. Yellow markers correspond to 80% Math / 20% filtered DCLM; blue markers correspond to 40% Math / 60% filtered DCLM. As the pre-train token budget and model size increase, both interpolation quality and the performance of models trained on data mixtures improve. 
+
+ces are often approximately low rank, enabling selective removal of higher-order components (small singular val-ues) to denoise networks and enhance reasoning perfor-mance (Sharma et al., 2024). This low-rank property un-derpins parameter-efficient fine-tuning methods like LoRA (Hu et al., 2022). However, optimal rank is highly layer-dependent, and smaller residual singular values are not mere noise—they maintain connectivity to good loss basins and preserve performance on difficult tasks (Yin et al., 2024). 
+
+Model averaging and task arithmetic. Model merging is rooted in linear mode connectivity (Frankle et al., 2020), which posits that independently trained networks can lie in a shared low-error basin, enabling weight interpolation with-out catastrophic loss (Ainsworth et al., 2023). Model soup-ing averages weights of models fine-tuned from a common checkpoint (Wortsman et al., 2022), and merging models from diverse training runs boosts out-of-distribution gen-eralization (Rame et al., 2022). Task arithmetic (Ilharco et al., 2023) reframes fine-tuning as additive task vectors in nearly orthogonal directions, with TIES-Merging miti-gating interference by pruning small updates and enforcing consensus signs (Yadav et al., 2023). Complementary ap-proaches are based on the exclusion of a large proportion of delta entries from merging to confine task deltas (Yu et al., 2024; He et al., 2025), and compressing per-layer deltas via SVD with Procrustes alignment to reduce subspace overlap (Gargiulo et al., 2025). 
+
+Spectral analysis and model performance. RMT studies identify heavy-tailed self-regularization (HTSR) as a key feature of well-trained models, where lower power law expo-nents correlate with superior generalization in Transformers, serving as data-free quality predictors (Yang et al., 2023; Mahoney & Martin, 2019; Martin & Mahoney, 2021; Kotha-palli et al., 2025). Training yields HTSR shaped by the dynamics of the optimizer and consistently decreasing ef-fective rank during training across architectures, with better generalizing solutions exhibiting lower effective rank (Yunis et al., 2024; Thamm et al., 2024; Staats et al., 2024). The Marchenko–Pastur (MP) law helps distinguish bulk eigen-vectors—which are largely random—from the top singular components, which encode learned signal (Thamm et al., 2024; Staats et al., 2024). 
+
+## 6. Discussion and Directions for Further Work 
+
+Our analysis allowed us to unveil several novel observa-tions about continual pre-training (CPT) mechanisms in large language models. The properties we establish are consistent across model scale within the OLMo family, as demonstrated on OLMo 2 1B, 7B, 13B, and 32B parameter models, and diverse CPT domains, including math, instruct, code, and text. Leveraging our Diffract framework for spectral analysis, we observe that pre-train stage induces complex spectral structures in attention-related weight matrices. While MLP layer characteristics align partially with heavy-tailed self-regularization (HTSR) theory, attention matrices display multi-peak distributions with outliers that substantially di-8Diffract: Spectral View of LLM Domain Adaptation 
+
+verge from HTSR model. We hypothesize that this intricate spectral organization acquired during pre-train stage is es-sential for efficient domain adaptation during CPT. Support for this hypothesis arises from our finding that CPT largely preserves the singular value spectra and the adaptation takes place primarily via modifying the singular vectors, with the most pronounced changes occurring for vectors associated with the spectral peaks. Our findings regarding CPT adaptation reveal a novel phe-nomenon in attention weight matrices which we term head heterogeneity . This phenomenon appears as the emergence of a small number of outlier heads in terms of CPT delta characteristics, and we identify heads whose changes are domain-specific. This feature becomes more pronounced with the increase of pre-train token budget. Based on this observation, we propose a principled criterion for ranking attention heads, identifying those that can be rewound with quality improvements of up to 4%. Additionally, we demon-strate that CPT delta can be sparsified by up to 60 % over attention heads without significant quality loss. Moreover, we identify another novel phenomenon—CPT 
+
+domain connectivity , namely, the ability to average check-points after CPT on different domains, with interpolated model quality increasing as a function of the pre-train token budget and model size. However, we note that the mixture of CPT checkpoints performs worse compared to training on dataset mixture; these results suggest that task vector merging approaches such as DARE (Yu et al., 2024) would face significant challenges. These findings, however, come with several limitations. While our conclusions are supported by consistent evidence across OLMo 2 1B, 7B, 13B, and 32B models, they should be interpreted as robustness within the OLMo family rather than universality across modern LLMs. Moreover, not all phenomena are studied uniformly at every scale, and our analysis is restricted to the AdamW-based OLMo 2 training recipe. Although we extend the evaluation with MATH-500 and SQuAD, benchmark coverage remains limited. We therefore view validation on other model families, broader benchmark coverage, larger-scale experiments beyond 32B, and optimizer ablations as important directions for future work. Beyond these limitations, our results suggest several av-enues for future research. First, we highlight the necessity of developing more complex models for singular value spec-tral of modern large language models. Based on that, a more detailed analysis of head heterogeneity and head influence on CPT quality can be carried out. Finally, we suggest fur-ther investigation into the origins of domain connectivity and its quality drivers in order to enable more efficient CPT methodology. 
+
+## Impact Statement 
+
+This work contributes to the fundamental understanding of Large Language Model training dynamics, specifically within the regime of continual pre-training. There are many potential societal consequences of our work, none of which we feel must be specifically highlighted here. 
+
+## References 
+
+Ainsworth, S., Hayase, J., and Srinivasa, S. Git re-basin: Merging models modulo permutation symmetries. In The Eleventh International Conference on Learning Repre-sentations , 2023. Blakeney, C., Paul, M., Larsen, B. W., Owen, S., and Fran-kle, J. Does your data spark joy? performance gains from domain upsampling at the end of training. In First Conference on Language Modeling , 2024. Chen, M., Tworek, J., Jun, H., Yuan, Q., de Oliveira Pinto, H. P., Kaplan, J., Edwards, H., Burda, Y., Joseph, N., Brockman, G., et al. Evaluating large language models trained on code. arXiv preprint arXiv:2107.03374 , 2021. Clark, P., Cowhey, I., Etzioni, O., Khot, T., Sabharwal, A., Schoenick, C., and Tafjord, O. Think you have solved question answering? try arc, the AI2 reasoning challenge. 
+
+arXiv preprint arXiv:1803.05457 , 2018. Clauset, A., Shalizi, C. R., and Newman, M. E. J. Power-law distributions in empirical data. SIAM Review , 51(4): 661–703, November 2009. Cobbe, K., Kosaraju, V., Bavarian, M., Chen, M., Jun, H., Hilton, L., Nakano, R., Hesse, J., Schulman, J., Kaplan, J., et al. Training verifiers to solve math word problems. 
+
+arXiv preprint arXiv:2110.14168 , 2021. Dua, D., Wang, Y., Dasigi, P., Stanovsky, G., Singh, S., and Gardner, M. Drop: A reading comprehension benchmark requiring discrete reasoning over paragraphs. In North American Chapter of the Association for Computational Linguistics , 2019. Frankle, J., Dziugaite, G. K., Roy, D., and Carbin, M. Linear mode connectivity and the lottery ticket hypothesis. In III, H. D. and Singh, A. (eds.), Proceedings of the 37th International Conference on Machine Learning , volume 119 of Proceedings of Machine Learning Research , pp. 3259–3269. PMLR, 13–18 Jul 2020. Gargiulo, A. A., Crisostomi, D., Bucarelli, M. S., Scar-dapane, S., Silvestri, F., and Rodola, E. Task singular vectors: Reducing task interference in model merging. In 
+
+Proceedings of the Computer Vision and Pattern Recog-nition Conference , pp. 18695–18705, 2025. 9Diffract: Spectral View of LLM Domain Adaptation 
+
+Golub, G. H. and Reinsch, C. Singular value decomposition and least squares solutions. Numer. Math. , 14(5):403–420, April 1970. Grattafiori, A., Dubey, A., Jauhri, A., Pandey, A., Kadian, A., Al-Dahle, A., Letman, A., Mathur, A., Schelten, A., Vaughan, A., et al. The llama 3 herd of models. arXiv preprint 2407.21783 , 2024. Gu, Y., Tafjord, O., Kuehl, B., Haddad, D., Dodge, J., and Hajishirzi, H. OLMES: A standard for language model evaluations. In Chiruzzo, L., Ritter, A., and Wang, L. (eds.), Findings of the Association for Computational Linguistics: NAACL 2025 , pp. 5020–5048, Albuquerque, New Mexico, April 2025. Association for Computational Linguistics. Gupta, K., Th´ erien, B., Ibrahim, A., Richter, M. L., Anthony, Q. G., Belilovsky, E., Rish, I., and Lesort, T. Continual pre-training of large language models: How to re-warm your model? In Workshop on Efficient Systems for Foun-dation Models @ ICML2023 , 2023. He, Y., Hu, Y., Lin, Y., Zhang, T., and Zhao, H. Localize-and-stitch: Efficient model merging via sparse task arith-metic. Transactions on Machine Learning Research ,2025. Hickok, T. Scalable strategies for continual learning with replay. arXiv preprint arXiv:2505.12512 , 2025. Hu, E. J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang, L., and Chen, W. LoRA: Low-rank adaptation of large language models. In International Conference on Learning Representations , 2022. Ibrahim, A., Th´ erien, B., Gupta, K., Richter, M. L., Anthony, Q. G., Belilovsky, E., Lesort, T., and Rish, I. Simple and scalable strategies to continually pre-train large language models. Transactions on Machine Learning Research ,2024. Ilharco, G., Ribeiro, M. T., Wortsman, M., Schmidt, L., Hajishirzi, H., and Farhadi, A. Editing models with task arithmetic. In The Eleventh International Conference on Learning Representations , 2023. Kothapalli, V., Pang, T., Deng, S., Liu, Z., and Yang, Y. From spikes to heavy tails: Unveiling the spectral evolu-tion of neural networks. Transactions on Machine Learn-ing Research , 2025. Li, J., Fang, A., Smyrnis, G., Ivgi, M., Jordan, M., Gadre, S. Y., Bansal, H., Guha, E., Keh, S. S., Arora, K., et al. Datacomp-lm: In search of the next generation of training sets for language models. Advances in Neural Informa-tion Processing Systems , 37:14200–14282, 2024. Li, R., Allal, L. B., Zi, Y., Muennighoff, N., Kocetkov, D., Mou, C., Marone, M., Akiki, C., Li, J., Chim, J., et al. Starcoder: may the source be with you! Transactions on Machine Learning Research , 2023. Lightman, H., Kosaraju, V., Burda, Y., Edwards, H., Baker, B., Lee, T., Leike, J., Schulman, J., Sutskever, I., and Cobbe, K. Let’s verify step by step. In The Twelfth International Conference on Learning Representations ,2024. Loshchilov, I. and Hutter, F. Decoupled weight decay reg-ularization. In International Conference on Learning Representations , 2019. Mahoney, M. and Martin, C. Traditional and heavy tailed self regularization in neural network models. In ICML ,pp. 4284–4293, 2019. Marˇ cenko, V. A. and Pastur, L. A. Distribution of eigenval-ues for some sets of random matrices. Mathematics of the USSR-Sbornik , 1(4):457, 1967. Martin, C. H. and Mahoney, M. W. Implicit self-regularization in deep neural networks: Evidence from random matrix theory and implications for learning. Jour-nal of Machine Learning Research , 22(165):1–73, 2021. Meng, F., Wang, Z., and Zhang, M. PiSSA: Principal sin-gular values and singular vectors adaptation of large lan-guage models. In The Thirty-eighth Annual Conference on Neural Information Processing Systems , 2024. OLMo Team: Ettinger, A., Bertsch, A., Kuehl, B., Graham, D., Heineman, D., Groeneveld, D., Brahman, F., Timbers, F., Ivison, H., and Morrison, J. Olmo 3. arXiv preprint arXiv:2512.13961 , 2026. Qi, Z., Nie, F., Alahi, A., Zou, J., Lakkaraju, H., Du, Y., Xing, E. P., Kakade, S. M., and Zhang, H. EvoLM: In search of lost training dynamics for language model reasoning. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. Que, H., Liu, J., Zhang, G., Zhang, C., Qu, X., Ma, Y., Duan, F., Bai, Z., Wang, J., Zhang, Y., et al. D-cpt law: Domain-specific continual pre-training scaling law for large language models. Advances in Neural Information Processing Systems , 37:90318–90354, 2024. Rajpurkar, P., Zhang, J., Lopyrev, K., and Liang, P. Squad: 100,000+ questions for machine comprehension of text. In Conference on Empirical Methods in Natural Lan-guage Processing , 2016. Rame, A., Kirchmeyer, M., Rahier, T., Rakotomamonjy, A., Gallinari, P., and Cord, M. Diverse weight averaging for out-of-distribution generalization. Advances in Neural Information Processing Systems , 35:10821–10836, 2022. 10 Diffract: Spectral View of LLM Domain Adaptation 
+
+Rozi` ere, B., Gehring, J., Gloeckle, F., Sootla, S., Gat, I., Tan, X. E., Adi, Y., Liu, J., Remez, T., Rapin, J., et al. Code llama: Open foundation models for code. arXiv preprint arXiv:2308.12950 , 2023. Sakaguchi, K., Bras, R. L., Bhagavatula, C., and Choi, Y. Winogrande: An adversarial winograd schema challenge at scale. In AAAI , pp. 8732–8740, 2020. Shao, Z., Wang, P., Zhu, Q., Xu, R., Song, J., Zhang, M., Li, Y. K., Wu, Y., and Guo, D. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. Sharma, P., Ash, J. T., and Misra, D. The truth is in there: Improving reasoning in language models with layer-selective rank reduction. In The Twelfth Interna-tional Conference on Learning Representations , 2024. Staats, M., Thamm, M., and Rosenow, B. Locating informa-tion in large language models via random matrix theory. 
+
+arXiv preprint arXiv:2410.17770 , 2024. Thamm, M., Staats, M., and Rosenow, B. Random matrix theory analysis of neural network weight matrices. In 
+
+High-dimensional Learning Dynamics 2024: The Emer-gence of Structure and Reasoning , 2024. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, L. u., and Polosukhin, I. At-tention is all you need. In Guyon, I., Luxburg, U. V., Bengio, S., Wallach, H., Fergus, R., Vishwanathan, S., and Garnett, R. (eds.), Advances in Neural Information Processing Systems , volume 30. Curran Associates, Inc., 2017. Walsh, E. P., Soldaini, L., Groeneveld, D., Lo, K., Arora, S., Bhagia, A., Gu, Y., Huang, S., Jordan, M., Lambert, N., et al. 2 OLMo 2 furious (COLM’s version). In Second Conference on Language Modeling , 2025. Wang, L., Zhang, X., Su, H., and Zhu, J. A comprehensive survey of continual learning: Theory, method and appli-cation. IEEE Trans. Pattern Anal. Mach. Intell. , 46(8): 5362–5383, August 2024. Wei, J., Bosma, M., Zhao, V., Guu, K., Yu, A. W., Lester, B., Du, N., Dai, A. M., and Le, Q. V. Finetuned lan-guage models are zero-shot learners. In International Conference on Learning Representations , 2022. Wortsman, M., Ilharco, G., Gadre, S. Y., Roelofs, R., Gontijo-Lopes, R., Morcos, A. S., Namkoong, H., Farhadi, A., Carmon, Y., Kornblith, S., and Schmidt, L. Model soups: averaging weights of multiple fine-tuned models improves accuracy without increasing inference time. In International Conference on Machine Learning ,pp. 23965–23998. PMLR, 2022. Xie, Y., Aggarwal, K., and Ahmad, A. Efficient continual pre-training for building domain specific large language models. In Ku, L.-W., Martins, A., and Srikumar, V. (eds.), Findings of the Association for Computational Lin-guistics: ACL 2024 , pp. 10184–10201, Bangkok, Thai-land, August 2024. Association for Computational Lin-guistics. Yadav, P., Tam, D., Choshen, L., Raffel, C. A., and Bansal, M. Ties-merging: Resolving interference when merging models. Advances in Neural Information Processing Systems , 36:7093–7115, 2023. Yang, Y., Theisen, R., Hodgkinson, L., Gonzalez, J. E., Ramchandran, K., Martin, C. H., and Mahoney, M. W. Evaluating natural language processing models with gen-eralization metrics that do not need access to any training or testing data. arXiv preprint arXiv:2202.02842 , 2023. Yin, L., Jaiswal, A. K., Liu, S., Kundu, S., and Wang, Z. Junk DNA hypothesis: Pruning small pre-trained weights 
+
+Irreversibly and Monotonically impairs “difficult” down-stream tasks in LLMs. In Salakhutdinov, R., Kolter, Z., Heller, K., Weller, A., Oliver, N., Scarlett, J., and Berkenkamp, F. (eds.), Proceedings of the 41st Interna-tional Conference on Machine Learning , volume 235 of 
+
+Proceedings of Machine Learning Research , pp. 57053– 57068. PMLR, 21–27 Jul 2024. Yu, L., Yu, B., Yu, H., Huang, F., and Li, Y. Language mod-els are super mario: Absorbing abilities from homologous models as a free lunch. In International Conference on Machine Learning . PMLR, 2024. Yunis, D., Patel, K. K., Wheeler, S., Savarese, P., Vardi, G., Livescu, K., Maire, M., and Walter, M. R. Approaching deep learning through the spectral dynamics of weights. 
+
+arXiv preprint arXiv:2408.11804 , 2024. Zellers, R., Holtzman, A., Bisk, Y., Farhadi, A., and Choi, Y. Hellaswag: Can a machine really finish your sen-tence? In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics , 2019. 11 Diffract: Spectral View of LLM Domain Adaptation 
+
+## A. Diffract methodology and technical details 
+
+To systematically analyze the spectral characteristics and singular vector agreement adjustments in continual pre-training, we developed Diffract, an open-source library designed for granular, architectural-component-level analysis of neural networks. The main text of the paper contains our key findings. This appendix provides a brief, practical overview of how to use our library to perform similar analyses. 
+
+A.1. Norms 
+
+Our investigation includes the Frobenius ( ∥W ∥F ) and spectral ( ∥W ∥2) norms: 
+
+∥W ∥F =
+
+sX
+
+> i
+
+σi(W )2, (3) 
+
+∥W ∥2 = max  
+
+> i
+
+σi(W ). (4) 
+
+A.2. Ranks 
+
+We track the following structure-aware ranks: 
+
+Stable Rank: 
+
+Rs(W ) = ∥W ∥2
+
+> F
+
+∥W ∥22
+
+. (5) 
+
+Effective Rank: 
+
+Re(W ) = exp 
+
+− 
+
+> R(W)
+
+X
+
+> i=1
+
+σi(W )
+
+P 
+
+> j
+
+σj (W ) log σi(W )
+
+P 
+
+> j
+
+σj (W )
+
+!, (6) where hard rank R(W ) is the number of nonzero singular values (or a chosen truncation). 
+
+A.3. Singular vector agreement 
+
+Let W i = U iΣi V i⊤ and W j = U j Σj  V j ⊤. In this work we consider the cosine similarities between left singular vectors via the vector agreement matrix 
+
+Au(W i, W j ) = | U i⊤U j |, (7) where the absolute value is taken element-wise. We report two levels: per-vector (diagonal and row-maximum agreements) and a global average given by the mean of diagonal agreements across the matrix. 
+
+A.4. Random matrix theory fits 
+
+The HTSR (Heavy-Tailed Self-Regularization) theory originally emerged as a semi-empirical theory, and early seminal works (Mahoney & Martin, 2019; Martin & Mahoney, 2021) studied the empirical spectral density of weight matrices given by 
+
+μ(λ; Xi) = 1
+
+n
+
+> n
+
+X
+
+> j=1
+
+δ  λ − λj (Xi) . (8) Here Xi is a correlation matrix, defined as Xi = 1
+
+> m
+
+ W i⊤W i. The eigenvalues of Xi provide insight into the distribution of information across different directions in the feature space. This is captured by the Empirical Spectral Density (ESD), where λ1(Xi) ≤ . . . ≤ λn(Xi) are the eigenvalues of Xi, and δ denotes the Dirac delta function. The ESD thus represents a probability measure describing how the eigenvalues are distributed. Note the relation between singular values and correlation eigenvalues: λi(X) = 1 
+
+> m
+
+σi(W )2.
+
+At random initialization weights are modeled as entries drawn from a Gaussian Orthogonal Ensemble (GOE) 
+
+Wi,j ∼ N (0 , Var( W )) . (9) 12 Diffract: Spectral View of LLM Domain Adaptation 
+
+One of the key observations in modern DNNs is the deviation of ESDs from classical RMT predictions for such matrices, such as the Marchenko–Pastur (MP) distribution 
+
+ρMP (λ; X) = 
+
+
+
+m
+
+2πn · Var( W )
+
+p(λmax − λ)( λ − λmin )
+
+λ , λ ∈ [λmin , λ max ],
+
+0, otherwise ,
+
+(10) with 
+
+λmax / min (X) = Var( W ) 1 ± pn/m 2. (11) While random GOE matrices follow the classical MP distribution, trained neural network weight matrices deviate significantly from this behavior (Mahoney & Martin, 2019; Martin & Mahoney, 2021). During training, a non-random (signal) component typically emerges outside the MP bulk. We delineate bulk versus outliers by estimating an upper edge bλmax via a rescaled MP heuristic (Martin & Mahoney, 2021). To be more precise, for a particular matrix W we: 1. Randomise W by permuting its elements. 2. Compute the empirical scale s(W ) from the randomized matrix. 3. Find λmax based on the MP prediction with s(W ).4. Correct the scale 
+
+bs2 = s(W )2 − 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+1{λi>λ max } λi, (12) then find bλmax based on bs.Well-trained models further develop heavy tails with ρPL (λ; X) = c · λ−α with normalization constant c and scaling exponent α ∈ (1 .5, 5) (Clauset et al., 2009); smaller α indicates stronger correlations and, empirically, higher model quality (Martin & Mahoney, 2021). We estimate α by Maximum Likelihood Estimation (MLE) estimator (Clauset et al., 2009); empirical evidence shows MLE performs well for α ∈ [1 .5, 3.5] (Martin & Mahoney, 2021), a typical range for DNN weight matrices. Fit quality is checked with the Kolmogorov–Smirnov (KS) distance between the empirical spectrum CDF S(λ) and the fitted PL CDF bS(λ)KS = sup  
+
+> λ∈{ λi(W)}
+
+S(λ) − bS(λ) . (13) 13 Diffract: Spectral View of LLM Domain Adaptation 
+
+## B. Training and Reproducibility Details 
+
+B.1. Data 
+
+For pre-train, we use DCLM (Li et al., 2024) sample with 100B tokens in 4 mixes: 20B DCLM sample, 100B DCLM, 200B DCLM (oversampled), and 400B DCLM (oversampled).  
+
+> Table 1. Dataset composition for Dolmino High Quality Subset and Dolmino Math Mix.
+
+Source Type Tokens Words Bytes Docs Mid-Training Dolmino High Quality Subset 
+
+DCLM-Baseline High quality web 752B 670B 4.56T 606M 
+
+FastText top 7% FineWeb > 2
+
+FLAN Instruction data 17.0B 14.4B 98.2B 57.3M 
+
+from Dolma 1.7 decontaminated 
+
+High quality total 832.6B 739.8B 5.09T 710.8M Mid-Training Dolmino Math Mix 
+
+TuluMath Synthetic math 230M 222M 1.03B 220K Dolmino SynthMath Synthetic math 28.7M 35.1M 163M 725K TinyGSM-MIND Synthetic math 6.48B 5.68B 25.52B 17M MathCoder2 Synthetic Synthetic math 3.87B 3.71B 18.4B 2.83M 
+
+Ajibwa-2023 M-A-P Matrix 
+
+Metamath Math 84.2M 76.6M 741M 383K 
+
+OWM-filtered 
+
+CodeSearchNet Code 1.78M 1.41M 29.8M 7.27K 
+
+OWM-filtered 
+
+GSM8K Math 2.74M 2.00M 25.3M 17.6K 
+
+Train split 
+
+Math total 10.7B 9.73B 45.9B 21.37M 
+
+For CPT we use data from FLAN decontaminated dataset, Dolmino High Quality Subset and DolminoMath Mix, as proposed in OLMo 2 (Walsh et al., 2025), this data consists of language presented in the DCLM baseline. This is filtered by FastText and the FineWeb version of the original DCLM (Li et al., 2024). For code dataset we use StarCoder (Li et al., 2023). All mixes used in CPT are presented in Table 2. 
+
+B.2. Models and Training Configuration 
+
+This study utilizes the OLMo 2 model architecture at four different scales: 1B, 7B, 13B, and 32B (Table 3). The architecture is based on the standard Transformer decoder (Vaswani et al., 2017) and incorporates several modern enhancements: • Removal of bias terms • SwiGLU activation function • Rotary positional embeddings (RoPE) with θ = 500 , 000 
+
+• QKV clipping • RMSNorm normalization • Reordered layer norm (post-norm configuration) 14 Diffract: Spectral View of LLM Domain Adaptation 
+
+Table 2. Continual pre-training mixes. * — oversampled data 
+
+Mix Name Dolmino Math DCLM Filtered FLAN filtered StackExchange StarCoder 10B Mixes 
+
+4BDM 4B 6B - - -8BDM 8B 2B - - -MATH 10B - - - -TEXT - 10B - - -
+
+20B Mixes 
+
+8BDM 8B 12B - - -16BDM 16B 4B - - -MATH 20B* - - - -TEXT - 20B - - -INST - - 10B* 10B* -10BInst 10BDM 10B - 10B* - -CODE - - - - 20B* 
+
+50B Mixes 
+
+20BDM 20B* 30B* - - -40BDM 40B* 10B - - -MATH 50B* - - - -TEXT - 41.5B 8.5B - -• QK normalization • Z-loss for training stability All models are trained in mixed precision bfloat16. A complete description of the architecture and training methodology can be found in the original OLMo 2 paper (Walsh et al., 2025). 
+
+Table 3. Model architecture and training hyperparameters.                                                    
+
+> OLMo 2 1B OLMo 2 7B OLMo 2 13B OLMo 2 32B Model Architecture
+> Hidden Dimension 2048 4096 5120 5120 Number of Layers 16 32 40 64 Number of Attention Heads 16 32 40 40 (8 for KV) MLP Ratio 85.375 5.4 10.8 Activation Function SwiGLU SwiGLU SwiGLU SwiGLU Normalization Type RMS Norm RMS Norm RMS Norm RMS Norm Positional Encoding RoPE ( θ= 500 ,000 )RoPE ( θ= 500 ,000 )RoPE ( θ= 500 ,000 )RoPE ( θ= 500 ,000 )Max Sequence Length 4096 4096 4096 4096 Vocabulary Size 100,278 100,278 100,278 100,278
+> Training Configuration
+> Global Batch Size 512 1024 2048 2048
+
+Pre-train stage. For our training setup, we adhere to the parameters proposed in the original OLMo 2 paper: a learning rate of 4 × 10 −4 with a warmup phase over 0.7 billion tokens, followed by a cosine learning rate scheduler that decays to 10% of the initial rate by the end of training. The optimization is carried out using the AdamW optimizer (Loshchilov & Hutter, 2019) with the following hyperparameters: β1 = 0.9, β2 = 0.95, and ϵ = 10 −8 . A weight decay of 0.1 is applied to all weights, including norms and biases, but not to embeddings. 
+
+Continual pre-training. The hyperparameters for continual pre-training remain consistent with those from pre-train, with the exception of the learning rate. In this stage, we start with the final learning rate from pre-train, which is 4 × 10 −5, and apply a linear annealing schedule that decreases the learning rate to zero over the course of training. 15 Diffract: Spectral View of LLM Domain Adaptation 
+
+B.3. Links to Code 
+
+We provide full source code to ensure all our experiments are reproducible. Our release includes the code for pre-train, CPT runs and commands for the OLMEs framework evaluation. The code is publicly available at: https://github.com/Risk-AI-Research/diffract-training We conduct a deep analysis of model weights using our open-source library, Diffract https://github.com/Risk-AI-Research/diffract 16 Diffract: Spectral View of LLM Domain Adaptation 
+
+## C. Additional Experimental Results 
+
+C.1. Additional Results for Pre-Train and CPT Spectral Analysis b)                                           
+
+> 00.05 0.1 0.15 0.2 0.25 0.3 0.35 0.4 0.58 0.59 0.6 0.61 0.62 0.63 GSM8K accuracy
+> Avg.  language  tasks  accuracy
+> 100B pre-train Math 0% Math
+> 40% Math
+> 80% Math
+> 100% 10B CPT 20B CPT 50B CPT
+> 00.05 0.1 0.15 0.2 0.25 0.3 0.35 0.4 0.45 0.62 0.63 0.64 0.65 0.66 0.67 0.68 GSM8K accuracy
+> Avg.  language  tasks  accuracy
+> 400B pre-train Math 0% Math 40% Math 80% Math 100% 10B CPT 50B CPT 20B CPT 10B CPT 20B CPT
+> 00.05 0.1 0.15 0.2 0.25 0.48 0.49 0.5 0.51 0.52 0.53 0.54 0.55
+> GSM8K accuracy
+> Avg.  language  tasks  accuracy
+> Math 0% Math 40% Math 80% Math
+> 100% 20B pre-train 50B CPT
+> c) a)
+
+Figure 7. Analysis of CPT configurations varying in token budgets and math proportions. Panels (a)-(c) -show results for CPT initialized from the 20B, 100B and 400B pre-train checkpoints respectively. Performance is evaluated as a function of the mathematical data proportion in the CPT mix. a) b) Spectral norm Stable rank 1 5 9 12 00.2 0.4 0.6 0.8 113B  7B  1B 
+
+012012012350 123410 20 30 40 1230100 200 300 400 020 40 050 100 0% 10% 20% 30% 40% 50% 60% 70% 80% 90% 100% 0% 10% 20% 30% 40% 50% 60% 70% 80% 90% 100% QVFC2 
+
+Figure 8. Comparison of spectral properties of 1B, 7B, and 13B parameter models. a) Layer-wise spectral norm and stable rank comparison for W Q, W V, and W FC 2 matrices. The x-axis represents the relative layer depth, normalized as a percentage of total layers to account for the differing total counts (16, 32, and 40 layers for the 1B, 7B, and 13B models, respectively). Notably, the trends among model scales are qualitatively similar. b) Singular value spectra for W Q (layer 15, heads 1, 5, 9, 12) for 1B and 7B model sizes for 4T tokens, and 13B model size for 5T tokens. The spectral structures for both model sizes exhibit significant complexity and deviate from standard theoretical distributions such as MP or PL. 0% 20% 40% 60% 80% 100% QVFC2 0% 20% 40% 60% 80% 100% 10 20 30 510 1234 40 20       
+
+> 0050 100 300 200 100 000.2 0.4 0.6 0.8 1
+> 15912 01230123Spectral norm Stable rank 13B 32B
+> a) b)
+
+Figure 9. Comparison of spectral properties of 13B and 32B parameter models of OLMo 2 original CPT checkpoint. a) Layer-wise spectral norm and stable rank comparison for W Q, W V, and W FC 2 matrices. The x-axis represents the relative layer depth, normalized as a percentage of total layers to account for the differing total counts (40 and 64 layers for the 13B and 32B models, respectively). Notably, the trends for both model scales are qualitatively similar. b) Singular value spectra for W Q (layer 15, heads 1, 5, 9, 12). The spectral structures for both model sizes exhibit significant complexity and deviate from standard theoretical distributions such as MP or PL. 
+
+17 Diffract: Spectral View of LLM Domain Adaptation 1 7 13 16 0.0 5.0 10.0            
+
+> 1713 16 0.0 5.0 10.0
+> 1713 16 0.0 5.0 10.0 00.2 0.4 0.6 0.8 1
+
+a) b) c) 
+
+Figure 10. The effect of CPT data domain on vector agreement with pre-train. Violin plots (with jittered points colored by the left singular vector agreement between CPT and pre-train) display the W GATE per layer for CPT a) on text, b) a math-text mix, c) or pure math (all pre-trained on 4T tokens). The results demonstrate a clear ordering: text CPT preserves the strongest vector agreement, while math domain induces the largest rotation. 1 3 5 7 9 11 13 15 1 3 5 7 9 11 13 15 0.05 0.1 0.1 0.2               
+
+> 00.2 0.4 0.6 0.01 0.02 0.03 0.04 0.05 0.04 0.06 0.08 11.2 0.05 0.1 0.15 MP KS PL KS
+> a)
+> 0% 20% 40% 60% 80% 100% 0% 20% 40% 60% 80% 100% 00.5 10.05 0.1 0.15 0.2 0.1 0.05 0.02 0.04 0.06 0.05 0.1 0.05 0.1 0.15 0.2 MP KS PL KS
+> b)
+> QVFC2
+
+Figure 11. Goodness-of-fit—layer-wise Kolmogorov–Smirnov distance between the weight matrix ESD and Marchenko–Pastur model (left) and power law (right) model for W Q, W V, and W FC 2 matrices. The x-axis indexes layers; solid lines show the mean across attention heads, dashed lines the median, and the shaded band denotes mean ± std. a) Blue denotes 20B-token pre-train and red denotes 400B-token pre-train of 1B model. b) Blue denotes 4T-token pre-train of 1B model, red denotes 4T-token pre-train of 7B model and green denotes 5T-token pre-train of 13B 
+
+Figure 12. Effect of CPT data domain on vector agreement. a) Heatmaps show the average vector agreement between CPT and pre-train for individual heads of W Q across different CPT domains (left to right: math, instruct) on 7B model. Lower vector agreement values correspond to larger changes of the corresponding weight matrices relative to the pre-trained model. b) Difference in vector agreement between the math and instruct domains. 
+
+18 Diffract: Spectral View of LLM Domain Adaptation 
+
+Figure 13. Effect of CPT data domain on vector agreement. a) Heatmaps show the average vector agreement between CPT and pre-train for individual heads of W Q across different CPT domains (left to right: math, instruct) on 13B model. Lower vector agreement values correspond to larger changes of the corresponding weight matrices relative to the pre-trained model. b) Difference in vector agreement between the math and instruct domains. 0.5 11.5 0.2 0.4 0.6 0.8 1 4 8 12 16 12 14 16 18 10 15 0.5 11.5 22.5 0.5 11.5 2                                    
+
+> a) b)
+> QFC2 Layer Layer QLayer 10 12 14 16914 19 24 29 34 579FC2 Layer 510 15 20 25 30 8
+> 7B 13B
+> Frobenius norm Frobenius norm Frobenius norm  Frobenius norm 510 15 20 25 30 16914 19 24 29 34
+> 7B 13B
+> 14812 16 14812 16 14812 16
+
+Figure 14. Layer-wise Frobenius norm of CPT deltas for W Q and W FC 2 across (a) CPT domains and pre-train budgets for 1B model and (b) across CPT domains for 7B and 13B models. Statistics are aggregated per head (mean: solid line, median: dashed line; shaded region: mean ± std). a) For 4T-token pre-train (top), text-domain deltas (green) are smallest vs math (blue) or instruct (red) domains; in the math domain (bottom), deltas from 100B-token models (blue) exhibit a simpler layer-wise shape compared to 4T-token models (red). b) Effect of CPT domain for 4T tokens pre-train for 7B and 13B models: deltas for the text domain (green) are smallest in magnitude, indicating less incremental change compared to math (blue) or instruct (red) domains. 
+
+C.2. Singular Value Transplantation 
+
+Given two checkpoints with per-layer weights W ckpt1 = U1 Σ1 V ⊤ 
+
+> 1
+
+and W ckpt2 = U2 Σ2 V ⊤ 
+
+> 2
+
+(SVD), the transplanted 
+
+weight is 
+
+fW = U2 Σ1 V ⊤ 
+
+> 2
+
+. (14) Unless otherwise stated, transplantation is applied head-wise to attention  W Q, W K, W V, W O and MLP  W FC 1 , W Gate , W FC 2
+
+ weight matrices only; all other parameters remain from the target checkpoint. We perform SVD transplantation from CPT to pre-train, see Figure 15. C.2.1. S INGULAR VALUE PERMUTATION ABLATIONS 
+
+To test whether singular values are interchangeable across spectral regions, we perform a controlled ablation on a fixed checkpoint. Given W = U ΣV ⊤, we construct Wp = U Σp V ⊤, where Σp is obtained by randomly permuting a selected subset of diagonal entries of Σ while keeping the remaining entries unchanged. We note that upon full spectrum shuffle model quality drops almost to zero and shuffling only bulk does not induce significant quality loss. 19 Diffract: Spectral View of LLM Domain Adaptation 0 0.1 0.2 0.3 0.4 0.5 0.5 0.55 0.6 0.65 
+
+GSM8K accuracy Avg. language tasks accuracy 
+
+4T pre-train 400B pre-train 100B pre-train 20B pre-train 
+
+Figure 15. Singular value transplantation results. Red circles denote CPT on DolminoMath, while star–diamond markers denote CPT on DolminoMath with singular values transplanted from the pre-train model. The results indicate that singular value transplantation does not affect GSM8K accuracy. 
+
+C.3. Methodology and Additional Results for Head-Wise Rewind 
+
+Let H be the number of heads and dhead the head dimension, so dmodel = H d head . We split projections along the head-concatenated axis and operate per head: 
+
+W Q = [ W Q
+
+(0) | . . . | W Q
+
+(H−1) ], W K = [ W K
+
+(0) | . . . |W K
+
+(H−1) ], W V = [ W V
+
+(0) | . . . |W V
+
+(H−1) ] (15) where W Q/K/V 
+
+(i) ∈ Rdmodel ×dhead are column blocks. For the output projection W O ∈ R(H d head )×dmodel , we split by rows into 
+
+H blocks W O
+
+(i) ∈ Rdhead ×dmodel and reassemble by row concatenation. Single-head rewind at index i sets 
+
+{W Q
+
+(i), W K
+
+(i), W V
+
+(i), W O
+
+(i)}math ← { W Q
+
+(i), W K
+
+(i), W V
+
+(i), W O
+
+(i)}pre-train (16) and replaces the corresponding QK-norm segments along the head axis with pre-train values. b)               
+
+> 0.02 0.04 0.06 0.08 0.1 0.12 0.14 0.16
+> 100 80 60 40 20 00.55 0.555 0.56 0.565 0.57 0.575 0.58 0.585 0.59 0.595 Fraction of heads rewound (%) DROP F1 score
+> frob norm diff asc agreement desc frob norm diff desc random Instruct CPT 7B model 4T tokens pre-train Instruct domain
+> 100 80 60 40 20 00.02 0.04 0.06 0.08 0.1 0.12 0.14 0.16
+> Fraction of heads rewound (%) GSM8K accuracy
+> Math CPT frob norm diff asc frob norm asc
+> frob norm diff desc agreement desc random 1B model 20B tokens pre-train Math domain b) a)
+
+Figure 16. CPT delta head-wise rewind results. a) DROP F1 score versus the fraction of heads rewound for a 7B-parameter model with a 4T-token pre-train budget and a 20B-token instruct domain. Rewinding heads according to any heuristic has only a minor effect on CPT quality in the instruct domain, while random rewind exhibits high variance across different random seeds. b) GSM8K accuracy versus the fraction of heads rewound for a 1B-parameter model with a 20B-token pre-train budget and a 20B-token math domain. Here, head rewinding under all heuristics leads to a rapid and substantial degradation in performance, indicating lack of head heterogeneity at small pre-train token budgets. In both panels, our proposed difference-in-scaled-Frobenius-norms metric (highlighted in orange) yields the most effective head ranking for preserving task performance. 
+
+20 Diffract: Spectral View of LLM Domain Adaptation b) 
+
+Fraction of heads rewound (%) MATH-500 accuracy Fraction of heads rewound (%) SQuAD F1 score            
+
+> b) a)
+> 100 80 60 40 20 00.13 0.14 0.15 0.16 0.17 0.18 0.19
+> Math CPT
+> 100 80 60 40 20 00.912 0.914 0.916 0.918 0.92 0.922 0.924 0.926 0.928 0.93
+> 13B model Math domain 5T tokens pre-train frob norm diff desc agreement desc frob norm diff asc 13B model frob norm diff desc agreement desc frob norm diff asc Instruct CPT Instruct domain 5T tokens pre-train
+
+Figure 17. CPT delta head-wise rewind results for 13B model with 5T token pre-train for 10B token CPT. a) MATH-500 accuracy versus the fraction of heads rewound. Rewinding heads gains 2.2 %. b) SQuAD F1 score versus the fraction of heads rewound. Head rewinding according to any heuristic has only minor effect on CPT quality. Moreover over 60 % can be rewound without any quality loss. Fraction of heads rewound (%) GSM8K accuracy 
+
+a) b) 13B model 5T tokens pre-train OLMo 2 original CPT checkpoint 
+
+100 80 60 40 20 00.62 0.64 0.66 0.68 0.7 0.72 0.74 0.76 0.78 
+
+100 80 60 40 20 00.75 0.76 0.77 0.78 0.79 frob norm diff asc agreement desc frob norm diff desc OLMo 2 CPT 
+
+Fraction of heads rewound (%)  
+
+> frob norm diff desc frob norm diff asc agreement desc OLMo 2 CPT
+
+Fraction of heads rewound (%) 
+
+32B model 6T tokens pre-train OLMo 2 original CPT checkpoint 
+
+Figure 18. CPT delta head-wise rewind results for 13B and 32B OLMo 2 original checkpoints. a) GSM8K accuracy versus the fraction of heads rewound for 13B original OLMo 2 CPT checkpoint. Rewinding heads gains 6.3 %. b) GSM8K accuracy versus the fraction of heads rewound for 32B original OLMo 2 CPT checkpoint. Head rewind gains improvements up to 3.6 %. Moreover, complete head rewind is achieved with simultaneous quality improvement. 
+
+AUC computation. Let {kt}Tt=1 be the discrete percentages of heads rewound (in [0 , 100] ), and let C↓(kt) and C↑(kt)
+
+denote the metric at kt for descending and ascending greedy orders, respectively. We first compute the discrete AUC of each curve using the trapezoidal rule: 
+
+AUC ↓ =
+
+T −1X
+
+t=1 
+
+C↓(kt) + C↓(kt+1 )2
+
+ kt+1 − kt
+
+, AUC ↑ =
+
+T −1X
+
+t=1 
+
+C↑(kt) + C↑(kt+1 )2
+
+ kt+1 − kt
+
+ (17) Our reported score is the absolute difference 
+
+AUC -diff = AUC ↓ − AUC ↑ (18) When the grid is uniform, kt+1 − kt = ∆ , this reduces to a constant ∆ times the sum of trapezoid averages. Higher values indicate a greater separation between descending and ascending orders, while values near zero indicate random-like behavior. 21 Diffract: Spectral View of LLM Domain Adaptation   
+
+> Figure 19. Head-wise rewind heatmap (per-layer, per-head impact) for 20B Math CPT based on 4T pre-train. Cells contain GSM8K accuracy change (%).
+> Table 4. Absolute area between descending and ascending head-rewind curves for math domain (AUC; higher is better). Smaller values indicate behavior closer to random, where ordering does not matter.
+
+Heuristic AUC-diff 1B AUC-diff 7B 
+
+greedy 19.1 5difference in average singular vector agreement between math and text 11.7 5.1 difference in scaled Frobenius norms 11 6agreement average 5.2 4.5 delta Frobenius norm 5.2 4.9 PL KS (pre-train) 0.9 1.1 random 0.0 0.0 
+
+C.4. CPT Delta SVD Truncation Methodology and Additional Results 
+
+Given W = U Σ V ⊤ with r = min( m, n ), setting k = ⌊(n/ 100) r⌋ yields the top-k truncation 
+
+fW(n%) = U[: ,1: k] Σ1: k, 1: k (V ⊤)[1: k, :] , (19) where we keep the top-k singular directions and discard the rest. We report the kept fraction n%.
+
+C.5. Results for Code Domain CPT 
+
+We conducted preliminary CPT experiments on code to assess domain generality, training on the StarCoder corpus and evaluating on HumanEval. The 1B model achieved 0.04 pass@1 before code CPT and only 0.09 pass@1 after code CPT—an absolute improvement of just 5 percentage points. This limited improvement aligns with OLMo-2’s behavior, where competitive HumanEval performance emerges only after supervised fine-tuning with chat templates, not from base or continual pre-training. 22 Diffract: Spectral View of LLM Domain Adaptation 100 80 60 40 20 000.1 0.2 0.3 0.4 0.5 0.6       
+
+> 00.1 0.2 0.3 0.4 0.5 0.6 0.5 0.55 0.6 0.65 0.7 0.75 0.8 0.85
+
+DROP F1 score 
+
+> Avg. language tasks accuracy
+
+Fraction of singular values truncated in CPT delta (%)  
+
+> DROP F1 score
+> a) b)
+> 1B model 20B pre-train 1B model 4T pre-train 7B model 4T pre-train 1B model 20B pre-train 1B model 4T pre-train 7B model 4T pre-train 13B model 5T pre-train
+
+Figure 20. Linear interpolation and CPT delta redundancy analysis on instruct domain. a) Quality of linear interpolation, step size 
+
+ω = 0 .1. Average language-task accuracy vs. DROP F1 score. As the pre-train token budget and model size increase, interpolation quality improves. b) CPT delta spectral redundancy analysis. DROP F1 score vs. fraction of singular values kept under CPT delta SVD truncation. Curves show models with different scales and pre-train budgets: 13B/5T tokens (violet), 7B/4T tokens (blue), 1B/4T tokens (red), 1B/20B tokens (green). A substantially larger fraction of the CPT delta can be truncated in the 13B and 7B models than in the 1B model. a)         
+
+> 0.22 0.24 0.26 0.28 0.3 0.32 0.34 0.36 0.38 0.05 0.06 0.07 0.08 0.09
+
+DROP F1 score HumanEval pass@1           
+
+> 00.1 0.2 0.3 0.4 0.5 0.06 0.07 0.08 0.09
+> HumanEval pass@1
+> 100 80 60 40 20 000.02 0.04 0.06 0.08
+
+Fraction of singular values truncated in CPT delta (%) HumanEval pass@1 
+
+> 100
+
+GSM8K accuracy 80 60 40 20 0020 40 60 80 100 
+
+Fraction of singular values truncated in CPT delta (%) HumanEval pass@1 relative decrease (%)  
+
+> b) c) d)
+
+Figure 21. a) Quality of linear interpolation between 1B/4T tokens Instruct CPT and 1B/4T tokens Code CPT, step size ω = 0 .1. b) Quality of linear interpolation between 1B/4T tokens Math CPT and 1B/4T tokens Code CPT, step size ω = 0 .1. c) Truncation of 1B/4T tokens Code CPT delta with HumanEval pass@1 accuracy reported. d) Truncation of 1B/4T tokens Code CPT delta with relative HumanEval pass@1 accuracy drop reported. 
+
+23 Diffract: Spectral View of LLM Domain Adaptation 
+
+## D. Statistical Robustness 
+
+This section specifies the uncertainty quantification protocol used in our research. The goal is to rule out artifacts caused by nondeterminism in head selection and evaluation. 
+
+Evaluation randomness. For metrics computation, we estimate performance variability using an 80% bootstrap procedure with 5 seeds, applied to models after 20B-token Stage 2 continual pre-training on the DolminoMath dataset. Results for both the 1B and 7B models are summarized in table 5. We observe that the variance in metrics computation is small to affect the conclusions drawn in the paper.  
+
+> Table 5. Evaluation variability on fixed checkpoints. Entries report the mean and std from 5 seeds.
+
+Model GSM8K (acc) DROP (F1) 7B 0.698 ± 0.005 0.437 ± 0.015 
+
+1B 0.534 ± 0.009 0.232 ± 0.006 
+
+Head-selection variability. Some head-ordering techniques used to choose which heads to rewind can be nondeterministic. To quantify the sensitivity of rewinding curves to this source of randomness independently of training, we repeat the head-selection procedure up to 5 times with different head-selection RNG seeds on the same fixed checkpoint. For each run we recompute the full rewinding curve under identical evaluation settings, and report mean and std on the graph on Figures 4, 16. 24 Diffract: Spectral View of LLM Domain Adaptation 
+
+## E. Key Diffract Visualization Tools 
+
+The pipeline consists of five sequential stages, each designed to probe different aspects of the network’s weight matrices. We assume the user is comparing two model checkpoints, W ckpt1 and W ckpt2 , and their delta, ( W ckpt1 − W ckpt2 ). 
+
+Box plots: component-wise spectral metrics distribution 
+
+The analysis employs comparative box plots generated for all weight matrices, which are organized by matrix fam-ily—specifically, the Attention projections ( W Q, W K, W V, W O) and the MLP layers. To ensure a granular analysis, each attention matrix is first decomposed into its heads before any metric computation. The analysis itself is structured by distinct metric categories for precise comparison: one group focuses on norms, including the Frobenius and Spectral norm, while another group concentrates on rank measures, namely the Stable rank and Effective rank. For the MLP matrices exclusively, this set of metrics is augmented with the Kolmogorov-Smirnov (KS) statistic, which quantifies the fit to both a power law (PL) and a Marchenko–Pastur (MP) distribution. The visual encoding of the box plots is designed to convey multiple data dimensions simultaneously. The fill color of each box plot signifies the specific matrix parameter. The outline color denotes the checkpoint, where blue represents ckpt1, red represents ckpt2, and green represents the delta. Furthermore, a jittered scatter plot is placed near each box; the individual data points are colored on a continuous spectral scale from blue to red. This color mapping corresponds directly to the layer index, with blue indicating layers near the model input and red indicating layers near the output. This integrated approach allows for the immediate assessment of distributional properties—including medians, quartiles, and outliers—across the two checkpoints, while preserving the crucial ability to discern depth-dependent patterns within the metric distributions. 
+
+Cluster bar charts: singular values distribution 
+
+The purpose of this stage is to visualize the entire distribution of singular values. The visualization employs a cluster bar chart where the x-axis is exponential binning of the singular values, while the y-axis represents the count of values falling into each bin. To articulate the layer-by-layer evolution of the spectrum, the color of each bar corresponds to its layer index. For attention matrices, the singular values are first averaged across all heads within a given layer before the binning process. 
+
+Sparklines: spectral metric trends 
+
+This stage aims to compactly visualize the trend of each metric across the network’s depth, enabling a quick, at-a-glance assessment of layer-wise patterns. The procedure involves plotting the metric value as a function of layer index for each matrix family. For attention matrices, the values are aggregated across their heads: a solid line represents the mean, a dashed line represents the median, and a shaded area delineates the band of mean ± one standard deviation. These resulting sparklines provide a temporal view of metric evolution through the network’s layers. This visualization allows for the immediate identification of critical patterns, where a sharp change in a metric at a specific layer or a consistent divergence between the mean and median can signal important architectural transitions or anomalies. 
+
+Heatmaps: spectral metric heterogeneity 
+
+The purpose of this stage is to expose fine-grained, head-specific and layer-specific variations in metrics, providing a direct visual comparison of the differences between the two checkpoints. The procedure involves creating a two-dimensional grid for each combination of attention matrix type ( W Q, W K, W V, W O) and metric, with the axes representing the layer index and head index. For each such combination, a quartet of heatmaps is generated: the first visualizes the raw metric values for W ckpt1 on a blue color scale; the second visualizes the raw values for W ckpt2 on a red scale; the third shows the delta and the fourth displays a metric difference. This visualization allows for pinpointing the exact heads and layers that contribute most significantly to the overall divergence between the two models, moving from a high-level summary to a precise diagnostic tool. 25 Diffract: Spectral View of LLM Domain Adaptation 
+
+Violin plots: singular value distribution and singular vector agreement 
+
+The final stage of our analysis is designed to provide the most detailed view of the singular value distribution for each individual head and layer, while simultaneously incorporating information about singular vector agreement. This is achieved by generating a matrix of plots, where each cell corresponds to a specific (layer, head) pair. Within a given cell, a violin plot is used to depict the density of the singular values for that specific matrix. Overlaid onto this violin plot is a jittered scatter plot, where the color of each point is determined by a vector agreement metric — overlap between the corresponding singular vectors of W ckpt1 and W ckpt2 . This powerful composite visualization synergistically combines the shape of the singular value spectrum, conveyed by the violin, with the stability of the underlying directional components, indicated by the colored jitter, across the entire model. It thereby enables the precise identification of nuanced scenarios, such as attention heads that exhibit a similar spectral distribution but possess different singular vectors directions, or vice versa, offering insight into the micro-dynamics of network evolution. 26

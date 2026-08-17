@@ -6,77 +6,83 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-16
-- 运行时间：2026-08-16 20:46:47 UTC
+- 最新运行日期：2026-08-17
+- 运行时间：2026-08-17 20:37:46 UTC
 - 运行状态：成功
-- 本次总论文数：19
-- 精读区：7
+- 本次总论文数：21
+- 精读区：9
 - 速读区：12
 
 ### 今日简报（AI）
-今日精读聚焦多模态推理与强化学习，共看19篇，7篇精读。最值得关注的是结构化过程奖励《StructReward》（9.0）和多模态RLVR鲁棒性研究（9.0）。下一步可延展速读中的控制解耦微调与选择性学习，优化模型后训练效率。
-- 详情：[/202608/16/README](/202608/16/README)
+今日共处理21篇论文，精读9篇、速读12篇，其中两篇获满分推荐。最值得关注的是面向多语言多跳问答的合成器折叠框架，以及层次感知多模态RAG的生成框架，均达10/10分。建议优先阅读这两篇满分工作，再拓展速读中的医学多模态预训练与视觉语言模型方向。
+- 详情：[/202608/17/README](/202608/17/README)
 
 ### 精读区论文标签
-1. [StructReward: Efficient Structured Process Rewards for Self-Correcting Multimodal Reasoning](/202608/16/2608.08326v2-structreward-efficient-structured-process-rewards-for-self-correcting-multimodal-reasoning)  
+1. [Better Decomposition, Free Aggregation: A Synthesizer-Folding Framework for Multilingual Multi-Hop Question Answering](/202608/17/2608.13160v1-better-decomposition-free-aggregation-a-synthesizer-folding-framework-for-multilingual-multi-hop-question-answering)  
+   标签：评分：10.0/10、query:mr
+   evidence：多跳问答中的查询分解与聚合
+2. [HAM-RAG: Hierarchy-Aware Multimodal RAG for Structure-Faithful Interleaved Generation](/202608/17/2608.14032v1-ham-rag-hierarchy-aware-multimodal-rag-for-structure-faithful-interleaved-generation)  
+   标签：评分：10.0/10、query:mr
+   evidence：层级感知的多模态RAG用于交错生成
+3. [Linguistically-Aligned and Visually-Grounded Preference Optimization for Clinically-Augmented Medical Report Generation](/202608/17/2608.08494v2-linguistically-aligned-and-visually-grounded-preference-optimization-for-clinically-augmented-medical-report-generation)  
    标签：评分：9.0/10、query:post-multi
-   evidence：基于结构化过程奖励的多模态推理RLVR训练
-2. [Improving Generalization Robustness of Multimodal RLVR](/202608/16/2608.08802v1-improving-generalization-robustness-of-multimodal-rlvr)  
+   evidence：面向医学报告生成的视觉-语言对齐DPO后训练
+4. [DistMoE: Private-data Rehearsal-free Routing in Mixture-of-Experts for Distributed Instruction Tuning](/202608/17/2608.09907v1-distmoe-private-data-rehearsal-free-routing-in-mixture-of-experts-for-distributed-instruction-tuning)  
    标签：评分：9.0/10、query:post-multi
-   evidence：多模态RLVR的鲁棒后训练
-3. [Can Bayesian Optimization Efficiently Find a Strong Single Expert in Neural Thickets?](/202608/16/2608.10867v1-can-bayesian-optimization-efficiently-find-a-strong-single-expert-in-neural-thickets)  
+   evidence：通过混合专家实现多模态LLM的分布式指令微调
+5. [Self-Correcting Long-Horizon Search Agents via Tree-Structured Memory](/202608/17/2608.10676v1-self-correcting-long-horizon-search-agents-via-tree-structured-memory)  
+   标签：评分：9.0/10、query:mr
+   evidence：基于证据树的自修正多跳推理搜索Agent
+6. [Diffract: Spectral View of LLM Domain Adaptation](/202608/17/2608.10850v1-diffract-spectral-view-of-llm-domain-adaptation)  
    标签：评分：9.0/10、query:post-multi
-   evidence：使用贝叶斯优化进行无梯度后训练
-4. [Quantization Degradation in Large Language Models: A Signal-Noise Perspective](/202608/16/2608.08188v1-quantization-degradation-in-large-language-models-a-signal-noise-perspective)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：系统研究LLM权重量化这一后训练技术
-5. [AnchorFold: A Focus-Then-Fold Framework via Recursive Attention Propagation for Efficient Multi-Vector Visual Document Retrieval](/202608/16/2608.08732v1-anchorfold-a-focus-then-fold-framework-via-recursive-attention-propagation-for-efficient-multi-vector-visual-document-retrieval)  
-   标签：评分：8.0/10、query:mr
-   evidence：多向量视觉文档检索的索引压缩，属于跨模态检索
-6. [AquiLLM: An Architecture for Supporting Tacit Knowledge Capture in Research Groups](/202608/16/2608.08883v1-aquillm-an-architecture-for-supporting-tacit-knowledge-capture-in-research-groups)  
-   标签：评分：8.0/10、query:mr
-   evidence：开源模块化RAG框架，具备多模态支持
-7. [VAKRA: Evaluating Multi-Hop Reasoning Across APIs and Retrieval Under Tool-Use Policies](/202608/16/2608.12282v1-vakra-evaluating-multi-hop-reasoning-across-apis-and-retrieval-under-tool-use-policies)  
-   标签：评分：8.0/10、query:mr
-   evidence：面向API与文档检索的多跳推理与工具使用策略基准评测
+   evidence：将持续预训练作为后训练适配，提出头重要性准则
+7. [AWARe: Mitigating Catastrophic Forgetting via Activation-Weighted Adaptive REtention](/202608/17/2608.11758v1-aware-mitigating-catastrophic-forgetting-via-activation-weighted-adaptive-retention)  
+   标签：评分：9.0/10、query:post-multi
+   evidence：基于激活性重要性的多模态大模型微调以缓解灾难性遗忘
+8. [EviReform: Evidence-Guided Query Reformulation for Multi-Hop Graph Retrieval](/202608/17/2608.13006v1-evireform-evidence-guided-query-reformulation-for-multi-hop-graph-retrieval)  
+   标签：评分：9.0/10、query:mr
+   evidence：通过证据引导查询重构进行多跳图检索
+9. [APTER: Adaptive Post-Training with Expert-Grounded Rubrics](/202608/17/2608.14212v1-apter-adaptive-post-training-with-expert-grounded-rubrics)  
+   标签：评分：9.0/10、query:post-multi
+   evidence：基于专家标尺的自适应大模型后训练方法
 
 ### 速读区论文标签
-1. [Control-Diverse Reinforcement Fine-Tuning: Decoupling the Shared Control Bottleneck of RL Post-Training](/202608/16/2608.08224v1-control-diverse-reinforcement-fine-tuning-decoupling-the-shared-control-bottleneck-of-rl-post-training)  
+1. [Perception Before Supervision: Self-Contained Visual Distillation from Counterfactual Blind Spots](/202608/17/2608.09931v1-perception-before-supervision-self-contained-visual-distillation-from-counterfactual-blind-spots)  
    标签：评分：8.0/10、query:post-multi
-   evidence：对LLM中RL后训练的可解释性分析，解耦激活与控制
-2. [Different Feedback, Different Updates: Selective Self-Learning from User Interactions for Large Language Models](/202608/16/2608.09109v1-different-feedback-different-updates-selective-self-learning-from-user-interactions-for-large-language-models)  
+   evidence：面向多模态大模型训练的自包含视觉过程蒸馏方法
+2. [Unlocking the Power of Medical Tabular Data via Semantic-Aware Multimodal Pre-training](/202608/17/2608.10522v1-unlocking-the-power-of-medical-tabular-data-via-semantic-aware-multimodal-pre-training)  
    标签：评分：8.0/10、query:post-multi
-   evidence：基于用户反馈的选择性自学习，属于大模型后训练技术
-3. [Omni2LoRA: Coherence-Preserving Parametric Memory for Efficient Omni Language Models](/202608/16/2608.09227v1-omni2lora-coherence-preserving-parametric-memory-for-efficient-omni-language-models)  
+   evidence：面向表格与文本数据的语义感知多模态预训练
+3. [MedUP: Awakening Unified Understanding and Perception in Medical Vision-Language Models](/202608/17/2608.10635v1-medup-awakening-unified-understanding-and-perception-in-medical-vision-language-models)  
    标签：评分：8.0/10、query:post-multi
-   evidence：多模态上下文压缩为LoRA参数，支持高效多模态推理
-4. [FaLCon: Facet-Anchored Retrieval with Late Consensus for Sim2Real Text-Based Person Anomaly Search](/202608/16/2608.09474v1-falcon-facet-anchored-retrieval-with-late-consensus-for-sim2real-text-based-person-anomaly-search)  
-   标签：评分：8.0/10、query:mr
-   evidence：基于方面锚定粗到细匹配的文本到行人跨模态检索
-5. [Advantage-Guided Gate: Reshaping Open-Ended Reasoning for Vision-Based Spatial Intelligence](/202608/16/2608.07987v1-advantage-guided-gate-reshaping-open-ended-reasoning-for-vision-based-spatial-intelligence)  
-   标签：评分：7.0/10、query:mr
-   evidence：基于优势引导门控的多模态空间逐步推理
-6. [VDGR-RAG: Vectors, Directories, Graphs, and Reflection Are All You Need for Unified Reasoning over Hierarchical Enterprise Knowledge](/202608/16/2608.07994v1-vdgr-rag-vectors-directories-graphs-and-reflection-are-all-you-need-for-unified-reasoning-over-hierarchical-enterprise-knowledge)  
-   标签：评分：7.0/10、query:mr
-   evidence：集成向量检索、目录推理和图遍历的RAG框架，用于企业多跳问答
-7. [OpenVisTool: An Open Recipe for Synthesizing Instructive Visual Tool-Use Trajectories](/202608/16/2608.08557v2-openvistool-an-open-recipe-for-synthesizing-instructive-visual-tool-use-trajectories)  
+   evidence：视觉语言模型训练，通过区域分词器统一感知与理解
+4. [Multi-View Relational Distillation for Spatial Reasoning with Vision-Language Models](/202608/17/2608.10864v1-multi-view-relational-distillation-for-spatial-reasoning-with-vision-language-models)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：面向空间推理的视觉语言模型蒸馏训练方法
+5. [TrustRoboReward: Preference-Ordered Isotonic Score Editing for Multi-Paradigm Robot Reward Models](/202608/17/2608.08491v1-trustroboreward-preference-ordered-isotonic-score-editing-for-multi-paradigm-robot-reward-models)  
    标签：评分：7.0/10、query:post-multi
-   evidence：通过指导性轨迹合成训练多模态智能体的视觉工具使用能力
-8. [VLZip: Unified Visual and Textual Compression for Interleaved Long-Context Modeling](/202608/16/2608.08630v1-vlzip-unified-visual-and-textual-compression-for-interleaved-long-context-modeling)  
+   evidence：面向RLHF/DPO的VLM奖励模型偏好序修正
+6. [Difficulty-Gated Fusion of Reasoning Views for Temporal Retrieval](/202608/17/2608.08940v1-difficulty-gated-fusion-of-reasoning-views-for-temporal-retrieval)  
+   标签：评分：7.0/10、query:mr
+   evidence：用于检索的推理视图融合方法，可迁移到RAG中的推理感知检索
+7. [Listen, See and Track: Spatio-Temporal Audio-Visual Sound Event Reasoning for Omni-Modal Language Models](/202608/17/2608.09435v1-listen-see-and-track-spatio-temporal-audio-visual-sound-event-reasoning-for-omni-modal-language-models)  
    标签：评分：7.0/10、query:post-multi
-   evidence：面向视觉语言模型的统一图文压缩方法
-9. [Frequency-Domain Dual-Branch Fusion for Medical Visual Question Answering](/202608/16/2608.08307v1-frequency-domain-dual-branch-fusion-for-medical-visual-question-answering)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：医学视觉问答的频域双分支融合方法
-10. [BOUND: Brief-Guided Corrective Preference Distillation at Search-Control Boundaries](/202608/16/2608.08768v1-bound-brief-guided-corrective-preference-distillation-at-search-control-boundaries)  
+   evidence：面向全模态语言模型的音视频问答基准，涉及多模态推理与学习
+8. [Sequential Modality Dropout for Robust Multi-Modal Sequential Recommendation](/202608/17/2608.10240v1-sequential-modality-dropout-for-robust-multi-modal-sequential-recommendation)  
+   标签：评分：7.0/10、query:post-multi
+   evidence：提出用于序列推荐的多模态学习鲁棒性方法，通过模态丢弃训练
+9. [KGCaRe: Explainable Complex Conditional Question Answering using Automatic Knowledge Graph Construction and Context Retrieval with LLMs](/202608/17/2608.09779v1-kgcare-explainable-complex-conditional-question-answering-using-automatic-knowledge-graph-construction-and-context-retrieval-with-llms)  
    标签：评分：6.0/10、query:mr
-   evidence：针对迭代检索与推理漂移的纠错偏好蒸馏
-11. [MELLON - Multimodal Enhanced LLM for Online Navigation](/202608/16/2608.09121v1-mellon---multimodal-enhanced-llm-for-online-navigation)  
+   evidence：结合自动知识图谱构建与上下文检索的混合RAG方法，与RAG架构主题相关
+10. [LEGO: Leveled Language Gaussian Splatting](/202608/17/2608.10057v1-lego-leveled-language-gaussian-splatting)  
    标签：评分：6.0/10、query:post-multi
-   evidence：面向LLM网页导航的多模态增强
-12. [PragMatch: Separating Pragmatic Incongruity from Cross-Modal Mismatch in Large Vision-Language Models](/202608/16/2608.09772v1-pragmatch-separating-pragmatic-incongruity-from-cross-modal-mismatch-in-large-vision-language-models)  
+   evidence：利用CLIP跨语义层级接地实现开放词汇3D场景理解
+11. [Rationale-Guided Learning for Multimodal Emotion Recognition](/202608/17/2608.10448v1-rationale-guided-learning-for-multimodal-emotion-recognition)  
    标签：评分：6.0/10、query:post-multi
-   evidence：受控基准，用于区分语用不一致与跨模态错配，评估LVLM的多模态讽刺检测
+   evidence：理性引导学习用于多模态情感识别
+12. [Hybrid-Policy Self-Editing for Composable Unstructured Knowledge Editing](/202608/17/2608.11660v1-hybrid-policy-self-editing-for-composable-unstructured-knowledge-editing)  
+   标签：评分：6.0/10、query:mr
+   evidence：面向多跳推理的可组合知识编辑
 
 
 <div class="dpr-home-promo-card">
