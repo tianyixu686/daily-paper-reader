@@ -1,0 +1,1065 @@
+Title: UniFed-VLM: Federated Instruction Tuning for Vision-Language Models with Multiple Heterogeneity
+
+URL Source: https://arxiv.org/pdf/2608.15516v1
+
+Published Time: Tue, 18 Aug 2026 01:12:04 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# UniFed-VLM: Federated Instruction Tuning for Vision-Language Models with Multiple Heterogeneity 
+
+## Pengyu Wang 1,2 ∗, Baochen Xiong 1,2,3 ∗, Xiaoshan Yang 1,2,3 †, Yifan Xu 5, Zhang Qimeng 4,Haifeng Chen 4, Changsheng Xu 1,2,3 
+
+> 1
+
+State Key Laboratory of Multimodal Artificial Intelligence Systems, Institute of Automation, Chinese Academy of Sciences, Beijing, China 
+
+> 2
+
+School of Artificial Intelligence, University of Chinese Academy of Sciences, Beijing, China 
+
+> 3
+
+Pengcheng Laboratory, Shenzhen, China 
+
+> 4
+
+Data Science and Artificial Intelligence Research Institute, China United Network Communications Group Co., Ltd., Beijing, China 
+
+> 5
+
+King Abdullah University of Science and Technology, Thuwal, Saudi Arabia {wangpengyu2026, xiongbaochen2022}@ia.ac.cn, {xiaoshan.yang, csxu}@nlpr.ia.ac.cn, yifan.xu@kaust.edu.sa, {zhangqm50, chenhaifeng}@chinaunicom.cn 
+
+Abstract 
+
+Vision–Language Models (VLMs) have demonstrated strong performance in multimodal understanding and generation. However, fine-tuning of VLMs typically relies on central-ized data, which raises privacy concerns in certain domains (e.g. healthcare). Federated Learning (FL) provides a natural solution by enabling model training without sharing raw data. However, applying FL to VLM instruction tuning is highly challenging. VLMs have substantial parameter scales, and in real-world scenarios, clients exhibit significant heterogeneity in tasks, modalities, and model architectures. Existing meth-ods mainly focus on simplified settings and are unable to handle such multi-dimensional heterogeneous scenarios. In this work, we study federated instruction tuning under joint heterogeneity in tasks, modalities, and model architectures. We propose UniFed-VLM, a unified federated instruction tun-ing framework for VLMs that addresses multiple types of heterogeneity. It consists of two key components: 1) Feder-ated Compensated Subspace Aggregation (FedCSA), which performs subspace-aligned aggregation of parameter-efficient adapters with dynamic weighting and compensation to miti-gate heterogeneity-induced conflicts; 2) Two-stage Collabora-tive Distillation (TCoD), which enables effective knowledge transfer across heterogeneous models via a Mutual Distilla-tion Adapter (MDA) and a mixture-of-experts-based distil-lation strategy. We conduct experiments on multiple bench-mark datasets, and the results show that UniFed-VLM achieves stronger average performance across diverse tasks compared with existing FL methods. The source code is available at: https://github.com/wangpengyu2004/UniFed-VLM. 
+
+## Introduction 
+
+Vision–Language Models (VLMs) (Xu et al. 2021; Achiam et al. 2023), which integrate vision and language, have demonstrated strong cross-modal understanding and genera-tion capabilities across various multimodal tasks, such as vi-sual question answering (VQA) (Antol et al. 2015). To adapt VLMs to downstream tasks, task-specific data are typically required for fine-tuning. Instruction tuning (Liu et al. 2023) 
+
+> ∗
+
+These authors contributed equally. 
+
+> †
+
+Corresponding author. Client 1 Client k            
+
+> Backbone Backbone
+> Server
+> Client 1 Client k
+> Backbone Backbone
+> Traditional Federated PEFT Task
+> Ours
+> Q:What is the mustache made of? Q: Why mobile is bad for human ？
+> A: We are always engaged one phone which is not good .
+> Q: What happens when the sun goes down?
+> A: When the sun sets, the evening starts
+> QA QA CLS VQA
+> Model Framework
+> Tasks &Modalities
+> Data Distribution
+> ... ...
+> Slight Diff. Major Diff.
+> Server
+> ... ...
+
+Figure 1: An overview of the federated setting with inter-twined heterogeneities across models, tasks, and modalities. and parameter-efficient tuning (PEFT) techniques (Ding et al. 2023), such as LoRA (Hu et al. 2022), have been widely adopted for this purpose. However, most existing fine-tuning approaches rely on centralized training, where distributed data are collected on a central server. In privacy-sensitive domains such as healthcare, strict regulations make central-ized data aggregation impractical. To address this limitation, recent studies have combined federated learning (Yang et al. 2019) with instruction tuning and PEFT (Zhang et al. 2024b). Some methods build upon classical FL algorithms, such as FedAvg (Li et al. 2019) and FedAdam (Reddi et al. 2020), which aggregate client-uploaded model parameters on the server to obtain a global model without accessing local data, enabling collaborative model improvement across multiple parties while preserving data privacy. The core challenge of federated instruction tuning or PEFT lies in client heterogeneity, which inherently hinders effective arXiv:2608.15516v1 [cs.LG] 16 Aug 2026 collaborative learning. Existing works have achieved promis-ing results under various heterogeneous settings (Ye et al. 2023; Yang et al. 2025). For instance, HETLORA (Cho et al. 2024) considers resource and data heterogeneity, FlexLoRA (Bai et al. 2024) addresses task and resource heterogeneity, and H 2Tune (Guo et al. 2025) addresses architecture hetero-geneity. Although these approaches have yielded promising results, they typically focus on isolated or limited forms of heterogeneity. In real-world applications, clients often exhibit simultaneous heterogeneity in modalities, tasks, and model architectures, which cannot be adequately handled by meth-ods designed for individual types of heterogeneity. Therefore, studying federated tuning under multi-dimensional hetero-geneity remains an important yet underexplored problem. In this paper, we consider a challenging scenario, as shown in Figure B.1, which simultaneously involves task, modality, and model heterogeneity. Existing methods typically address only one or two types of heterogeneity, while our setting considers all three, introducing more challenges. This setting inherently suffers from intertwined heterogeneities spanning tasks (e.g., VQA, visual grounding, classification), modal-ities (e.g., text, image), and architectures (e.g., varying di-mensions, layer depths, structural backbones). This joint di-versity exacerbates cross-client statistical and structural dis-crepancies, severely obstructing knowledge transfer. Conse-quently, local parameter updates exhibit acute gradient and weight conflicts, rendering conventional federated aggrega-tion strategies ineffective. To address above challenges, we propose UniFed-VLM ,a unified federated instruction tuning framework for VLMs that effectively handles such complex heterogeneous scenar-ios. Within our framework, for parameter aggregation among clients with the same model architecture, we design Fed-erated Compensated Subspace Aggregation (FedCSA) .Specifically, SVD is used to achieve subspace alignment, and dynamic weights are computed for weighted aggrega-tion. In addition, an optimization problem is introduced to obtain complementary parameters, reducing knowledge loss during aggregation. This method alleviates conflicts caused by task and modality heterogeneity, enabling the global pa-rameters to capture task-agnostic shared knowledge and thus maintain strong performance across multiple tasks. Build-ing on this, we further propose the Two-stage Collaborative Distillation (TCoD) , where each client is equipped with a 
+
+Mutual Distillation Adapter (MDA) for mutual knowledge distillation (MKD) (Gou et al. 2021). TCoD performs bidi-rectional knowledge transfer through two stages: first distill-ing knowledge from the local VLM to the MDA, and then transferring the acquired knowledge back from the MDA to the VLM with cross-model interaction. This enables effective distillation with the local VLM, allowing it to acquire knowl-edge from heterogeneous models. The proposed framework achieves promising results across multiple datasets. Our contributions can be summarized as follows: 
+
+• To the best of our knowledge, we are the first to ex-plore federated instruction tuning under simultaneous task, modality, and model heterogeneity. 
+
+• We propose UniFed-VLM, a unified framework engi-neered to address multi-dimensional heterogeneities in federated instruction tuning. UniFed-VLM incorporates Federated Compensated Subspace Aggregation to recon-cile task and modality discrepancies, alongside Two-stage Collaborative Distillation to facilitate seamless knowl-edge transfer across heterogeneous architectures. 
+
+• Extensive experiments on two public datasets demon-strate the effectiveness of UniFed-VLM. 
+
+## Related Work 
+
+Vision-Language Models . VLMs integrate multimodal in-formation, such as vision and text, to achieve strong multi-modal capabilities across downstream tasks. VLMs can be broadly categorized from two perspectives. Based on modal-ity fusion, they are divided into dual-stream architectures (Lu et al. 2023; Li et al. 2020b; Lu et al. 2019), which separately encode visual and textual inputs before cross-modal fusion, such as CLIP (Radford et al. 2021), and single-stream ar-chitectures (Achiam et al. 2023; Kim, Son, and Kim 2021; Su et al. 2019; Li et al. 2020a), which jointly process multi-modal inputs using a unified encoder. Based on visual encod-ing, VLMs can also be classified as encoder-based models, which employ a visual encoder followed by an input projec-tor to align visual and language features before integrating with LLMs, such as LLaVA (Liu et al. 2023) and Flamingo (Alayrac et al. 2022), or encoder-free models, which rely on a unified Transformer backbone without a separate visual encoder, such as Show-O (Xie et al. 2024). In this work, we explicitly consider these architectural differences. 
+
+Federated Learning . The core idea of federated learning (FL) is to enable decentralized collaborative training while preserving data privacy and local autonomy. Classical FL algorithms, such as FedAvg and its variants FedAdam and FedProx (Reddi et al. 2020), address non-IID data distribu-tions through iterative parameter aggregation. Recently, FL has been extended to foundation model fine-tuning, where parameter-efficient fine-tuning (PEFT) is adopted to reduce communication and computational costs. FedDAT (Chen et al. 2024) introduces a Dual-Adapter Teacher with bidirec-tional knowledge distillation to alleviate task conflicts and data heterogeneity. FLORA (Wang et al. 2024b) assigns dif-ferent LoRA ranks to clients with varying resources for het-erogeneous low-rank adaptation. FlexLoRA (Bai et al. 2024) leverages SVD to dynamically allocate heterogeneous LoRA modules based on client resources and task characteristics, mitigating task and resource heterogeneity. Model heterogeneity has also been explored in FL. Fed-Conv (Shen et al. 2024) compresses global parameters into heterogeneous models via convolutional layers and decom-presses them for aggregation, but is mainly applicable to small-scale models. FedMD (Li and Wang 2019) bridges heterogeneous models through knowledge distillation with a server-maintained public dataset, introducing additional computational and storage costs. FedProto (Tan et al. 2022) and FedTGP (Zhang et al. 2024a) reduce this burden by en-abling clients to upload local prototypes while the server maintains global prototypes for local guidance. For founda-tion model heterogeneity, pFedLoRA (Yi et al. 2023) intro-MDA 
+
+> Client 1
+
++ MDA 
+
+> Client K
+
++
+
+... 
+
+upload upload download download 
+
+> Server
+> Step1:Federated Compensated Subspace Agg
+
+Compensate ... ... T
+
+# Σ+ *
+
+> Step2:Two-stage Collaborative Distillation
+> Projection Layer
+> Attention Layer
+> (Shared)
+> Projection Layer
+
+VLM VLM   
+
+> Stage1:Distillation from Local VLM
+> MDA 𝐀 𝐀
+> Projection Layer Projection Layer
+> MDA 𝐀 𝐀 𝐀𝐀𝐀
+> Stage2:Distillation from LoRA-trained VLM
+
+...      
+
+> Gating Net
+> 𝐀 𝐀 𝐀 𝐀 𝐀 𝐀−𝐀 𝐀 𝐀
+> 𝐀 𝐀 uses simple architecture
+> 𝐀 𝐀 𝐀𝐀𝐀 uses expert-pool architecture
+
+LoRA 𝐀 𝐀 \𝐀 𝐀 
+
+> Concatenate
+
+LoRA 𝐀 𝐀 𝐀 \𝐀 𝐀 𝐀 
+
+** 
+
+> Split SVD
+> Dynamic Weighted
+> Aggregate e.g LoRA A
+
+𝐀 𝐀 𝐀 
+
+𝐀 𝐀 𝐀 
+
+> 𝐀 𝐀 𝐀
+
+𝐀 𝐀 𝐀 
+
+∆𝐀 𝐀 𝐀 
+
+𝐀 𝐀 
+
+𝐀 𝐀𮠀𝐀𵐀𝐀𝐀 
+
+𝐀 𝐀𮠀𝐀𵐀𝐀𝐀 
+
+❄️ 
+
+> 🐀 🐀
+
+❄️
+
+❄️
+
+> 🐀
+
+❄️
+
+> 🐀
+> Compensate Reconstruct
+> [Same Layer & Architecture]
+
+Figure 2: Overview of UniFed-VLM. Each client consists of a local VLM and an MDA. The training involves two steps. In Step 1, homogeneous LoRA parameters from the same model group are aggregated via FedCSA with SVD-based subspace alignment, dynamic weighting, and compensation optimization. In Step 2, the aggregated parameters are broadcast to clients, where the local VLM and MDA perform two-stage knowledge distillation with different MDA architectures across stages. duces a model-heterogeneous personalized federated learn-ing framework based on LoRA tuning, where homogeneous adapters are used as knowledge carriers to enable knowledge exchange among heterogeneous local models. H 2Tune (Guo et al. 2025) constructs a shared global matrix with a uni-fied rank for heterogeneous LoRA modules, enabling knowl-edge aggregation across different LoRA structures. Hetero-Tune (Jia et al. 2024) introduces Dense Mixture of Adapters with Cross-Model Gradient Alignment (CMGA) to address model heterogeneity, but only considers feature-dimensional differences. Although these methods address specific hetero-geneity scenarios, they do not explicitly handle the coupled challenges of simultaneous task, modality, and model het-erogeneity. 
+
+## Methodology 
+
+Problem Statement 
+
+In our work, we consider a federated learning setting with multi-dimensional heterogeneity across models, tasks, and modalities. Specifically, we consider K clients, each with a private dataset Dk, a VLM Mk, and a task Tk. For any two clients i, j ∈ 1, . . . , K , task heterogeneity may ex-ist ( Ti̸ = Tj ), which often induces modality heterogeneity (mi̸ = mj ); for example, classification and VQA involve different input-output modalities. Data sizes are also imbal-anced across tasks and clients ( ni̸ = nj ). Meanwhile, client models can differ in the number of layers ( Li̸ = Lj ), feature dimensions ( di̸ = dj ), architectures ( Fi̸ = Fj ), and LoRA ranks ( ri̸ = rj ). Our goal is to leverage parameter-efficient fine-tuning (PEFT) in federated learning to learn a set of heterogeneous global models fθ , each achieving strong per-formance on its corresponding client data. 
+
+Framework Overview 
+
+We first present an overview of UniFed-VLM . As illustrated in Figure 2, the framework consists of two core modules: Fed-erated Compensated Subspace Aggregation (FedCSA) 
+
+and Two-stage Collaborative Distillation (TCoD) . In Step 1, FedCSA aggregates clients sharing the same model ar-chitecture. For each layer, LoRA parameters Alk ∈ Rr×din 
+
+and Blk ∈ Rdout ×r are concatenated across clients into 
+
+Alf ∈ Rr×N d in and Blf ∈ RN d out ×r , where N denotes the number of clients with the same model architecture. SVD is then applied to the concatenated matrices. Based on parameter changes between consecutive rounds, dynamic weights W lk are computed to aggregate task feature vectors 
+
+V lk ∈ Rr×din and U lk ∈ Rdout ×r obtained by partitioning the singular vectors. An additional optimization step learns com-plementary parameters ∆Al ∈ Rr×din and ∆Bl ∈ Rdout ×r
+
+to mitigate knowledge loss during aggregation. In Step 2, TCoD equips each client with an adapter for mutual knowl-edge distillation, with two variants corresponding to different training stages. The adapter comprises globally shared atten-tion layers Lk 
+
+> att
+
+and client-specific projection layers Lk 
+
+> in
+
+and 
+
+Lk
+
+> out
+
+, enabling bidirectional knowledge distillation through two-stage training. Federated Compensated Subspace Aggregation 
+
+To mitigate the conflicts arising from task and modality het-erogeneity during parameter aggregation among clients with the same model architecture, we focus on aggregating LoRA parameters under the PEFT setting, where backbone param-eters of VLMs are frozen and only LoRA parameters are trained. For the l-th layer and the k-th client, the LoRA pa-rameters are denoted as Alk and Blk.Let i = {1, . . . , N }
+
+denote the set of clients sharing the same model architec-ture. We concatenate the LoRA parameters Ali and Bli across clients along the non-rank dimensions. Specifically, 
+
+Alf = [ Al
+
+> 1
+
+, . . . , A lN ] ∈ Rr×N d in , Blf =
+
+
+
+Bl
+
+> 1
+
+...
+
+BlN
+
+ ∈ RN d out ×r .
+
+(1) We then apply randomized SVD to the concatenated matri-ces: 
+
+Alf = U lAΣlA(V lA)⊤, Blf = U lB ΣlB (V lB )⊤. (2) Based on the concatenation structure, we partition the right singular matrix V lA and the left singular matrix U lB to obtain task-specific feature vectors: 
+
+V lA = [( V l 
+
+> 1
+
+)⊤, . . . , (V lN )⊤]⊤, V li ∈ Rr×din . (3) 
+
+U lB = [ U l
+
+> 1
+
+, U l
+
+> 2
+
+, . . . , U lN ], U li ∈ Rdout ×r . (4) Since the task feature vectors (e.g., V l 
+
+> 1
+
+and V l 
+
+> 2
+
+) share a common orthogonal basis, they can be aligned within a uni-fied representation space where task-specific variations are encoded along consistent directions (Stoica et al. 2025). Such alignment reduces interference during aggregation and alle-viates the conflicts introduced by task and modality hetero-geneity. To handle the varying quality of client updates, we in-troduce a dynamic weighting mechanism based on update variability. At round t:
+
+∆Al, (t) 
+
+> i
+
+= Al, (t) 
+
+> i
+
+− Al, (t−1)  
+
+> i
+
+, ∆Bl, (t) 
+
+> i
+
+= Bl, (t) 
+
+> i
+
+− Bl, (t−1)  
+
+> i
+
+.
+
+(5) The update magnitudes are defined as: 
+
+sl, (t) 
+
+> A,i
+
+= ∥∆Al, (t) 
+
+> i
+
+∥F , sl, (t) 
+
+> B,i
+
+= ∥∆Bl, (t) 
+
+> i
+
+∥F . (6) We normalize these values and apply momentum updates( β
+
+is a hyperparameter, typically set to 0.99),such as: 
+
+vl, (t) 
+
+> A,i
+
+= βv l, (t−1)  
+
+> A,i
+
++ (1 − β) sl, (t)
+
+> A,i
+
+max j sl, (t) 
+
+> A,j
+
++ ϵ . (7) The final aggregation weights are defined as: 
+
+wlA,i = 1/(vl, (t) 
+
+> A,i
+
++ ϵ)
+
+P 
+
+> j
+
+1/(vl, (t) 
+
+> A,j
+
++ ϵ) . (8) Clients with smaller update variations receive higher weights, since stable updates are more likely to preserve shared knowledge, whereas large fluctuations often indicate task-specific deviations under heterogeneous objectives. The aggregated subspace representations are: 
+
+eV l = X
+
+> i
+
+wlA,i V li , eU l = X
+
+> i
+
+wlB,i U li . (9) We then reconstruct the aggregated parameters: 
+
+ˆAl = U lAΣlA( eV l)⊤, ˆBl = eU lΣlB V lB . (10) This can be viewed as weighted aggregation in a geomet-rically aligned shared subspace, which preserves consistent semantic structures better than direct parameter averaging. We aggregate Ali and Bli separately. Compared with aggre-gating the full matrix ∆W li = Bli Ali, this is more efficient and memory-friendly, but may introduce information loss. To compensate for this, we learn ∆Al and ∆Bl, and denote 
+
+˜Al = ˆAl + ∆ Al and ˜Bl = ˆBl + ∆ Bl. The objective is 
+
+Lcomp =
+
+> L
+
+X
+
+> l=1
+> N
+
+X
+
+> i=1
+
+hD 
+
+−Bli Ali, B li Ali − ˜Bl ˜AlEi 2
+
+. (11) This encourages the compensated global parameters to ap-proximate the original client mappings and is optimized with Adam for a few hundred steps. The procedure acts as low-rank error recovery, mitigating the information loss introduced by SVD-based aggregation. 
+
+Two-stage Collaborative Distillation 
+
+After aggregating clients with the same architecture, we fur-ther enhance the global model through knowledge interaction across heterogeneous models. Unlike conventional distilla-tion methods that require server-side shared data or class pro-totypes, we attach a Mutual Distillation Adapter (MDA) to each client. Only its core attention parameters are uploaded, enabling efficient knowledge transfer without parameter ag-gregation. 
+
+Stage 1: Distillation from VLM to MDA . In the first stage, we freeze the VLM and distill knowledge into a MDA 
+
+fk. The MDA is defined as: 
+
+fk(x) = Lk
+
+> out
+
+ Lk
+
+> att
+
+ Lk
+
+> in
+
+(x) . (12) Here, Lk 
+
+> in
+
+and Lk 
+
+> out
+
+are client-specific projection layers. Lk
+
+> in
+
+consists of linear layers that map the input from dimension 
+
+din to a shared hidden dimension dh, while Lk 
+
+> out
+
+symmetri-cally maps the hidden representation to the output space dout .The input/output dimensions depend on the client. The atten-tion module Lk 
+
+> att
+
+is shared across all clients and consists of multiple Transformer layers with a unified hidden dimension 
+
+dh. This stage enables the MDA fk to capture client-specific knowledge from the corresponding VLM. We first distill knowledge from the VLM into the MDA for several epochs, enabling it to acquire the knowledge of the original VLM. 
+
+Stage 2: Distillation from MDA to VLM . In the sec-ond stage, knowledge is distilled back from the MDA to the VLM. The adapter, denoted as f MoE  
+
+> k
+
+, differs from that in Stage 1 by introducing a Mixture-of-Experts (MoE) mecha-nism. Besides the original attention module Lk
+
+> att
+
+, it includes 
+
+M attention experts {Ei}Mi=1 , where M is the number of clients with heterogeneous model architectures and each ex-pert corresponds to the core attention module of a heteroge-neous client. A gating network performs expert routing. Dur-ing this stage, only the gating network in the MDA and the LoRA parameters are trainable, while all other parameters remain frozen. We further introduce the task loss Ltask MoE 
+
+and the MoE balancing loss LMoE Bal (Wang et al. 2024a) to jointly optimize the gating network and the VLM. Given an input x, we first obtain the hidden input h via processing through Lk
+
+> in
+
+. Then, the gating network computes expert weights: 
+
+g = Softmax (Wg · Pool (h)) . (13) We then select the Top-K experts and compute: 
+
+hMoE = X
+
+> i∈TopK (g)
+
+˜gi · Ei(h), (14) where ˜gi denotes the normalized weights. To improve training stability, we treat the original attention module of the client as an anchor expert and fuse it with the MoE output: 
+
+hfinal = αh MoE + (1 − α)Eanchor (h), (15) where α ∈ [0 , 1] is a balancing coefficient. Finally, we ob-tain the final output by transforming hfinal through Lk
+
+> out
+
+.This design stabilizes training while preserving a reliable base representation. Considering that many tokens in sequence modeling are uninformative, we perform distillation only on valid tokens. The distillation loss is defined as: 
+
+LKD = 1
+
+|M |
+
+X
+
+> i∈M
+
+DKL 
+
+
+
+p(s) 
+
+> i
+
+∥ p(t)
+
+> i
+
+
+
+, (16) where M denotes the set of valid non-mask tokens (exclud-ing tokens with label -100) in the sequence, p(s) 
+
+> i
+
+and p(t)
+
+> i
+
+represent the student and teacher predictions at the i-th token position, respectively. The overall objectives for the two stages are: 
+
+LStage1 = Ll 
+
+> task
+
++ λS1 LKD (pl ∥ pV ) ,
+
+LStage2 = LV 
+
+> task
+
++ λS2 LKD (pV ∥ pl) + λMoE task LMoE task + λMoE LMoE Bal .
+
+(17) Here, Ll 
+
+> task
+
+and LV 
+
+> task
+
+denote the task losses for the MDA and the VLM, respectively (both implemented as autoregressive losses). The two KL terms correspond to the distillation di-rections in the two stages.The hyperparameters λS1 ,λS2 ,λMoE task 
+
+and λMoE control the relative weights of different loss terms in the objective function. 
+
+## Experiments 
+
+Settings 
+
+Datasets and Models . We conduct experiments on two multimodal instruction tuning datasets from FedVLMBench (Zheng et al. 2025) : Fed-Nature and Fed-Crossdomain. Specifically, the Fed-Nature dataset is entirely derived from COCO (Lin et al. 2014) and includes four tasks: VQA, vi-sual grounding, caption generation, and classification. Each task is assigned to one client, with 5,000 training samples and 1,000 test samples.The Fed-Crossdomain dataset is con-structed from multiple datasets (including Fed-FGVC, Fed-ScienceCap, Fed-SLAKE, and Fed-RadGenome). It contains the same set of tasks as Fed-Nature; however, each task is assigned to three clients. The total number of samples varies across tasks, and the data distributions among clients within the same task are non-identical (non-IID). For the model design, we consider two types of models with completely different architectures and layer configurations. Specifically, we adopt:1) the architecture of LLaVA 1.5, which consists of a pre-trained CLIP visual encoder (ViT-B/32) (Dosovitskiy et al. 2020) and LLaMA 3.2-3B (Meta 2024) ;2) the Show-O 1.5B model initialized with pre-trained weights. 
+
+Baseline . We evaluate UniFed-VLM under two heteroge-neous scenarios. In Scenario 1, LLaVA is trained on clas-sification and VQA, while Show-O is trained on caption generation and visual grounding. In Scenario 2, LLaVA is trained on classification and visual grounding, while Show-O is trained on caption generation and VQA. We compare with LOCAL, several representative federated baselines, and a centralized upper bound. Specifically, LOCAL indepen-dently trains each client without federated operations (e.g., parameter aggregation), serving as the lower bound. The federated baselines include FedAvg, FedAdam, HetLoRA, pFedLoRA and FlexLoRA, all without cross-model tech-niques. We further fine-tune the model on the union of all client datasets (i.e., centralized training) and report its per-formance as the upper bound. 
+
+Implementation Details . All experiments are conducted using the PyTorch framework on four A100 40GB GPUs. We perform a total of 20 communication rounds. The Adam optimizer is used with an initial learning rate of 1e-4, which is gradually decayed to 1e-6 over rounds. For optimizing the supplementary parameters, we also use the Adam opti-mizer with a maximum of 200 optimization steps. The MDA are configured based on the specific dimensions and layer structures of the VLMs. Finally, we evaluate performance using task-specific metrics as well as communication over-head. Additional implementation details are provided in the supplementary material. 
+
+Main Results 
+
+We evaluate UniFed-VLM under two heterogeneous settings (Scenario 1 and Scenario 2). The overall results are summa-rized in Table 1. Compared with the baselines, UniFed-VLM achieves better average performance. In Scenario 1 on the Fed-Nature dataset, it improves performance across all tasks. For example, it outperforms FlexLoRA by 2.5% on classi-fication and most baselines by approximately 4% on VQA. This advantage is further observed under more challenging heterogeneous settings. On the Fed-Crossmain dataset, the heterogeneity is more pronounced due to its cross-domain nature and the non-IID distribution across clients. For exam-ple, in Scenario 1, although pFedLoRA achieves an IoU of 0.470 on visual grounding, its performance on the other tasks is considerably lower (e.g., 0.510 VQA accuracy and 0.498 Scenario Method Fed-Nature Fed-Crossdomain                                                                                                                                                               
+
+> VQA Caption VG CLS VQA Caption VG CLS Acc ↑CIDEr/R-L ↑IoU ↑Acc ↑Acc ↑CIDEr/R-L ↑IoU ↑Acc ↑
+> Scenario 1 LOCAL 0.712 0.705/0.348 0.390 0.891 0.509 2.168/0.569 0.311 0.213 FedAdam 0.709 0.763/0.361 0.499 0.910 0.541 1.201/0.527 0.319 0.222 FedAvg 0.734 0.744/0.349 0.465 0.912 0.542 2.501/0.624 0.378 0.226 FedProx 0.702 0.753/0.357 0.457 0.906 0.550 1.748/0.579 0.367 0.234 FlexLoRA 0.693 0.729/0.357 0.423 0.893 0.553 2.994/0.651 0.351 0.227 HetLoRA 0.714 0.726/0.341 0.511 0.917 0.529 1.853/0.586 0.356 0.228 pFedLoRA 0.588 0.675/0.331 0.410 0.896 0.510 0.498/0.378 0.470 0.224
+> Ours 0.743 0.784/0.358 0.519 0.918 0.568 2.786/0.634 0.365 0.237
+> Central 0.755 0.863/0.361 0.475 0.913 0.628 2.936/0.647 0.435 0.321 Scenario 2 LOCAL 0.677 0.676/0.357 0.335 0.886 0.511 2.175/0.573 0.220 0.223 FedAdam 0.661 0.410/0.290 0.294 0.878 0.468 1.587/0.537 0.219 0.228 FedAvg 0.716 0.723/0.352 0.341 0.874 0.684 1.892/0.589 0.194 0.226 FedProx 0.716 0.721/0.349 0.362 0.906 0.681 2.299/0.613 0.203 0.226 FlexLoRA 0.720 0.726/0.357 0.340 0.909 0.627 2.400/0.621 0.184 0.225 HetLoRA 0.739 0.747/0.351 0.347 0.910 0.639 2.081/0.602 0.208 0.228 pFedLoRA 0.700 0.697/0.337 0.299 0.908 0.327 0.499/0.375 0.319 0.226
+> Ours 0.762 0.713/0.346 0.364 0.917 0.691 2.678/0.640 0.232 0.239
+> Central 0.752 0.863/0.356 0.405 0.913 0.696 2.936/0.647 0.385 0.321
+
+Table 1: Comparison of LOCAL, Centralized, and federated baselines with UniFed-VLM on the Fed-Nature and Fed-Crossdomain datasets under different heterogeneous settings.                                    
+
+> Method VQA Caption VG CLS
+> Acc ↑CIDEr/R-L ↑IoU ↑Acc ↑
+> UniFed-VLM 0.743 0.784/0.358 0.519 0.918
+> w/o FedCSA (w/ FedAvg) 0.708 0.746/0.361 0.445 0.907 w/o FedCSA (w/ FedProx) 0.711 0.781/0.365 0.484 0.901 w/o TCoD 0.707 0.766/0.361 0.458 0.911 w/o Compensation 0.726 0.774/0.357 0.503 0.915 w/o MoE 0.723 0.762/0.361 0.422 0.899 w/o Dynamic Weighting 0.702 0.763/0.360 0.457 0.905
+
+Table 2: Ablation study on UniFed-VLM. ”w/” indicates re-placing FedCSA with an alternative aggregation method. CIDEr), indicating that it favors specific tasks under hetero-geneous settings. In contrast, UniFed-VLM maintains more balanced performance across heterogeneous tasks. A similar trend is observed in Scenario 2. In addition, UniFed-VLM approaches or even surpasses the centralized upper bound on some individual tasks. For example, in Scenario 1, it achieves 91.8% classification accuracy on Fed-Nature, compared with 91.3% for centralized training. Overall, these results indicate that UniFed-VLM is effective for federated instruction tuning under multi-dimensional heterogeneity. 
+
+Ablation Study 
+
+To evaluate the contribution of FedCSA, we replace it with the classical federated learning algorithms FedAvg and Fed-Prox. Both replacements lead to consistent performance drops across all tasks. In particular, the VQA accuracy de-creases by 3.5% and 3.2%, respectively, while the classifi-cation accuracy decreases by 1.1% and 1.7%, demonstrating that FedCSA effectively mitigates conflicts caused by task                            
+
+> LoRA Rank VQA Caption VG CLS
+> Acc ↑CIDEr/R-L ↑IoU ↑Acc ↑
+> 8 / 8 0.743 0.784/0.358 0.519 0.918 16 / 16 0.732 0.805/0.365 0.533 0.915 32 / 32 0.736 0.824/0.371 0.522 0.922
+> 16 / 8 0.717 0.792/0.367 0.492 0.915 8 / 16 0.712 0.756/0.360 0.487 0.913
+
+Table 3: Effect of homogeneous and heterogeneous LoRA ranks on the Fed-Nature dataset (Scenario 1). heterogeneity. Removing the compensation mechanism or dynamic weighting strategy within FedCSA also reduces per-formance, indicating that the compensation parameters help recover information lost during low-rank aggregation, while dynamic weighting improves aggregation under heteroge-neous client updates. We further evaluate TCoD by remov-ing it from the framework. Without cross-model knowledge transfer, the VQA accuracy decreases by 3.6% and the visual grounding IoU by 0.061, demonstrating the importance of TCoD for heterogeneous knowledge transfer. Replacing the MoE module with a single expert also degrades performance across all tasks, suggesting the benefit of expert routing for cross-model distillation. Overall, the ablation results indi-cate that both FedCSA and TCoD, together with their key components, contribute to the performance of UniFed-VLM. 
+
+Convergence and Stability Analysis 
+
+Figure 3 shows the convergence and performance trends of our method and several baselines under Scenario 1. From the loss curves, all methods converge and effectively fit the local (a) (b) (c) (d) 
+
+Figure 3: Convergence and performance comparisons on Fed-Nature under Scenario 1. (a) Average training loss across all tasks (including the MDA module). (b)–(d) Performance on classification, VQA, and visual grounding, respectively.  
+
+> (a) (b)
+
+Figure 4: Loss curves and performance trends of FedAdam on caption generation (a) and VQA (b) under Scenario 2 (Fed-Nature). data. Although VLM training in our framework starts from the 5th epoch, it reaches a convergence level comparable to the baselines, indicating faster convergence. The perfor-mance curves further show that our method achieves bet-ter average performance across tasks with improved training stability. We further observe that FedAdam exhibits severe training instability under Scenario 2. As shown in Figure 4, the loss and performance on the VQA and caption genera-tion tasks initially improve, but after several communication rounds, the loss increases sharply while performance drops substantially. This suggests that conventional federated learn-ing algorithms may struggle under complex heterogeneous settings. In contrast, our method maintains stable conver-gence across diverse heterogeneous scenarios. 
+
+Different Rank and Efficiency 
+
+We further investigate the impact of different LoRA ranks on model performance. As shown in Table 3, increasing the rank generally benefits generation-oriented tasks. Specifi-cally, caption generation achieves the best performance with rank = 32, while visual grounding performs best with rank = 16. In contrast, VQA achieves its highest accuracy with rank = 8, and classification varies only marginally across different ranks. These results suggest that larger LoRA ranks do not consistently improve performance across all tasks. We further evaluate heterogeneous rank settings by assigning different LoRA ranks to the two VLMs. Although heterogeneous rank                    
+
+> dhVQA Caption Generation Visual Grounding CLS
+> Acc ↑CIDEr/ROUGE-L ↑IoU ↑Acc ↑
+> 1024 0.726 0.783/0.363 0.499 0.910 2048 0.743 0.784/0.358 0.519 0.918
+> 2560 0.718 0.778/0.366 0.478 0.910
+
+Table 4: Impact of hidden dimension on downstream tasks. settings slightly degrade performance on some tasks com-pared with homogeneous settings, the proposed framework maintains competitive average performance, demonstrating its robustness to rank heterogeneity. The communication cost increases with the LoRA rank, reaching approximately 50, 90, and 180 MB (0.72%, 1.08%, and 1.79%) for LLaVA, and 30, 50, and 110 MB (0.46%, 0.91%, and 1.80%) for Show-O at ranks 8, 16, and 32, respectively. Although the MDA introduces additional communication overhead, it re-mains lightweight(0.4%), making the overall communication cost comparable to existing LoRA-based baselines. As the LoRA rank increases, communication cost rises accordingly, while the corresponding performance gains remain limited. These results highlight the trade-off between communica-tion efficiency and performance, indicating that a relatively small LoRA rank is sufficient to achieve competitive average performance. 
+
+Different Hidden Dimension Size 
+
+We further study the impact of the hidden dimension size dh
+
+in the MDA. As shown in Table 4, dh= 2048 achieves the best overall performance, obtaining the highest accuracy on VQA (0.743), visual grounding (0.519 IoU), and classifica-tion (0.918), while maintaining competitive caption genera-tion performance. Reducing dh to 1024 limits the representa-tion capacity of the MDA, resulting in lower performance on most tasks. In contrast, increasing dh to 2560 does not pro-vide consistent gains and instead degrades performance on VQA, visual grounding, and classification, suggesting that a larger hidden dimension may not improve knowledge transfer due to increased optimization difficulty. Overall, dh = 2048 provides a better balance between representation capacity and optimization, and is adopted in all experiments. Conclusion 
+
+In this paper, we presented UniFed-VLM, a unified federated instruction tuning framework for vision-language models un-der multi-dimensional heterogeneity across tasks, modali-ties, and model architectures. Experimental results on two heterogeneous federated benchmarks show that UniFed-VLM achieves better average performance across tasks com-pared with representative baselines. These results indicate that combining compensated subspace aggregation with col-laborative distillation provides an effective approach for facil-itating parameter aggregation and knowledge transfer under heterogeneous tasks, modalities, and model architectures in federated VLMs. 
+
+## References 
+
+Achiam, J.; Adler, S.; Agarwal, S.; Ahmad, L.; Akkaya, I.; Aleman, F. L.; Almeida, D.; Altenschmidt, J.; Altman, S.; Anadkat, S.; et al. 2023. Gpt-4 technical report. arXiv preprint arXiv:2303.08774 .Alayrac, J.-B.; Donahue, J.; Luc, P.; Miech, A.; Barr, I.; Hasson, Y.; Lenc, K.; Mensch, A.; Millican, K.; Reynolds, M.; et al. 2022. Flamingo: a visual language model for few-shot learning. Advances in neural information processing systems , 35: 23716–23736. Antol, S.; Agrawal, A.; Lu, J.; Mitchell, M.; Batra, D.; Zit-nick, C. L.; and Parikh, D. 2015. Vqa: Visual question an-swering. In Proceedings of the IEEE international confer-ence on computer vision , 2425–2433. Bai, J.; Chen, D.; Qian, B.; Yao, L.; and Li, Y. 2024. Fed-erated fine-tuning of large language models under heteroge-neous tasks and client resources. Advances in Neural Infor-mation Processing Systems , 37: 14457–14483. Chen, H.; Zhang, Y.; Krompass, D.; Gu, J.; and Tresp, V. 2024. Feddat: An approach for foundation model finetuning in multi-modal heterogeneous federated learning. In Pro-ceedings of the AAAI Conference on Artificial Intelligence ,volume 38, 11285–11293. Cho, Y. J.; Liu, L.; Xu, Z.; Fahrezi, A.; and Joshi, G. 2024. Heterogeneous lora for federated fine-tuning of on-device foundation models. In Proceedings of the 2024 conference on empirical methods in natural language processing , 12903– 12913. Ding, N.; Qin, Y.; Yang, G.; Wei, F.; Yang, Z.; Su, Y.; Hu, S.; Chen, Y.; Chan, C.-M.; Chen, W.; et al. 2023. Parameter-efficient fine-tuning of large-scale pre-trained language mod-els. Nature machine intelligence , 5(3): 220–235. Dosovitskiy, A.; Beyer, L.; Kolesnikov, A.; Weissenborn, D.; Zhai, X.; Unterthiner, T.; Dehghani, M.; Minderer, M.; Heigold, G.; Gelly, S.; et al. 2020. An image is worth 16x16 words: Transformers for image recognition at scale. arXiv preprint arXiv:2010.11929 .Gou, J.; Yu, B.; Maybank, S. J.; and Tao, D. 2021. Knowledge distillation: A survey. International journal of computer vision , 129(6): 1789–1819. Guo, W.; Lu, S.; Tong, Y.; Hu, Z.; Zhuang, F.; Zhang, X.; Fan, T.; and Dong, J. 2025. H2Tune: Federated Founda-tion Model Fine-Tuning with Hybrid Heterogeneity. arXiv preprint arXiv:2507.22633 .Hu, E. J.; Shen, Y.; Wallis, P.; Allen-Zhu, Z.; Li, Y.; Wang, S.; Wang, L.; Chen, W.; et al. 2022. Lora: Low-rank adaptation of large language models. Iclr , 1(2): 3. Jia, R.; Xie, W.; Lei, J.; Ma, J.; Qin, H.; and Fang, L. 2024. HeteroTune: Efficient Federated Learning for Large Hetero-geneous Models. arXiv preprint arXiv:2411.16796 .Kim, W.; Son, B.; and Kim, I. 2021. Vilt: Vision-and-language transformer without convolution or region super-vision. In International conference on machine learning ,5583–5594. PMLR. Li, D.; and Wang, J. 2019. Fedmd: Heterogenous fed-erated learning via model distillation. arXiv preprint arXiv:1910.03581 .Li, G.; Duan, N.; Fang, Y.; Gong, M.; and Jiang, D. 2020a. Unicoder-vl: A universal encoder for vision and language by cross-modal pre-training. In Proceedings of the AAAI con-ference on artificial intelligence , volume 34, 11336–11344. Li, X.; Huang, K.; Yang, W.; Wang, S.; and Zhang, Z. 2019. On the convergence of fedavg on non-iid data. arXiv preprint arXiv:1907.02189 .Li, X.; Yin, X.; Li, C.; Zhang, P.; Hu, X.; Zhang, L.; Wang, L.; Hu, H.; Dong, L.; Wei, F.; et al. 2020b. Oscar: Object-semantics aligned pre-training for vision-language tasks. In 
+
+European conference on computer vision , 121–137. Springer. Lin, T.-Y.; Maire, M.; Belongie, S.; Hays, J.; Perona, P.; Ramanan, D.; Dollár, P.; and Zitnick, C. L. 2014. Microsoft coco: Common objects in context. In European conference on computer vision , 740–755. Springer. Liu, H.; Li, C.; Wu, Q.; and Lee, Y. J. 2023. Visual instruction tuning. Advances in neural information processing systems ,36: 34892–34916. Lu, J.; Batra, D.; Parikh, D.; and Lee, S. 2019. Vilbert: Pretraining task-agnostic visiolinguistic representations for vision-and-language tasks. Advances in neural information processing systems , 32. Lu, W.; Hu, X.; Wang, J.; and Xie, X. 2023. Fedclip: Fast gen-eralization and personalization for clip in federated learning. 
+
+arXiv preprint arXiv:2302.13485 .Meta, A. 2024. Introducing meta llama 3: The most capable openly available llm to date. Meta AI , 2(5): 6. Radford, A.; Kim, J. W.; Hallacy, C.; Ramesh, A.; Goh, G.; Agarwal, S.; Sastry, G.; Askell, A.; Mishkin, P.; Clark, J.; et al. 2021. Learning transferable visual models from natural language supervision. In International conference on machine learning , 8748–8763. PmLR. Reddi, S.; Charles, Z.; Zaheer, M.; Garrett, Z.; Rush, K.; Konečn` y, J.; Kumar, S.; and McMahan, H. B. 2020. Adaptive federated optimization. arXiv preprint arXiv:2003.00295 .Shen, L.; Yang, Q.; Cui, K.; Zheng, Y.; Wei, X.-Y.; Liu, J.; and Han, J. 2024. Fedconv: A learning-on-model paradigm for heterogeneous federated clients. In Proceedings of the 22nd Annual International Conference on Mobile Systems, Applications and Services , 398–411. Stoica, G.; Ramesh, P.; Ecsedi, B.; Choshen, L.; and Hoff-man, J. 2025. Model Merging with SVD to Tie the Knots. 
+
+ICLR .Su, W.; Zhu, X.; Cao, Y.; Li, B.; Lu, L.; Wei, F.; and Dai, J. 2019. Vl-bert: Pre-training of generic visual-linguistic representations. arXiv preprint arXiv:1908.08530 .Tan, Y.; Long, G.; Liu, L.; Zhou, T.; Lu, Q.; Jiang, J.; and Zhang, C. 2022. Fedproto: Federated prototype learning across heterogeneous clients. In Proceedings of the AAAI conference on artificial intelligence , volume 36, 8432–8440. Wang, L.; Gao, H.; Zhao, C.; Sun, X.; and Dai, D. 2024a. Auxiliary-loss-free load balancing strategy for mixture-of-experts. arXiv preprint arXiv:2408.15664 .Wang, Z.; Shen, Z.; He, Y.; Sun, G.; Wang, H.; Lyu, L.; and Li, A. 2024b. Flora: Federated fine-tuning large lan-guage models with heterogeneous low-rank adaptations. 
+
+Advances in Neural Information Processing Systems , 37: 22513–22533. Xie, J.; Mao, W.; Bai, Z.; Zhang, D. J.; Wang, W.; Lin, K. Q.; Gu, Y.; Chen, Z.; Yang, Z.; and Shou, M. Z. 2024. Show-o: One single transformer to unify multimodal understanding and generation. arXiv preprint arXiv:2408.12528 .Xu, H.; Ghosh, G.; Huang, P.-Y.; Arora, P.; Aminzadeh, M.; Feichtenhofer, C.; Metze, F.; and Zettlemoyer, L. 2021. Vlm: Task-agnostic video-language model pre-training for video understanding. In Findings of the Association for Computa-tional Linguistics: ACL-IJCNLP 2021 , 4227–4239. Yang, Q.; Liu, Y.; Chen, T.; and Tong, Y. 2019. Federated machine learning: Concept and applications. ACM Transac-tions on Intelligent Systems and Technology (TIST) , 10(2): 1–19. Yang, S.; Chen, Z.; Lin, Y.; Chen, X.; Cai, G.; Yu, H.; Wu, P.; and Yang, Q. 2025. A Survey on Vision-Language Models for Multimodal Federated Learning Tasks. Authorea Preprints .Ye, M.; Fang, X.; Du, B.; Yuen, P. C.; and Tao, D. 2023. Het-erogeneous federated learning: State-of-the-art and research challenges. ACM Computing Surveys , 56(3): 1–44. Yi, L.; Yu, H.; Wang, G.; Liu, X.; and Li, X. 2023. pFed-LoRA: Model-heterogeneous personalized federated learn-ing with LoRA tuning. arXiv preprint arXiv:2310.13283 .Zhang, J.; Liu, Y.; Hua, Y.; and Cao, J. 2024a. Fedtgp: Trainable global prototypes with adaptive-margin-enhanced contrastive learning for data and model heterogeneity in fed-erated learning. In Proceedings of the AAAI conference on artificial intelligence , volume 38, 16768–16776. Zhang, J.; Vahidian, S.; Kuo, M.; Li, C.; Zhang, R.; Yu, T.; Wang, G.; and Chen, Y. 2024b. Towards building the federatedgpt: Federated instruction tuning. In ICASSP 2024-2024 IEEE international conference on acoustics, speech and signal processing (ICASSP) , 6915–6919. IEEE. Zheng, W.; Lin, Z.; Guo, P.; Zhou, Y.; Wang, F.; and Qu, L. 2025. Fedvlmbench: Benchmarking federated fine-tuning of vision-language models. arXiv preprint arXiv:2506.09638 .APPENDIX A Implementation Details 
+
+In our experiments, we perform a total of 20 communication rounds, where each local model is trained for one epoch per round. During the first 5 rounds, we only conduct the first-stage distillation, i.e., the VLM is frozen and distilled into the DMA. For the MDA architecture, we set the number of layers for 
+
+Lk 
+
+> in
+
+and Lk 
+
+> out
+
+to 3, respectively, and Lk 
+
+> att
+
+is also configured with 3 layers. Since we adopt LLaMA 3.2-3B and Show-O 1.5B, whose hidden dimensions are 3072 and 2048, respectively, we set the hidden dimension of LattK to dh = 2048 .For distillation, the temperature for both stages is set to 2.0. The distillation weights are set to λS1 = 0 .7 and λS2 = 0 .2.The second-stage weight is intentionally set smaller to avoid interfering with the task loss. The number of experts in the MoE module is determined by the number of heterogeneous clients. The learning rate of the gating network is initialized to 1 × 10 −4 and decays over communication rounds, and 
+
+α=0.4. We introduce two loss terms for MoE: LMoE task and LMoE bal .The task loss LMoE task is identical to the standard autoregressive loss. The balance loss is defined as: 
+
+LMoE bal = 1
+
+E
+
+> E
+
+X
+
+> e=1
+
+
+
+ue − 1
+
+E
+
+2
+
+, (A.1) where 
+
+ue = 1
+
+B
+
+> B
+
+X
+
+> b=1
+
+Pb,e , (A.2) denotes the average utilization of expert e, B is the number of samples, and E is the number of experts. We set the weight of the balance loss to λMoE = 0 .01 , and the weight of the task loss to λMoE task = 0 .3.
+
+## B Derivation of the Compensation Objective 
+
+To preserve key information in client-side low-rank updates without significantly increasing communication and storage costs, we adopt separate aggregation of low-rank factors. For layer l, the low-rank update of client i is written as 
+
+∆W li = Bli Ali, (B.1) where Bli ∈ Rdl×rl and Ali ∈ Rrl×kl , with rl ≪
+
+min( dl, k l). Compared to directly aggregating the full pa-rameter matrix ∆W li , separately aggregating Ali and Bli sig-nificantly reduces storage and communication costs. How-ever, since the bilinear coupling structure of low-rank factors is decoupled, this aggregation may introduce information loss. To address this issue, we further introduce compensa-tion parameters ∆Bl and ∆Al, and refine the global low-rank representation as 
+
+g∆W lm = ( ˆBl + ∆ Bl)( ˆAl + ∆ Al), (B.2) where ˆBl and ˆAl denote the aggregated global low-rank factors. 
+
+Motivation from Loss Consistency. Our goal is to make the compensated global update approximate the client-side updates obtained from local training. Let Li(·) denote the local loss of client i at layer l. We consider the following loss consistency objective: 
+
+J =
+
+> L
+
+X
+
+> l=1
+> N
+
+X
+
+> i=1
+
+h
+
+Li(W l + ∆ W li ) − L i(W l + g∆W lm)
+
+i2
+
+.
+
+(B.3) This objective measures the discrepancy between the com-pensated global update g∆W lm and the original client update 
+
+∆W li at the loss level. A smaller discrepancy indicates that the global model better approximates the performance of local models. 
+
+Theorem 1 (First-order Taylor Expansion for Matrix Perturbation). Assume Li(W ) is twice continuously differ-entiable in a neighborhood of W l. For a sufficiently small perturbation ∆W , we have 
+
+Li(W l+∆ W ) = Li(W l)+ ⟨∇L i(W l), ∆W ⟩+O(∥∆W ∥2 
+
+> F
+
+),
+
+(B.4) where ⟨X, Y ⟩ = tr( X⊤Y ). Thus, the first-order approxima-tion is given by 
+
+Li(W l + ∆ W ) ≈ L i(W l) + ⟨∇L i(W l), ∆W ⟩. (B.5) Applying Eq. (B.5) to g∆W lm and ∆W li , we obtain 
+
+Li(W l + g∆W lm) ≈ L i(W l) + ⟨∇L i(W l), g∆W lm⟩, (B.6) 
+
+Li(W l + ∆ W li ) ≈ L i(W l) + ⟨∇L i(W l), ∆W li ⟩. (B.7) Subtracting the two expressions yields 
+
+Li(W l+∆ W li )−L i(W l+ g∆W lm) ≈ ⟨∇L i(W l), ∆W li − g∆W lm⟩.
+
+(B.8) Therefore, Eq. (B.3) can be approximated as 
+
+J ≈ 
+
+> L
+
+X
+
+> l=1
+> N
+
+X
+
+> i=1
+
+h
+
+⟨∇L i(W l), ∆W li − g∆W lm⟩
+
+i2
+
+. (B.9) 
+
+Relation Between Gradient and Local Update. During local training, the local update can be viewed as the accu-mulated effect of gradients along the optimization trajectory. Specifically, the relationship between the local update and gradients can be expressed as: 
+
+Wt+1 = Wt − η∇L i(Wt), (B.10) thus the local update can be written as 
+
+∆W li ≈ − η∇L i(W l). (B.11) Equivalently, 
+
+∇L i(W l) ≈ − κ∆W li , κ = 1
+
+η . (B.12) Substituting Eq. (B.12) into Eq. (B.9), we obtain 
+
+J ≈ 
+
+> L
+
+X
+
+> l=1
+> N
+
+X
+
+> i=1
+
+h
+
+⟨− κ∆W li , ∆W li − g∆W lm⟩
+
+i2
+
+. (B.13) 0 20 40 60 80 100     
+
+> Iteration
+> 2 × 10 3
+> 3 × 10 3
+> 4 × 10 3
+> 6 × 10 3
+> Mean Loss
+> Average Supplementary Parameter Optimization Loss 100
+> Raw Smoothed
+
+(a) 0 25 50 75 100 125 150 175 200      
+
+> Iteration
+> 2 × 10 3
+> 3 × 10 3
+> 4 × 10 3
+> 6 × 10 3
+> Mean Loss
+> Average Supplementary Parameter Optimization Loss 200
+> Raw Smoothed
+
+(b) 0 50 100 150 200 250 300      
+
+> Iteration
+> 2 × 10 3
+> 3 × 10 3
+> 4 × 10 3
+> 6 × 10 3
+> Mean Loss
+> Average Supplementary Parameter Optimization Loss 300
+> Raw Smoothed
+
+(c) 
+
+Figure B.1: Loss curves of the supplementary parameter optimization process under different numbers of iterations for the Show-O model on the Fed-Nature dataset. Substituting ∆W li = Bli Ali and g∆W lm = ( ˆBl + ∆ Bl)( ˆAl +∆Al), we obtain the final objective (Constant κ terms can be ignored): 
+
+L =
+
+> L
+
+X
+
+> l=1
+> N
+
+X
+
+> i=1
+
+hD 
+
+−Bli Ali, B li Ali −
+
+ ˆBl + ∆ Bl  ˆAl + ∆ AlEi 2
+
+.
+
+(B.14) 
+
+Interpretation of the Compensation Objective. The meaning of Eq. (B.14) can be understood from two per-spectives. First, ( ˆBl, ˆAl) provide the shared low-rank subspace ob-tained by server-side aggregation, while (∆ Bl, ∆Al) com-pensate for the lost interaction information caused by factor-wise aggregation. Since low-rank updates inherently rely on the coupling between left and right factors, independently averaging Ali and Bli breaks this coupling, and the compen-sation terms restore it. Second, from an optimization perspective, Eq. (B.14) can be viewed as performing error recovery in the low-rank space. Instead of reconstructing the full high-dimensional update matrix, it searches for a better global representation in the low-dimensional factor space, making it more efficient and suitable for large-scale federated settings. 
+
+Optimization Procedure. In practice, we fix {Bli , A li} and 
+
+{ ˆBl, ˆAl}, and only optimize the compensation parameters 
+
+∆Bl and ∆Al. We use Adam as the optimizer and perform a few hundred iterations to obtain stable compensation. The final global factors are 
+
+Bl 
+
+> global
+
+= ˆBl + ∆ Bl, Al 
+
+> global
+
+= ˆAl + ∆ Al, (B.15) and the corresponding global update matrix is 
+
+∆W l 
+
+> global
+
+= Bl
+
+> global
+
+Al
+
+> global
+
+. (B.16) This step can be interpreted as a post-processing correction for SVD/low-rank aggregation error, effectively mitigating the information loss introduced by factor-wise aggregation and improving the approximation of client behaviors by the global model. 
+
+## C Analysis of the Number of Iterations 
+
+As shown in Table C.1, we conduct experiments on the Fed-Nature dataset to study the effect of different numbers of 
+
+Iter. VQA Caption Generation Visual Grounding CLS 
+
+Acc ↑ CIDEr/ROUGE-L ↑ IoU ↑ Acc ↑
+
+100 0.724 0.782/0.363 0.504 0.912 200 0.743 0.784/0.358 0.519 0.918 
+
+300 0.737 0.792/0.368 0.497 0.910 
+
+Table C.1: Effect of different numbers of iterations for sup-plementary parameters on performance on Fed-Nature. 
+
+λM oE  
+
+> task
+
+VQA Caption Generation Visual Grounding CLS 
+
+Acc ↑ CIDEr/ROUGE-L ↑ IoU ↑ Acc ↑
+
+0.1 0.730 0.778/0.355 0.520 0.919 0.2 0.710 0.787/0.363 0.535 0.911 
+
+0.3 0.743 0.784/0.358 0.519 0.918 0.4 0.706 0.783/0.364 0.524 0.906 
+
+Table C.2: Effect of the MoE task loss weight λM oE  
+
+> task
+
+.iterations for supplementary parameter optimization. Specif-ically, we set the number of iterations as I ∈ { 100 , 200 , 300 }.From the results, we observe that when I = 100 , the model performance on all tasks is consistently lower than that with I = 200 (the setting adopted in the main paper). When increasing the number of iterations to I = 300 , the model shows improvement on the Caption Generation task, while its performance on other tasks is inferior to that with 
+
+I = 200 .Furthermore, as illustrated in Fig. B.1, the loss curve at 
+
+I = 100 (Fig. B.1 (a)) has not fully converged. In contrast, by comparing the loss curves at I = 200 (Fig. B.1 (b)) and 
+
+I = 300 (Fig. B.1 (c)), we observe that the model has already largely converged at I = 200 , with only marginal differences compared to I = 300 .Overall, considering both performance and computational efficiency, I = 200 provides the best trade-off and is selected as the optimal setting. α VQA Caption Generation Visual Grounding CLS                    
+
+> Acc ↑CIDEr/ROUGE-L ↑IoU ↑Acc ↑
+> 0.3 0.738 0.762/0.358 0.526 0.912
+> 0.4 0.743 0.784/0.358 0.519 0.918 0.5 0.726 0.782/0.360 0.529 0.916 0.6 0.724 0.781/0.359 0.519 0.911
+
+Table C.3: Effect of coefficient α.                   
+
+> Layers VQA Caption Generation Visual Grounding CLS
+> Acc ↑CIDEr/ROUGE-L ↑IoU ↑Acc ↑
+> 20.694 0.776/0.363 0.513 0.912
+> 30.743 0.784/0.358 0.519 0.918 40.721 0.847/0.374 0.516 0.907
+
+Table C.4: Effect of the number of projection layers in MDA. 
+
+## D Hyperparameter Analysis 
+
+Effect of MoE-related Hyperparameters 
+
+We first investigate the impact of MoE-related hyperparam-eters, including the task loss weight λM oE  
+
+> task
+
+, the coefficient 
+
+α, and the number of projection layers in MDA. The ex-periments are conducted on Fed-Nature under Scenario 1, following the same evaluation protocol as the main experi-ments. These parameters control the balance between task optimization, expert collaboration, and feature transforma-tion capability. 
+
+Impact of λM oE  
+
+> task
+
+We first investigate the effect of the MoE task loss weight λM oE  
+
+> task
+
+, which controls the balance between task-specific optimization and collaborative knowl-edge learning in the MoE module. As shown in Table C.2, different values of λM oE  
+
+> task
+
+lead to different trade-offs across tasks. When λM oE  
+
+> task
+
+is set to 0.1 or 0.2, the performance on VQA and CLS decreases, indicating insufficient task super-vision from the MoE module. In contrast, a larger weight (e.g., 0.4) causes performance degradation on most tasks, suggesting that excessive emphasis on MoE optimization may interfere with the original task objective. The setting of λM oE  
+
+> task
+
+= 0 .3 achieves the best overall balance, obtaining the highest VQA accuracy and competitive performance on other tasks. Therefore, we adopt 0.3 as the default value. 
+
+Impact of α We further analyze the impact of the coef-ficient α, which regulates the contribution of collaborative knowledge during the optimization process. As reported in Table C.3, the model performance varies slightly with dif-ferent α values. A smaller value ( α = 0 .3) limits the effect of knowledge interaction, resulting in lower CLS accuracy. Increasing α to 0.5 improves visual grounding performance but slightly reduces VQA accuracy, indicating that exces-sive knowledge transfer may introduce additional interfer-ence among heterogeneous clients. The setting of α = 0 .4
+
+achieves a better balance between knowledge collaboration and task-specific adaptation, leading to the best overall per-formance. Thus, we select α = 0 .4 in our experiments.                            
+
+> λS1-λS2VQA Caption Generation Visual Grounding CLS
+> Acc ↑CIDEr/ROUGE-L ↑IoU ↑Acc ↑
+> 0.7-0.1 0.729 0.777/0.355 0.513 0.912 0.7-0.3 0.739 0.729/0.352 0.515 0.918
+> 0.7-0.2 0.743 0.784/0.358 0.519 0.918 0.6-0.2 0.727 0.788/0.362 0.520 0.914 0.8-0.2 0.722 0.821/0.371 0.517 0.905
+
+Table D.1: Effect of distillation weights λS1 and λS2.
+
+Impact of Projection Layer Depth We investigate the in-fluence of the projection layer depth in MDA to evaluate its effect on feature transformation capability. As shown in Ta-ble C.4, increasing the number of projection layers from 2 to 3 consistently improves performance across most tasks, demonstrating that deeper transformations provide more ef-fective feature alignment between heterogeneous models. However, further increasing the depth to 4 does not lead to consistent improvements. Although it benefits caption gen-eration, it slightly degrades VQA and classification perfor-mance, likely due to increased optimization difficulty and unnecessary feature transformation. Therefore, we choose 3 projection layers as the default configuration, which provides a favorable balance between representation capacity and op-timization stability. 
+
+Effect of Distillation Hyperparameters 
+
+We further investigate the impact of distillation hyperpa-rameters in the two-stage collaborative distillation process. Specifically, we analyze the effects of λS1 and λS2, which control the knowledge transfer strength from VLMs to MDA and from MDA back to VLMs, respectively. The experiments are conducted on Fed-Nature under Scenario 1 following the same evaluation protocol as the main experiments. 
+
+Impact of λS1 and λS2 As shown in Table D.1, the two distillation weights jointly influence the trade-off between cross-model knowledge transfer and task-specific optimiza-tion. When fixing λS1 = 0.7, increasing λS2 from 0.1 to 0.2 consistently improves performance across different tasks, demonstrating that appropriate feedback distillation fa-cilitates knowledge transfer between heterogeneous VLMs. However, further increasing λS2 to 0.3 leads to performance degradation, particularly in caption generation, where CIDEr decreases from 0.784 to 0.729. This suggests that excessive feedback distillation may introduce over-regularization, lim-iting the model’s ability to adapt to task-specific character-istics. For λS1, a smaller weight limits the initial knowledge transfer from VLMs to MDA, while a larger weight overem-phasizes the first-stage alignment and causes performance degradation on discriminative tasks such as classification. The combination of λS1 = 0 .7 and λS2 = 0 .2 achieves a better balance between the two distillation stages, obtaining consistent performance across different tasks and is therefore adopted as the default setting. Method VQA Caption Generation VG CLS                        
+
+> Acc ↑CIDEr/ROUGE-L ↑IoU ↑Acc ↑
+> FedAvg 0.725 0.777/0.348 0.347 0.892 FedProx 0.716 0.738/0.344 0.355 0.888 HetLoRA 0.717 0.766/0.342 0.342 0.891 pFedLoRA 0.571 0.665/0.324 0.307 0.837
+> Ours 0.738 0.765/0.346 0.365 0.899
+
+Table E.1: Evaluation under another heterogeneous task-model scenario on Fed-Nature.                
+
+> Method VQA Caption Generation VG CLS
+> Acc ↑CIDEr/ROUGE-L ↑IoU ↑Acc ↑
+> Ours 0.743 0.784/0.358 0.519 0.918 Ours (w/ DP) 0.724 0.781/0.360 0.521 0.918
+
+Table E.2: Privacy-preserving evaluation of UniFed-VLM on Fed-Nature under Scenario 1. Differential privacy (DP) is applied to LoRA updates before federated aggregation. 
+
+## E Another Scenario 
+
+To further evaluate the robustness of UniFed-VLM under dif-ferent task-model assignments, we further introduce another heterogeneous scenario, where LLaVA is responsible for vi-sual question answering (VQA) and visual grounding, while Show-O handles classification and caption generation. This setting involves different task distributions across heteroge-neous VLMs, requiring effective collaboration among mod-els with distinct capabilities. As shown in Table E.1, UniFed-VLM achieves competitive average performance across all tasks. Specifically, it obtains the best results on VQA, visual grounding, and classification, achieving 0.738 Acc, 0.365 IoU, and 0.899 Acc, respectively. For caption generation, FedAvg achieves slightly better performance, while UniFed-VLM remains comparable with other methods. These re-sults indicate that UniFed-VLM can effectively balance task-specific adaptation and cross-model knowledge transfer un-der different heterogeneous configurations. Compared with other federated fine-tuning methods, FedAvg and FedProx are limited by direct parameter aggregation, while HetLoRA and pFedLoRA still face challenges in transferring comple-mentary knowledge across heterogeneous VLMs. In contrast, UniFed-VLM combines FedCSA and TCoD to improve intra-architecture aggregation and cross-model collaboration, re-sulting in more consistent performance across diverse tasks. Overall, this additional scenario demonstrates the generality of UniFed-VLM under different task-model assignments and validates its effectiveness in addressing multi-dimensional heterogeneity in federated VLM adaptation. 
+
+## F Privacy Issues Analysis 
+
+To further investigate the impact of privacy preservation on UniFed-VLM, we incorporate differential privacy (DP) into the federated fine-tuning process. Specifically, before per-forming federated aggregation, Gaussian noise is added to the clipped LoRA updates uploaded by each client to pro-tect sensitive information while maintaining the personalized adaptation capability of local models. As shown in Table E.2, applying DP introduces only limited performance variations compared with the original UniFed-VLM. Although the injected noise inevitably affects the qual-ity of uploaded updates, UniFed-VLM with DP maintains competitive performance across different tasks. Specifically, VQA accuracy decreases from 0.743 to 0.724, indicating that reasoning-oriented tasks are relatively more sensitive to per-turbations. In contrast, caption generation, visual grounding, and classification exhibit only marginal changes, with the performance remaining comparable to the non-private set-ting. These results demonstrate that UniFed-VLM can effec-tively support differential privacy while maintaining reliable federated multimodal learning performance, highlighting its compatibility with privacy-preserving mechanisms in prac-tical federated scenarios. 
+
+## G Federated Optimization 
+
+We summarize the overall optimization procedure of UniFed-VLM in Algorithm 1. The framework performs federated optimization over T communication rounds, where each round consists of local two-stage collaborative distillation and server-side aggregation. At the beginning of each round, clients receive the global LoRA parameters and the shared MDA module from the server to initialize their local VLMs. During local training, each client performs E local epochs with two-stage optimization. In Stage 1, the VLM is frozen, and the MDA module is optimized to learn task-specific rep-resentations from the VLM. The MDA is trained using LS1,which combines the task objective and knowledge distillation loss from the VLM. In Stage 2, the MDA attention module is fixed, and the LoRA parameters together with the MoE gat-ing network are optimized. The LoRA-adapted VLM learns from the MDA through reverse distillation with LS2, which incorporates two task losses, distillation loss, and MoE bal-ancing loss. After local training, clients upload their updated LoRA parameters and MDA attention modules to the server. On the server side, FedCSA first aggregates LoRA pa-rameters among clients with the same VLM architecture. Specifically, LoRA matrices are transformed into a shared low-rank subspace through randomized SVD, followed by adaptive subspace aggregation based on update stability and lightweight compensation optimization to reduce informa-tion loss. Then, for each client, the uploaded MDA attention modules from clients with heterogeneous VLM architectures relative to the local model are utilized to update its MoE ex-pert pool, facilitating cross-model knowledge collaboration while preserving client-specific expertise. Finally, the up-dated LoRA parameters and MoE experts are returned to the corresponding client for the next round of communica-tion. Through this iterative process, UniFed-VLM enables federated VLM instruction tuning under simultaneous task, modality, and model heterogeneity. 
+
+## H Limitations 
+
+While UniFed-VLM achieves effective federated adaptation of heterogeneous VLMs, several limitations remain. The two-stage collaborative distillation in TCoD introduces additional client-side computation due to extra training stages, which may challenge resource-constrained devices. Moreover, Fed-CSA incurs extra server-side overhead from SVD decompo-sition and compensation parameter optimization. In our ex-periments, FedAvg and FedProx introduce negligible aggre-gation costs, while FlexLoRA and HetLoRA require approx-imately 1 minute per communication round. FedCSA takes around 2 minutes due to the additional optimization process, which remains acceptable in our setting but may affect scal-ability with more participating clients. Furthermore, TCoD relies on effective knowledge transfer across heterogeneous VLMs, and its performance may degrade when the architec-tural gap becomes extremely large. Finally, our evaluation focuses on vision-language tasks, and the generalization of UniFed-VLM to broader multimodal scenarios remains to be explored. Algorithm 1: UniFed-VLM 
+
+Require: K clients with datasets {Dk }Kk=1 , heterogeneous VLMs 
+
+{Mk }, federated rounds T , local epochs E, hyperparameters 
+
+λS1 , λ S2 , λ MoE , β, α ... 
+
+Ensure: Fine-tuned heterogeneous VLMs {Mk }Kk=1 
+
+1: Initialization : Global LoRA params { ˆAl, ˆBl}Ll=1 , shared MDA attention Latt , momentum buffers vlA,i , v lB,i for all layers 
+
+l = 1 , . . . , L 
+
+2: for t = 1 , 2, . . . , T do 
+
+3: for each client k in parallel do 
+
+4: Receive global LoRA { ˆAl, ˆBl}Ll=1 , MDA attention Latt 
+
+and MoE expert pool from server. Then load parameters into model 5: ToCD: Two-stage Collaborative Distillation 6: for e = 1 , . . . , E do 
+
+7: Stage 1: VLM → MDA Distillation 8: Freeze Mk , train MDA fk = Lk
+
+> out
+
+(Latt (Lk
+
+> in
+
+(x))) via: 9: LStage1 = Ll 
+
+> task
+
++ λS1 LKD (pl ∥ pV )
+
+10: where LKD = 1 
+
+> |M|
+
+P 
+
+> i∈M
+
+DKL (p(s) 
+
+> i
+
+∥ p(t) 
+
+> i
+
+)
+
+11: Stage 2: MDA (MoE) → VLM Distillation 12: Freeze MDA modules and train the MoE gating net-work to compute weights g; fuse Top-K experts with the anchor, then optimize LoRA parameters via: 13: LStage2 = LV 
+
+> task
+
++ λS2 LKD (pV ∥ pl) + λMoE task LMoE task +
+
+λMoE LMoE Bal 
+
+14: end for 
+
+15: Upload local LoRA {Alk , B lk }Ll=1 and MDA attention Lk
+
+> att
+
+to server 16: end for 
+
+17: FedCSA: Federated Compensated Subspace Aggregation 18: for G(model architecture group), each layer l do 
+
+19: Concatenate LoRA {Ali, B li }Gi=1 & apply randomized SVD: 20: Alf = U lAΣlA(V lA)⊤, Blf = U lB ΣlB (V lB )⊤
+
+21: Partition V lA, U lB to get task features {V li }Gi=1 , {U li }Gi=1 
+
+22: Compute dynamic weights wlA,i via momentum on up-date magnitude (same for wlB,i )23: Aggregate subspace features: 24: eV l = P 
+
+> i∈G
+
+wlA,i V li , eU l = P 
+
+> i∈G
+
+wlB,i U li
+
+25: Reconstruct & compensate global LoRA: 26: ˆAl = U lAΣlA( eV l)⊤ + ∆ Al
+
+27: ˆBl = eU lΣlB V lB + ∆ Bl
+
+28: end for 
+
+29: TCoD: Construct MoE MDA 30: Update MoE experts :31: for each client k = 1 , . . . , K do 
+
+32: Update the MoE expert pool of client k: {Ei}Ni=1 ←{Lk
+
+> att
+
+}Nk=1 , N denotes the number of clients with architec-tures heterogeneous to the current client, including itself. 33: end for 
+
+34: Broadcast updated global LoRA { ˆAl, ˆBl}Ll=1 and new MoE expert pool {Ei}Ni=1 to the corresponding client 35: end for
