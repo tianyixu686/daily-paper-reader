@@ -6,77 +6,77 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-20
-- 运行时间：2026-08-20 20:01:10 UTC
+- 最新运行日期：2026-08-21
+- 运行时间：2026-08-21 20:09:42 UTC
 - 运行状态：成功
 - 本次总论文数：19
 - 精读区：7
 - 速读区：12
 
 ### 今日简报（AI）
-今日主推长时序自我中心记忆检索与多模态长文档重排两篇精读。值得关注EgoCITE的时间感知索引、Reranker的多方面页面标注，分别解决长期记忆与长文档问答瓶颈。下一步可结合生成式嵌入模型（GEM）与量化压缩（QuaSAR）提升实际检索效率。
-- 详情：[/202608/20/README](/202608/20/README)
+今日聚焦LLM量化与视频推理，精读两篇9分论文，并覆盖GPU共享、多语言模型与长上下文压缩等方向。最值得关注的是SchurQuant的层间量化离散优化，以及Beyond Visual CoT的主动视频推理。建议普通读者优先从这两篇精读入手，理解量化效率与视频推理的前沿进展。
+- 详情：[/202608/21/README](/202608/21/README)
 
 ### 精读区论文标签
-1. [EgoCITE: Context-Augmented Indexing and Time-Aware Retrieval for Long-Horizon Egocentric Memory](/202608/20/2608.12627v3-egocite-context-augmented-indexing-and-time-aware-retrieval-for-long-horizon-egocentric-memory)  
-   标签：评分：9.0/10、query:mr
-   evidence：面向第一视角问答的多模态上下文增强索引与时间感知检索，典型多模态RAG
-2. [What the Reranker Sees: Multi-Aspect Page Annotation for Long-Document Multimodal Question Answering](/202608/20/2608.14841v1-what-the-reranker-sees-multi-aspect-page-annotation-for-long-document-multimodal-question-answering)  
-   标签：评分：9.0/10、query:mr
-   evidence：基于检索-重排-阅读的长文档多模态问答，重排器侧重多维度页面标注
-3. [LineageRAG: Harnessing GraphRAG by Constructing Evidence Lineages with Source Grounding](/202608/20/2608.16004v1-lineagerag-harnessing-graphrag-by-constructing-evidence-lineages-with-source-grounding)  
-   标签：评分：9.0/10、query:mr
-   evidence：面向语料图上的多跳问题，构建证据血缘并实现逐字源锚定，属于多跳推理的直接方法
-4. [UMER: Unifying Embedding and Ranking via Pair-Aware Discriminative Reasoning for Universal Multimodal Retrieval](/202608/20/2608.18504v1-umer-unifying-embedding-and-ranking-via-pair-aware-discriminative-reasoning-for-universal-multimodal-retrieval)  
-   标签：评分：9.0/10、query:mr
-   evidence：面向多模态检索的成对感知推理与排序
-5. [VA-Judger: Reward Modeling from Human Preference Feedback for Joint Video-Audio Generation](/202608/20/2608.18607v1-va-judger-reward-modeling-from-human-preference-feedback-for-joint-video-audio-generation)  
+1. [SchurQuant: Groupwise Discrete Optimization for Layer-Wise LLM Quantization](/202608/21/2608.15567v1-schurquant-groupwise-discrete-optimization-for-layer-wise-llm-quantization)  
    标签：评分：9.0/10、query:post-multi
-   evidence：基于人类偏好反馈的奖励建模，用于多模态生成模型的RLHF后训练
-6. [MediaGraph: A Content-Aware Data Model and Query Framework for Multimodal Knowledge Graphs](/202608/20/2608.18895v1-mediagraph-a-content-aware-data-model-and-query-framework-for-multimodal-knowledge-graphs)  
+   evidence：直接提出大模型权重的训练后量化（PTQ）优化方法，属于典型后训练技术。
+2. [Beyond Visual CoT: Internalized Visual Thinking for Proactive Video Reasoning](/202608/21/2608.15869v1-beyond-visual-cot-internalized-visual-thinking-for-proactive-video-reasoning)  
+   标签：评分：9.0/10、query:post-multi
+   evidence：面向视觉语言模型的视频推理后训练框架，将视觉思考内化至训练阶段
+3. [Scaffolding Minds: Optimizing Latent Visual Target Representations for Multimodal Reasoning](/202608/21/2608.19669v1-scaffolding-minds-optimizing-latent-visual-target-representations-for-multimodal-reasoning)  
+   标签：评分：9.0/10、query:post-multi
+   evidence：面向多模态推理的潜视觉表征SFT与RL训练
+4. [SABET-QA: Temporal Knowledge Graph Question Answering](/202608/21/2608.20083v1-sabet-qa-temporal-knowledge-graph-question-answering)  
    标签：评分：9.0/10、query:mr
-   evidence：直接面向多模态知识图谱，将多媒体内容作为图节点集成
-7. [QV-PIC: Query-Aware Visual Position-Independent Caching for Efficient RAG Serving](/202608/20/2608.12121v1-qv-pic-query-aware-visual-position-independent-caching-for-efficient-rag-serving)  
+   evidence：针对时序知识图谱上的多步查询，通过多轮迭代多跳精化进行推理，直接对应多跳推理需求。
+5. [Inject, Align, Recover: Staged Post-Training for Retrieval-Free Document Knowledge Internalization](/202608/21/2608.20281v1-inject-align-recover-staged-post-training-for-retrieval-free-document-knowledge-internalization)  
+   标签：评分：9.0/10、query:post-multi
+   evidence：面向大语言模型的后训练分阶段方案，与后训练技术需求高度契合
+6. [MidTool: Mid-training Data Synthesis for Agentic Tool Use](/202608/21/2608.20314v1-midtool-mid-training-data-synthesis-for-agentic-tool-use)  
+   标签：评分：9.0/10、query:post-multi
+   evidence：面向大模型中期后训练的数据合成，增强智能体工具使用能力。
+7. [MODAL: Multi-Modal Object Re-ID via Model-Driven Sparse Decoupling and Text-Image Differential Filtering](/202608/21/2608.15096v1-modal-multi-modal-object-re-id-via-model-driven-sparse-decoupling-and-text-image-differential-filtering)  
    标签：评分：8.0/10、query:mr
-   evidence：面向多模态RAG服务的查询感知视觉位置无关缓存
+   evidence：多模态目标重识别中的跨模态检索与文本-图像差分过滤
 
 ### 速读区论文标签
-1. [GEM: A Generative Embedding Model Bridging Reasoning and Retrieval](/202608/20/2608.13200v2-gem-a-generative-embedding-model-bridging-reasoning-and-retrieval)  
+1. [Rollplex: Cross-Phase GPU Spatial Sharing for Vision Language Model Post-Training](/202608/21/2608.14498v1-rollplex-cross-phase-gpu-spatial-sharing-for-vision-language-model-post-training)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：面向视觉语言模型强化学习后训练的运行系统，直接涉及VLM后训练
+2. [Why Vision Fails as a Universal Bridge: Rectifying Modality Asynchrony in Multilingual MLLMs](/202608/21/2608.15085v1-why-vision-fails-as-a-universal-bridge-rectifying-modality-asynchrony-in-multilingual-mllms)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：通过机制分析矫正多语言多模态大模型中的模态异步问题
+3. [SEER: Long-Context Reasoning via Selective Visual-Text Compression](/202608/21/2608.15962v1-seer-long-context-reasoning-via-selective-visual-text-compression)  
    标签：评分：8.0/10、query:mr
-   evidence：生成式嵌入模型在检索前显式推理用户意图与相关性标准，契合推理密集型检索需求
-2. [MMDynOpt-Agent: Dynamic Optimization for Multimodal Large Language Model Reasoning via Reinforcement Learning](/202608/20/2608.14026v2-mmdynopt-agent-dynamic-optimization-for-multimodal-large-language-model-reasoning-via-reinforcement-learning)  
+   evidence：通过视觉扫描与按需文本检索实现多模态长上下文推理，属于典型多模态检索增强推理架构。
+4. [Multi-Granularity Sentiment Integration for LLM-Based Multimodal Sentiment Analysis](/202608/21/2608.16201v1-multi-granularity-sentiment-integration-for-llm-based-multimodal-sentiment-analysis)  
    标签：评分：8.0/10、query:post-multi
-   evidence：基于强化学习的多模态大模型推理优化
-3. [QuaSAR: Quantization Compensation via Stable Activation-Aware Rank Truncation](/202608/20/2608.14149v1-quasar-quantization-compensation-via-stable-activation-aware-rank-truncation)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：面向大语言模型的后训练量化补偿，提出稳定激活感知的秩截断
-4. [Disentangled Shared Representations Improve Morpho-Transcriptomic Integration](/202608/20/2608.14355v1-disentangled-shared-representations-improve-morpho-transcriptomic-integration)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：多模态解耦共享表征学习用于形态-转录组整合
-5. [S2Dialog: Multimodal Dialogue Retrieval with Semantic and Acoustic-Style Modeling](/202608/20/2608.14029v1-s2dialog-multimodal-dialogue-retrieval-with-semantic-and-acoustic-style-modeling)  
-   标签：评分：7.0/10、query:mr
-   evidence：基于语义与声学风格的多模态对话检索框架，属于跨模态检索范畴
-6. [SPARGen: Unifying Spatial Perception and Reasoning through Native Multimodal Generation](/202608/20/2608.14138v1-spargen-unifying-spatial-perception-and-reasoning-through-native-multimodal-generation)  
+   evidence：一种基于LLM的多模态情感分析多粒度集成方法，改善跨模态对齐与多模态学习。
+5. [When Is a Task Vector Enough? An Empirical Theory of Implicit Multimodal ICL](/202608/21/2608.13385v1-when-is-a-task-vector-enough-an-empirical-theory-of-implicit-multimodal-icl)  
    标签：评分：7.0/10、query:post-multi
-   evidence：通过指令条件生成统一多模态感知与推理的框架
-7. [FluxBin: Flexible LUT-based Ultra-low-bit LLM Inference by Algorithm-Kernel Synergy](/202608/20/2608.15602v1-fluxbin-flexible-lut-based-ultra-low-bit-llm-inference-by-algorithm-kernel-synergy)  
+   evidence：针对隐式多模态上下文学习提出选择-实现假说，揭示任务向量等干预的作用机制。
+6. [Fine-Grained Action Recognition with Cross-Attentive Latent Sparse Experts](/202608/21/2608.13458v1-fine-grained-action-recognition-with-cross-attentive-latent-sparse-experts)  
    标签：评分：7.0/10、query:post-multi
-   evidence：面向LLM推理的后训练量化
-8. [When Context Misleads: Intent-Guided Decoding for Robust Retrieval-Augmented Generation](/202608/20/2608.16515v1-when-context-misleads-intent-guided-decoding-for-robust-retrieval-augmented-generation)  
-   标签：评分：7.0/10、query:mr
-   evidence：通过意图引导仲裁的鲁棒RAG解码
-9. [MLLM-Routed Heterogeneous Ensembles for Robust Cross-Dataset Image Classification](/202608/20/2608.13463v1-mllm-routed-heterogeneous-ensembles-for-robust-cross-dataset-image-classification)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：提出利用多模态大语言模型智能体路由图像的多模态集成学习方法
-10. [SAEVerbalizer: Generating Explanations for Sparse Autoencoder Features via Representation Verbalization](/202608/20/2608.13538v2-saeverbalizer-generating-explanations-for-sparse-autoencoder-features-via-representation-verbalization)  
-   标签：评分：6.0/10、query:post-multi
-   evidence：微调LLM层以语言化稀疏自编码器特征，属后训练可解释性方法
-11. [A Pathway to General-Purpose Scientific AI: Multimodal Comprehension of Scientific Images](/202608/20/2608.14075v1-a-pathway-to-general-purpose-scientific-ai-multimodal-comprehension-of-scientific-images)  
+   evidence：通过交叉注意力和稀疏专家混合实现多模态融合
+7. [FZ-VLM: A Two Stage Florence-Zephyr Vision Language Model Framework for Pulmonary Nodule Characterization and Clinical Decision Making](/202608/21/2608.15004v1-fz-vlm-a-two-stage-florence-zephyr-vision-language-model-framework-for-pulmonary-nodule-characterization-and-clinical-decision-making)  
+   标签：评分：7.0/10、query:post-multi
+   evidence：两阶段视觉语言模型训练框架，与视觉语言模型训练需求相关
+8. [Quantum Models with Multi-Stage Training for Compositional Concept Generalization](/202608/21/2608.15601v1-quantum-models-with-multi-stage-training-for-compositional-concept-generalization)  
+   标签：评分：7.0/10、query:post-multi
+   evidence：使用张量与变分量子电路，面向多模态学习中的组合概念泛化提出多阶段训练方法。
+9. [ERSkill: Evolving for Skill-Guided Adaptive Memory Retrieval](/202608/21/2608.12720v1-erskill-evolving-for-skill-guided-adaptive-memory-retrieval)  
    标签：评分：6.0/10、query:mr
-   evidence：面向科学图像多模态理解的基准，支持图表检索与解读
-12. [Retrieval Grounding Latent Reasoning for Dense Retrieval](/202608/20/2608.14107v1-retrieval-grounding-latent-reasoning-for-dense-retrieval)  
+   evidence：LLM智能体自适应记忆检索，技能引导证据构造，与RAG架构相关。
+10. [A Comprehensive Empirical Evaluation of Vector Database Systems for Approximate Nearest Neighbor Search: Performance, Quality, and Resource Trade-offs](/202608/21/2608.12812v1-a-comprehensive-empirical-evaluation-of-vector-database-systems-for-approximate-nearest-neighbor-search-performance-quality-and-resource-trade-offs)  
    标签：评分：6.0/10、query:mr
-   evidence：面向稠密检索的潜在推理
+   evidence：系统评估七种向量数据库在ANN检索上的性能与质量，为RAG（含多模态）提供检索基础设施选型依据
+11. [GLaQ: Grounding Latent Queries in Visual Evidence for Multimodal Reasoning](/202608/21/2608.15517v2-glaq-grounding-latent-queries-in-visual-evidence-for-multimodal-reasoning)  
+   标签：评分：6.0/10、query:mr
+   evidence：通过潜在查询锚定视觉证据改进多模态推理，并解决潜在推理中的信息重复问题，与多跳推理相关。
+12. [Can Retrievers Find the Same Paper from Different Aspects? A Multi-Aspect Full-Paper Scientific Retrieval Benchmark](/202608/21/2608.15624v1-can-retrievers-find-the-same-paper-from-different-aspects-a-multi-aspect-full-paper-scientific-retrieval-benchmark)  
+   标签：评分：6.0/10、query:mr
+   evidence：基于多模态内容的全论文检索基准，可用于评估RAG中的检索环节
 
 
 <div class="dpr-home-promo-card">
