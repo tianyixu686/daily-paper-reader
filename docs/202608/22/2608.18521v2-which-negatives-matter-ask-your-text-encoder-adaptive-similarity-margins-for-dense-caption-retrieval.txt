@@ -1,0 +1,2711 @@
+WHICH NEGATIVES MATTER?
+ASK YOUR TEXT ENCODER: ADAPTIVE SIMILARITY
+MARGINS FOR DENSE-CAPTION RETRIEVAL
+Haoyue Liu1
+Ye Chen2
+Zhichao Wang1
+Xiaoying Tang1,3,†
+1 School of Science and Engineering, The Chinese University of Hong Kong, Shenzhen 518172, China
+2 XJTU-POLIMI Joint School, Xi’an Jiaotong University, Xi’an 710049, China
+3 Shenzhen Future Network of Intelligence Institute (FNii-Shenzhen)
+ABSTRACT
+Dense-caption retrieval has recently been improved by introducing segmentation,
+edge maps, LLM-filtered captions, and cross-modal modules into contrastive fine-
+tuning.
+However, these methods largely inherit the same InfoNCE objective,
+whose optimization can prematurely saturate under a strong pre-trained initial-
+ization: on dense captions, the loss falls below 10−3 on 80% of batches within
+the first epoch, while its gradient becomes numerically zero in 47% of measure-
+ments. We find that this behavior is closely related to the large number of near-
+duplicate captions in dense-caption benchmarks, where a few highly similar neg-
+atives remain unresolved after the easy majority has already been separated. As
+a remedy, we introduce HN-CLIP, which uses the text encoder’s own text–text
+geometry to construct per-negative adaptive similarity margins. Specifically, a de-
+tached caption-similarity matrix is added to the negative logits, assigning larger
+margins to more similar captions without mining, synthesizing, or resampling neg-
+atives. The resulting objective requires only one caption-similarity matrix and a
+masked logit addition during training, with no auxiliary data, additional parame-
+ters, offline preprocessing, or inference-time overhead. Extensive experiments on
+four dense-caption retrieval benchmarks show that HN-CLIP improves over the
+strongest competitors by +2.5–+4.0 R@1 while training 2.4× faster than GOAL
+and 5.4× faster than StructXLIP. Moreover, the proposed objective improves all
+six tested fine-tuning frameworks on the in-domain benchmarks and reaches the
+strongest full-data baseline with only 20% of the training data.
+1
+INTRODUCTION
+Contrastively pre-trained vision-language models (VLMs) (Radford et al., 2021; Zhai et al., 2023)
+have become a standard backbone for image–text retrieval. While their pre-training corpora mainly
+contain short web captions, recent benchmarks such as DOCCI (Onoe et al., 2024), DCI (Urbanek
+et al., 2024), and Urban-1K (Zhang et al., 2024) require models to distinguish long, detail-rich de-
+scriptions of visually similar scenes. This dense-caption retrieval setting has motivated a growing
+line of methods built on Long-CLIP (Zhang et al., 2024). FineLIP introduces a cross-modal mod-
+ule (Asokan et al., 2025), GOAL incorporates local matching over segmented regions (Choi et al.,
+2025), SmartCLIP reweights salient tokens (Xie et al., 2025), and StructXLIP further introduces
+structural cues from edge maps and LLM-derived lexical supervision (Ruan et al., 2026). Despite
+their different designs, these methods largely focus on enriching what supervision is provided while
+retaining the same global contrastive objective.
+We instead investigate whether this objective remains effective during dense-caption fine-tuning.
+Our analysis reveals a pronounced saturation phenomenon: with a strong Long-CLIP initialization,
+the InfoNCE loss falls below 10−3 on 80% of measured batches within the first epoch, and its
+gradient is numerically zero in 47% of measurements (Fig. 4). We trace this behavior to the caption
+geometry of dense-caption benchmarks. Long descriptions are highly compositional and often form
+near-duplicate pairs: under the pre-trained Long-CLIP text encoder, each caption’s hardest negative
+1
+arXiv:2608.18521v2  [cs.AI]  20 Aug 2026
+
+
+Figure 1: Dense-caption benchmarks are dominated by hard negatives. Distributions of (a) all pairwise
+caption-caption cosine similarities and (b) each caption’s hardest-negative similarity, measured with the pre-
+trained Long-CLIP-L text encoder on the test sets. Dotted lines mark the means. The pairs in (b) receive the
+strongest boosts.
+reaches 0.92–0.94 cosine similarity (Fig. 1). A strong initialization therefore separates the easy
+majority of negatives very quickly, causing the standard objective to provide little gradient while the
+highly similar negatives that determine R@1 remain unresolved. This observation raises a natural
+question: can the contrastive objective itself adapt its training pressure to the hard negatives already
+present in dense-caption batches?
+As a remedy, we introduce HN-CLIP, a simple objective-level approach that exploits the text en-
+coder’s own representation geometry to identify hardness. Given a batch of image–caption pairs,
+HN-CLIP computes the caption–caption similarity matrix, detaches it from the computation graph,
+masks its diagonal, and adds it to the negative logits with a single coefficient γ. Each negative
+thus receives an adaptive margin proportional to its caption similarity: easy negatives are nearly
+unchanged, whereas near-duplicate captions must be separated by larger margins before their loss
+vanishes. Unlike conventional hard-negative strategies, HN-CLIP does not mine, synthesize, or
+resample negatives; the existing batch is left unchanged. Combined with a standard token-level late-
+interaction term (Yao et al., 2021), the method introduces no auxiliary inputs, preprocessing pipeline,
+architectural module, additional parameters, or inference-time computation. Experiments on four
+dense-caption benchmarks show that HN-CLIP achieves the best R@1 in all eight retrieval direc-
+tions, outperforming the strongest competitors by +2.5–+4.0 R@1. It also trains 2.4× faster than
+GOAL and 5.4× faster than StructXLIP, surpasses the strongest full-data baseline with only 20% of
+the training data, and improves all six tested fine-tuning frameworks on the in-domain benchmarks.
+Our contributions are summarized as follows:
+• We identify a previously overlooked optimization issue in dense-caption retrieval. Under a
+strong pre-trained initialization, InfoNCE rapidly separates the easy majority of negatives and
+largely saturates while the highly similar negatives that determine R@1 remain unresolved. We
+verify this behavior through both caption-similarity statistics and direct gradient-dynamics mea-
+surements.
+• We introduce HN-CLIP, a simple adaptive-margin objective for dense-caption retrieval.
+HN-CLIP converts the text encoder’s own text–text geometry into detached, per-negative sim-
+ilarity margins, assigning stronger training pressure to more similar captions without negative
+mining, synthesis, resampling, auxiliary data, architectural changes, or inference overhead.
+• We provide extensive empirical evidence for the effectiveness and generality of the proposed
+objective. Across four dense-caption benchmarks, HN-CLIP achieves the best R@1 in all eight
+retrieval directions with gains of +2.5–+4.0 over the strongest competitors, trains substantially
+faster than machinery-based methods, surpasses the strongest full-data baseline using only one
+fifth of the training data, and improves all six tested fine-tuning frameworks on the in-domain
+benchmarks. Gradient analysis further connects these improvements to sustained optimization
+signal on hard negatives.
+2
+
+
+a) A Batch of B Image-Text Pairs
+Text Features
+b) HN-CLIP: Overview
+1) Image-Text
+Similarity
+2) Caption-Caption
+Similarity
+3) Detached +
+Diagonal-Masked
+Caption Similarity  
+1
+2
+…
+B
+…
+…
+…
+1 2
+B
+1 2
+B
+1 2
+B
+matched image-text
+positives (high similarity)
+self similarity = 1.0
+(highest)
+positives excluded
+(detach, diagonal masked)
+4) Adaptive
+Margin
+…
+1 2
+B
+only negatives receive
+margin (scaled by γ)
+c) Zoom-in on Adaptive Margin
+Focus on Caption T1
+Similarity to caption in batch - before masking
+(self)
+…
+1.00
+0.89
+self similarity = 1.0
+Adaptive margin
+(self)
+…
+…
+0
+0.89γ
+0.32γ
+0.08γ
+masked to 0
+(positive excluded)
+only negative receive
+adaptive margins
+T1: A large rounded 
+boulder balanced on 
+smaller gray rocks on 
+a beach.
+
+T2: A huge smooth 
+boulder resting on a 
+cluster of small rocks 
+along the shoreline.
+
+TB: A wide sandy 
+beach with scattered 
+rocks and an overcast 
+sky.
+…
+Text
+Encoder
+……
+0.32
+0.08
+detach
+mask diag
+x γ
+…
+pre-trained
+jointly fine-tuned
+(L2-norm)
+Boosted Logits (Global)
+1
+2
+…
+B
+1
+2
+B Examples
+(self)
+Boosted logits
+…
+…
+I1
+Image Features
+Global Contrastive Loss
+InfoNCE
++
+Image
+Encoder
+Word Tokens
+(from text)
+Image Patches
+(from images)
+I2
+…
+B
+self/positive:
+no margin added
+negatives: get added margins
+…
+Token-level Late
+Interaction Loss
+=
+…
+pre-trained
+jointly fine-tuned
+More similar captions receive larger margins.
+Hard negatives compete more strongly.
+Hard negatives remain active in the loss.
+(L2-norm)
+Total Loss
+Low Similarity
+Zero (After Diagonal Masking)
+IB
+High Similarity
+No Mining
+No Resampling
+No Extra Data
+No Extra Parameters 
+No Inference Overhead
+Figure 2: Overview of HN-CLIP. (a) A batch of image–text pairs is encoded by the jointly fine-tuned dual
+encoder. (b) Caption–caption similarity provides detached, per-negative adaptive margins for the global con-
+trastive loss, combined with the token-level term. (c) More similar negatives receive larger margins, while
+the positive is unchanged. HN-CLIP requires no mining, resampling, extra data, additional parameters, or
+inference-time overhead.
+2
+METHOD
+In this section, we introduce HN-CLIP, which fine-tunes a pre-trained dual encoder without auxiliary
+data views, preprocessing pipelines, or architectural modules (Figs. 2 and 3). Training combines a
+text-similarity–boosted global objective with a standard token-level late-interaction term:
+(1) The text-similarity–boosted objective (Section 2.2), which converts the batch’s own caption-
+similarity matrix into per-negative adaptive margins, keeping the loss and its gradient alive ex-
+actly on the hard negatives that decide retrieval.
+(2) A token-level alignment branch (Section 2.3) that the boost makes usable, contributing an addi-
+tional gain where captions are longest.
+Figure 3:
+Illustration of HN-CLIP. A real
+DOCCI query and its hardest in-batch negative
+(cos 0.89).
+The strongest baseline ranks the
+ground truth 52nd (its top-1 (pink) is the near-
+twin’s own image); HN-CLIP ranks it first.
+We first quantify why the standard objective fails
+on dense captions (Section 2.1), then present both
+components, and close with an empirical gradient-
+dynamics analysis (Section 2.4).
+2.1
+PRELIMINARIES AND MOTIVATION
+Let fimg and ftxt map images and captions into a
+shared d-dimensional space, and let {(Ii, Ti)}B
+i=1 de-
+note a batch of B image-caption pairs.
+Let vi =
+fimg(Ii)/∥fimg(Ii)∥and ti = ftxt(Ti)/∥ftxt(Ti)∥
+denote the normalized embeddings, Sij = v⊤
+i tj the
+image-text similarity matrix, and s the learned in-
+verse temperature. Standard fine-tuning minimizes
+the symmetric InfoNCE loss (Oord et al., 2018; Rad-
+ford et al., 2021)
+LCLIP = 1
+2
+
+CE(sS, y) + CE(sS⊤, y)
+
+,
+(1)
+where CE(Z, y) denotes row-wise softmax cross-
+entropy with target indices yi = i. The gradient of
+Eq. (1) w.r.t. the logits is the classic softmax resid-
+ual (Wang & Liu, 2021): each negative j is repelled
+3
+
+
+with force proportional to its posterior probability
+pij = [softmax(sSi,:)]j. When a strong pre-trained
+initialization such as Long-CLIP already assigns the
+positive a large margin over the easy majority of negatives, those posteriors pij become negligible
+and can numerically underflow together with the loss.
+Dense-caption benchmarks make this failure mode extreme. Encoding the test captions of DOCCI,
+DCI, and Urban-1K with the released Long-CLIP-L text encoder, the mean pairwise caption simi-
+larity is 0.84, 0.85, and 0.88, and the mean over each caption’s hardest companion is 0.93, 0.92, and
+0.94 (Fig. 1). Long descriptions of natural scenes are compositional near-duplicates; the retrieval
+task is decided by a handful of nearly-identical candidates. Empirically, at an effective batch of 128,
+LCLIP of a Long-CLIP-L initialization collapses below 10−5 within the first tens of steps of fine-
+tuning (Fig. 4a): the batch is “solved” with respect to easy negatives long before the model separates
+the hard ones.
+2.2
+TEXT-SIMILARITY–BOOSTED HARD NEGATIVES
+The diagnosis suggests the remedy: the objective must know which negatives are hard, and for
+captions this information is available for free. We compute the text-text similarity matrix Gij = t⊤
+i tj
+from embeddings the batch already contains, detach it from the computation graph, zero its diagonal,
+and add it to the logits of Eq. (1):
+LHN = 1
+2
+
+CE
+ s(S + γ ¯G), y
+
++ CE
+ s(S + γ ¯G)⊤, y
+
+,
+(2)
+where ¯G = stopgrad(G) ⊙(1 −I), with ⊙the element-wise product, 1 the all-ones matrix, I the
+identity (masking the positives), and γ the single hyperparameter (default 0.5).
+Interpretation as an adaptive margin.
+Because ¯G is detached, Eq. (2) is exactly Eq. (1) evalu-
+ated on shifted logits: negative j of query i competes with an additive handicap γGij in its favor.
+Equivalently, the positive must beat every negative by a margin proportional to how similar that
+negative’s caption is to its own, a per-pair adaptive generalization of the fixed additive margins
+used in metric learning. Easy negatives (Gij small) are almost unaffected; near-duplicate captions
+(Gij →1) keep producing loss and gradient until the model separates them by the full margin. The
+softmax residual now concentrates exactly on the pairs identified in Fig. 1b (a formal derivation of
+this gradient concentration is given in Appendix B).
+Remark 2.1 (Why text–text similarity). Hardness could also be estimated from the image-text scores
+S being optimized, but early in training these are exactly the quantities that are wrong, and reweight-
+ing by them makes the supervision a function of the error it should correct. The text–text geometry
+of a pre-trained encoder is instead accurate before the first gradient step, symmetric across both
+retrieval directions, and the natural space in which the benchmark difficulty manifests (Fig. 1). The
+stop-gradient removes any differentiable path to ¯G, so no step is taken toward reshaping the model’s
+own margins; it does not freeze ¯G across training, since we recompute it from the current encoder.
+That residual drift is deliberate: Table 3c shows it acts as an implicit annealing of the margin, and
+that freezing it costs up to 7.2 R@1.
+Cost.
+Training overhead is one B×B matrix product and one masked addition per step; there is
+no auxiliary forward pass, no extra encoder, no offline extraction. Inference is byte-identical to the
+underlying backbone. The complete reference implementation is 11 lines (Appendix B).
+2.3
+TOKEN-LEVEL ALIGNMENT BRANCH
+The boost operates on global embeddings, and composes with supervision at a finer granularity.
+Following FILIP (Yao et al., 2021), we add a late-interaction term Ltok that aligns each word token
+with its most similar image patch (and vice versa), averaged over tokens, with in-batch negatives.
+The full objective is
+L = LHN + λ Ltok,
+λ = 1.
+(3)
+The two terms are complementary in a way our diagnosis predicts: LHN decides which pairs the
+objective spends gradient on, Ltok decides at what granularity it is applied, and the second question
+4
+
+
+Figure 4: Empirical gradient analysis (Long-CLIP-L, DOCCI, 10 epochs; losses and full-parameter gradients
+measured every 5 optimizer steps, 148 measurements). Standard InfoNCE declares 80% of batches solved
+within the first epoch and its gradient is numerically zero in 47% of measurements (median zero at five epochs;
+plotted clamped to 10−10). The boosted loss keeps at least 26% of batches active in every epoch and, where the
+standard gradient is nonzero, exceeds it by 102–106× in per-epoch median, with interquartile bands disjoint
+at nine epochs, and the retrieval error it buys keeps falling. Its gradient-norm distribution is bimodal across
+batches; see Section C.
+becomes material only once the first is answered, which Section 3.5 confirms. Both terms act at
+training time only: no parameters are added and inference stays byte-identical.
+2.4
+GRADIENT-DYNAMICS ANALYSIS
+An objective that remains unsaturated supplies gradient diversity after the main loss converges (cf.
+gradient starvation; Pezeshki et al., 2021), the information-theoretic motivation behind StructXLIP’s
+auxiliary losses (Ruan et al., 2026). Our boost realizes the same mechanism without any auxiliary
+view, by reshaping the main objective to reduce premature saturation and keep hard negatives active
+longer. We verify this directly. During a 10-epoch fine-tuning run of Long-CLIP-L on DOCCI
+(effective batch 128) we measure, every 5 optimizer steps, both losses on the current batch, the
+norms of their gradients ∥∇θLCLIP∥and ∥∇θLHN∥w.r.t. all model parameters θ, and the cosine
+similarity between the two gradients (Fig. 4).
+Three observations support the design. (i) Saturation vs. persistence: within the first epoch, LCLIP
+already falls below 10−3 on 80% of measured batches, and from epoch 6 on it does so on essentially
+all of them: the standard objective simply runs out of work. In contrast, the fraction of batches
+on which LHN still produces loss never falls below 26% (Fig. 4a). The standard gradient is ex-
+actly zero in 47% of measurements; on the rest, LHN exceeds it by 102–106× in per-epoch me-
+dian (Fig. 4b). (ii) Compatibility: the two gradients remain positively correlated throughout (cos
+µ=0.47, σ=0.36), i.e., the boost steers optimization further along directions compatible with the
+original objective rather than against it. (iii) Utility: the persistent gradient is not noise: held-out re-
+trieval error on DOCCI decreases monotonically from 20.5% to 15.1% (T→I) and 22.9% to 17.1%
+(I→T) across the same run (Fig. 4c), epochs after LCLIP has flattened. The standard objective
+largely stops providing gradient signal; the boosted one does not. Appendix C repeats this analysis
+at four training-set scales on two datasets with identical conclusions.
+3
+EXPERIMENTS
+In this section, we carry out experiments to address the following questions:
+• Q1: Does HN-CLIP outperform machinery-based fine-tuning methods on dense-caption retrieval?
+See Section 3.2.
+• Q2: Does the boost consistently improve existing fine-tuning frameworks in-domain? See Sec-
+tion 3.3.
+• Q3: Do the sharpened decision boundaries transfer across domains and data scales? See Sec-
+tion 3.4.
+• Q4: Which component drives the gains, and how sensitive is the single hyperparameter γ? See
+Section 3.5.
+5
+
+
+Table 1: Cross-modal retrieval performance of CLIP-based fine-tuning methods on four dense-caption
+benchmarks. We report Recall@K (%) on both Text→Image and Image→Text settings. All fine-tuned
+methods start from the same Long-CLIP-L backbone with an identical training budget; Long-CLIP denotes
+the released checkpoint. Best results in bold; second best underlined. ∆denotes the margin over the best
+competitor per column, with gain in ↑green.
+DOCCI
+DCI
+Method
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+Long-CLIP[ECCV’24]
+78.78
+95.24
+98.02
+66.75
+91.92
+96.31
+67.83
+83.19
+87.69
+64.13
+84.84
+89.74
+FineLIP[CVPR’25]
+77.51
+96.02
+98.41
+69.90
+93.43
+97.45
+72.69
+87.14
+90.65
+65.48
+86.84
+91.00
+GOAL[CVPR’25]
+81.53
+97.02
+98.80
+80.86
+96.24
+98.63
+77.29
+90.25
+93.30
+74.84
+89.94
+93.25
+StructXLIP[CVPR’26]
+84.73
+97.69
+99.00
+82.61
+97.08
+98.71
+75.84
+89.94
+93.65
+74.49
+90.05
+93.40
+HN-CLIP
+88.25
+98.45
+99.43
+86.24
+98.12
+99.22
+80.69
+92.40
+95.10
+78.84
+91.90
+94.65
+∆
+↑3.52 ↑0.76 ↑0.43
+↑3.63 ↑1.04 ↑0.51
+↑3.40 ↑2.15 ↑1.45
+↑4.00 ↑1.85 ↑1.25
+Long-DCI
+Urban-1K
+Method
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+Long-CLIP[ECCV’24]
+54.61
+72.80
+78.33
+47.35
+73.04
+80.10
+86.10
+96.50
+98.10
+82.40
+96.70
+98.30
+FineLIP[CVPR’25]
+59.24
+77.86
+83.19
+49.52
+75.08
+82.39
+81.50
+94.50
+97.60
+77.90
+95.00
+98.00
+GOAL[CVPR’25]
+74.11
+92.73
+95.75
+73.29
+92.18
+95.78
+84.40
+96.80
+98.60
+88.20
+97.00
+98.60
+StructXLIP[CVPR’26]
+75.31
+93.15
+95.92
+72.56
+92.65
+95.75
+86.80
+97.60
+98.90
+87.70
+96.90
+98.30
+HN-CLIP
+78.90
+93.85
+96.34
+76.24
+92.86
+95.90
+90.20
+98.20
+99.20
+90.70
+98.20
+99.30
+∆
+↑3.59 ↑0.70 ↑0.42
+↑2.95 ↑0.21 ↑0.12
+↑3.40 ↑0.60 ↑0.30
+↑2.50 ↑1.20 ↑0.70
+Additional results (full-resolution numbers at deeper ranks (R@25/50), seed replication, per-
+direction convergence, and training-efficiency measurements) can be found in Appendices D and E.
+3.1
+EXPERIMENT SETUP
+• Benchmarks. DOCCI (Onoe et al., 2024) provides 15k images with highly discriminative human
+descriptions (123 words on average; 9.5k train / 5.1k test). DCI (Urbanek et al., 2024) contains
+7.4k images with dense, mask-aligned captions (5.4k train / 2k test); following the protocol of
+Choi et al. (2025) we additionally report Long-DCI, which evaluates the same models with the
+full-length captions. Urban-1K (Zhang et al., 2024) is a 1k-image test-only benchmark of ur-
+ban scenes; as it provides no training split, models are fine-tuned on Visual Genome paragraph
+captions (Krause et al., 2017) and evaluated by transfer.
+• Compared methods. We compare against the released Long-CLIP (Zhang et al., 2024) and
+against FineLIP (Asokan et al., 2025), GOAL (Choi et al., 2025), and StructXLIP (Ruan et al.,
+2026), all fine-tuned with their official code from the same Long-CLIP-L initialization with an
+identical budget.
+• Implementation.
+All experiments use the Long-CLIP-L backbone (ViT-L/14; text encoder
+stretched to 248 tokens). HN-CLIP uses AdamW (Loshchilov & Hutter, 2017) (learning rate
+2×10−6, cosine schedule), effective batch 128, 10 epochs, γ=0.5, on Ascend 910B accelerators.
+Baselines use their official hyperparameters under the same backbone, batch size, and epoch bud-
+get; auxiliary inputs required by GOAL and StructXLIP are generated with their official pipelines.
+All methods are trained for the same 10-epoch budget under a shared evaluation protocol. The
+reported ranking is unchanged under last-epoch evaluation; a second seed on Long-DCI also pre-
+serves the R@1 ranking (mean |∆|=0.09 R@1 for HN-CLIP). We report Recall@K (K=1/5/10)
+for T→I and I→T retrieval. Every HN-CLIP number reported uses the full objective of Eq. (3)
+at γ=0.5, λ=1 on all four benchmarks, with no per-benchmark recipe and each term isolated in
+Table 3b. Full details are in Appendix D.
+3.2
+A1: HN-CLIP ACHIEVES COMPETITIVE PERFORMANCE WITHOUT ANY MACHINERY
+The performance of HN-CLIP surpasses all machinery-based baselines.
+Table 1 reports the
+main comparison. As shown, we can observe that:
+6
+
+
+Figure 5: Convergence comparison. Average R@1 (T→I, I→T) per fine-tuning epoch. HN-CLIP’s first epoch
+matches or exceeds most baselines’ final accuracy on all four benchmarks.
+Table 2: Plug-and-play enhancement of our LHN on CLIP-based fine-tuning. Results on DOCCI and
+Long-DCI for Text→Image and Image→Text retrieval. Upper: full-parameter fine-tuning; lower: parameter-
+efficient tuning. Our method consistently boosts diverse CLIP variants, and the gains grow with caption length.
+Best in bold, with gain in ↑green.
+DOCCI
+Long-DCI
+Method
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+Long-CLIP[ECCV’24]
+86.45
+98.00
+99.31
+84.10
+97.84
+99.04
+70.24
+89.62
+94.00
+68.44
+89.35
+94.67
++ our LHN
+88.31
+98.75
+99.45
+86.39
+98.08
+99.20
+78.43
+92.52
+95.27
+76.02
+91.78
+94.76
+∆
+↑1.86 ↑0.75 ↑0.14
+↑2.29
+↑0.24 ↑0.16
+↑8.19
+↑2.90
+↑1.27
+↑7.58
+↑2.43
+↑0.09
+FineLIP[CVPR’25]
+77.51
+96.02
+98.41
+69.90
+93.43
+97.45
+59.24
+77.86
+83.19
+49.52
+75.08
+82.39
++ our LHN
+85.47
+97.71
+99.04
+83.88
+97.41
+98.82
+74.92
+90.52
+93.62
+73.39
+89.87
+93.23
+∆
+↑7.96 ↑1.69 ↑0.63 ↑13.98 ↑3.98 ↑1.37 ↑15.68 ↑12.66 ↑10.43 ↑23.87 ↑14.79 ↑10.84
+GOAL[CVPR’25]
+81.53
+97.02
+98.80
+80.86
+96.24
+98.63
+74.11
+92.73
+95.75
+73.29
+92.18
+95.78
++ our LHN
+86.24
+98.14
+99.35
+84.86
+97.69
+99.20
+84.27
+94.99
+96.57
+82.28
+94.26
+96.18
+∆
+↑4.71 ↑1.12 ↑0.55
+↑4.00
+↑1.45 ↑0.57 ↑10.16
+↑2.26
+↑0.82
+↑8.99
+↑2.08
+↑0.40
+StructXLIP[CVPR’26]
+84.73
+97.69
+99.00
+82.61
+97.08
+98.71
+75.31
+93.15
+95.92
+72.56
+92.65
+95.75
++ our LHN
+85.45
+97.92
+99.12
+83.31
+97.45
+98.92
+82.04
+94.18
+96.23
+78.98
+93.22
+95.65
+∆
+↑0.72 ↑0.23 ↑0.12
+↑0.70
+↑0.37 ↑0.21
+↑6.73
+↑1.03
+↑0.31
+↑6.42
+↑0.57
+↓0.10
+LoRA[ICLR’22]
+80.49
+96.16
+98.55
+77.96
+95.80
+98.04
+60.08
+80.68
+86.86
+58.97
+80.02
+86.53
++ our LHN
+82.82
+97.14
+98.86
+80.84
+96.49
+98.63
+64.87
+83.09
+88.35
+62.79
+81.77
+87.31
+∆
+↑2.33 ↑0.98 ↑0.31
+↑2.88
+↑0.69 ↑0.59
+↑4.79
+↑2.41
+↑1.49
+↑3.82
+↑1.75
+↑0.78
+DoRA[ICML’24]
+80.76
+96.25
+98.61
+78.20
+95.90
+98.10
+60.76
+81.19
+87.48
+59.65
+80.31
+87.13
++ our LHN
+83.41
+97.33
+99.00
+81.41
+96.65
+98.67
+65.46
+83.57
+88.61
+63.38
+82.15
+87.56
+∆
+↑2.65 ↑1.08 ↑0.39
+↑3.21
+↑0.75 ↑0.57
+↑4.70
+↑2.38
+↑1.13
+↑3.73
+↑1.84
+↑0.43
+1. HN-CLIP achieves the outright best result in all 24 columns and achieves the best R@1 in all
+eight directions, improving over the strongest competitor by +3.52/ + 3.63 R@1 on DOCCI,
++3.40/ + 4.00 on DCI, +3.59/ + 2.95 on Long-DCI, and +3.40/ + 2.50 on Urban-1K.
+2. The comparison is instructive about where the gain comes from: GOAL consumes segmentation
+masks, StructXLIP edge maps and LLM-built lexicons, FineLIP a cross-modal module, yet a
+plain dual encoder that refuses to ignore hard negatives outperforms all of them.
+3. Consistent with Section 2.4, the largest margins appear at R@1, where near-duplicates decide the
+outcome; at deeper ranks all methods approach ceiling and margins compress, while HN-CLIP
+remains best across all Long-DCI deep-rank columns.
+HN-CLIP accelerates the entire training trajectory.
+Fig. 5 plots per-epoch accuracy.
+On
+DOCCI the first epoch of HN-CLIP (84.3 average R@1) already exceeds the final accuracy of
+FineLIP, GOAL, and StructXLIP, and its second epoch (86.1) surpasses every baseline.
+Hard-
+negative supervision does not merely raise the endpoint; it accelerates the entire trajectory.
+3.3
+A2: THE BOOST CONSISTENTLY IMPROVES EXISTING FRAMEWORKS IN-DOMAIN
+Consistent in-domain plug-and-play improvement.
+Because LHN only modifies the logit matrix
+of the global contrastive term, it can replace that term inside any fine-tuning framework. Follow-
+ing the protocol of Ruan et al. (2026), we integrate it into the official training code of Long-CLIP,
+FineLIP, GOAL, and StructXLIP, and into LoRA (Hu et al., 2021) and DoRA (Liu et al., 2024)
+adapters on the same backbone. Table 2 shows consistent in-domain gains: every tested framework
+improves on both benchmarks, and R@1 gains scale with caption length, from +0.70–+13.98 on
+DOCCI up to +3.73–+23.87 on Long-DCI, exactly the regime where hard negatives are most ex-
+7
+
+
+Table 3: Ablations. (a) Sensitivity to the boost strength γ (Recall@1): every γ ∈[0.25, 1] beats γ=0 in-
+domain, while under transfer (Urban-1K) milder boosts generalize better. (b) Loss components under an iden-
+tical recipe; only the loss changes. (c) ¯G recomputed from the live encoder (default) vs. frozen at initialization;
+R@1/5/10 in Table A2. Best per column in bold.
+(a) boost strength γ
+DOCCI
+DCI
+Long-DCI
+Urban-1K
+γ
+R@1
+R@1
+R@1
+R@1
+R@1
+R@1
+R@1
+R@1
+Avg
+γ=0
+86.45
+84.29
+79.24
+77.54
+70.96
+68.08
+92.00
+92.90
+81.43
+γ=0.25
+87.82
+86.63
+80.69
+79.19
+76.37
+74.69
+91.70
+93.10
+83.77
+γ=0.5 (default)
+88.25
+86.24
+80.69
+78.84
+78.90
+76.24
+90.20
+90.70
+83.76
+γ=0.75
+88.20
+85.73
+80.64
+78.39
+79.82
+76.59
+88.80
+89.70
+83.48
+γ=1.0
+87.98
+85.02
+80.04
+78.29
+80.05
+76.48
+88.20
+88.30
+83.05
+(b) loss components
+DCI
+Long-DCI
+Ltok
+LHN
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+Avg
+✗
+✗
+79.39
+91.60
+94.65
+78.34
+92.85
+95.25
+70.24
+89.62
+94.00
+68.44
+89.35
+94.67
+74.10
+✓
+✗
+79.24
+91.55
+94.25
+77.54
+92.95
+95.35
+70.96
+89.52
+93.95
+68.08
+89.24
+94.25
+73.95
+✗
+✓
+81.04
+92.20
+95.00
+78.54
+91.95
+94.60
+78.43
+92.52
+95.27
+76.02
+91.78
+94.76
+78.51
+✓
+✓
+80.69
+92.40
+95.10
+78.84
+91.90
+94.65
+78.90
+93.85
+96.34
+76.24
+92.86
+95.90
+78.67
+(c) ¯G recomputed vs. frozen
+DOCCI
+DCI
+Long-DCI
+Urban-1K
+¯
+G source
+R@1
+R@1
+R@1
+R@1
+R@1
+R@1
+R@1
+R@1
+Avg
+Recomputed ¯
+G (default)
+88.25
+86.24
+80.69
+78.84
+78.90
+76.24
+90.20
+90.70
+83.76
+Frozen ¯
+G (at init)
+85.86
+82.43
+77.79
+75.84
+77.93
+74.75
+87.30
+83.50
+80.68
+∆(default −frozen)
+↑2.39
+↑3.81
+↑2.90
+↑3.00
+↑0.97
+↑1.49
+↑2.90
+↑7.20
+↑3.08
+treme (cf. Fig. 1). StructXLIP, whose own auxiliary losses already target alignment quality, still
+benefits substantially; the benefit extends to PEFT (+3.7–+4.8 R@1 for LoRA/DoRA on Long-
+DCI). DCI results and the domain-transfer setting are analyzed in Appendix E.
+3.4
+A3: SHARPENED BOUNDARIES TRANSFER ACROSS DOMAINS AND SCALES
+Across domains.
+Hard-negative margins could in principle overfit dataset-specific caption statis-
+tics; Table A10 shows the opposite. Trained on DCI and transferred to DOCCI, HN-CLIP scores
+85.00/83.14 R@1, higher than every baseline’s in-domain DOCCI result, and it leads every column
+of the reverse and of the harder DOCCI→Long-DCI transfer (Tables A7 and A10).
+Figure 6: Sample efficiency (avg R@1,
+identical subsets).
+HN-CLIP at 20%
+of the data already clears the strongest
+baseline trained on 100% (dotted line,
+from Table 1); full numbers in Table A9.
+Across data scales.
+Fig. 6 varies the training fraction on
+identical subsets. HN-CLIP leads at every fraction, the mar-
+gin widens as data shrinks to 20% (+7.3 R@1), and a fifth of
+the data already beats GOAL trained on all of it. When gradi-
+ent steps are scarce, spending them on informative negatives
+matters most.
+3.5
+A4: ABLATION STUDIES
+Loss components.
+Table 3b isolates each term under a
+strictly identical recipe, and the pattern directly tests our di-
+agnosis. Token-level supervision on its own leaves accuracy
+where plain fine-tuning left it, exactly what Section 2.4 pre-
+dicts, since a finer granularity inherits the same uniform treat-
+ment of negatives and saturates with it. Granularity is not the
+bottleneck; negative weighting is. Once LHN removes that
+bottleneck both counts change: alone it produces the bulk of
+the improvement (+1.7/ + 0.2 R@1 on DCI, +8.2/ + 7.6
+on Long-DCI), and the inert token branch now contributes
++0.47/ + 0.22 on the hardest benchmark. The boost is what
+makes finer supervision usable.
+8
+
+
+Strength of the boost.
+The sweep over our only hyperpa-
+rameter (Table 3a) is interpretable rather than tuned. Every in-domain γ ∈{0.25, . . . , 1.0} beats
+γ=0 by up to +9.1 R@1, while the spread inside the plateau is only 0.7 average R@1, far smaller
+than the gain from making γ nonzero, so the choice of γ matters far less than making it nonzero.
+The endpoints are informative: the hardest evaluation (Long-DCI) peaks at the strongest boosts
+(γ=0.75–1.0), the Urban-1K transfer at the mildest (γ ≤0.25), exactly what a mechanism sharpen-
+ing boundaries on the training distribution predicts. Our untuned default γ=0.5 lands within 0.03
+R@1 of the best setting under either aggregation—it trails γ=0.25 by 0.01 on the four-benchmark
+average and γ=0.75 by 0.03 on the three in-domain benchmarks—sits within 0.7 average R@1
+of every in-domain benchmark optimum, and since s and γ act only through their product (Ap-
+pendix B.2), the plateau covers a corresponding range of temperatures.
+The drift of ¯G is load-bearing.
+Because the text encoder trains, the recomputed ¯G drifts across
+steps; Table 3c rebuilds the boost from a frozen copy of the initial encoder to test whether that drift
+helps. The default wins the average R@1 on all four benchmarks and all 24 columns. The frozen
+variant peaks at epoch 1 on DCI and Urban-1K before declining, the signature of a margin that never
+relaxes. Recomputation therefore acts as an implicit annealing of the boost, and an independent knob
+corroborates the γ sweep: the never-decaying margin loses most exactly where milder boosts win,
+on transfer (Appendix B.2).
+4
+RELATED WORK
+Long-text vision-language alignment.
+Contrastive image-text pre-training (Radford et al., 2021;
+Jia et al., 2021; Zhai et al., 2023) established the dual-encoder paradigm, but its ∼77-token window
+fits paragraphs poorly. Long-CLIP (Zhang et al., 2024) relaxes the constraint and is the standard
+backbone here; parallel work stretches the window itself (Najdenkoska et al., 2024; Wu et al., 2024)
+or re-captions the corpus (Fan et al., 2023; Chen et al., 2024). On this backbone, FineLIP (Asokan
+et al., 2025) inserts a cross-modal module, GOAL (Choi et al., 2025) adds local matching over
+segmented regions, SmartCLIP (Xie et al., 2025) re-weights salient tokens, DreamLIP (Zheng et al.,
+2024) decomposes captions, StructXLIP (Ruan et al., 2026) aligns edge maps with lexicon-filtered
+captions, FILIP (Yao et al., 2021) (after ColBERT (Khattab & Zaharia, 2020)) aligns word and patch
+tokens, and PEFT adapters (Hu et al., 2021; Liu et al., 2024) update fewer weights. All enrich what is
+aligned while inheriting the InfoNCE objective unchanged; HN-CLIP instead repairs how negatives
+inside that objective are weighted, and so composes with diverse existing fine-tuning frameworks
+(Section 3.3).
+Hard negatives in contrastive learning.
+The role of negatives in contrastive learning is well
+established (Oord et al., 2018; He et al., 2020; Chen et al., 2020; Khosla et al., 2020; Wang &
+Isola, 2020), with prior work exploring importance-based reweighting (Robinson et al., 2020), syn-
+thetic mixing (Kalantidis et al., 2020), debiased objectives (Chuang et al., 2020), mined captions for
+compositionality (Yuksekgonul et al., 2022; Thrush et al., 2022; Hsieh et al., 2023), false-negative
+relabeling (Li et al., 2023; Byun et al., 2024), hardest-negative mining (Faghri et al., 2017), and
+score-based up-weighting (Radenovic et al., 2023). These methods largely ask which negatives to
+use; HN-CLIP instead asks where hardness lives, using the encoder’s pre-trained text–text geom-
+etry (Section 2.2). Unlike margin-based metric learning (Schroff et al., 2015; Wang et al., 2018;
+Deng et al., 2019), including embedding-dependent margins (Kim et al., 2022), our margin is per-
+pair, derived from text–text geometry, and detached. Unlike score-based reweighting such as DiHT,
+which relies on the cross-modal scores being optimized, HN-CLIP uses text–text geometry avail-
+able before the first update. To our knowledge, no prior work converts caption-to-caption similarity
+into adaptive per-negative margins or identifies the structural saturation of the standard objective in
+dense-caption retrieval.
+5
+CONCLUSION
+Dense-caption retrieval did not need more machinery; it needed an objective that kept learning. We
+showed that InfoNCE largely saturates within the first epoch, traced this failure to near-duplicate
+captions and the absence of explicit caption-level hardness, and repaired it using the same text–text
+9
+
+
+geometry that exposed the problem. The resulting training-time modification sets a new state of
+the art on four benchmarks, matches or exceeds most baselines’ final accuracy after a single epoch,
+requires only one fifth of the training data to surpass the strongest full-data baseline, and improves
+all six tested fine-tuning frameworks on the in-domain benchmarks.
+REPRODUCIBILITY STATEMENT
+The hard-negative objective LHN is implemented by the 11-line loss in Appendix B; the token-level
+branch follows FILIP (Yao et al., 2021) and is specified in Section 2.3. All remaining training
+components follow standard Long-CLIP fine-tuning. All hyperparameters, learning rates for every
+baseline, and the plug-and-play integration points are specified in Section 3 and Appendix D. All
+methods use the same training budget and evaluation protocol. We further verify that the reported
+ranking is unchanged under last-epoch evaluation (Section 3), and that the Long-DCI R@1 ranking
+is preserved under a second random seed (Appendix E). Code and training scripts will be released
+upon publication.
+AI USE STATEMENT
+We used a large language model to polish our writing and to help write the scripts that plot our figures
+and format our tables. The research question, the method, the experiments, and all reported numbers
+are the authors’ own; we reviewed and verified all AI-assisted output and take responsibility for the
+final content of this work.
+REFERENCES
+Mothilal Asokan, Kebin Wu, and Fatima Albreiki. Finelip: Extending clip’s reach via fine-grained
+alignment with longer text inputs. In 2025 IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), pp. 14495–14504. IEEE, 2025.
+Jaeseok Byun, Dohoon Kim, and Taesup Moon.
+Mafa: Managing false negatives for vision-
+language pre-training. In 2024 IEEE/CVF Conference on Computer Vision and Pattern Recogni-
+tion (CVPR), pp. 27304–27314. IEEE, 2024.
+Lin Chen, Jinsong Li, Xiaoyi Dong, Pan Zhang, Conghui He, Jiaqi Wang, Feng Zhao, and Dahua
+Lin. Sharegpt4v: Improving large multi-modal models with better captions. In European Confer-
+ence on Computer Vision, pp. 370–387. Springer, 2024.
+Ting Chen, Simon Kornblith, Mohammad Norouzi, and Geoffrey Hinton. A simple framework for
+contrastive learning of visual representations. In International conference on machine learning,
+pp. 1597–1607. PmLR, 2020.
+Hyungyu Choi, Young Kyun Jang, and Chanho Eom. Goal: Global-local object alignment learning.
+In 2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pp. 4070–
+4079. IEEE, 2025.
+Ching-Yao Chuang, Joshua Robinson, Yen-Chen Lin, Antonio Torralba, and Stefanie Jegelka. De-
+biased contrastive learning. Advances in neural information processing systems, 33:8765–8775,
+2020.
+Jiankang Deng, Jia Guo, Niannan Xue, and Stefanos Zafeiriou. Arcface: Additive angular margin
+loss for deep face recognition. In Proceedings of the IEEE/CVF conference on computer vision
+and pattern recognition, pp. 4690–4699, 2019.
+Fartash Faghri, David J Fleet, Jamie Ryan Kiros, and Sanja Fidler.
+Vse++: Improving visual-
+semantic embeddings with hard negatives. arXiv preprint arXiv:1707.05612, 2017.
+Lijie Fan, Dilip Krishnan, Phillip Isola, Dina Katabi, and Yonglong Tian. Improving clip training
+with language rewrites. Advances in Neural Information Processing Systems, 36:35544–35575,
+2023.
+10
+
+
+Roopal Garg, Andrea Burns, Burcu Karagol-Ayan, Yonatan Bitton, Ceslee Montgomery, Yasumasa
+Onoe, Andrew Bunner, Ranjay Krishna, Jason Michael Baldridge, and Radu Soricut. Imagein-
+words: Unlocking hyper-detailed image descriptions. In Proceedings of the 2024 Conference on
+Empirical Methods in Natural Language Processing, pp. 93–127, 2024.
+Kaiming He, Haoqi Fan, Yuxin Wu, Saining Xie, and Ross Girshick.
+Momentum contrast for
+unsupervised visual representation learning. In 2020 IEEE/CVF conference on computer vision
+and pattern recognition (CVPR), pp. 9726–9735. IEEE, 2020.
+Cheng-Yu Hsieh, Jieyu Zhang, Zixian Ma, Aniruddha Kembhavi, and Ranjay Krishna. Sugarcrepe:
+Fixing hackable benchmarks for vision-language compositionality. Advances in neural informa-
+tion processing systems, 36:31096–31116, 2023.
+Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang,
+and Weizhu Chen.
+Lora: Low-rank adaptation of large language models.
+arXiv preprint
+arXiv:2106.09685, 2021.
+Chao Jia, Yinfei Yang, Ye Xia, Yi-Ting Chen, Zarana Parekh, Hieu Pham, Quoc Le, Yun-Hsuan
+Sung, Zhen Li, and Tom Duerig. Scaling up visual and vision-language representation learning
+with noisy text supervision. In International conference on machine learning, pp. 4904–4916.
+PMLR, 2021.
+Yannis Kalantidis, Mert Bulent Sariyildiz, Noe Pion, Philippe Weinzaepfel, and Diane Larlus. Hard
+negative mixing for contrastive learning. Advances in neural information processing systems, 33:
+21798–21809, 2020.
+Omar Khattab and Matei Zaharia. Colbert: Efficient and effective passage search via contextualized
+late interaction over bert. In Proceedings of the 43rd International ACM SIGIR conference on
+research and development in Information Retrieval, pp. 39–48, 2020.
+Prannay Khosla, Piotr Teterwak, Chen Wang, Aaron Sarna, Yonglong Tian, Phillip Isola, Aaron
+Maschinot, Ce Liu, and Dilip Krishnan. Supervised contrastive learning. Advances in neural
+information processing systems, 33:18661–18673, 2020.
+Minchul Kim, Anil K Jain, and Xiaoming Liu. Adaface: Quality adaptive margin for face recog-
+nition. In 2022 IEEE/CVF conference on computer vision and pattern recognition (CVPR), pp.
+18729–18738. IEEE, 2022.
+Jonathan Krause, Justin Johnson, Ranjay Krishna, and Li Fei-Fei.
+A hierarchical approach for
+generating descriptive image paragraphs. In 2017 IEEE Conference on Computer Vision and
+Pattern Recognition (CVPR), pp. 3337–3345. IEEE, 2017.
+Haoxuan Li, Yi Bin, Junrong Liao, Yang Yang, and Heng Tao Shen. Your negative may not be true
+negative: Boosting image-text matching with false negative elimination. In Proceedings of the
+31st ACM international conference on multimedia, pp. 924–934, 2023.
+Shih-Yang Liu, Chien-Yi Wang, Hongxu Yin, Pavlo Molchanov, Yu-Chiang Frank Wang, Kwang-
+Ting Cheng, and Min-Hung Chen.
+Dora: Weight-decomposed low-rank adaptation.
+arXiv
+preprint arXiv:2402.09353, 2024.
+Ilya Loshchilov and Frank Hutter.
+Decoupled weight decay regularization.
+arXiv preprint
+arXiv:1711.05101, 2017.
+Ivona Najdenkoska, Mohammad Mahdi Derakhshani, Yuki M Asano, Nanne Van Noord, Mar-
+cel Worring, and Cees GM Snoek.
+Tulip:
+Token-length upgraded clip.
+arXiv preprint
+arXiv:2410.10034, 2024.
+Yasumasa Onoe, Sunayana Rane, Zachary Berger, Yonatan Bitton, Jaemin Cho, Roopal Garg,
+Alexander Ku, Zarana Parekh, Jordi Pont-Tuset, Garrett Tanzer, et al. Docci: Descriptions of
+connected and contrasting images. In European Conference on Computer Vision, pp. 291–309.
+Springer, 2024.
+Aaron van den Oord, Yazhe Li, and Oriol Vinyals. Representation learning with contrastive predic-
+tive coding. arXiv preprint arXiv:1807.03748, 2018.
+11
+
+
+Mohammad Pezeshki, Oumar Kaba, Yoshua Bengio, Aaron C Courville, Doina Precup, and Guil-
+laume Lajoie. Gradient starvation: A learning proclivity in neural networks. Advances in Neural
+Information Processing Systems, 34:1256–1272, 2021.
+Filip Radenovic, Abhimanyu Dubey, Abhishek Kadian, Todor Mihaylov, Simon Vandenhende, Yash
+Patel, Yi Wen, Vignesh Ramanathan, and Dhruv Mahajan. Filtering, distillation, and hard nega-
+tives for vision-language pre-training. In 2023 IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), pp. 6967–6977. IEEE, 2023.
+Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal,
+Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual
+models from natural language supervision. In International conference on machine learning, pp.
+8748–8763. PmLR, 2021.
+Joshua Robinson, Ching-Yao Chuang, Suvrit Sra, and Stefanie Jegelka. Contrastive learning with
+hard negative samples. arXiv preprint arXiv:2010.04592, 2020.
+Zanxi Ruan, Songqun Gao, Qiuyu Kong, Yiming Wang, and Marco Cristani. Structxlip: Enhancing
+vision-language models with multimodal structural cues. arXiv preprint arXiv:2602.20089, 2026.
+Florian Schroff, Dmitry Kalenichenko, and James Philbin. Facenet: A unified embedding for face
+recognition and clustering. In Proceedings of the IEEE conference on computer vision and pattern
+recognition, pp. 815–823, 2015.
+Tristan Thrush, Ryan Jiang, Max Bartolo, Amanpreet Singh, Adina Williams, Douwe Kiela, and
+Candace Ross. Winoground: Probing vision and language models for visio-linguistic composi-
+tionality. In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR),
+pp. 5228–5238. IEEE, 2022.
+Jack Urbanek, Florian Bordes, Pietro Astolfi, Mary Williamson, Vasu Sharma, and Adriana Romero-
+Soriano. A picture is worth more than 77 text tokens: Evaluating clip-style models on dense
+captions. In 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR),
+pp. 26690–26699. IEEE, 2024.
+Feng Wang and Huaping Liu. Understanding the behaviour of contrastive loss. In 2021 IEEE/CVF
+Conference on Computer Vision and Pattern Recognition (CVPR), pp. 2495–2504. IEEE, 2021.
+Hao Wang, Yitong Wang, Zheng Zhou, Xing Ji, Dihong Gong, Jingchao Zhou, Zhifeng Li, and Wei
+Liu. Cosface: Large margin cosine loss for deep face recognition. In 2018 IEEE/CVF conference
+on computer vision and pattern recognition, pp. 5265–5274. IEEE, 2018.
+Tongzhou Wang and Phillip Isola. Understanding contrastive representation learning through align-
+ment and uniformity on the hypersphere. In International conference on machine learning, pp.
+9929–9939. PMLR, 2020.
+Wei Wu, Kecheng Zheng, Shuailei Ma, Fan Lu, Yuxin Guo, Yifei Zhang, Wei Chen, Qingpei Guo,
+Yujun Shen, and Zheng-Jun Zha. Lotlip: Improving language-image pre-training for long text
+understanding. Advances in Neural Information Processing Systems, 37:64996–65019, 2024.
+Shaoan Xie, Lingjing Lingjing, Yujia Zheng, Yu Yao, Zeyu Tang, Eric P Xing, Guangyi Chen,
+and Kun Zhang. Smartclip: Modular vision-language alignment with identification guarantees.
+In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp.
+29780–29790, 2025.
+Lewei Yao, Runhui Huang, Lu Hou, Guansong Lu, Minzhe Niu, Hang Xu, Xiaodan Liang, Zhenguo
+Li, Xin Jiang, and Chunjing Xu. Filip: Fine-grained interactive language-image pre-training.
+arXiv preprint arXiv:2111.07783, 2021.
+Mert Yuksekgonul, Federico Bianchi, Pratyusha Kalluri, Dan Jurafsky, and James Zou. When and
+why vision-language models behave like bags-of-words, and what to do about it? arXiv preprint
+arXiv:2210.01936, 2022.
+12
+
+
+Xiaohua Zhai, Basil Mustafa, Alexander Kolesnikov, and Lucas Beyer. Sigmoid loss for language
+image pre-training. In 2023 IEEE/CVF International Conference on Computer Vision (ICCV),
+pp. 11941–11952. IEEE, 2023.
+Beichen Zhang, Pan Zhang, Xiaoyi Dong, Yuhang Zang, and Jiaqi Wang. Long-clip: Unlocking the
+long-text capability of clip. In European conference on computer vision, pp. 310–325. Springer,
+2024.
+Kecheng Zheng, Yifei Zhang, Wei Wu, Fan Lu, Shuailei Ma, Xin Jin, Wei Chen, and Yujun Shen.
+Dreamlip: Language-image pre-training with long captions. In European Conference on Com-
+puter Vision, pp. 73–90. Springer, 2024.
+13
+
+
+CONTENTS OF APPENDIX
+A
+Dataset Details
+14
+A.1
+Benchmarks and splits . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 14
+A.2
+One batch, four benchmarks
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 14
+A.3
+What near-duplicates look like . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15
+A.4
+Statistics of the caption geometry . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15
+B
+Method Details
+21
+B.1
+Reference implementation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21
+B.2
+Gradient concentration . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21
+C
+Extended Gradient Analysis
+22
+D
+Implementation Details and Computational Analysis
+24
+D.1
+Training setup and backbone choice
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24
+D.2
+Plug-and-play integration . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24
+D.3
+Evaluation protocol . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24
+E
+Additional Experimental Analyses
+24
+E.1
+Plug-and-play, DOCCI and Long-DCI . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+E.2
+Full-resolution ablations . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+E.3
+Cross-domain evaluation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+E.4
+Robustness to the random seed . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+E.5
+Sample efficiency, full numbers
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+E.6
+Per-direction convergence . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+E.7
+Results at deeper ranks . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+F
+Additional Qualitative Results
+29
+A
+DATASET DETAILS
+A.1
+BENCHMARKS AND SPLITS
+Table A1 summarizes the four benchmarks, all members of the recent family of hyper-detailed
+description datasets (Garg et al., 2024). All models are fine-tuned on the official training split of each
+benchmark; Long-DCI evaluates the DCI-trained models with full-length captions following the
+protocol of GOAL, and Urban-1K is test-only, so models are fine-tuned on Visual Genome paragraph
+captions and evaluated by transfer. The last two columns repeat the measurement from Section 2.1:
+with the pre-trained Long-CLIP-L text encoder, the mean pairwise caption cosine similarity and the
+mean similarity of each caption’s hardest companion, the statistic that motivates and, unchanged,
+powers LHN.
+A.2
+ONE BATCH, FOUR BENCHMARKS
+Fig. A5 shows the matrix at the heart of HN-CLIP: for one real training batch (B=8, same random
+seed) per benchmark, the caption-similarity matrix ¯G that our loss adds to the logits. The picture
+is the method’s motivation made visible: on every benchmark the matrix is uniformly high (off-
+14
+
+
+Table A1: Benchmark statistics. Mean caption length is measured on the evaluation split in words; similarities
+use the pre-trained Long-CLIP-L text encoder.
+Benchmark
+#train
+#test
+words
+pairwise sim
+hardest sim
+DOCCI
+9450
+5100
+123
+0.84
+0.93
+DCI
+5445
+1999
+133
+0.85
+0.92
+Long-DCI
+5445 (=DCI)
+7444
+134
+0.85
+0.93
+Urban-1K
+14579 (VG)
+1000
+107
+0.88
+0.94
+diagonal means 0.82–0.84), i.e., every negative in every batch is a near-duplicate to some degree,
+and the boost assigns every one of them a proportionate margin.
+A.3
+WHAT NEAR-DUPLICATES LOOK LIKE
+Figs. A1 to A4 show representative near-duplicate caption pairs from each benchmark, retrieved with
+the pre-trained Long-CLIP-L text encoder (queries drawn near the 90th percentile of the hardest-
+companion distribution, i.e., striking but not extreme). Two different sports cars, two different dirt
+bikes, two different white horses: the captions describe different images yet reach cosine similar-
+ities of 0.93–0.97, because long descriptions of natural scenes are compositional recombinations
+of the same elements (shared content words highlighted). These are exactly the pairs that standard
+InfoNCE treats as ordinary negatives, and the pairs our margin re-weights hardest.
+A.4
+STATISTICS OF THE CAPTION GEOMETRY
+Fig. A6 quantifies this across the four benchmarks with the same encoder: mean pairwise similarity
+is 0.84–0.88 (A), each caption’s hardest companion averages 0.92–0.94 (B), and 86–99% of all in-
+batch negatives carry a caption similarity of at least 0.8 (C): under our default γ=0.5, virtually every
+negative in every batch receives a non-trivial adaptive margin, and the benchmarks differ mainly in
+how many extreme ( ¯G ≥0.9) negatives they contain.
+15
+
+
+Figure A1: Near-duplicate caption pairs on DOCCI. Each row: a test image, its caption, the three near-
+est other captions’ images (cosine printed underneath), and the caption texts with shared content words
+highlighted .
+16
+
+
+Figure A2: Near-duplicate caption pairs on DCI.
+17
+
+
+Figure A3: Near-duplicate caption pairs on Long-DCI (full-length captions).
+18
+
+
+Figure A4: Near-duplicate caption pairs on Urban-1K.
+19
+
+
+Figure A5: One real training batch per benchmark. Text–text similarity matrices ¯G (pre-trained encoder;
+diagonal masked, max off-diagonal entry annotated). Uniformly dark = every negative is hard; this matrix,
+detached and scaled by γ, is the entire mechanism of HN-CLIP.
+Figure A6: Statistical analysis of the caption geometry across the four benchmarks (pre-trained Long-
+CLIP-L text encoder, full test splits). (A) Mean pairwise caption similarity. (B) Mean similarity of each
+caption’s hardest companion. (C) Composition of in-batch negatives by hardness bucket.
+20
+
+
+B
+METHOD DETAILS
+B.1
+REFERENCE IMPLEMENTATION
+The complete implementation of LHN is shown in Fig. A7, verbatim from our code base; everything
+else (data loading, optimizer, schedules, evaluation) is standard Long-CLIP fine-tuning.
+The complete implementation of LHN (PyTorch)
+def hard_neg_clip_loss(img_n, txt_n, scale, gamma=0.5):
+# img_n, txt_n: L2-normalized [B, D]
+B = img_n.shape[0]
+sim = img_n @ txt_n.t()
+# [B, B]
+txt_sim = (txt_n @ txt_n.t()).detach()
+boost = gamma * txt_sim
+boost.fill_diagonal_(0.)
+# positives
+logits = scale * (sim + boost)
+targets = torch.arange(B, device=sim.device)
+return (F.cross_entropy(logits, targets)
++ F.cross_entropy(logits.t(), targets)) / 2.
+Figure A7: Reference implementation. The complete implementation of LHN; data loading, optimizer, sched-
+ule, and evaluation follow standard Long-CLIP fine-tuning.
+B.2
+GRADIENT CONCENTRATION
+Why does the boost redirect learning toward hard negatives? Write the boosted logits as zij =
+s(Sij + γ ¯Gij) and let pij = softmaxj(zi,:). The gradient of the cross-entropy row term w.r.t. the
+similarity Sij of negative j is the classic softmax residual, ∂Li/∂Sij = s pij: each negative is
+repelled with force proportional to its posterior. The boost acts entirely through this posterior. For
+two negatives j, k,
+pij
+pik
+= exp
+ s (Sij −Sik)
+
+· exp
+ sγ ( ¯Gij −¯Gik)
+
+,
+(4)
+so relative repulsion is re-weighted by exp(sγ ∆¯G): with s ≈100 and γ=0.5, a caption-similarity
+gap of just ∆¯G = 0.1 multiplies the gradient ratio by e5 ≈148. Because ¯G is detached, the re-
+weighting is not itself differentiated, so no gradient step is taken in the direction that would shrink
+the model’s own margins; and because ¯Gii = 0, the positive’s force s (pii −1) is affected only
+through the normalizer: the positive must now beat every negative by a margin γ ¯Gij before its own
+loss vanishes. Eq. (4) is the entire mechanism: hardness enters as an additive margin, gradients
+concentrate multiplicatively.
+Scope of the stop-gradient, and why the drift is load-bearing.
+Eq. (4) also makes explicit what
+stopgrad does not guarantee. We recompute ¯G from the current text encoder at every step, so al-
+though no gradient flows through it, ¯G inherits whatever drift the encoder undergoes under the main
+objective: the margins are stationary within a step but not across training. To determine whether that
+drift is a defect or a feature, we re-train all three models with ¯G built instead from a frozen copy of
+the pre-trained text encoder, holding seed, schedule, γ, and every other setting fixed (Table A2).
+The drift turns out to be load-bearing. The recomputed default wins all 24 columns, including the
+average R@1 on all four benchmarks, and, more diagnostically, the frozen variant’s best epoch is the
+first one on both DCI and Urban-1K, after which accuracy trends downward for the rest of training.
+The reason is visible in the magnitudes: with a mean off-diagonal ¯G of 0.84 (Fig. A6), γ=0.5 and
+s ≈100, a frozen boost imposes a sustained logit handicap of roughly 42 that never relaxes, so the
+model is permanently over-constrained. Recomputing ¯G lets the boost decay as training separates
+the text embeddings, which amounts to an implicit annealing of the margin: the objective stops
+pushing on pairs it has already resolved. On Long-DCI, the recomputed default leads the frozen
+variant by 0.97/1.49 R@1 in T→I / I→T, and by 2.5–3.3 points at R@5/R@10, showing that a
+margin that never relaxes hurts both the top of the ranking and the deeper ranks.
+This also corroborates the γ sweep from an independent direction. There, milder boosts transferred
+better and γ ≤0.25 was optimal on Urban-1K; here, a boost that never decays, effectively the largest
+cumulative margin of any setting we ran, is worst on that same transfer benchmark, trailing the
+default by 2.90/7.20 R@1. Two different knobs, the magnitude of the margin and its schedule,
+21
+
+
+agree that sustained margin sharpens decision boundaries on the training distribution at the cost of
+transfer. We therefore keep the recomputed ¯G throughout, and note that it is also the cheaper of the
+two: no second set of weights and no extra forward pass.
+Table A2: Recomputed vs. frozen ¯G (Recall@K, Text→Image and Image→Text ). Building the boost from
+a frozen copy of the pre-trained text encoder makes the margins exactly stationary but removes their implicit
+annealing: accuracy peaks at epoch 1 on DCI and Urban-1K and then declines, and the default wins all 24
+columns. Best per column in bold. The final row reports the selected best epoch as default/frozen.
+DOCCI
+DCI
+¯
+G source
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+Recomputed ¯
+G (default)
+88.25
+98.45
+99.43
+86.24
+98.12
+99.22
+80.69
+92.40
+95.10
+78.84
+91.90
+94.65
+Frozen ¯
+G
+85.86
+97.61
+99.18
+82.43
+96.82
+98.73
+77.79
+90.80
+93.35
+75.84
+89.49
+92.95
+∆(default −frozen)
+↑2.39 ↑0.84 ↑0.25 ↑3.81 ↑1.30 ↑0.49 ↑2.90 ↑1.60 ↑1.75 ↑3.00 ↑2.41 ↑1.70
+best epoch (default / frozen)
+6 / 5
+5 / 1
+Long-DCI
+Urban-1K
+¯
+G source
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+Recomputed ¯
+G (default)
+78.90
+93.85
+96.34
+76.24
+92.86
+95.90
+90.20
+98.20
+99.20
+90.70
+98.20
+99.30
+Frozen ¯
+G
+77.93
+90.84
+93.82
+74.75
+89.54
+92.62
+87.30
+97.70
+98.90
+83.50
+95.90
+97.90
+∆(default −frozen)
+↑0.97 ↑3.01 ↑2.52 ↑1.49 ↑3.32 ↑3.28 ↑2.90 ↑0.50 ↑0.30 ↑7.20 ↑2.30 ↑1.40
+best epoch (default / frozen)
+10 / 10
+4 / 1
+Interaction with temperature and batch size.
+Eq. (4) shows that s and γ enter the gradient
+concentration only through their product sγ: changing the inverse temperature rescales the effective
+margin, so the broad γ plateau of Table 3a covers a correspondingly broad range of s at fixed γ.
+Batch size acts on a different axis: because essentially every in-batch negative on these benchmarks
+is a near-duplicate (Fig. A6C), enlarging B adds more boosted pairs rather than diluting them.
+C
+EXTENDED GRADIENT ANALYSIS
+Reading the median in Fig. 4b.
+The boosted gradient is bimodal within every epoch: about half of
+the sampled batches are already resolved (∥g∥< 10−3) while the rest sit at O(102). The per-epoch
+median therefore lands between the two modes and moves with the sampling mix rather than with a
+trend. The stable statistic is the upper quartile, which stays at O(102) for all ten epochs—including
+the last, where the cosine schedule has decayed the learning rate to 2 × 10−8, showing that hard
+batches still induce substantial objective gradients late in training. The standard gradient shows no
+such structure: its distribution largely collapses, with the per-epoch median reaching exact zero in
+five of the ten epochs.
+Fig. A8 extends the gradient analysis of Fig. 4 across training-data scales: for each fraction of
+the training set (5/20/50/100%) and each dataset (DOCCI, DCI) we plot the raw traces of (a) both
+losses, (b) both gradient norms together with their ratio, and (c) the cosine between the two gradients.
+The picture is identical at every scale: the standard loss collapses to the numerical floor within
+the first epoch (gray), the boosted loss keeps producing signal (pink), their gradient-norm ratio,
+computed on the 79% of measurements where the standard gradient is nonzero, runs at a per-run
+median of 102–106 and peaks between 105 and 108 (dashed), and the gradient direction remains
+positively aligned with the standard objective throughout (median cosine 0.58, positive on 98% of
+measurements, bottom panels), in a 108-dimensional parameter space where random directions are
+orthogonal in expectation, this is a strongly compatible update direction. Saturation is thus not an
+artifact of one training-set size; it is the default behavior of InfoNCE on dense captions, and the
+boost repairs it wherever it appears.
+22
+
+
+Figure A8: Gradient dynamics across data scales. Rows: fraction of the training set; columns: dataset.
+Per cell: (a) raw loss traces (thin) with running medians (thick), (b) gradient norms and their ratio (dashed),
+(c) gradient cosine. Log axes in (a,b); values clamped at 10−10 (numerically zero values).
+23
+
+
+D
+IMPLEMENTATION DETAILS AND COMPUTATIONAL ANALYSIS
+D.1
+TRAINING SETUP AND BACKBONE CHOICE
+All methods share the Long-CLIP-L backbone (ViT-L/14, positionally stretched 248-token text en-
+coder), micro-batch 16 with 8× gradient accumulation (effective batch 128), and the same 10-epoch
+training budget. We use a single backbone throughout because the task requires one: the captions
+in these benchmarks average 107–134 words on their evaluation splits (Table A1), well beyond the
+77-token window of standard CLIP, and Long-CLIP-L is the only publicly released long-context
+CLIP that every compared method is also built on. Establishing that the saturation we diagnose is
+a property of InfoNCE on dense captions rather than of this particular checkpoint is therefore left
+to the caption-length axis, where Fig. A8 shows the same behaviour across four training-set scales
+and two datasets, and to the six fine-tuning frameworks of Table A4, which differ in architecture
+and in which parameters they train. HN-CLIP uses AdamW with learning rate 2×10−6 and cosine
+decay; baselines use their official hyperparameters (FineLIP: backbone 10−6, cross-modal module
+2×10−4; GOAL and StructXLIP: 5×10−6; LoRA/DoRA adapters: 5×10−5, r=16). Table A3 re-
+ports measured training efficiency: HN-CLIP trains 2.4× faster than GOAL and 5.4× faster than
+StructXLIP on identical hardware while requiring no auxiliary inputs and no offline preprocessing.
+Table A3: Training-efficiency comparison on DCI fine-tuning (10 epochs, 5.4k images, single Ascend 910B,
+effective batch 128). Wall-clock for GOAL/StructXLIP is measured from same-device sequential runs minus
+evaluation overhead; FineLIP ran in parallel and is not attributable. Offline preprocessing time (segmentation,
+edge extraction, LLM filtering) is not included in the wall-clock.
+Method
+Aux. training inputs
+Offline prep.
+Wall-clock
+Throughput
+Long-CLIP (plain FT)
+none
+none
+≈16 min
+55.5 img/s
+FineLIP
+none
+none
+—
+—
+GOAL
+SAM segments
+required
+≈41 min
+≈22 img/s
+StructXLIP
+edges + LLM lexicon
+required
+≈92 min
+≈10 img/s
+HN-CLIP (ours)
+none
+none
+17 min
+53 img/s
+D.2
+PLUG-AND-PLAY INTEGRATION
+For the plug-and-play study we replace the global contrastive term of each framework with LHN
+and change nothing else. Long-CLIP: the symmetric InfoNCE over global embeddings is swapped
+directly. FineLIP: the global term is swapped; the fine-grained cross-modal module and its losses
+are untouched. GOAL: the original-pair contrastive term is swapped; segment-level alignment terms
+are untouched. StructXLIP: the RGB–caption global term is swapped; the three structural auxiliary
+losses are untouched. LoRA/DoRA: adapters (r=16) are trained with LHN in place of InfoNCE
+while the backbone stays frozen. In every case γ=0.5 without per-framework tuning.
+D.3
+EVALUATION PROTOCOL
+All numbers in the paper are produced by one shared evaluation loop: encode the full test split with
+the released preprocessing (224 center crop, 248-token captions), L2-normalize, score by cosine,
+and report Recall@K for both directions. The same evaluation procedure is used for all methods.
+HN-CLIP’s lead is unchanged under last-epoch evaluation (Section 3), and the Long-DCI R@1
+ranking is preserved under a second random seed (Table A8).
+E
+ADDITIONAL EXPERIMENTAL ANALYSES
+Tables A5 to A7 and A9 extend the main-text protocol to deeper ranks (Recall@{1, 5, 10, 25, 50});
+the remaining tables in this section report R@1/5/10. In either case, where a configuration overlaps
+with the main text, its R@1/5/10 values are bit-identical because it uses the same checkpoint and
+evaluation loop.
+24
+
+
+E.1
+PLUG-AND-PLAY, DOCCI AND LONG-DCI
+Table A4 reports the plug-and-play study on DOCCI and Long-DCI at full width, in the three-
+row format (framework / +LHN / ∆). Average R@1 improves for all twelve framework–dataset
+combinations, R@1 improves in 24 of 24 per-direction cases, and the gains grow with caption length
+(up to +23.87 R@1 for FineLIP on Long-DCI), which is what a mechanism that sharpens boundaries
+between near-duplicate captions predicts.
+E.2
+FULL-RESOLUTION ABLATIONS
+Table A5 extends the main-text loss ablation to all four benchmarks and all ranks, and Table A6
+does the same for the γ sweep. The full objective remains the strongest configuration overall; on
+the transfer benchmark the four configurations compress into a narrow band, with the unboosted
+variants remaining strongest, mirroring Appendix E.1.
+E.3
+CROSS-DOMAIN EVALUATION
+Table A10 reports the DCI↔DOCCI cross-domain study discussed in Section 3.4: trained on DCI
+and transferred to DOCCI, HN-CLIP exceeds every baseline’s in-domain DOCCI result, and the
+reverse transfer keeps HN-CLIP ahead in all six columns. Table A7 evaluates the DOCCI-trained
+models on Long-DCI, a harder transfer, since both the caption style and the length change. HN-CLIP
+leads every column.
+E.4
+ROBUSTNESS TO THE RANDOM SEED
+Table A11 repeats the main comparison under three independent seeds (42, 1337, 3407) and re-
+ports mean ± standard deviation, matching the protocol StructXLIP uses in its appendix, so the two
+papers’ variability figures are directly comparable. The ordering of Table 1 is reproduced under
+replication: HN-CLIP holds the best mean in all 24 columns, including every R@1 column on all
+four benchmarks, by +2.74 to +4.08. The standard deviations are small—HN-CLIP’s R@1 stan-
+dard deviations range from 0.14 to 0.83, remaining well below its margins—so the R@1 result is
+not seed-sensitive. The Long-DCI R@5/R@10 columns also favor HN-CLIP in both directions, so
+the seed-level advantage is not confined to R@1.
+Table A8 re-trains HN-CLIP, GOAL, and StructXLIP with a second random seed under the identi-
+cal recipe and evaluates on Long-DCI. For HN-CLIP, the two R@1 values differ by only 0.09 on
+average, and the R@1 ranking is preserved under the second seed (largest R@1 deviation 1.26, on
+GOAL). Across all six metrics, the maximum seed-to-seed difference is 1.53 for HN-CLIP, reflect-
+ing modest variation at deeper ranks.
+E.5
+SAMPLE EFFICIENCY, FULL NUMBERS
+Table A9 lists all measurements behind Fig. 6: both benchmarks, both methods, all fractions and
+ranks, on identical training subsets. HN-CLIP leads or ties every cell; the average-R@1 margin (last
+column) widens as data shrinks to 20% on both benchmarks, and the 20% rows exceed GOAL’s
+100% rows on both. The dotted reference line of Fig. 6 is instead the strongest baseline at 100%
+(StructXLIP on DOCCI, GOAL on DCI; Table 1), which the 20% rows also clear.
+E.6
+PER-DIRECTION CONVERGENCE
+Fig. A9 splits Fig. 5 by retrieval direction: HN-CLIP leads in both directions on all four benchmarks
+from the first epoch, so the averaged curves hide no asymmetry. The split also exposes training
+instabilities of FineLIP (e.g., an I→T collapse on DCI at epoch 4) that the averaged view smooths
+over.
+E.7
+RESULTS AT DEEPER RANKS
+At R@5/R@10 the fine-tuned methods approach ceiling on DOCCI and Urban-1K and margins
+compress there (Table 1); on DCI and Long-DCI the spread stays wide at every rank. On Long-DCI,
+25
+
+
+Table A4: Plug-and-play enhancement of LHN on CLIP-based fine-tuning. Results on DOCCI and Long-
+DCI for Text→Image and Image→Text retrieval; per framework we report the official baseline, the same
+recipe with LHN replacing its global InfoNCE term, and the per-column difference ∆(gain in ↑green, drop in
+↓gray; differences within ±0.15 are shown as ≈0). Bold marks the +LHN value where it is the better of the
+pair.
+DOCCI
+Long-DCI
+Method
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+Long-CLIP
+86.45
+98.00
+99.31
+84.10
+97.84
+99.04
+70.24
+89.62
+94.00
+68.44
+89.35
+94.67
++our LHN
+88.31
+98.75
+99.45
+86.39
+98.08
+99.20
+78.43
+92.52
+95.27
+76.02
+91.78
+94.76
+∆
+↑1.86
+↑0.75
+≈0
+↑2.29
+↑0.24
+↑0.16
+↑8.19
+↑2.90
+↑1.27
+↑7.58
+↑2.43
+≈0
+FineLIP
+77.51
+96.02
+98.41
+69.90
+93.43
+97.45
+59.24
+77.86
+83.19
+49.52
+75.08
+82.39
++our LHN
+85.47
+97.71
+99.04
+83.88
+97.41
+98.82
+74.92
+90.52
+93.62
+73.39
+89.87
+93.23
+∆
+↑7.96
+↑1.69
+↑0.63
+↑13.98
+↑3.98
+↑1.37
+↑15.68
+↑12.66
+↑10.43
+↑23.87
+↑14.79
+↑10.84
+GOAL
+81.53
+97.02
+98.80
+80.86
+96.24
+98.63
+74.11
+92.73
+95.75
+73.29
+92.18
+95.78
++our LHN
+86.24
+98.14
+99.35
+84.86
+97.69
+99.20
+84.27
+94.99
+96.57
+82.28
+94.26
+96.18
+∆
+↑4.71
+↑1.12
+↑0.55
+↑4.00
+↑1.45
+↑0.57
+↑10.16
+↑2.26
+↑0.82
+↑8.99
+↑2.08
+↑0.40
+StructXLIP
+84.73
+97.69
+99.00
+82.61
+97.08
+98.71
+75.31
+93.15
+95.92
+72.56
+92.65
+95.75
++our LHN
+85.45
+97.92
+99.12
+83.31
+97.45
+98.92
+82.04
+94.18
+96.23
+78.98
+93.22
+95.65
+∆
+↑0.72
+↑0.23
+≈0
+↑0.70
+↑0.37
+↑0.21
+↑6.73
+↑1.03
+↑0.31
+↑6.42
+↑0.57
+↓0.10
+LoRA
+80.49
+96.16
+98.55
+77.96
+95.80
+98.04
+60.08
+80.68
+86.86
+58.97
+80.02
+86.53
++our LHN
+82.82
+97.14
+98.86
+80.84
+96.49
+98.63
+64.87
+83.09
+88.35
+62.79
+81.77
+87.31
+∆
+↑2.33
+↑0.98
+↑0.31
+↑2.88
+↑0.69
+↑0.59
+↑4.79
+↑2.41
+↑1.49
+↑3.82
+↑1.75
+↑0.78
+DoRA
+80.76
+96.25
+98.61
+78.20
+95.90
+98.10
+60.76
+81.19
+87.48
+59.65
+80.31
+87.13
++our LHN
+83.41
+97.33
+99.00
+81.41
+96.65
+98.67
+65.46
+83.57
+88.61
+63.38
+82.15
+87.56
+∆
+↑2.65
+↑1.08
+↑0.39
+↑3.21
+↑0.75
+↑0.57
+↑4.70
+↑2.38
+↑1.13
+↑3.73
+↑1.84
+↑0.43
+Table A5: Loss ablation, full resolution (all four benchmarks, all ranks). Best per column in bold.
+DOCCI
+DCI
+Ltok LHN R@1 R@5 R@10 R@25 R@50 R@1 R@5 R@10 R@25 R@50 R@1 R@5 R@10 R@25 R@50 R@1 R@5 R@10 R@25 R@50
+✗
+✗
+86.45 98.00 99.31 99.86 99.98 84.10 97.84 99.04 99.78 99.98 79.39 91.60 94.65 97.25
+97.95 78.34 92.85 95.25 97.50
+98.50
+✓
+✗
+86.45 97.98 99.43 99.86 99.98 84.29 97.90 98.94 99.78 99.94 79.24 91.55 94.25 97.00
+98.00 77.54 92.95 95.35 97.55
+98.60
+✗
+✓
+88.31 98.75 99.45 99.84 99.98 86.39 98.08 99.20 99.82 99.96 81.04 92.20 95.00 97.40
+98.10 78.54 91.95 94.60 97.50
+98.20
+✓
+✓
+88.25 98.45 99.43 99.86 99.98 86.24 98.12 99.22 99.84 99.94 80.69 92.40 95.10 97.35
+98.15 78.84 91.90 94.65 97.40
+98.30
+Long-DCI
+Urban-1K
+Ltok LHN R@1 R@5 R@10 R@25 R@50 R@1 R@5 R@10 R@25 R@50 R@1 R@5 R@10 R@25 R@50 R@1 R@5 R@10 R@25 R@50
+✗
+✗
+70.24 89.62 94.00 97.66 98.79 68.44 89.35 94.67 98.11 98.95 91.70 99.10 99.50 99.80
+99.90 93.20 99.00 99.50 99.90 100.00
+✓
+✗
+70.96 89.52 93.95 97.29 98.63 68.08 89.24 94.25 97.77 98.94 92.00 98.90 99.30 99.70 100.00 92.90 98.90 99.50 99.80
+99.90
+✗
+✓
+78.43 92.52 95.27 97.21 98.47 76.02 91.78 94.76 97.31 98.29 90.60 98.30 99.40 99.60
+99.80 90.20 98.30 99.40 99.80
+99.80
+✓
+✓
+78.90 93.85 96.34 97.26 98.56 76.24 92.86 95.90 97.42 98.47 90.20 98.20 99.20 99.60
+99.80 90.70 98.20 99.30 99.70
+99.90
+Table A6: γ sweep, full resolution (all four benchmarks, all ranks). Best per column in bold.
+DOCCI
+DCI
+γ
+R@1 R@5 R@10 R@25 R@50 R@1 R@5 R@10 R@25 R@50 R@1 R@5 R@10 R@25 R@50 R@1 R@5 R@10 R@25 R@50
+γ=0
+86.45 97.98 99.43 99.86 99.98 84.29 97.90 98.94 99.78 99.94 79.24 91.55 94.25 97.00
+98.00 77.54 92.95 95.35 97.55 98.60
+γ=0.25
+87.82 98.63 99.45 99.88 99.98 86.63 98.04 99.16 99.84 99.96 80.69 92.40 95.35 97.55
+98.30 79.19 92.85 95.40 97.70 98.50
+γ=0.5 (default) 88.25 98.45 99.43 99.86 99.98 86.24 98.12 99.22 99.84 99.94 80.69 92.40 95.10 97.35
+98.15 78.84 91.90 94.65 97.40 98.30
+γ=0.75
+88.20 98.67 99.49 99.82 99.96 85.73 98.00 99.25 99.78 99.98 80.64 92.20 94.70 97.20
+98.25 78.39 91.05 93.90 96.90 98.25
+γ=1.0
+87.98 98.47 99.51 99.82 99.96 85.02 97.69 99.02 99.76 99.96 80.04 92.00 94.40 97.10
+98.30 78.29 90.80 93.70 96.70 98.00
+Long-DCI
+Urban-1K
+γ
+R@1 R@5 R@10 R@25 R@50 R@1 R@5 R@10 R@25 R@50 R@1 R@5 R@10 R@25 R@50 R@1 R@5 R@10 R@25 R@50
+γ=0
+70.96 89.52 93.95 97.29 98.63 68.08 89.24 94.25 97.77 98.94 92.00 98.90 99.30 99.70 100.00 92.90 98.90 99.50 99.80 99.90
+γ=0.25
+76.37 92.32 95.31 97.65 98.70 74.69 92.02 95.55 97.89 98.72 91.70 98.50 99.50 99.70
+99.80 93.10 98.90 99.50 99.70 99.80
+γ=0.5 (default) 78.90 93.85 96.34 97.26 98.56 76.24 92.86 95.90 97.42 98.47 90.20 98.20 99.20 99.60
+99.80 90.70 98.20 99.30 99.70 99.90
+γ=0.75
+79.82 92.42 94.99 97.03 98.13 76.59 91.20 94.37 96.79 97.96 88.80 98.50 99.10 99.60
+99.60 89.70 97.90 98.90 99.80 99.90
+γ=1.0
+80.05 92.14 94.64 96.78 97.89 76.48 90.89 93.95 96.47 97.68 88.20 98.20 99.20 99.50
+99.60 88.30 97.50 98.60 99.80 99.90
+26
+
+
+Table A7: Cross-domain transfer DOCCI→Long-DCI. Best per column in bold.
+DOCCI →Long-DCI
+Method
+R@1
+R@5
+R@10 R@25 R@50
+R@1
+R@5
+R@10 R@25 R@50
+Long-CLIP (zero-shot)
+54.61 72.80
+78.33
+85.29
+89.15
+47.35 73.04
+80.10
+86.66
+90.60
+FineLIP
+54.54 72.93
+79.42
+85.87
+89.98
+46.44 72.96
+80.47
+87.04
+90.68
+GOAL
+55.74 74.83
+80.63
+86.78
+90.54
+56.60 75.48
+81.25
+87.45
+91.30
+StructXLIP
+57.70 76.03
+81.68
+88.06
+91.60
+57.90 76.36
+82.09
+87.71
+91.03
+HN-CLIP
+62.60 79.16
+84.19
+89.88
+93.05
+63.77 79.89
+84.22
+89.05
+92.14
+Table A8: Seed replication on Long-DCI. max |∆| is the largest absolute difference across the six metrics.
+Method
+Seed
+R@1 R@5 R@10 R@1 R@5 R@10 max |∆|
+HN-CLIP (ours) seed 42 78.90 93.85 96.34
+76.24 92.86 95.90
+seed 43 78.79 92.32 95.12
+76.18 91.99 95.15
+1.53
+GOAL
+seed 42 74.11 92.73 95.75
+73.29 92.18 95.78
+seed 43 74.34 92.89 95.77
+72.03 92.37 95.69
+1.26
+StructXLIP
+seed 42 75.31 93.15 95.92
+72.56 92.65 95.75
+seed 43 75.58 93.12 96.20
+72.39 93.03 95.80
+0.38
+Table A9: Sample efficiency, full resolution. Best per pair in bold; ∆is the average-R@1 margin of HN-CLIP
+over GOAL at that fraction.
+Data
+Method
+R@1 R@5 R@10 R@25 R@50 R@1 R@5 R@10 R@25 R@50
+∆
+DOCCI
+5%
+GOAL
+77.88 95.35 97.88
+99.59
+99.84
+75.45 94.65 97.76
+99.35
+99.84
+HN-CLIP 82.73 96.94 98.69
+99.69
+99.84
+80.08 96.22 98.35
+99.57
+99.98
+↑4.74
+20%
+GOAL
+78.22 95.65 98.22
+99.55
+99.86
+76.47 94.88 97.96
+99.39
+99.84
+HN-CLIP 85.43 97.86 99.20
+99.80
+99.96
+83.75 97.25 98.80
+99.76
+99.98
+↑7.25
+50%
+GOAL
+80.20 96.47 98.33
+99.63
+99.88
+78.18 95.37 97.96
+99.43
+99.92
+HN-CLIP 87.16 98.39 99.43
+99.84
+99.94
+85.37 97.69 99.18
+99.80
+99.94
+↑7.07
+100% GOAL
+81.53 97.02 98.80
+99.78
+99.92
+80.86 96.24 98.63
+99.65
+99.90
+HN-CLIP 88.25 98.45 99.43
+99.86
+99.98
+86.24 98.12 99.22
+99.84
+99.94
+↑5.85
+DCI
+5%
+GOAL
+70.94 87.19 90.95
+94.95
+96.95
+69.03 86.89 90.80
+94.75
+96.85
+HN-CLIP 73.59 87.39 92.30
+95.10
+96.95
+74.59 89.19 93.20
+96.00
+97.15
+↑4.11
+20%
+GOAL
+73.69 87.99 91.40
+95.40
+97.10
+71.39 87.24 91.55
+95.45
+97.30
+HN-CLIP 78.09 90.60 93.70
+96.30
+97.65
+76.79 90.40 93.55
+96.55
+97.70
+↑4.90
+50%
+GOAL
+75.79 89.19 93.00
+95.55
+96.80
+73.79 88.54 92.65
+95.90
+97.30
+HN-CLIP 79.24 91.60 94.55
+97.05
+97.95
+78.44 91.35 94.25
+96.70
+98.00
+↑4.05
+100% GOAL
+77.29 90.25 93.30
+96.10
+97.40
+74.84 89.94 93.25
+96.50
+98.15
+HN-CLIP 80.69 92.40 95.10
+97.35
+98.15
+78.84 91.90 94.65
+97.40
+98.30
+↑3.70
+27
+
+
+Table A10: Cross-domain generalization between DCI and DOCCI. Train on one dataset and test on another.
+Values are Recall@K (%), using Text→Image and Image→Text retrieval. In-domain best in italic bold,
+cross-domain best in bold.
+Setting
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+Train on DCI →Test on DCI vs. DOCCI
+Long-CLIP (DCI→DCI)
+67.83 83.19
+87.69
+64.13 84.84
+89.74
+Long-CLIP (DCI→DOCCI)
+78.78 95.24
+98.02
+66.75 91.92
+96.31
+FineLIP (DCI→DCI)
+72.69 87.14
+90.65
+65.48 86.84
+91.00
+FineLIP (DCI→DOCCI)
+80.69 96.47
+98.53
+65.63 91.51
+96.31
+GOAL (DCI→DCI)
+77.29 90.25
+93.30
+74.84 89.94
+93.25
+GOAL (DCI→DOCCI)
+80.14 96.25
+98.39
+77.24 95.22
+97.90
+StructXLIP (DCI→DCI)
+75.84 89.94
+93.65
+74.49 90.05
+93.40
+StructXLIP (DCI→DOCCI)
+76.94 95.06
+97.76
+74.24 94.12
+97.51
+HN-CLIP (DCI→DCI)
+80.69 92.40
+95.10
+78.84 91.90
+94.65
+HN-CLIP (DCI→DOCCI)
+85.00 97.90
+99.25
+83.14 96.98
+98.75
+Train on DOCCI →Test on DOCCI vs. DCI
+Long-CLIP (DOCCI→DOCCI) 78.78 95.24
+98.02
+66.75 91.92
+96.31
+Long-CLIP (DOCCI→DCI)
+67.83 83.19
+87.69
+64.13 84.84
+89.74
+FineLIP (DOCCI→DOCCI)
+77.51 96.02
+98.41
+69.90 93.43
+97.45
+FineLIP (DOCCI→DCI)
+68.23 83.84
+88.74
+63.48 85.79
+89.84
+GOAL (DOCCI→DOCCI)
+81.53 97.02
+98.80
+80.86 96.24
+98.63
+GOAL (DOCCI→DCI)
+69.58 85.24
+89.39
+69.88 85.34
+89.79
+StructXLIP (DOCCI→DOCCI) 84.73 97.69
+99.00
+82.61 97.08
+98.71
+StructXLIP (DOCCI→DCI)
+69.93 86.74
+91.05
+71.39 86.99
+90.60
+HN-CLIP (DOCCI→DOCCI)
+88.25 98.45
+99.43
+86.24 98.12
+99.22
+HN-CLIP (DOCCI→DCI)
+74.84 88.54
+92.40
+75.64 88.04
+91.35
+Figure A9: Per-direction convergence. Recall@1 per epoch; top: Text→Image, bottom: Image→Text.
+28
+
+
+Table A11: Three-seed replication (seeds 42, 1337, 3407), mean ± std over the three runs; the epoch is
+selected per benchmark by the same rule used throughout. Bold marks the best mean per column, underline the
+runner-up. Long-CLIP is evaluated zero-shot without fine-tuning and therefore carries no seed variance.
+DOCCI
+Method
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+Long-CLIP[ECCV’24] (zero-shot)
+78.78
+95.24
+98.02
+66.75
+91.92
+96.31
+FineLIP[CVPR’25]
+77.39 ±0.33
+95.82 ±0.08
+98.36 ±0.02
+69.80 ±0.08
+93.14 ±0.14
+97.37 ±0.09
+GOAL[CVPR’25]
+81.89 ±0.36
+96.97 ±0.04
+98.78 ±0.05
+80.59 ±0.51
+96.19 ±0.10
+98.59 ±0.07
+StructXLIP[CVPR’26]
+84.73 ±0.09
+97.64 ±0.05
+99.04 ±0.09
+82.52 ±0.17
+96.97 ±0.09
+98.78 ±0.08
+HN-CLIP
+88.36 ±0.14
+98.50 ±0.04
+99.48 ±0.05
+86.41 ±0.19
+98.09 ±0.03
+99.24 ±0.02
+∆
+↑3.62
+↑0.86
+↑0.44
+↑3.89
+↑1.12
+↑0.46
+DCI
+Method
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+Long-CLIP[ECCV’24] (zero-shot)
+67.83
+83.19
+87.69
+64.13
+84.84
+89.74
+FineLIP[CVPR’25]
+72.77 ±0.21
+87.22 ±0.03
+90.92 ±0.08
+65.55 ±0.35
+86.92 ±0.06
+90.90 ±0.10
+GOAL[CVPR’25]
+76.96 ±0.49
+90.03 ±0.20
+93.23 ±0.26
+75.07 ±0.32
+89.72 ±0.20
+93.32 ±0.06
+StructXLIP[CVPR’26]
+76.56 ±0.66
+90.05 ±0.14
+93.52 ±0.12
+74.42 ±0.12
+90.37 ±0.30
+93.68 ±0.26
+HN-CLIP
+80.79 ±0.17
+92.22 ±0.16
+94.80 ±0.26
+79.16 ±0.35
+91.93 ±0.15
+94.55 ±0.10
+∆
+↑3.83
+↑2.17
+↑1.28
+↑4.08
+↑1.57
+↑0.87
+Long-DCI
+Method
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+Long-CLIP[ECCV’24] (zero-shot)
+54.61
+72.80
+78.33
+47.35
+73.04
+80.10
+FineLIP[CVPR’25]
+59.38 ±0.14
+77.85 ±0.08
+83.35 ±0.12
+49.20 ±0.25
+75.10 ±0.10
+82.33 ±0.08
+GOAL[CVPR’25]
+74.58 ±0.50
+92.90 ±0.20
+95.83 ±0.09
+73.40 ±0.46
+92.40 ±0.22
+95.74 ±0.10
+StructXLIP[CVPR’26]
+75.51 ±0.21
+93.23 ±0.07
+96.04 ±0.11
+73.05 ±0.50
+92.78 ±0.11
+95.89 ±0.18
+HN-CLIP
+78.84 ±0.15
+93.58 ±0.23
+96.21 ±0.12
+76.14 ±0.30
+92.83 ±0.06
+96.01 ±0.11
+∆
+↑3.33
+↑0.35
+↑0.17
+↑2.74
+↑0.05
+↑0.12
+Urban-1K
+Method
+R@1
+R@5
+R@10
+R@1
+R@5
+R@10
+Long-CLIP[ECCV’24] (zero-shot)
+86.10
+96.50
+98.10
+82.40
+96.70
+98.30
+FineLIP[CVPR’25]
+81.57 ±0.35
+94.93 ±0.15
+97.23 ±0.21
+77.13 ±0.99
+94.90 ±0.10
+97.50 ±0.10
+GOAL[CVPR’25]
+86.10 ±1.49
+97.00 ±0.53
+98.83 ±0.40
+88.10 ±0.17
+97.10 ±0.36
+98.73 ±0.32
+StructXLIP[CVPR’26]
+85.47 ±1.30
+96.67 ±0.86
+98.60 ±0.30
+87.23 ±0.90
+96.57 ±0.42
+98.20 ±0.17
+HN-CLIP
+89.87 ±0.31
+98.37 ±0.15
+99.33 ±0.12
+91.37 ±0.83
+98.57 ±0.35
+99.27 ±0.06
+∆
+↑3.77
+↑1.37
+↑0.50
+↑3.27
+↑1.47
+↑0.53
+HN-CLIP is best in all four R@5/R@10 columns, while continuing to lead all eight R@1 columns.
+The second seed preserves the R@1 ordering but shows modest variation at deeper ranks. The
+two mechanisms are complementary rather than competing: Table 2 shows that adding LHN inside
+StructXLIP improves it further.
+F
+ADDITIONAL QUALITATIVE RESULTS
+Fig. A10 shows Text→Image retrievals on DOCCI queries whose galleries are crowded with near-
+duplicates, the regime our loss targets. HN-CLIP resolves the discriminative details named in the
+caption (lettering, flower species, signage), while the strongest baseline retrieves appearance-level
+look-alikes, leaving the ground truth at rank 18–52.
+29
+
+
+Figure A10: Qualitative T→I retrieval on DOCCI (green = ground truth).
+30

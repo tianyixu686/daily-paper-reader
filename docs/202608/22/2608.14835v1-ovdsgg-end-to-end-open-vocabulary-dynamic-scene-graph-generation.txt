@@ -1,0 +1,1184 @@
+OvDSGG: End-to-End Open-Vocabulary
+Dynamic Scene Graph Generation
+John Helsby1,2,⋆, Yi Yang3,⋆, Bodo Rosenhahn3 , and
+Michael Ying Yang2,⋆⋆
+1 Meta, UK
+2 University of Bath, UK
+3 Leibniz Universität Hannover, Germany
+Abstract. Dynamic scene graphs (DSGs) capture spatio-temporal in-
+teractions across videos as ⟨subject, predicate, object⟩triplets, and un-
+derpin downstream tasks such as video captioning, video question an-
+swering, and action analysis. However, end-to-end dynamic scene graph
+generation (DSGG) methods are closed-set: they recognize only objects
+and predicates from a fixed training vocabulary and struggle with the
+long-tailed distribution of rare concepts, severely limiting their real-
+world applicability. Existing open-vocabulary models typically inherit
+pretrained large language models, resulting in multi-stage training and
+inference with substantial cost. We introduce OvDSGG, the first end-
+to-end framework for open-vocabulary DSGG. OvDSGG builds on top
+of an open-vocabulary Spatial Backbone and a Temporal Backbone;
+we further propose a Triplet Feature Extraction Module that bridges
+them, and a Visual-Language Alignment Module that preserves open-
+vocabulary recognition by learning an adaptive decision boundary in
+the joint visual-language feature space, without expensive knowledge
+distillation in existing methods. We further introduce a rigorous open-
+vocabulary DSGG benchmark adapted from Action Genome, with dis-
+joint Base/Novel splits for both objects and predicates. OvDSGG signif-
+icantly outperforms open-vocabulary baselines across all metrics, with
+zero-shot Recall@K scores 10.0–20.4 percentage point higher than the
+next-best baseline, while on closed-set DSGG remaining competitive with
+state-of-the-art models. Code and benchmark are publicly available at
+https://github.com/jhelsby/OvDSGG/.
+Keywords: Scene Graph Generation · Dynamic Scene Graph · Open
+Vocabulary
+1
+Introduction
+Scene graphs [13] encode visual scenes in images as a structured set of triplets:
+⟨subject, predicate, object⟩. Dynamic Scene Graphs (DSGs) extend this represen-
+tation to video by adding a temporal dimension, capturing how interactions
+⋆These authors contribute equally to this work.
+⋆⋆Corresponding author.
+arXiv:2608.14835v1  [cs.CV]  14 Aug 2026
+
+
+2
+J. Helsby et al.
+Fig. 1: Comparison between existing DSGG methods and our OvDSGG. (a) Closed-
+vocabulary DSGG fails to detect objects and predicates that are unseen in training
+data. (b) Per-frame open-vocabulary models do not capture temporal dynamics. (c)
+Our OvDSGG is an end-to-end, open-vocabulary model for DSGG.
+evolve over time [12]. The accompanying task of Dynamic Scene Graph Genera-
+tion (DSGG) supports downstream applications such as video captioning, video
+question answering, and action analysis [26].
+Despite rapid progress in DSGG, existing end-to-end methods share a critical
+limitation: they are closed-set, capable only of identifying objects and predicates
+from a predefined vocabulary, as shown in Figure 1 (a). They also struggle with
+the long-tailed distribution of rarely seen concepts [3,15]. This restricts their use
+in real-world scenarios, where novel objects and relationships frequently emerge.
+For static scene graph generation (SGG), this restriction has been substan-
+tially relaxed by recent work on open-vocabulary scene graph generation [3, 4,
+10, 41], which leverages pretrained vision–language models to recognize unseen
+objects and unseen relationships in images. While they can generate per-frame
+open-vocabulary scene graphs, they lack the capability to capture the temporal
+dynamics and consistency in videos, as illustrated in Figure 1 (b).
+We study this setting with OvDSGG, a novel end-to-end framework that
+is fully open-vocabulary in both objects and predicates, as illustrated in Fig-
+ure 1 (c). OvDSGG integrates the open-vocabulary image SGG framework OvS-
+GTR [3, 4] with the one-stage DSGG model OED [34]: it retains OvSGTR’s
+open-vocabulary spatial backbone, adopts OED’s temporal context aggregation
+module, and connects the two via two novel components: a Triplet Feature Ex-
+traction Module and a Visual–Language Alignment Module.
+Two obstacles make this adaptation non-trivial. (i) The temporal module re-
+quires a compact per-query triplet representation, but Grounding DINO emits
+only per-object queries; our Triplet Feature Extraction Module (Section 3.4)
+lifts these queries into paired instance and predicate features and concatenates
+them into the triplet representation the temporal module consumes. (ii) Open-
+vocabulary recognition must be preserved during temporal training, yet OvS-
+GTR’s knowledge-distillation retention loss requires a teacher forward pass for
+
+
+OvDSGG: End-to-End Open-Vocabulary Dynamic SGG
+3
+every frame of every training window, and is thus prohibitively expensive on
+video; our Visual–Language Alignment Module (Section 3.6) instead decou-
+ples the semantic prior from the decision boundary by using text embeddings
+to initialize learnable classification heads, thus retaining novel-class prototypes
+structurally and dispensing with the distillation loss altogether. (iii) No open-
+vocabulary benchmark exists for DSGG; we provide one by partitioning Action
+Genome into disjoint Base/Novel splits compatible with the OvSGTR pretrain-
+ing used to initialize OvDSGG.
+In summary, the contributions of this paper are:
+1. OvDSGG, the first end-to-end open-vocabulary DSGG framework, capa-
+ble of predicting both unseen objects and unseen predicates from video.
+We propose a Triplet Feature Extraction Module that facilitates temporal
+aggregation, and a Visual–Language Alignment Module that retains open-
+vocabulary capacity without the need of expensive knowledge distillation.
+2. A formal open-vocabulary DSGG benchmark on Action Genome [12],
+with disjoint Base/Novel splits enabling evaluation across seen and unseen
+object and relation categories.
+3. Experimental results demonstrating that OvDSGG outperforms all base-
+lines in the open-vocabulary setting, with zR@K scores 10.0–20.4 percentage
+point higher than the next-best baseline, while remaining competitive with
+state-of-the-art methods in the closed-set setting.
+2
+Related Work
+Scene graph generation. Following Johnson et al. [13], scene graphs have be-
+come a standard structured representation for images, with Visual Genome [14]
+as the canonical benchmark. Early SGG methods are two-stage, first detecting
+objects via Faster-RCNN [29] and then classifying relations between propos-
+als [15,24]. To avoid the quadratic relation-classification cost and the difficulty
+of joint optimization, one-stage end-to-end methods built on DETR [1] have
+emerged, including SGTR [17], RelTR [6], and EGTR [11]. A persistent obstacle
+across both paradigms is the long-tailed distribution of relationship annotations:
+a few frequent geometric and possessive predicates dominate while semantically
+rich predicates are rare [31, 38]. This biases models toward frequent predicates
+and degrading generalization to rare triplets. A line of unbiased SGG work coun-
+teracts this, e.g. via causal interventions that remove the dataset frequency bias
+at inference [31]. Open-vocabulary SGG offers a distinct but equally effective ap-
+proach: it replaces closed-set classifiers with vision–language alignment, so that
+rare and unseen concepts can be recognized directly.
+Dynamic scene graph generation. The DSGG task and the Action Genome
+dataset were introduced by Ji et al. [12], providing 10K videos with frame-level
+triplet annotations. Early DSGG methods adopt the two-stage paradigm, with
+separate object detection and relation classification stages [9, 19]. STTran [5]
+introduced a spatio-temporal transformer combining a Faster-RCNN backbone
+
+
+4
+J. Helsby et al.
+with spatial and temporal decoders, while TPT [42] was the first transformer-
+based end-to-end DSGG method, though it remained two-stage. Most recently,
+OED [34] proposed an one-stage, end-to-end architecture that extends DETR
+across both spatial and temporal dimensions, achieving state-of-the-art results
+on Action Genome. However, like all prior DSGG methods, OED is restricted to
+a closed-set vocabulary and inherits the long-tail bias of its training data. TEM-
+PURA [25] targets this bias directly, combining temporal consistency modeling
+with uncertainty-guided debiasing, but it remains a two-stage, closed-set model
+and is outperformed by the end-to-end OED.
+Open-vocabulary scene graph generation. Open-vocabulary object detec-
+tors [8,16,35,37,43] leverage pretrained vision–language models (VLMs), often
+building on CLIP [28]. GLIP [16] reformulates detection as image–text match-
+ing, and Grounding DINO [22] combines this with the DETR-like detector
+DINO [39] to yield a strong open-vocabulary detector. Building on these ad-
+vances, He et al. [10] and Zhang et al. [41] introduced open-vocabulary SGG
+models capable of recognizing unseen objects, and the more recent OvSGTR
+framework [3, 4] achieved state-of-the-art results on Visual Genome by extend-
+ing open-vocabulary recognition to predicates as well. OvSGTR combines a Swin
+Transformer [23] visual encoder, a BERT [7] text encoder, and a DETR-style
+relational transformer in a single end-to-end network. A parallel line of work in-
+stead builds open-vocabulary scene graph generators on large pretrained VLMs
+and multimodal language models: PGSG [18] recasts SGG as image-to-text gen-
+eration with a generative VLM; Robin [27] instruction-tunes a multimodal lan-
+guage model to produce dense scene graphs; and DovSG [36] assembles open-
+vocabulary 3D scene graphs from a pipeline of foundation models. These meth-
+ods inherit the broad semantic coverage of their pretrained backbones and report
+strong open-vocabulary performance, but they are multi-stage systems with sub-
+stantial training and inference cost, which therefore do not fit into an end-to-end
+video DSGG framework.
+Research gap. While open-vocabulary SGG has matured on static images, the
+corresponding video task remains less explored. State-of-the-art DSGG mod-
+els such as OED are closed-set and suffer from the same long-tail bias that
+open-vocabulary methods mitigate for images. We note that OED and OvSGTR
+share a common DETR lineage, which makes them amenable to re-adaptation
+and integration. This motivates OvDSGG, the one-stage, end-to-end, fully open-
+vocabulary DSGG framework presented next.
+3
+Method
+3.1
+Problem Formulation
+A dynamic scene graph is a structured representation, capturing evolving enti-
+ties and visual interactions within a video. Nodes correspond to localized visual
+entities, while directed edges denote pairwise interactions.
+Given an input video {Vt}H
+t=1 of H sequential frames, the k-th entity node
+ot(k) in frame t is parameterized by its semantic category ct(k) ∈C and its
+
+
+OvDSGG: End-to-End Open-Vocabulary Dynamic SGG
+5
+normalized bounding-box coordinates bt(k) ∈[0, 1]4, where C defines the vo-
+cabulary of all object classes. Directed edges capture interactions from a source
+subject node (i) to a destination object node (j), characterized by a predicate
+pt(i, j) ∈P from the predicate vocabulary P. There can be multiple predicates
+between a single subject–object pair. A complete visual relationship triplet is
+  r_t ( i , j) = (o_t( i), \, p_t (i, j),\, o_t(j)), 
+(1)
+and the scene graph for frame t is the set Gt = {rk
+t }K
+k=1 of all valid triplets.
+We define two task variants:
+Closed-Set DSGG (CS-DSGG). Generate { ˆGt}H
+t=1 with Ctrain = Ceval and Ptrain =
+Peval.
+Open-Vocabulary DSGG (OV-DSGG). Vocabularies partition into disjoint Base
+and Novel subsets, C = Cbase ∪Cnovel and P = Pbase ∪Pnovel. Training accesses
+only Base annotations; evaluation uses the full C and P.
+3.2
+Overview
+OvDSGG is an end-to-end DSGG framework that comprises the following four
+components. The Spatial Backbone (Section 3.3) generates per-query entity
+features from Grounding DINO. The Triplet Feature Extraction Module (Sec-
+tion 3.4) projects these entity queries into paired instance and predicate features
+at the triplet level. The Temporal Backbone (Section 3.5) aggregates cross-
+frame context via OED’s Progressively Refined Module. Finally, the Visual–
+Language Alignment Module (Section 3.6) instantiates open-vocabulary classi-
+fiers via BERT-initialized linear heads and produces the final triplet predictions.
+Fig. 2: Overview of our OvDSGG architecture. The Spatial Backbone extracts per-
+frame visual and language features, which are processed by Triplet Feature Extraction
+to form triplet representations. The Temporal Backbone further aggregates temporal
+information from reference frames. The Visual–Language Alignment Module uses tem-
+porally enhanced triplet features and language embeddings to produce open-vocabulary
+classification results.
+3.3
+Spatial Backbone with Grounding DINO
+OvDSGG employs Grounding DINO [22] as its foundational vision–language
+detector, extracting entity queries and visual features from each input frame.
+
+
+6
+J. Helsby et al.
+Following the prompting strategy of OvSGTR [3], we format object classes
+into a single unified prompt, concatenating class names separated by periods
+(e.g., “person . bag . bed . . . . ”). The prompt is encoded by BERT [7], yielding
+per-class semantic embeddings eobj
+c
+∈Rd for each c ∈C. These embeddings guide
+the vision backbone via cross-attention inside Grounding DINO. Separately, the
+predicate class names are encoded by the same language backbone, yielding
+embeddings erel
+p
+∈Rd for each p ∈P. The predicate embeddings are not used for
+visual grounding but are stored for downstream initialization of the predicate
+classification heads (Section 3.6).
+For each input frame, Grounding DINO outputs a fixed set of Nq entity
+queries. We extract their content representations hobj ∈RNq×d and the corre-
+sponding anchor bounding boxes banc ∈[0, 1]Nq×4. hobj is already cross-modally
+enhanced and carries open-vocabulary semantics, as a result of Grounding DINO’s
+vision–language fusion. The detector also outputs dense memory feature maps
+M ∈RNv×d (with Nv visual tokens) from its multi-scale encoder.
+In summary, Grounding DINO outputs ⟨hobj, banc, M, eobj
+c
+, erel
+p ⟩, a per-frame
+interface between the Spatial Backbone and the downstream modules.
+3.4
+Triplet Feature Extraction Module
+The entity queries hobj from Grounding DINO encode each detected object in
+isolation and are not directly amenable to relational reasoning. We therefore
+decouple instance and predicate representations into separate branches.
+Instance features. A learnable linear projection lifts the object-centric query
+representations to instance features:
+  h_ { \tex t {i n s}} = \mathbf {W}_{\text {ins}}\, h_{\text {obj}} \in \mathbb {R}^{N_q \times d}\,, 
+(2)
+with Wins ∈Rd×d applied to each query.
+Predicate features. An interaction decoder produces predicate features by
+attending the instance queries against the dense memory feature maps M, gath-
+ering the contextual visual evidence needed for relational reasoning:
+  h_ { \text {rel}} = \text {In te r actio nDecoder}(h_{\text {ins}};\, M) \in \mathbb {R}^{N_q \times d}\,. 
+(3)
+The decoder consists of three Transformer decoder layers, each comprising self-
+attention over the queries, cross-attention to M, and a feed-forward block.
+Triplet representation. The per-query triplet representation is the channel-
+wise concatenation of the instance and predicate features:
+  h_ { \text {trp} } = [h_ {\text {ins}};\, h_{\text {rel}}] \in \mathbb {R}^{N_q \times 2d}\,. 
+(4)
+This representation jointly carries the spatial and relational information for each
+query, and serves as input to the Temporal Backbone (Sec. 3.5) and the classi-
+fication heads (Sec. 3.6).
+
+
+OvDSGG: End-to-End Open-Vocabulary Dynamic SGG
+7
+3.5
+Temporal Backbone
+For temporal reasoning, we adopt OED’s Progressively Refined Module [34].
+This module operates on the per-query triplet representation htrp.
+Given the triplet representations for a target frame (htgt
+trp) and its n reference
+frames (href
+trp), we rank the reference queries by a per-query confidence score
+  p = p _{\te x t {ob j }} \c dot p_{\text {attn}} \cdot p_{\text {spat}} \cdot p_{\text {cont}}\,, 
+(5)
+where pobj is the maximum-class probability from the object classifier of Sec-
+tion 3.6, restricted to foreground classes; and pattn, pspat, pcont are the maximum-
+class probabilities from the three predicate-group classifiers (also Section 3.6).
+The Progressively Refined Module then distills temporal context via a cas-
+cade of m layers. In each layer i ∈{1, . . . , m}, we retain the top-ki most confident
+reference queries and cross-attend the target into them:
+  \begi
+n {
+g ather
+e
+d} h
+^{\t ex
+t
+ 
+{ref
+}
+; k_i
+}
+_{\text {
+t
+rp}} = \text 
+{Top- }K\!\le
+ft 
+(h
+^{\text {ref}}_{\text {trp}},\, k_i\right ), \\ h^{\text {tgt}}_{i} = \text {FFN}\!\left (\text {CrossAttn}\!\left (\text {SelfAttn}(h^{\text {tgt}}_{i-1}),\, h^{\text {ref};k_i}_{\text {trp}}\right )\right ), \end {gathered} 
+(6)
+with htgt
+0
+= htgt
+trp. The selection threshold ki is progressively reduced across layers
+(e.g., 80n →50n →30n), distilling temporal context while filtering background
+noise. After refinement, htgt
+m is split along the channel dimension into tempo-
+rally enriched instance (h′
+ins) and relation (h′
+rel) features, which feed the final
+classification heads of Section 3.6.
+3.6
+Visual–Language Alignment Module
+The Visual–Language Alignment Module produces the final open-vocabulary
+triplet predictions. It instantiates a set of classification heads whose weights
+are initialized from the BERT text embeddings eobj
+c
+and erel
+p
+from the Spatial
+Backbone (Section 3.3), aligning visual predictions to the language semantic
+space, so that categories unseen during training can still be recognized. The heads
+are applied to the temporally enriched features from the Temporal Backbone
+(Section 3.5) to produce frame-level predictions.
+Unlike OvSGTR which adopts a cosine similarity loss between the frozen
+BERT text embeddings and the output features, OvDSGG decouples semantic
+prior and decision boundary. Text embeddings are used to initialize the weights
+of learnable linear heads, supplying the open-vocabulary prior, while admitting
+per-class capacity to adapt base-class boundaries to the target domain. Novel
+categories are excluded from the object prompt, masked from the predicate loss
+(Section 3.7), and receive no gradient. The rows of the head matrices correspond-
+ing to novel categories remain at their text-embedding initialization throughout
+training.
+Object classification. A linear head maps instance features to per-query object
+probabilities:
+ \ha
+t
+ {
+p
+}^{\ te
+xt 
+{
+o bj} }_q = \sigma \!\left (\mathbf {W}^{\text {obj}}\, h^{q}_{\text {ins}}\right ) \in [0,1]^{|\mathcal {C}|}\,, 
+(7)
+
+
+8
+J. Helsby et al.
+where σ(·) is the element-wise sigmoid. Writing ˜e = e/∥e∥2 for ℓ2-normalization,
+the weight matrix Wobj ∈R|C|×d is initialized row-wise from the object-class text
+embeddings:
+  \m
+ath b f {W}
+^
+{
+\ t e xt {obj}}_{c,:} = \tilde {\mathbf {e}}^{\text {obj}}_c, \quad c \in \mathcal {C}\,. 
+(8)
+Bounding-box regression. Two three-layer MLPs respectively predict subject
+and object coordinate offsets from the instance features:
+  \
+D e lta b^{
+l}_q 
+= \text {ML P}^{l}(h^{q}_{\text {ins}}), \quad l \in \{\text {sub},\, \text {obj}\}\,. 
+(9)
+For gradient stability, offsets are added in inverse-sigmoid space to the anchor
+boxes banc:
+  \
+l a b
+e
+l {eqn:bbox _ upd
+a
+t
+e} \hat {b}^{l}_q = \sigma \!\left (\sigma ^{-1}(b_{\text {anc},q}) + \Delta b^{l}_q\right )\,. 
+(10)
+Predicate classification. Reflecting Action Genome’s predicate structure, we
+instantiate three independent linear heads, one per group g ∈R = {attn, spat, cont}:
+ \
+h a t {p }^
+{g}_ q = \sigma 
+\ ! \ left (\mathbf {W}^{g}\, h^{q}_{\text {rel}}\right ) \in [0,1]^{|\mathcal {P}^g|}\,, \quad g \in \mathcal {R}\,, 
+(11)
+where Pk is the predicate vocabulary of group g, and each weight matrix is
+initialized analogously from the predicate text embeddings:
+  
+\ma t hbf {
+W }
+^ { g} _{p,:} = \tilde {\mathbf {e}}^{\text {rel}}_p, \quad p \in \mathcal {P}^g\,. 
+(12)
+For CS-DSGG, the prompt encompasses the full C. For OV-DSGG, the training
+prompt is restricted to Cbase and expanded to C at evaluation. For predicates,
+the heads always span the full P; open-vocabulary transfer is instead enforced
+via a gradient mask on the loss (Section 3.7).
+At inference, the classification heads operate on the temporally refined fea-
+tures h′
+ins and h′
+rel from the Temporal Backbone (Section 3.5).
+3.7
+Training and Inference
+Training. For each target frame, the model predicts a fixed set of Nq candidate
+triplets T = {ti}Nq
+i=1. We use Hungarian Matching [1] to find the optimal bipartite
+matching ˆπ between T and the ground-truth set G = {ri}Nq
+i=1 (padded with ∅):
+ \ hat {\
+pi } 
+= 
+\
+und
+erset {\pi \in \ mathfrak {S}_{N_q}}{\arg \min } \sum _{i=1}^{N_q} \mathcal {L}_{\text {match}}(r_i,\, t_{\pi (i)})\,. 
+(13)
+The overall training objective combines classification and bounding-box losses:
+  \mat h cal {L}_ {
+\
+tex
+t 
+{match} }
+ 
+= \math cal 
+{L
+}_{ \text {obj\_cls}} + \sum _{g \in \mathcal {R}} \mathcal {L}^{g}_{\text {rel\_cls}} + \sum _{l \in \{\text {sub},\, \text {obj}\}} \mathcal {L}^{l}_{\text {box}}\,. 
+(14)
+Classification losses. We use multi-label sigmoid Focal Loss [20] for classification.
+To support open-vocabulary learning, we apply two complementary masking
+
+
+OvDSGG: End-to-End Open-Vocabulary Dynamic SGG
+9
+strategies. For object classification, novel categories are excluded from the train-
+ing object prompt so the detector emits no logits for them; the loss is summed
+only over base classes:
+  \mathc a
+l
+ {L}
+_{
+\
+tex
+t
+ {obj\_
+cls}} = \
+f
+rac 
+{1} { N_{\t
+ext
+ 
+{pos}}} \sum _{q=1}^{N_q} \sum _{c \in \mathcal {C}_{\text {base}}} \text {FocalLoss}\!\left (y^{\text {obj}}_{q,c},\, \hat {p}^{\text {obj}}_{q,c}\right )\,, 
+(15)
+where yobj
+q,c ∈{0, 1} is the object target for query q at class c, and Npos is the
+number of annotated positive matches. For predicate classification, the heads are
+structurally fixed to the full vocabulary, so we instead introduce a binary mask
+mg
+p = 1[p ∈Pg
+base] that restricts the loss to base predicates:
+  
+\mathca l
+ 
+{L}^
+{g
+}
+_{\
+t
+ext 
+{r
+e l \_cls}} =
+ 
+\f
+rac {1}
+{N_
+{
+\text {pos}}} \sum _{q=1}^{N_q} \sum _{p \in \mathcal {P}^g} m^{g}_{p} \cdot \text {FocalLoss}\!\left (y^{g}_{q,p},\, \hat {p}^{g}_{q,p}\right )\,. 
+(16)
+These schemes preserve novel categories’ text-embedding in the classifier (Sec-
+tion 3.6). At evaluation, both sums extend over the full vocabularies C and Pg.
+Bounding-box loss. We use a weighted combination of ℓ1 and GIoU [30] losses:
+  
+\ma t h ca
+l { L }^
+{l}_ {\text {box}} = \alpha \,\mathcal {L}^{l}_{\ell _1} + \beta \,\mathcal {L}^{l}_{\text {GIoU}}\,, 
+(17)
+with weighting coefficients α, β ∈R+. Boxes are regressed as offsets to the de-
+tector’s anchor boxes banc (Eq. 10) rather than from scratch.
+Partial freezing. To balance preservation of pretrained open-vocabulary knowl-
+edge against temporal adaptation, we adopt the partial-freezing strategy: the
+visual backbone and BERT are entirely frozen, while the final six layers of
+Grounding DINO’s cross-modal encoder and decoder are fine-tuned.
+Inference. OvDSGG observes features pooled across n reference frames and
+emits Nq candidate triplets per target frame. The candidates are first pruned
+by a global object-confidence threshold to retain the top-K queries, then de-
+duplicated by batched Non-Maximum Suppression over the projected object
+boxes and category labels. Sliding the temporal window over the video yields
+the complete DSG sequence.
+4
+Experiments
+4.1
+Dataset and Open-Vocabulary Splits
+We evaluate on Action Genome (AG) [12], which provides frame-level scene
+graph annotations across 234,253 frames, with 36 object classes and 26 predicate
+classes. For CS-DSGG we use the standard AG training/test split.
+For OV-DSGG, following OvSGTR [3], we partition both object and predicate
+categories into a 70% Base / 30% Novel split. Because OvDSGG is initialized
+from an OvSGTR checkpoint pretrained on Visual Genome (VG) [14], which
+has only partial overlap with AG, we map categories between the two datasets
+
+
+10
+J. Helsby et al.
+to prevent data contamination. We (i) inherit the Base/Novel assignments from
+the VG splits used by the OvSGTR checkpoint (44% of AG objects and 36%
+of AG predicates inherit Base; 11% and 8% inherit Novel); (ii) allocate the
+remaining 44% of objects and 54% of predicates absent from VG into Base or
+Novel by frequency-balanced sampling to reach the 70/30 target; and (iii) resolve
+ambiguous grouped labels (e.g. cup/glass/bottle) conservatively, assigning all
+such grouped categories to Base to avoid contaminating the Novel set. Detailed
+statistics are provided in Supplementary Section A.
+Following standard SGG and DSGG evaluation metrics, we report Recall@K
+(R@K) [24] for overall performance, mean Recall@K (mR@K) [2] for long-tailed
+performance, and zero-shot Recall@K (zR@K) [24,31] for unseen triplets.
+4.2
+Implementation and Settings
+The spatial detector uses a Swin-T [23] backbone with Nq = 900 entity queries
+and hidden dimension 256, following OvSGTR. The temporal module uses 3
+interaction decoder layers, 3 temporal decoder layers, and a window of 3 reference
+frames. The CS-DSGG spatial module is initialized from a closed-set OvSGTR
+checkpoint pretrained on VG; OV-DSGG uses its open-vocabulary equivalent.
+Training follows OED’s two-stage scheme: spatial module is trained first, then
+temporal module is fine-tuned. For CS-DSGG the spatial module converged after 3
+epochs and the temporal module after 2. For OV-DSGG we found that directly fine-
+tuning the full model during temporal training degraded spatial performance,
+consistent with the catastrophic-forgetting behavior reported for OvSGTR [3].
+We therefore freeze Grounding DINO and the spatial DSGG components during
+open-vocabulary temporal training. Our OV-DSGG temporal model was trained
+for 2 epochs with AdamW at LR 5×10−5, followed by 1 epoch at 1×10−5.
+We use SGDET as our evaluation protocol, which requires prediction of subject
+and object boxes, their classes, and the predicate, given only the video frames.
+We consider a predicted box correct if it overlaps with ground truth with IoU ≥
+0.5. All metrics are reported under the standard With Constraint (one predicate
+per pair) and No Constraint (multiple predicates per pair) settings [5,15].
+4.3
+Open-Vocabulary DSGG
+Table 1 compares OvDSGG against three baseline variants we construct, since
+no prior end-to-end open-vocabulary DSGG model exists to compare against
+directly: an open-vocabulary adaptation of OED in both its spatial-only and full
+temporal forms, and OvSGTR as a spatial baseline on AG.
+We report both the spatial-only and full temporal variants of OvDSGG.
+OvDSGG provides superior scores across all metrics, outperforming the next-
+best baseline on R@K by 9.6–16.6 percentage point (pp) and on mR@K by
+1.3–8.1 pp. Crucially, zR@K is 10.0–20.4 pp higher than the next-best baseline
+(e.g. 13.6 vs. 3.6 on zR@10). These results support our central claim: by combin-
+ing Grounding DINO’s open-vocabulary object detection with BERT-initialized
+
+
+OvDSGG: End-to-End Open-Vocabulary Dynamic SGG
+11
+predicate heads, OvDSGG performs effective open-vocabulary DSGG on both
+objects and predicates.
+Table 1: Comparison with baseline methods on Action Genome for Scene Graph
+Detection (SGDET), in the open-vocabulary setting. Best and second-best are bold and
+underlined, respectively.
+SGDET, IoU ≥0.5
+R@K ↑
+mR@K ↑
+zR@K ↑
+With Constr.
+No Constr.
+With Constr.
+No Constr.
+With Constr.
+No Constr.
+Method
+10
+20
+50
+10
+20
+50
+10
+20
+50
+10
+20
+50
+10
+20
+50
+10
+20
+50
+Ov-OED (spatial) [34] 22.9 26.4 29.6 21.5 26.7 34.6 11.5 13.6 15.2 14.5 21.4 32.3
+2.0
+2.8
+3.9
+3.6
+8.3
+13.8
+Ov-OED (temporal)
+23.7 27.8 31.5 21.9 27.5 36.0 11.2 13.5 15.9 14.5 22.0 33.5
+0.5
+0.7
+1.1
+3.9
+8.6
+14.9
+OvSGTR [3,4]
+12.9 16.4 20.8 12.2 16.8 23.1
+7.9
+9.8
+11.9
+9.8
+14.2 20.0
+3.6
+4.8
+6.2
+3.4
+5.1
+8.7
+OvDSGG (spatial)
+32.0 37.6 43.6 32.9 40.5 50.0 14.1 16.6 19.1 19.0 25.7 36.5 15.5 20.4 25.6 17.7 24.6 33.1
+OvDSGG (temporal)
+33.3 40.1 48.1 33.9 41.5 51.0 16.5 19.8 24.0 19.9 25.8 34.8 13.6 18.8 26.6 15.1 21.3 30.9
+4.4
+Closed-Set DSGG
+Although optimized for open-vocabulary generalization, OvDSGG remains com-
+petitive in the closed-set setting (Table 2). It achieves the second-best perfor-
+mance across 11 of 12 SGDET metrics. On No-Constraint R@50 it ranks first
+(53.2), surpassing OED (51.8). We attribute the remaining gap to OED to
+Grounding DINO’s open-vocabulary architecture. As Liu et al. note [22], Ground-
+ing DINO underperforms its closed-set variant DINO [39] on closed-set bench-
+marks. Another possible reason is training configuration. We currently freeze
+the visual backbone and BERT text encoder throughout training, following [4]
+to preserve open-vocabulary capabilities. However, in the closed-set setting this
+could prevent the model from fully adapting its visual–linguistic feature space to
+Action Genome. OvDSGG’s closed-set performance can potentially benefit from
+a more dedicated optimization strategy, as discussed in Section 5.
+Table 2: Comparison with state-of-the-art DSGG methods on Action Genome for
+Scene Graph Detection (SGDET), in the closed-set setting. Best and second-best are
+bold and underlined, respectively.
+SGDET, IoU ≥0.5
+R@K ↑
+mR@K ↑
+With Constr.
+No Constr.
+With Constr.
+No Constr.
+Method
+10
+20
+50
+10
+20
+50
+10
+20
+50
+10
+20
+50
+RelDN [40]
+9.1
+9.1
+9.1
+13.6 23.0 36.6
+3.3
+3.3
+3.3
+7.5
+18.8 33.7
+VCTree [32]
+24.4 32.6 34.7 23.9 35.3 46.8
+-
+-
+-
+-
+-
+-
+TRACE [33]
+13.9 14.5 14.5 26.5 35.6 45.3
+8.2
+8.2
+8.2
+22.8 31.3 41.8
+GPS-Net [21]
+24.7 33.1 35.1 24.4 35.7 47.3
+-
+-
+-
+-
+-
+-
+STTran [5]
+25.2 34.1 37.0 24.6 36.2 48.8 16.6 20.8 22.2 20.9 29.7 39.2
+APT [19]
+26.3 36.1 38.3 25.7 37.9 50.1
+-
+-
+-
+-
+-
+-
+DSG-DETR [9]
+30.4 34.9 36.0 32.3 40.9 48.2 18.0 21.3 22.0 23.6 30.1 36.5
+TEMPURA [25]
+28.1 33.4 34.9 29.8 38.1 46.4 18.5 22.6 23.7 24.7 33.9 43.7
+OED [34]
+33.5 40.9 48.9 35.3 44.0 51.8 20.9 26.9 32.9 26.3 39.5 49.5
+OvDSGG (temporal) 31.3 38.2 44.7 33.4 42.4 53.2 20.1 25.0 29.3 25.5 35.3 47.1
+
+
+12
+J. Helsby et al.
+4.5
+Ablation Study
+Module Effectiveness We assess the contribution of the Triplet Feature Ex-
+traction Module (Trp.) by comparing it against a spatial baseline (Spat.), which
+makes predictions directly from the Spatial Backbone output queries; and com-
+paring against the full model with the Temporal Backbone (Temp.). Results are
+reported on the open-vocabulary setting in Table 3. The corresponding closed-set
+ablation is provided in Supplementary Section B.1.
+Adding the Triplet Feature Extraction Module increases every metric for both
+constraint settings, with a markedly larger relative gain than in the closed-set
+ablation. This suggests that our proposed Triplet Feature Extraction Module
+obtains spatial context, providing additional value for classifying zero-shot con-
+cepts. Adding the temporal module further improves R@K and most mR@K
+metrics, but regresses on No-Constraint mR@50 and 5 of 6 zR@K scores. As
+discussed in Section 4.2, early versions of the open-vocabulary temporal module
+showed regressions across all metrics, consistent with the catastrophic forgetting
+reported for OvSGTR [3]. We freeze Grounding DINO and the spatial module
+during temporal training, which substantially recovers performance. The remain-
+ing regressions are likely the result of limited recalibration of rare and zero-shot
+triplet rankings under this frozen regime; see Section 4.5 for analysis.
+Table 3: Ablation on Action Genome SGDET, open-vocabulary setting, assessing the
+contributions of the Spatial (Spat.), Triplet (Trp.) and Temporal (Temp.) modules.
+SGDET, IoU ≥0.5
+R@K ↑
+mR@K ↑
+zR@K ↑
+With Constr.
+No Constr.
+With Constr.
+No Constr.
+With Constr.
+No Constr.
+Spat. Trp. Temp.
+10
+20
+50
+10
+20
+50
+10
+20
+50
+10
+20
+50
+10
+20
+50
+10
+20
+50
+✓
+22.3 28.0 35.7 22.3 29.1 38.1 10.0 12.4 15.7 12.5 17.6 25.9
+9.0
+12.3 17.9 10.2 15.0 22.6
+✓
+✓
+32.0 37.6 43.6 32.9 40.5 50.0 14.1 16.6 19.1 19.0 25.7 36.5 15.5 20.4 25.6 17.7 24.6 33.1
+✓
+✓
+✓
+33.3 40.1 48.1 33.9 41.5 51.0 16.5 19.8 24.0 19.9 25.8 34.8 13.6 18.8 26.6 15.1 21.3 30.9
+Learnable Visual–Language Alignment We next isolate the contribution of
+the learnable text-initialized classification heads of Section 3.6. The OvDSGG-
+frozen variant freezes the head weight matrices Wobj and Wk at their BERT-
+initialized values, leaving only the per-class biases trainable as learnable thresh-
+olds. Architecturally this mirrors OvSGTR’s parameter-free classifier, where text
+embeddings serving as both semantic prior and decision boundary. However,
+OvDSGG-frozen does not use OvSGTR’s knowledge-distillation retention loss.
+Therefore, comparing OvDSGG-frozen to OvSGTR isolates the role of distilla-
+tion, while comparing to the full OvDSGG isolates the learnable head.
+Table 4 reports the comparison. Even without distillation, OvDSGG-frozen
+reaches zR@K broadly comparable to OvSGTR, confirming that the open-
+vocabulary alignment is preserved by the frozen text prototypes, independently
+of an explicit retention objective. In contrast, base-class metrics (R@K, mR@K)
+fall well below OvSGTR. This demonstrates that the distillation stabilizes the
+visual feature space during training, and without it the visual side drifts away
+
+
+OvDSGG: End-to-End Open-Vocabulary Dynamic SGG
+13
+Fig. 3: Qualitative results for OvDSGG in the open-vocabulary setting on selected Ac-
+tion Genome frames. Base classes are black; novel classes are red. Ground-truth frames
+are labeled GT1–GT4; corresponding predictions are labeled 1–4 chronologically. Al-
+though not present in the GT scene graph, the model detects novel predicates that are
+reasonable.
+
+
+14
+J. Helsby et al.
+Table 4: Learnable vs. frozen classification heads for visual–language alignment, on
+Action Genome SGDET in the open-vocabulary setting. Best and second-best are bold
+and underlined, respectively.
+SGDET, IoU ≥0.5
+R@K ↑
+mR@K ↑
+zR@K ↑
+With Constr.
+No Constr.
+With Constr.
+No Constr.
+With Constr.
+No Constr.
+Method
+10
+20
+50
+10
+20
+50
+10
+20
+50
+10
+20
+50
+10
+20
+50
+10
+20
+50
+OvSGTR [3]
+12.9 16.4 20.8 12.2 16.8 23.1
+7.9
+9.8
+11.9
+9.8
+14.2 20.0
+3.6
+4.8
+6.2
+3.4
+5.1
+8.7
+OvDSGG–frozen
+3.6
+5.2
+7.8
+3.6
+5.3
+7.9
+1.0
+1.5
+2.3
+1.0
+1.5
+2.3
+3.1
+3.8
+4.7
+3.1
+3.8
+4.7
+OvDSGG (temporal) 33.3 40.1 48.1 33.9 41.5 51.0 16.5 19.8 24.0 19.9 25.8 34.8 13.6 18.8 26.6 15.1 21.3 30.9
+from the frozen classifier rows, and base-class recognition degrades. Switching
+to learnable heads (full OvDSGG) dramatically improves every metric: R@K
+and mR@K recover and substantially surpass OvSGTR, and zR@K also rises
+sharply. This is because the novel-class rows still receive no gradient by using
+the masked loss (Section 3.6) and thus retain their text-embedding values. The
+two comparisons jointly validate the decoupled design: structural retention pro-
+vides open-vocabulary alignment without distillation, while per-class learnable
+capacity adapts base-class boundaries to Action Genome.
+4.6
+Qualitative Results
+Figure 3 shows open-vocabulary OvDSGG predictions on an Action Genome clip
+in which a man examines a phone and walks through a doorway. Base classes
+are colored black; novel classes are colored red. OvDSGG correctly recovers most
+seen relations and produces reasonable predictions for unseen concepts, e.g. the
+novel predicate not_contacting. Notably, many objects and predicates are not
+labelled in the GT annotations, which is a known issue with Action Genome [5,
+34], while OvDSGG can still predict them.
+5
+Discussion and Limitations
+OvDSGG’s principal limitation is the residual regression of the open-vocabulary
+temporal module on No-Constraint mR@50 and most zR@K metrics. Freez-
+ing the Grounding DINO detector and spatial components during temporal
+training mitigates the catastrophic forgetting observed in earlier runs, but the
+frozen regime limits the model’s ability to recalibrate rare- and zero-shot triplet
+rankings using temporally enriched features. This could potentially be resolved
+through temporal modules that operate on the language-aligned rather than
+the visual side of the representation, or through parameter-efficient temporal
+adapters that leave the aligned feature space intact.
+A second direction follows from the qualitative analysis (Section 4.6): visually
+similar common Base classes occasionally dominate rare Base and Novel alterna-
+tives. This is the long-tailed bias inherited from Action Genome, also reflected in
+the gap between R@K and mR@K. Although open-vocabulary alignment alone
+mitigates this bias for Novel categories, OvDSGG could plausibly benefit fur-
+ther from explicit debiasing strategies such as the causal-intervention approach
+of Tang et al. [31], applied on top of the visual–language alignment.
+
+
+OvDSGG: End-to-End Open-Vocabulary Dynamic SGG
+15
+6
+Conclusion
+We introduced OvDSGG, the first end-to-end framework for open-vocabulary
+dynamic scene graph generation, alongside a rigorous open-vocabulary DSGG
+benchmark adapted from Action Genome. OvDSGG bridges an open-vocabulary
+detector and an OED-style temporal module via two novel components: a Triplet
+Feature Extraction Module that supplies the per-query triplet representation,
+and a Visual–Language Alignment Module whose learnable text-initialized classi-
+fication heads preserve novel-class alignment structurally, without an explicit dis-
+tillation loss. On the proposed benchmark, OvDSGG outperforms all tested base-
+lines on every open-vocabulary metric, with zR@K scores 10.0–20.4 pp higher
+than the next-best baseline, and remains competitive with state-of-the-art closed-
+set DSGG models. These results establish OvDSGG as a foundation for future
+open-vocabulary DSGG research.
+Acknowledgements
+This work has been supported by the Centre for Spatial Intelligence (RCSI) at
+University of Bath, the European Union under grant agreement no. 101136006-
+XTREME, the European Innovation Council under grant agreement no. 1012575-
+36-CEREBRIS, the MWK of Lower Saxony within Hybrint (VWZN4219) and
+LCIS (VWZN4704), the DFG under Germany’s Excellence Strategy within the
+Cluster of Excellence PhoenixD (EXC2122) and Quantum Frontiers (EXC2123).
+References
+1. Carion, N., Massa, F., Synnaeve, G., Usunier, N., Kirillov, A., Zagoruyko, S.: End-
+to-end object detection with transformers. In: European conference on computer
+vision. pp. 213–229. Springer (2020)
+2. Chen, T., Yu, W., Chen, R., Lin, L.: Knowledge-embedded routing network for
+scene graph generation. In: Proceedings of the IEEE/CVF conference on computer
+vision and pattern recognition. pp. 6163–6171 (2019)
+3. Chen, Z., Wu, J., Lei, Z., Chen, C.W.: From data to modeling: Fully open-
+vocabulary scene graph generation. arXiv preprint arXiv:2505.20106 (2025)
+4. Chen, Z., Wu, J., Lei, Z., Zhang, Z., Chen, C.W.: Expanding scene graph bound-
+aries: Fully open-vocabulary scene graph generation via visual-concept alignment
+and retention. In: European Conference on Computer Vision. pp. 108–124. Springer
+(2024)
+5. Cong, Y., Liao, W., Ackermann, H., Rosenhahn, B., Yang, M.Y.: Spatial-temporal
+transformer for dynamic scene graph generation. In: Proceedings of the IEEE/CVF
+international conference on computer vision. pp. 16372–16382 (2021)
+6. Cong, Y., Yang, M.Y., Rosenhahn, B.: Reltr: Relation transformer for scene
+graph generation. IEEE Transactions on Pattern Analysis and Machine Intelli-
+gence 45(9), 11169–11183 (2023)
+7. Devlin, J., Chang, M.W., Lee, K., Toutanova, K.: Bert: Pre-training of deep bidi-
+rectional transformers for language understanding. In: Proceedings of the 2019
+
+
+16
+J. Helsby et al.
+conference of the North American chapter of the association for computational
+linguistics: human language technologies, volume 1 (long and short papers). pp.
+4171–4186 (2019)
+8. Du, Y., Wei, F., Zhang, Z., Shi, M., Gao, Y., Li, G.: Learning to prompt for open-
+vocabulary object detection with vision-language model. In: Proceedings of the
+IEEE/CVF conference on computer vision and pattern recognition. pp. 14084–
+14093 (2022)
+9. Feng, S., Mostafa, H., Nassar, M., Majumdar, S., Tripathi, S.: Exploiting long-
+term dependencies for generating dynamic scene graphs. In: Proceedings of the
+IEEE/CVF winter conference on applications of computer vision. pp. 5130–5139
+(2023)
+10. He, T., Gao, L., Song, J., Li, Y.F.: Towards open-vocabulary scene graph gener-
+ation with prompt-based finetuning. In: European conference on computer vision.
+pp. 56–73. Springer (2022)
+11. Im, J., Nam, J., Park, N., Lee, H., Park, S.: Egtr: Extracting graph from trans-
+former for scene graph generation. In: Proceedings of the IEEE/CVF conference
+on computer vision and pattern recognition. pp. 24229–24238 (2024)
+12. Ji, J., Krishna, R., Fei-Fei, L., Niebles, J.C.: Action genome: Actions as composi-
+tions of spatio-temporal scene graphs. In: Proceedings of the IEEE/CVF conference
+on computer vision and pattern recognition. pp. 10236–10247 (2020)
+13. Johnson, J., Krishna, R., Stark, M., Li, L.J., Shamma, D.A., Bernstein, M.S., Fei-
+Fei, L.: Image retrieval using scene graphs. In: 2015 IEEE Conference on Computer
+Vision and Pattern Recognition (CVPR). pp. 3668–3678 (2015)
+14. Krishna, R., Zhu, Y., Groth, O., Johnson, J., Hata, K., Kravitz, J., Chen, S.,
+Kalantidis, Y., Li, L.J., Shamma, D.A., et al.: Visual genome: Connecting language
+and vision using crowdsourced dense image annotations. International journal of
+computer vision 123(1), 32–73 (2017)
+15. Li, H., Zhu, G., Zhang, L., Jiang, Y., Dang, Y., Hou, H., Shen, P., Zhao, X.,
+Shah, S.A.A., Bennamoun, M.: Scene graph generation: A comprehensive survey.
+Neurocomputing 566, 127052 (2024)
+16. Li, L.H., Zhang, P., Zhang, H., Yang, J., Li, C., Zhong, Y., Wang, L., Yuan, L.,
+Zhang, L., Hwang, J.N., et al.: Grounded language-image pre-training. In: Proceed-
+ings of the IEEE/CVF conference on computer vision and pattern recognition. pp.
+10965–10975 (2022)
+17. Li, R., Zhang, S., He, X.: Sgtr: End-to-end scene graph generation with trans-
+former. In: proceedings of the IEEE/CVF conference on computer vision and pat-
+tern recognition. pp. 19486–19496 (2022)
+18. Li, R., Zhang, S., Lin, D., Chen, K., He, X.: From pixels to graphs: Open-
+vocabulary scene graph generation with vision-language models. In: Proceedings of
+the IEEE/CVF conference on computer vision and pattern recognition. pp. 28076–
+28086 (2024)
+19. Li, Y., Yang, X., Xu, C.: Dynamic scene graph generation via anticipatory pre-
+training. In: 2022 IEEE/CVF Conference on Computer Vision and Pattern Recog-
+nition (CVPR). pp. 13864–13873 (2022)
+20. Lin, T.Y., Goyal, P., Girshick, R., He, K., Dollár, P.: Focal loss for dense object
+detection. In: Proceedings of the IEEE international conference on computer vision.
+pp. 2980–2988 (2017)
+21. Lin, X., Ding, C., Zeng, J., Tao, D.: Gps-net: Graph property sensing network for
+scene graph generation. In: Proceedings of the IEEE/CVF Conference on Com-
+puter Vision and Pattern Recognition. pp. 3746–3753 (2020)
+
+
+OvDSGG: End-to-End Open-Vocabulary Dynamic SGG
+17
+22. Liu, S., Zeng, Z., Ren, T., Li, F., Zhang, H., Yang, J., Jiang, Q., Li, C., Yang,
+J., Su, H., et al.: Grounding dino: Marrying dino with grounded pre-training for
+open-set object detection. In: European conference on computer vision. pp. 38–55.
+Springer (2024)
+23. Liu, Z., Lin, Y., Cao, Y., Hu, H., Wei, Y., Zhang, Z., Lin, S., Guo, B.: Swin
+transformer: Hierarchical vision transformer using shifted windows. In: Proceedings
+of the IEEE/CVF international conference on computer vision. pp. 10012–10022
+(2021)
+24. Lu, C., Krishna, R., Bernstein, M., Fei-Fei, L.: Visual relationship detection with
+language priors. In: European conference on computer vision. pp. 852–869. Springer
+(2016)
+25. Nag, S., Min, K., Tripathi, S., Roy-Chowdhury, A.K.: Unbiased scene graph gener-
+ation in videos. In: Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition. pp. 22803–22813 (2023)
+26. Nguyen, T.T., Nguyen, P., Cothren, J., Yilmaz, A., Luu, K.: Hyperglm: Hyper-
+graph for video scene graph generation and anticipation. In: Proceedings of the
+Computer Vision and Pattern Recognition Conference. pp. 29150–29160 (2025)
+27. Park, J.S., Ma, Z., Li, L., Zheng, C., Hsieh, C.Y., Lu, X., Chandu, K., Kong, Q.,
+Kobori, N., Farhadi, A., et al.: Synthetic visual genome. In: Proceedings of the
+Computer Vision and Pattern Recognition Conference. pp. 9073–9086 (2025)
+28. Radford, A., Kim, J.W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G.,
+Askell, A., Mishkin, P., Clark, J., et al.: Learning transferable visual models from
+natural language supervision. In: International conference on machine learning. pp.
+8748–8763. PmLR (2021)
+29. Ren, S., He, K., Girshick, R., Sun, J.: Faster r-cnn: Towards real-time object de-
+tection with region proposal networks. Advances in neural information processing
+systems 28 (2015)
+30. Rezatofighi, H., Tsoi, N., Gwak, J., Sadeghian, A., Reid, I., Savarese, S.: General-
+ized intersection over union: A metric and a loss for bounding box regression. In:
+Proceedings of the IEEE/CVF conference on computer vision and pattern recog-
+nition. pp. 658–666 (2019)
+31. Tang, K., Niu, Y., Huang, J., Shi, J., Zhang, H.: Unbiased scene graph generation
+from biased training. In: Proceedings of the IEEE/CVF conference on computer
+vision and pattern recognition. pp. 3716–3725 (2020)
+32. Tang, K., Zhang, H., Wu, B., Luo, W., Liu, W.: Learning to compose dynamic
+tree structures for visual contexts. In: Proceedings of the IEEE/CVF conference
+on computer vision and pattern recognition. pp. 6619–6628 (2019)
+33. Teng, Y., Wang, L., Li, Z., Wu, G.: Target adaptive context aggregation for video
+scene graph generation. In: Proceedings of the IEEE/CVF International Confer-
+ence on Computer Vision. pp. 13688–13697 (2021)
+34. Wang, G., Li, Z., Chen, Q., Liu, Y.: Oed: Towards one-stage end-to-end dynamic
+scene graph generation. In: Proceedings of the IEEE/CVF conference on computer
+vision and pattern recognition. pp. 27938–27947 (2024)
+35. Wu, S., Zhang, W., Jin, S., Liu, W., Loy, C.C.: Aligning bag of regions for open-
+vocabulary object detection. In: Proceedings of the IEEE/CVF conference on com-
+puter vision and pattern recognition. pp. 15254–15264 (2023)
+36. Yan, Z., Li, S., Wang, Z., Wu, L., Wang, H., Zhu, J., Chen, L., Liu, J.: Dynamic
+open-vocabulary 3d scene graphs for long-term language-guided mobile manipula-
+tion. IEEE Robotics and Automation Letters (2025)
+
+
+18
+J. Helsby et al.
+37. Zareian, A., Rosa, K.D., Hu, D.H., Chang, S.F.: Open-vocabulary object detection
+using captions. In: Proceedings of the IEEE/CVF conference on computer vision
+and pattern recognition. pp. 14393–14402 (2021)
+38. Zellers, R., Yatskar, M., Thomson, S., Choi, Y.: Neural motifs: Scene graph parsing
+with global context. In: Proceedings of the IEEE conference on computer vision
+and pattern recognition. pp. 5831–5840 (2018)
+39. Zhang, H., Li, F., Liu, S., Zhang, L., Su, H., Zhu, J., Ni, L.M., Shum, H.Y.: Dino:
+Detr with improved denoising anchor boxes for end-to-end object detection. arXiv
+preprint arXiv:2203.03605 (2022)
+40. Zhang, J., Shih, K.J., Elgammal, A., Tao, A., Catanzaro, B.: Graphical contrastive
+losses for scene graph parsing. In: Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition. pp. 11535–11543 (2019)
+41. Zhang, Y., Pan, Y., Yao, T., Huang, R., Mei, T., Chen, C.W.: Learning to generate
+language-supervised and open-vocabulary scene graph using pre-trained visual-
+semantic space. In: 2023 IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR). pp. 2915–2924 (2023)
+42. Zhang, Y., Pan, Y., Yao, T., Huang, R., Mei, T., Chen, C.W.: End-to-end video
+scene graph generation with temporal propagation transformer. IEEE Transactions
+on Multimedia 26, 1613–1625 (2024)
+43. Zhong, Y., Yang, J., Zhang, P., Li, C., Codella, N., Li, L.H., Zhou, L., Dai, X.,
+Yuan, L., Li, Y., et al.: Regionclip: Region-based language-image pretraining. In:
+Proceedings of the IEEE/CVF conference on computer vision and pattern recog-
+nition. pp. 16793–16803 (2022)
+
+
+OvDSGG: End-to-End Open-Vocabulary Dynamic SGG
+19
+OvDSGG - Supplementary Materials
+A
+Statistics of Base/Novel Split on Action Genome
+Figure A1 summarizes the per-class instance statistics of the Action Genome
+dataset under our Base/Novel partition, aggregated over the train and test splits.
+Note that the data sample statistics are different from the 70%−30% partition on
+the category vocabularies, which we follow OvSGTR [4]. The label set comprises
+36 object categories (25 Base, 11 Novel) and 26 relation predicates (18 Base, 8
+Novel). Base categories contain 639,176 object instances (84.4%) and 1,392,438
+relation occurrences (81.2%), whereas the Novel partition contributes 117,881
+object instances (15.6%) and 321,838 relation occurrences (18.8%).
+Fig. A1: Object and predicate class distribution on our Base/Novel split of Action
+Genome dataset.
+Importantly, the Novel partition is not simply the rare tail of the distribution.
+Several Novel categories are in fact among the most frequent in the dataset, e.g.,
+floor is the sixth most common object overall (outranking 19 Base classes), and
+the Novel predicate not_contacting is the fifth most common relation. At the
+same time, the Novel partition does contain genuinely scarce categories, such
+as wiping (1,027 occurrences) among predicates and medicine, doorknob, and
+window (≤5,000 instances) among objects. We use this mixture of head and
+tail concepts, so that it ensures that the open-vocabulary evaluation probes a
+model’s ability to generalize to semantically novel categories rather than merely
+
+
+20
+J. Helsby et al.
+to low-shot ones, while still preserving enough Novel-class supervision in the test
+split to yield statistically meaningful per-class metrics.
+B
+Additional Results on Closed-Vocabulary Setting
+B.1
+Module Effectiveness Ablation
+Table A1 reports the closed-set counterpart to the open-vocabulary module-
+effectiveness ablation presented in the main paper. Adding the spatial module
+to the baseline improves every R@K and mR@K metric across both constraint
+settings, indicating that OvDSGG’s pair-wise interaction decoder effectively in-
+tegrates relevant within-frame context. The subsequent addition of the temporal
+module yields further consistent gains across all metrics, confirming that tem-
+poral context aggregation is also valuable in the closed-set regime. These rel-
+ative gains mirror those reported in OED’s own ablation [34], indicating that
+the interaction modules retain their effectiveness when ported into OvDSGG’s
+open-vocabulary architecture. The spatial-module gains are, however, noticeably
+smaller in relative terms than in the open-vocabulary setting, supporting the ob-
+servation in the main paper that spatial context contributes more strongly when
+novel categories must be inferred without direct supervision.
+Table A1: Module-effectiveness ablation on Action Genome SGDET in the closed-set
+setting, assessing the contributions of the Spatial (Spat.), Triplet (Trp.) and Temporal
+(Temp.) modules. Counterpart to Table 3 of the main paper.
+SGDET, IoU ≥0.5
+R@K ↑
+mR@K ↑
+With Constr.
+No Constr.
+With Constr.
+No Constr.
+Spat. Trp. Temp.
+10
+20
+50
+10
+20
+50
+10
+20
+50
+10
+20
+50
+✓
+28.9 35.8 42.9 30.6 39.3 50.0 16.9 22.0 27.0 21.7 31.8 43.8
+✓
+✓
+29.5 36.4 43.3 31.6 40.8 52.0 19.5 24.2 28.3 24.9 33.6 44.9
+✓
+✓
+✓
+31.3 38.2 44.7 33.4 42.4 53.2 20.1 25.0 29.3 25.5 35.3 47.1
+B.2
+Additional Qualitative Results
+Figure A2 shows closed-set OvDSGG predictions on the same Action Genome
+clip used in the main paper’s open-vocabulary qualitative results (a man ex-
+amining a phone and walking through a doorway). In the closed-set setting the
+model has seen all categories during training. OvDSGG produces a reasonable
+scene graph for the clip, correctly predicting objects such as floor, table, door,
+and clothes, although the rare phone/camera class remains difficult.
+
+
+OvDSGG: End-to-End Open-Vocabulary Dynamic SGG
+21
+Fig. A2: Qualitative results for OvDSGG in the closed-set setting on selected Action
+Genome frames. Ground-truth frames are labeled GT1–GT4; corresponding predictions
+are labeled 1–4 chronologically. Although not present in the GT scene graph, the model
+detects predicates that are plausible. Compare with the open-vocabulary results in the
+main paper.

@@ -1,0 +1,3227 @@
+Expressivity In Multimodal Contrastive Learning
+Andrew Stuart
+astuart@caltech.edu
+California Institute of Technology
+Florian Wolf∗
+fwolf@caltech.edu
+California Institute of Technology
+Abstract
+Contrastive learning has become a cornerstone of modern representation learning, powering CLIP-
+style models that underpin text-to-image generation, vision-language models, and retrieval across a
+rapidly growing range of modalities. Despite this empirical success, the expressive power of these
+architectures remains poorly understood.
+To gain insight, we study expressivity by adopting a
+population-level, density-estimation viewpoint: each architecture comprises a parameterized set of
+densities whose parameters may be chosen to approximate the joint distribution of the modalities.
+This isolates a question of pure representational capacity: which joint distributions can a given con-
+trastive family of parameterizations approximate to arbitrary accuracy? We show that expressivity
+is sharply architecture-dependent. For two modalities, the simple two-tower CLIP architecture is a
+universal approximator. A natural generalization of CLIP, widely used in practice when three or
+more modalities are present, is based on a loss found by summing over all pairwise similarities. This
+provably cannot represent arbitrary joint distributions, although we prove that it remains expressive
+enough to match all pairwise conditionals. Motivated by this gap, we propose Hadamard-CLIP, which
+adds a single learned weight vector on top of the existing encoders and restores universal approxima-
+tion of the joint for any number of modalities while preserving CLIP’s fast, precomputable-embedding
+retrieval.
+Keywords:
+Contrastive Learning, Multimodal Data, CLIP, Universal Approximation, Represen-
+tation Learning
+1 Introduction
+Multimodal contrastive learning refers to a class of algorithms designed to find, in training, and exploit,
+at inference time, correlations between different data modalities. The canonical example is text-image
+data, but applications now demand the understanding of much broader classes of data modalities, such
+as depth and segmentation maps or motion profiles, audio and video, for example. This paper develops
+theory concerning the expressivity, or limits on expressivity, of commonly used algorithms deployed
+in multimodal contrastive learning.
+Furthermore, we propose a new architecture which addresses
+shortcomings of existing algorithms used in the case of three or more data modalities. In Subsection
+1.1 we provide the background for our work, together with a literature review. Subsection 1.2 describes
+our contributions and explains the organization of the remainder of the paper. In Subsection 1.3 we
+highlight notation used throughout.
+1.1 Background and Literature Review
+We situate our work through a literature review tracing the progression from the canonical bimodal
+CLIP setting to broader multimodal contrastive learning. We first introduce CLIP and its empirical
+impact, then discuss existing theory and the population-level viewpoint used in this paper, before
+turning to extensions beyond two modalities and to connections with unimodal contrastive learning.
+Contrastive Learning and CLIP.
+Contrastive Language-Image Pretraining (Radford et al., 2021)
+and related approaches such as ALIGN (Jia et al., 2021) demonstrate that contrastive objectives trained
+on large-scale multimodal data can learn highly transferable joint representations across modalities.
+A natural motivating example for two data modalities is image and text pairs. We view an image
+(resp. text) as an element in Xim (resp. Xtxt). Then consider the question of learning about alignment
+between image and text from N data samples {(x(n)
+im , x(n)
+txt)}N
+n=1 drawn from a joint distribution on
+Xim × Xtxt. CLIP does so by learning (normalized) encoders ¯gim, ¯gtxt, typically constrained to take
+∗. Corresponding author.
+1
+arXiv:2608.17203v1  [stat.ML]  17 Aug 2026
+
+
+Bimodal (m = 2)
+Beyond Bimodal
+CLIP
+(Two-Tower)
+CLIP
+(Sum of Pairs)
+H-CLIP
+(Hadamard Fusion)
+Joint Network
+(Fusion)
+Architecture Φa
+¯g1
+¯g2
+x1
+x2
+⟨·, ·⟩
+exp(⟨¯g1, ¯g2⟩/τ)
+¯g1
+· · ·
+¯gm
+x1
+· · ·
+xm
+⟨·, ·⟩
+⟨·, ·⟩
+⟨·, ·⟩
+exp(P
+i<j⟨¯gi, ¯gj⟩/τ)
+¯g1
+· · ·
+¯gm
+x1
+· · ·
+xm
+ω⊤(¯g1 ⊙· · · ⊙¯gm)
+exp(ω⊤(¯g1 ⊙· · · ⊙¯gm))
+Id
+Id
+Id
+x1
+· · ·
+xm
+ΦNN(x1, . . . , xm)
+exp(ΦNN(x1, . . . , xm))
+Univ. Approx.
+Joint x
+xi | x−i
+xi | xj
+✔
+Theorem 4.2
+✘
+Theorem 5.1
+✔
+Theorem 5.3
+✔
+Theorem 3.2
+✔
+✘
+✔
+✔
+✔
+✔
+Theorem 5.2
+✔
+✔
+Key Insights: (1) m = 2: two-tower CLIP is provably as expressive as any joint network. (2) m ≥3: the widely used sum-
+of-pairs CLIP matches every pairwise conditional xi | xj but, modeling only pairwise interactions, provably cannot represent
+the full conditional xi | x−i or the joint. (3) Hadamard-CLIP restores joint universal approximation for any m by adding one
+learned vector ω, while keeping embeddings precomputable so retrieval stays as fast as CLIP, unlike a general joint network.
+Figure 1: Graphical Abstract. We frame contrastive learning as learning a tilting function Φa,
+a score for how much more likely a tuple (x1, . . . , xm) is to co-occur than under independence (the
+log-density of the joint relative to the product of marginals).
+Top row: Four ways to build Φa
+from per-modality encoders, with the induced similarity score below each (τ: learnable temperature,
+ω: learned fusion weights). Bottom table: Which distributions each architecture can approximate
+arbitrarily well. The full joint x, one modality given all others (xi | x−i), and one given just one other
+(xi | xj); ✔= provably can, ✘= provably cannot.
+values on the unit sphere, that produce aligned representations of both modalities in a shared latent
+space by assigning high cosine similarity scores to related pairs and low cosine similarity scores to
+unrelated pairs. The training objective is a symmetric cross-entropy loss over similarity scores of the
+form
+L := −1
+N
+N
+X
+n=1
+ 
+log
+exp(⟨¯gim(x(n)
+im ), ¯gtxt(x(n)
+txt)⟩/τ)
+1
+N
+PN
+k=1 exp(⟨¯gim(x(k)
+im ), ¯gtxt(x(n)
+txt)⟩/τ)
++ log
+exp(⟨¯gim(x(n)
+im ), ¯gtxt(x(n)
+txt)⟩/τ)
+1
+N
+PN
+k=1 exp(⟨¯gim(x(n)
+im ), ¯gtxt(x(k)
+txt)⟩/τ)
+!
+,
+where temperature τ > 0 is learned along with the parameters defining the encoders ¯gim, ¯gtxt. We define
+the scaled cosine similarity scores sθ(xim, xtxt) := ⟨¯gim(xim), ¯gtxt(xtxt)⟩/τ. Intuitively, the objective
+encourages aligned embeddings for related data pairs while separating unrelated pairs that appear as
+contrastive examples in the denominator of the loss.
+Beyond zero-shot classification and retrieval, CLIP-style representations and contrastive loss func-
+tions have shown tremendous empirical success and have become a central building block in mod-
+ern multimodal machine learning. CLIP encoders are now used in text-conditioned diffusion models
+(Ramesh et al., 2021, 2022; OpenAI, 2023; Esser et al., 2024), as vision backbones (Liu et al., 2023; Li
+et al., 2023; Mizrahi et al., 2023; Liu et al., 2024; Lin et al., 2024; Wang et al., 2024; Bachmann et al.,
+2024), and semantic backbones (Luddecke and Ecker, 2022; Shridhar et al., 2022). The contrastive
+loss has found wide application in the training of Vision-Language-Models, foundation models and
+tokenizers (Li et al., 2021; Alayrac et al., 2022; Yu et al., 2022; Mustafa et al., 2022; Kwon et al., 2022;
+Wu et al., 2024a,b; GPT, 2024; Wu et al., 2024c; Lu et al., 2025; Ma et al., 2025; Schlarmann et al.,
+2025; Zhao et al., 2025). Moreover, contrastive representation learning has increasingly been extended
+beyond vision and language, for example in neural analysis (Schneider et al., 2023) and in sequential
+recommender systems (Zhou et al., 2020; Xie et al., 2021; Wei et al., 2024)
+Existing Theory.
+The empirical success of contrastive learning has motivated a substantial body
+of theoretical work aimed at understanding the mechanisms underlying representation learning with
+contrastive objectives. Nevertheless, a complete theoretical understanding remains elusive. One im-
+2
+
+
+portant line of research deals with an information theoretic perspective on contrastive learning. In its
+classical formulation shown above, CLIP is using a two-sided InfoNCE loss function (van den Oord
+et al., 2018) which has been shown to maximize a lower bound on the mutual information (MI) between
+positive pairs (Hjelm et al., 2018; Poole et al., 2019; Bachman et al., 2019; Tian et al., 2020; Wu et al.,
+2020; Wang and Isola, 2022; Shwartz Ziv and LeCun, 2024; Gui et al., 2025). However, Tschannen
+et al. (2020) show that maximizing MI alone is not sufficient for good downstream performance.
+Driven by the success of CLIP encoders as backbones for a wide variety of tasks, a further line of
+research analyzes downstream-task performance guarantees for CLIP representations. Tian et al. (2020)
+first showed empirically that multimodal learning is beneficial, and Huang et al. (2021) subsequently
+proved, under a composite assumption, that multimodal learning achieves a smaller population risk
+than a unimodal representation. Since then, a variety of works have studied zero-shot transfer in CLIP
+(Chen et al., 2023; Mayilvahanan et al., 2023; Uesaka et al., 2024; Oko et al., 2025; Li et al., 2026).
+Motivated by the limited expressivity of the cosine similarity, Uesaka et al. (2024) propose a weighted
+kernel function in the latent space that requires a smaller latent dimensionality to achieve comparable
+performance. In a follow-up work, Yoshida et al. (2025) prove, from a Reproducing Kernel Hilbert
+Space perspective and under conditional-independence and Lipschitz-continuity assumptions, that the
+pointwise mutual information can be approximated to arbitrary accuracy.
+Generalizing results from the unimodal literature (see below), Daunhawer et al. (2022) establish
+identifiability results for the recovery of hidden latent variables. From the same angle, and assuming
+a linear data-generating process, Ren and Li (2023) analyze the training dynamics and show that the
+negative samples balance the condition number and help avoid dimensional collapse. Concurrently,
+Nakada et al. (2023) prove that the gradient dynamics used to minimize the CLIP loss are equivalent
+to applying a singular value decomposition to the contrastive cross-covariance matrix. Characterizing
+the population limit of the dynamics of contrastive learning, (Furusawa, 2023; Meng and Wang, 2024)
+analyze the mean-field limit of gradient-based training.
+Population-level Perspective.
+A perspective central to this work is the population-level formula-
+tion of Baptista et al. (2025), based on the learning problem defined in the N = ∞limit. This casts
+CLIP as density estimation: the given data is now the joint law µ of the modalities, rather than a finite
+collection of samples, and from this one seeks to approximate the joint through a learnable tilting of
+the product of the marginals µP. The relevant object is the log-density ratio log dµ
+dµP , a tilting function
+that measures how much more likely a tuple is to co-occur than under independence; it vanishes exactly
+when the modalities are independent, and for m = 2 it is the pointwise mutual information. CLIP
+parameterizes it as exp(⟨¯gim, ¯gtxt⟩/τ). At finite sample size, CLIP normalizes similarity scores using
+empirical averages over mismatched image–text pairs. In the population limit, these empirical averages
+become integrals with respect to the marginal laws, so the same score sθ defines conditional model
+distributions. We make this connection explicit in Example 2.4. We adopt this viewpoint through-
+out (formalized in Section 2): each architecture parameterizes a score that, exponentiated, induces
+an approximate model measure µa( · ; θ), and expressivity asks which tiltings, equivalently which joint
+distributions, the score class can represent. Our measure of expressivity is its best achievable value
+infθ∈Θ DKL(µ ∥µa( · ; θ)). As an infimum over the whole parameter space at the population measure, it
+lower-bounds the error of any estimator on any sample, isolating representational capacity from finite-
+sample estimation, optimization, and generalization. Finally we note that the methods of analysis used
+to quantify the difference between µ and µa, in terms of the approximation of their denstities with
+respect to a common reference measure, are closely related to methods developed to study approxima-
+tions of the Bayesian posterior distribution in KL divergence or in the Hellinger metric (Marzouk and
+Xiu, 2009; Stuart, 2010).
+Contrastive Learning Beyond the Bimodal Setting.
+Aligning and fusing information across
+heterogeneous modalities is a central, still-open challenge in representation learning (Yuan et al.,
+2025; Li and Tang, 2026), and contrastive objectives have emerged as a core approach. Motivated by
+the success of CLIP in the image–text setting, numerous extensions have been proposed for learning
+from more than two modalities. Existing approaches predominantly follow two strategies. One is to
+aggregate pairwise contrastive interactions across modalities through a sum-of-pairs objective (Tian
+et al., 2020; Portillo-Quintero et al., 2021; Luo et al., 2022; Guzhov et al., 2022; Nagrani et al., 2022;
+Tevet et al., 2022; Zhu et al., 2024; Zhou et al., 2026). Alternatively, for larger modality collections
+or when data from certain modalities is scarce, many architectures instead introduce one or several
+3
+
+
+binding modalities, often images or text, and contrast all remaining modalities against these anchors
+(Girdhar et al., 2023; Lu et al., 2025). Despite their empirical success, the theoretical understanding
+of these multimodal formulations remains limited.
+Relation to Unimodal Contrastive Learning.
+Many unimodal self-supervised learning methods,
+such as those in (He et al., 2020; Chen et al., 2020a,b; Grill et al., 2020), can be interpreted within
+the same framework by viewing data augmentations as generating multiple correlated views of a latent
+sample.
+In this perspective, unimodal contrastive learning becomes a special case of multimodal
+contrastive learning with augmentation-induced conditional distributions.
+Theoretical analyses in the unimodal setting have primarily focused on three questions. The first
+concerns latent recovery and identifiability, where contrastive objectives are studied through explicit
+generative models and connections to nonlinear independent component analysis (Hyvärinen et al.,
+2004; Comon and Jutten, 2010; Hyvarinen et al., 2019; Zimmermann et al., 2021; von Kügelgen et al.,
+2021; Reizinger et al., 2024; Hyvärinen et al., 2024; Rusak et al., 2025).
+The second investigates
+performance guarantees for downstream tasks, including analyses of negative sampling (Nozawa and
+Sato, 2021; Awasthi et al., 2022; Ash et al., 2022; Bao et al., 2022; Lei et al., 2023; Zhang et al., 2025)
+and data augmentation techniques (Saunshi et al., 2019; Lee et al., 2021; Wen and Li, 2021; Wang et al.,
+2021; Tosh et al., 2021a,b; Huang et al., 2022; Wang et al., 2022; Wang and Isola, 2022; Ji et al., 2023;
+Dufumier et al., 2023; Lin and Mei, 2025; Elst and Ghoshdastidar, 2025). The third direction studies
+the optimization and geometric properties of self-supervised learning objectives, e.g. by establishing
+connection to distributionally robust optimization (Wu et al., 2023), (spectral) clustering (HaoChen
+et al., 2021; Tan et al., 2023) and using gradient flow techniques to analyze dimensionality collapse
+(Jing et al., 2021; Ziyin et al., 2022; Huang et al., 2025) or develop new loss functions (Tian, 2022).
+Relationship of our Work to Existing Literature.
+Across all these strands, the analyses charac-
+terize what contrastive learning recovers (latent identifiability), what it bounds (mutual information),
+or what its optimization converges to (training dynamics); yet each presupposes that the chosen pa-
+rameterization can represent the target relationship in the first place, and the expressiveness of the
+contrastive parameterization itself has received comparatively little attention. We therefore study a
+complementary, and foundational, question: independently of finite-sample estimation, optimization
+and generalization, is the contrastive parameterization itself expressive enough to universally approxi-
+mate the underlying joint distribution, or only certain conditionals?
+1.2 Contribution and Paper Organization
+The primary contributions of this paper are universal approximation theorems, and examples of failure
+of universal approximation, for various multimodal contrastive learning algorithms. We work entirely
+in the population limit, thereby excluding finite data-size effects, allowing us to concentrate on expres-
+sivity. The resulting universal approximation results are summarized in Figure 1. In detail, we make
+the following contributions, structured to simultaneously describe the paper organization:
+(C1) KL upper bounds for conditional losses (Section 2). Contrastive learning typically deploys loss
+functions defined through matching conditional distributions. We show that the joint KL di-
+vergence between the data-generating measure and its parametric approximation strictly upper-
+bounds both the full and pairwise conditional losses used in contrastive learning algorithms. This
+motivates formulation of subsequent expressivity results in terms of the KL divergence.
+(C2) Function-to-measure universal approximation (Section 3). We establish that universal approx-
+imation at the level of measures, and with respect to KL divergence between the true joint
+and the approximate joint, is implied by uniform approximation of the tilting function, lifting
+function-level guarantees to measure-level guarantees.
+(C3) Bimodal CLIP is as expressive as any joint network (Section 4). For m = 2, we prove that
+the two-tower CLIP architecture universally approximates any joint distribution, matching the
+expressiveness of a general joint network in the approximation sense, for both unnormalized and
+(with learnable temperature) normalized encoders.
+(C4) For m ≥3, CLIP fails at the joint but succeeds at pairwise conditionals (Section 5). We show that
+the widely used sum-of-pairs CLIP generalization is expressive enough to universally approximate
+all pairwise conditionals simultaneously, but provably cannot approximate the joint.
+4
+
+
+(C5) Hadamard-CLIP restores universal approximation (Section 5). We propose H-CLIP (Hadamard-
+CLIP), which adds a single learnable weight vector ω ∈RdLat applied to the element-wise product
+of encoder outputs, restoring joint universal approximation for any m while preserving CLIP’s
+inference-time efficiency.
+In order to increase readability, we have placed much of the technical lemmas, and details of the
+proofs of theorems, in a six section appendix. These are referred to from within the relevant sections
+of the paper; and the introduction to the appendix explains how each subsection relates to the main
+body of the paper.
+1.3 Notation
+Throughout this work, we define N≥2 := {n ∈N | n ≥2} and denote by m ∈N≥2 the number of data
+modalities. We use x =
+ x⊤
+1 , . . . , x⊤
+m
+⊤∈Rd to denote concatenation of (possibly random) vectors;
+here xi ∈Rdi, di ∈N for i = 1, . . . , m, and we denote by d = Pm
+i=1 di the total dimension. For
+dimension ℓ∈N, we denote by Sℓ−1 := {y ∈Rℓ| ∥y∥2 = 1} the unit sphere. For integer k ∈N we
+write [k] := {1, . . . , k}. We denote the set of probability measures defined on a sample space S by P(S).
+We use the following notation for summations interchangeably Pm
+i=1
+Pm
+j=i+1 = P
+1≤i<j≤m = P
+i<j, in
+contexts where the bounds on the variables i, j are clear. For X ⊂Rd, a σ-algebra F over X, a measure
+µ : F →R≥0 ∪{∞}, and a µ-measurable function f : X →R, define ∥f∥Lp :=
+ R
+X |f(x)|p µ(dx)
+1/p,
+p ∈[1, ∞) and extend to the case p = ∞through essential supremum. We denote with Lp(X, µ) :=
+{f : X →R | ∥f∥Lp < ∞} the space of measurable functions with finite Lp-norm. We denote by
+λ the Lebesgue measure on Euclidean space Rk of any dimension k. For a measure µ on (X, B(X))
+and a µ-measurable function f : X →Rd, we denote by f#µ the push-forward measure of µ under
+f. For i ∈[m], let π−i denote the projection of x ∈X onto all components except xi. For distinct
+i, j ∈[m], let πij denote the projection onto (xi, xj). For any ν ∈P(X), define the corresponding
+marginal measures ν−i := (π−i)#ν and νij := (πij)#ν; in particular, µ−i and µij are the corresponding
+marginals of µ.
+2 Probabilistic Formulation
+In this section we provide the probabilistic formulation that underpins the approximation theoretical
+questions that are the heart of this paper. In Section 2.1 we specify the data model and define our
+goal as approximating the joint distribution with respect to some statistical divergence. We motivate
+the form of population-level loss functions arising in practical algorithms in Section 2.2, based on
+matching conditionals. Then, using this form, Section 2.3 provides justification of the choice of the KL
+divergence, showing that it upper-bounds the conditional losses used in practical contrastive learning
+methods.
+2.1 Problem Formulation
+We start by stating the problem setting, the main assumption on our data distribution and the over-
+arching goals of this paper.
+Assumption 2.1 (Problem Setting & Data Distribution) Denote by Xi a subset of Rdi, di ∈N
+and by X := Qm
+i=1 Xi ⊂Rd. Throughout this work, we assume the following properties of µ, the data
+generating probability measure connecting m ∈N≥2 modalities.
+(A1) Marginal Distributions. For each modality i ∈[m], µ has a marginal distribution µi ∈P(Xi)
+with support Xi. The measure µi is absolutely continuous with respect to the Lebesgue measure
+restricted to Xi : λi := λ|Xi; and µi has Radon-Nikodym derivative dµi/dλi = fi ∈L1(Xi, λi).
+(A2) Joint Distribution. The space X supports the product measure µP = Nm
+i=1 µi. The data gen-
+erating measure µ ∈P(X) of x := (x1, . . . , xm) is defined by a density r : X →[0, ∞] via
+the Radon-Nikodym-derivative dµ/dµP = r ∈L1(X, µP). We refer to r as a tilting of the data
+generating measure.
+(A3) Finite Mutual Information. We assume that log r ∈L1(X, µ).
+5
+
+
+♦
+With the conventions that log(0) = −∞and exp(−∞) = 0, we can write the change of measures as
+dµ
+dµP
+(x) = exp(Φ(x)),
+(Φ-Tilting)
+where we refer to Φ := log(r) : X →R∪{±∞} as the tilting function of µ. We will see in the following
+sections that working with log density Φ is more convenient in terms of coherence with the literature
+as well as for our theoretical analysis. By (A3), Φ ∈L1(X, µ).
+In this paper we study the approximation of measure µ by a measure µa induced by an approximate
+tilting function Φa : X →R:
+dµa(dx)
+dµP
+(x) := 1
+Za · exp(Φa(x))
+Za :=
+Z
+X
+exp(Φa(x)) µP(dx).
+(Φa-Tilting)
+Approximations of this form are at the heart of contrastive learning methods to study alignment
+between different data modalities; in particular expressing the true data generating measure, and its
+approximation, via densities with respect to the product of the marginals of the data distribution,
+leads to actionable algorithms deployed in practice.
+Remark 2.2 (Notation) We use µa as shorthand for µΦa defined by an approximating tilting function
+Φa. This notational convention is extended as follows: when an architecture fixes a particular tilting
+function we propagate the superscript from the tilting function into the approximate measure. For
+example, when using Φ2-clip, as in the bimodal CLIP methodology illustrated in Example 2.4, we write
+µ2-clip for µΦ2-clip. The same notational convention is applied to the normalization constants arising
+from the approximate tiltings.
+♦
+The goal of this paper is to quantify how well µa approximates µ by estimating D(µ, µa), where
+D : P(X)×P(X) →R is a metric, or statistical divergence, to be specified. We approach this problem
+by studying the approximation of the tilting function Φ by Φa, chosen from a given function class,
+and studying the effect of this approximation on the approximation of µ by µa. These function classes
+are selected to provide a deeper understanding of multimodal contrastive learning algorithms used in
+practice and, in the case m ≥3, to suggest variants of these algorithms with improved approximation
+capabilities.
+Importantly, while the true tilting function Φ may be extended-real-valued (taking values in R
+as well as ±∞), every approximate tilting function Φa : X →R is finite-valued.
+Consequently,
+dµa/dµP > 0 on X, so µ ≪µa and we may apply the Radon-Nikodym (RN) chain rule
+dµ
+dµa = dµ
+dµP
+·
+ dµa
+dµP
+−1
+,
+(RNCR)
+an identity which will be used throughout this work.
+Our theoretical studies will be conducted in the population limit, with theory expressed in terms
+of measure µ. In practical machine learning settings, however, one only has access to finitely many
+samples drawn from µ and loss functions are implemented through empirical approximations based
+on finite data. To bridge this gap between population-level theory developed in this work and the
+sample-based objectives employed in practice, we introduce the following data assumption; thereby
+connecting our theoretical framework and practitioner-oriented objectives discussed in the introduction.
+This connection is made in the following subsection.
+Data Assumption 2.3 We assume to have access to N ∈N data samples {x(n)}N
+n=1
+iid
+∼µ and decom-
+pose each data point into different modalities as x(n) =
+ (x(n)
+1 )⊤, . . . , (x(n)
+m )⊤⊤. We define the follow-
+ing empirical measures µN :=
+1
+N
+PN
+n=1 δx(n), µN
+i :=
+1
+N
+PN
+n=1 δx(n)
+i
+, i = 1, . . . , m, and µN
+P := Nm
+i=1 µN
+i ,
+approximating the population level joint, marginal and product distributions, respectively.
+♦
+6
+
+
+2.2 Population-Level Multimodal Constrastive Loss Function
+Consider the following loss function, based on the full conditional distributions of µ and µa:
+1
+m
+m
+X
+i=1
+Ex−i∼µ−i
+h
+DKL
+
+µxi|x−i( · |x−i)
+ µa
+xi|x−i( · |x−i)
+i
+.
+(Full-Cond)
+Here µa is a class of approximate joint measures found from approximate tilting function Φa. The
+following example shows that, in the large data limit, the Contrastive Language-Image Pre-training
+(CLIP) methodology, introduced in Radford et al. (2021), is an instance of this class of population-level
+loss functions, arising when m = 2.
+Example 2.4 (CLIP, m = 2) In CLIP both modalities, for example image and text, are encoded
+separately into a shared latent space SdLat−1, using modality-specific normalized encoders ¯gi( · ; θi) :
+Xi →SdLat−1, i = 1, 2, parametrized by θ = (θ1, θ2) ∈Θ ⊆Rp; cf. Figure 1. The derivation below
+follows (Baptista et al., 2025, Thm. 3.2); we include it because it makes explicit how the population-
+level conditional KL objective recovers the standard empirical CLIP loss, a concept which is key in
+our developments here. We begin with the separable tilting function
+Φ2-clip(x; θ) := ⟨¯g1(x1; θ1), ¯g2(x2; θ2)⟩/τ.
+(Φ2-clip-Tilting)
+Invoking the notational conventions introduced in Remark 2.2, this defines µ2-clip( · ; θ). Expanding the
+conditional-based contrastive loss defined by the left-hand side of the identity (Joint-Full) with m = 2
+yields
+L2-clip(θ) = 1
+2Ex1∼µ1
+h
+DKL
+
+µx2|x1
+ µ2-clip
+x2|x1
+i
++ 1
+2Ex2∼µ2
+h
+DKL
+
+µx1|x2
+ µ2-clip
+x1|x2
+i
+= −1
+2Ex1∼µ1
+"
+Ex2∼µx2|x1
+"
+log
+exp(Φ2-clip
+x2|x1(x2|x1; θ))
+Z2-clip
+x2|x1(θ)
+##
+−1
+2Ex2∼µ2
+"
+Ex1∼µx1|x2
+"
+log
+exp(Φ2-clip
+x1|x2(x1|x2; θ))
+Z2-clip
+x1|x2(θ)
+##
++ const,
+= −1
+2E(x1,x2)∼µ
+"
+log
+exp(Φ2-clip
+x2|x1(x2|x1; θ))
+Z2-clip
+x2|x1(θ)
+#
+−1
+2E(x1,x2)∼µ
+"
+log
+exp(Φ2-clip
+x1|x2(x1|x2; θ))
+Z2-clip
+x1|x2(θ)
+#
++ const,
+where const is finite due to Assumption (A3), and is independent of the parameter θ. Next, we use
+Data Assumption 2.3 and replace the measures with its empirical counterparts resulting in the sum of
+two cross entropy losses of (empirical) conditional distributions
+L2-clip
+N
+(θ) := −1
+N
+N
+X
+n=1
+ 
+log
+exp(⟨¯g1(x(n)
+1 ; θ1), ¯g2(x(n)
+2 ; θ2)⟩)
+1
+N
+PN
+k=1 exp(⟨¯g1(x(k)
+1 ; θ1), ¯g2(x(n)
+2 ; θ2)⟩)
++ log
+exp(⟨¯g1(x(n)
+1 ; θ1), ¯g2(x(n)
+2 ; θ2)⟩)
+1
+N
+PN
+l=1 exp(⟨¯g1(x(n)
+1 ; θ1), ¯g2(x(l)
+2 ; θ2)⟩)
+!
+,
+(L2-clip
+N
+-Loss)
+exactly recovering the empirically used CLIP loss described in the introduction.
+♦
+Going beyond the bimodal setting of m = 2 in Example 2.4, a central limitation of the full con-
+ditional loss formulation in (Full-Cond) is the availability of high-quality data across all modalities.
+In large-scale multimodal learning settings, datasets are typically constructed by aggregating het-
+erogeneous sources, and it is therefore rare that every modality is present for every data sample.
+Consequently, for multimodal problems with m ≥3, most state-of-the-art contrastive (pre-)training
+losses heavily rely on artificially generated data or are formulated in terms of partially observed modal-
+ity combinations (Zamir et al., 2018; Eftekhar et al., 2021; Ghiasi et al., 2021; Roberts et al., 2021;
+7
+
+
+Bachmann et al., 2022; Mizrahi et al., 2023; Bachmann et al., 2024). This takes us beyond the setting
+of Data Assumption 2.3.
+Accordingly, for each pair (i, j), i̸ = j, entering the loss, we assume access to i.i.d. paired samples
+from the marginal µij; samples need not be aligned across pairs or arise from fully observed multimodal
+data points. Under this weaker sampling regime, a natural and particularly appealing extension of
+(L2-clip
+N
+-Loss) is to consider contrastive pairs with respect to pairwise conditionals of the form xi|xj, for
+i̸ = j, only requiring the presence of two modalities at the same time, within the data set. Empirically,
+variations of this loss are effectively used for contrastive (pre-)training beyond bimodal (image, text)
+pairings (Portillo-Quintero et al., 2021; Luo et al., 2022; Guzhov et al., 2022; Nagrani et al., 2022; Tevet
+et al., 2022; Girdhar et al., 2023; Zhu et al., 2024; Zhou et al., 2026) and recently also as a part of the
+loss function in the training of (multimodal) tokenizers (Lu et al., 2025). Similarly to Example 2.4,
+one can show that this approach corresponds to a pairwise conditional loss function using a separable
+tilting function
+Φm-clip(x; θ) :=
+X
+1≤i<j≤m
+⟨¯gi(xi; θi), ¯gj(xj; θj)⟩/τ
+(Φm-clip-Tilting)
+for normalized encoders ¯gi( · ; θi) : Xi →SdLat−1 of the modality i ∈[m], a (learnable) temperature
+τ > 0 and a parameter vector θ := (θ⊤
+1 , . . . , θ⊤
+m)⊤∈Θ ⊆Rp. Again, adopting the notation from
+Remark 2.2, these considerations lead to the specific loss function
+1
+2m(m −1)
+X
+1≤i<j≤m
+
+Exj∼µj
+h
+DKL
+
+µxi|xj
+ µm-clip
+xi|xj
+i
++ Exi∼µi
+h
+DKL
+
+µxj|xi
+ µm-clip
+xj|xi
+i
+,
+and to the generic version
+1
+2m(m −1)
+X
+1≤i<j≤m
+
+Exj∼µj
+h
+DKL
+
+µxi|xj
+ µa
+xi|xj
+i
++ Exi∼µi
+h
+DKL
+
+µxj|xi
+ µa
+xj|xi
+i
+,
+(Sum-Pair-Cond)
+as an alternative to (Full-Cond).
+2.3 Multimodal Contrastive Learning
+In this subsection we show the value of choosing D( · , · ) to be a KL divergence. In particular making
+this divergence small, between µ and µa, yields control over the conditional distributions of µ and µa,
+and control over the losses defined in (Full-Cond) and (Sum-Pair-Cond).
+Theorem 2.5 (Joint Controls Full Conditionals Loss) Since µ ≪µa by construction, for every
+modality i ∈[m], the following inequality holds:
+Ex−i∼µ−i
+h
+DKL
+
+µxi|x−i( · |x−i)
+ µa
+xi|x−i( · |x−i)
+i
+≤DKL(µ ∥µa) .
+In particular, averaging all of these terms yields
+1
+m
+m
+X
+i=1
+Ex−i∼µ−i
+h
+DKL
+
+µxi|x−i( · |x−i)
+ µa
+xi|x−i( · |x−i)
+i
+≤DKL(µ ∥µa) .
+(Joint-Full)
+Proof See Section A.1.1.
+The theorem shows that minimizing the joint loss DKL(µ ∥µa) is strictly stronger than minimizing
+the (Full-Cond) loss obtained by averaging the conditional losses over the conditioning variable and
+summing them over all data modalities. The following theorem shows that similar ideas apply to control
+of the pairwise loss function (Sum-Pair-Cond), and its constituents. In fact, there is an underlying
+hierarchy of theorems of this type, as made explicit in the remark following the theorem.
+Theorem 2.6 (Joint Controls Pairwise Conditionals Loss) Since µ ≪µa by construction, for
+every modality pair (i, j) ∈[m]2, i̸ = j, the following inequality holds
+Exj∼µj
+h
+DKL
+
+µxi|xj
+ µa
+xi|xj
+i
+≤DKL(µ ∥µa) .
+8
+
+
+In particular, averaging all of these terms yields
+1
+2m(m −1)
+X
+1≤i<j≤m
+
+Exj∼µj
+h
+DKL
+
+µxi|xj
+ µa
+xi|xj
+i
++ Exi∼µi
+h
+DKL
+
+µxj|xi
+ µa
+xj|xi
+i
+≤DKL(µ ∥µa) .
+Proof See Section A.1.2.
+Remark 2.7 (Arbitrary Conditionals) Combining the proof techniques of the two previous theo-
+rems, one can generalize the upper bound of the joint KL divergence to any subset of conditionals of
+cardinality k ∈[m −1].
+♦
+Having shown the value of controlling the KL divergence between µ and µa, we now proceed to obtain
+general universal approximation results, expressed in terms of KL divergence, for probability measures.
+We achieve this by employing standard universal approximation results for functions, applying them
+to log densities and deploying these results to control the KL divergence.
+3 General Universal Approximation
+We perform our general analysis under a universal approximation Assumption 3.1, below, on a para-
+metric function class MNN. This assumption plays two distinct roles:
+• Abstract level. In Theorem 3.2 and Theorem 3.3 we show that if MNN universally approximates
+continuous functions, then the family of measures induced by (Φa-Tilting) with a ΦNN ∈MNN
+as the tilting function universally approximates the data-generating measure µ with respect to
+the KL divergence.
+• Architectural level. The abstract result reduces universal approximation of µ to verifying UA As-
+sumption 3.1. For certain architectures, we show that if each modality-specific encoder satisfies
+UA Assumption 3.1, then the full model inherits this property as well. Concretely, Section 4 car-
+ries out this verification for bimodal CLIP. On the other hand, Section 5 contains demonstration
+that the natural extension (Φm-clip-Tilting) to m ≥3 modalities fails to satisfy the assump-
+tion. This motivates using the abstract results to guide us to an architectural adaptation which
+addresses this problem, also in Section 5.
+UA Assumption 3.1 (Universal Approximation in (C0(X; R), ∥· ∥∞)) We assume to have ac-
+cess to a parametric family of continuous functions
+MNN =
+[
+p∈N
+{ΦNN( · ; θ) ∈C0(X; R) | θ ∈Θ ⊆Rp}
+satisfying C0-universal approximation: for every continuous function Φ ∈C0(X; R), every ϵ > 0, and
+every compact K ⋐X, there exists p ∈N and a ˆθ = ˆθ(ϵ, K) ∈Θ such that
+∥Φ −ΦNN( · ; ˆθ)∥∞,K := sup
+x∈K
+|Φ(x) −ΦNN(x; ˆθ)| < ϵ.
+(C0-UA)
+♦
+Classical parametric families like polynomials and Fourier-product bases satisfy UA Assumption 3.1
+(Powell, 1981; Light and Cheney, 1985; Cheney and Light, 2009; Trefethen, 2019) furthermore a wide
+variety of literature verifies this property for neural network-based architecture. This latter body of
+work includes a wide range of architectures all the way from single layer perceptrons (Pinkus, 1999)
+through to the recent developments of self- and cross-attention based approximations (Liu et al., 2025).
+We refer to (Krieg and Ullrich, 2026) for a recent overview of sampling and complexity guarantees for
+function approximation.
+We state two versions of the universal approximation results. First, in the setting of X being a
+compact set and second, a generalization without the assumption of compactness.
+9
+
+
+Theorem 3.2 (Joint Network UA, Compact Support) Consider measure µ satisfying Assump-
+tion 2.1. Assume X ⋐Rd is compact, and let MNN be a parametric family of functions satisfying
+UA Assumption 3.1. Then, for every ϵ > 0, there exists p ∈N and a parameter ˆθ ∈Θ ⊆Rp with
+a corresponding tilting function ΦNN( · ; ˆθ) such that the measure µNN( · ; ˆθ) induced by (Φa-Tilting)
+satisfies
+DKL
+
+µ
+ µNN( · ; ˆθ)
+
+≤ϵ.
+Proof We describe the overarching structure of the proof here, appealing to results in the appendix
+for details on the key components. Let ϵ > 0 be fixed and define ϵ′ := ϵ/4. We invoke Lemma A.1 with
+ϵ′ yielding a constant M = M(ϵ′). We pick η :=
+1
+exp(M(ϵ′)+ϵ′) ·ϵ′ and obtain a continuous representative
+Φc of the tilting function Φ. By UA Assumption 3.1, we can find ˆθ ∈Θ and a corresponding ΦNN( · , ˆθ)
+such that ∥Φc −ΦNN( · ; ˆθ)∥∞≤ϵ
+4 and Proposition A.2 yields
+DKL
+
+µ
+ µNN( · ; ˆθ)
+
+≤ϵ′ + ϵ′ + ϵ′ + exp(M(ϵ′) + ϵ′) · η ≤ϵ,
+concluding the claim by the choice of ϵ′ and η.
+Next, we generalize this result to the setting of µ having (potentially) non-compact support.
+Theorem 3.3 (Joint Network UA, Tightness) Consider measure µ satisfying Assumption 2.1.
+Assume X is a (not necessarily compact) subset of a Euclidean space, and let MNN be a parametric
+family of functions satisfying UA Assumption 3.1. Then for every ϵ > 0, there exists p ∈N and a
+parameter ˆθ ∈Θ ⊆Rp with a corresponding tilting function ΦNN( · ; ˆθ) such that the measure µNN( · ; ˆθ)
+induced by (Φa-Tilting) satisfies
+DKL
+
+µ
+ µNN( · ; ˆθ)
+
+≤ϵ.
+Proof We describe the overarching structure of the proof here, appealing to results in the appendix
+for details establishing the key components. Define ϵ′ := ϵ
+6. Define the finite Borel measure ν(A) :=
+R
+A|Φ|dµ. Since µ, µP, and ν are tight (Klenke, 2020, Lem. 13.5), we can choose K ⋐X such that their
+masses outside K are all smaller than ϵ′. Applying Lemma A.1 to the restrictions of µ and µP to K,
+with parameter ϵ′, yields Φc ∈C0(K; R) satisfying the remaining hypotheses of Proposition A.3. On
+K, UA Assumption 3.1 yields ˆθ(ϵ′) ∈Θ satisfying ∥Φc −ΦNN( · ; ˆθ)∥∞,K ≤ϵ′. Then, abusing notation
+to avoid proliferation of symbols, we redefine ΦNN via the tail-truncation
+ΦNN(x; ˆθ) := 1K(x) · ΦNN(x; ˆθ).
+Invoking Proposition A.3 with its parameters ϵ = η = δ = ϵ′, B = 0, and Φa = ΦNN( · ; ˆθ(ϵ′)) yields
+DKL
+
+µ
+ µNN( · ; ˆθ)
+
+≤2ϵ′ + 2ϵ′ + 2ϵ′ = ϵ,
+which concludes the claim.
+4 CLIP: Contrastive Learning m = 2
+In this section, we will show that the CLIP architecture in the bimodal case fulfills universal approxi-
+mation of measures. We formulate the results for compactly supported measures but, analogously to
+Theorem 3.3, they can be generalized to the non-compact setting. The first theorem shows universal
+approximation in the case of unnormalized encoders, while the second one uses normalized encoders,
+explicitly requiring the temperature τ > 0 to be learnable.
+Theorem 4.1 ((Φ2-clip-Tilting) UA, General Encoders)
+Consider measure µ satisfying Assump-
+tion 2.1. Assume that X1 ⋐Rd1, X2 ⋐Rd2 are compact, and let MNN be a parametric family satisfying
+UA Assumption 3.1. Then, for every ϵ > 0, there exist a latent dimension dLat ∈N, p ∈N, and
+parameters ˆθ = (ˆθ1, ˆθ2) ∈Θ ⊆Rp with corresponding encoders gi( · ; ˆθi) : Xi →RdLat, i = 1, 2, defining
+(Φ2-clip-Tilting) such that the measure induced by (Φa-Tilting) satisfies
+DKL
+
+µ
+ µ2-clip( · ; ˆθ)
+
+< ϵ.
+10
+
+
+From an applied perspective, normalized encoders ¯gi : Xi →SdLat−1 offer a natural geometric
+interpretation via the cosine similarity, and recent work provides additional theoretical justification for
+their use in contrastive learning (Wang and Isola, 2022; Feng and Watanabe, 2026). We now extend
+the preceding result to this setting.
+Theorem 4.2 ((Φ2-clip-Tilting) UA, Normalized Encoders)
+Consider measure µ satisfying As-
+sumption 2.1. Assume that X1 ⋐Rd1, X2 ⋐Rd2 are compact, and let MNN be a parametric family
+satisfying UA Assumption 3.1. Then, for every ϵ > 0, there exist a latent dimension dLat ∈N, p ∈N,
+and parameters ˆθ = (ˆθ1, ˆθ2) ∈Θ ⊆Rp with corresponding normalized encoders ¯gi( · ; ˆθi) : Xi →
+SdLat−1, i = 1, 2, and a temperature τ > 0 defining (Φ2-clip-Tilting) such that the measure induced by
+(Φa-Tilting) fulfills
+DKL
+
+µ
+ µ2-clip( · ; ˆθ)
+
+< ϵ.
+Proof (Sketch Proof of Theorems 4.1 and 4.2) Full details of the proofs are contained in Section A.3.1
+and Section A.3.2, respectively. The key idea in both is to use a Stone-Weierstraß argument, to show
+that the parametric family
+M2-clip := {x 7→⟨¯g1(x1; θ1), ¯g2(x2; θ2)⟩/τ
+ τ > 0, p ∈N,
+dLat ∈N, θi ∈Θ ⊆Rp, ¯gi( · ; θi) : Xi →SdLat−1}
+is dense in C0(X; R). The result then follows by Theorem 3.2 and Theorem 3.3, respectively. The
+key difficulty in the normalized case is that the normalization constraint ¯gi(Xi) ⊆SdLat−1 restricts the
+inner product to ⟨¯g1, ¯g2⟩∈[−1, 1], which in turn confines the tilting function to [e−1/τ, e1/τ]. Making
+τ learnable resolves this: choosing τ sufficiently small restores the full range and ensures universal
+approximation. The construction combines orthogonal padding with a temperature rescaling, yielding
+a latent dimension equal to the Stone-Weierstraß rank plus one additional padding dimension.
+The theorems above show that in the classical (bi-modal) CLIP setting, the expressiveness of the
+(Φ2-clip-Tilting) function is as powerful as that of the more general joint network ΦNN. This provides
+theoretical understanding of recent empirical successes demonstrated in, for example, (Jia et al., 2021),
+in which it is shown that the simple two-tower CLIP architecture yields competitive results compared
+to more sophisticated methods, provided that enough (high-quality) data is available.
+In practice, one hopes to reduce the dimensionality of the latent space, i.e. the encoders ¯gi’s should
+compress the data. In this context we emphasize that neither Theorem 4.1 nor Theorem 4.2 give any
+guarantees on the dimensionality of the latent space. In fact, the following proposition shows that
+CLIP does not in general guarantee a latent representation below the dimension of the original joint
+domain.
+Proposition 4.3 (No Guaranteed Dimensionality Reduction for CLIP)
+There exist D ∈N,
+a compact bimodal domain X = X1 × X2 ⊂RD with nonempty interior, a probability measure µ on X,
+and a constant κ > 0 such that, for every p ∈N, every parameter space Θ ⊆Rp and associated pair of
+CLIP encoder parameterizations, every θ ∈Θ, every τ > 0, and every dLat < D,
+DKL
+ µ
+ µ2-clip( · ; θ)
+
+≥κ.
+Thus, neither the parameter dimension nor the encoder architecture is fixed. The encoders need not be
+normalized, so the same lower bound also holds when they are restricted to be normalized.
+Proof
+(Sketch, Full details in Section A.3.3) Take X1 = X2 = [−1, 1], so that D = 2, equip both
+modalities with uniform marginals, and let µ be induced by the tilting function
+Φ0(x1, x2) = cos
+ π(x1 −x2)
+
++ cos
+ 2π(x1 −x2)
+
+.
+Using Φ0 as a kernel defines a Hilbert–Schmidt integral operator KΦ0 on the common marginal L2-
+space. The four Fourier functions cos(π · ), sin(π · ), cos(2π · ), and sin(2π · ) are mutually orthogonal
+11
+
+
+eigenfunctions with eigenvalue 1/2, so KΦ0 has rank four. A localized finite-dimensional Eckart–Young–
+Mirsky argument followed by Pinsker’s inequality gives a constant κ > 0, uniformly over all tempera-
+tures, parameter dimensions, and encoder parameterizations, such that
+DKL
+ µ
+ µ2-clip( · ; θ)
+
+≥κ,
+dLat = d ∈{1, 2, 3}.
+In particular, the case d = 1 < D proves the claim.
+Remark 4.4 (Dictionary-Based Encoders) The proof of Proposition 4.3 suggests constructing
+encoders from a structured dictionary of the form:
+Φa(x1, x2) = 1
+τ
+dLat
+X
+k=1
+φk(x1)ψk(x2) = 1
+τ ⟨g1(x1), g2(x2)⟩.
+The dictionary may be selected using domain knowledge, for example Fourier modes for periodic
+structure or symmetry-adapted features for known invariances. In the construction above, four Fourier
+features yield an exact representation with normalized encoders and τ = 1/2, so the latent-dimension
+threshold is sharp.
+♦
+5 Contrastive Learning m > 2
+In this section, we investigate universal approximation beyond the two modality setting studied in
+the previous section. We show that the multimodal generalization of CLIP (Φm-clip-Tilting) commonly
+used in practice fails to universally approximate the joint distribution. The obstruction is structural:
+(Φm-clip-Tilting) only captures pairwise interactions between modalities.
+This makes it sufficiently
+expressive to universally approximate pairwise conditionals, as shown in Theorem 5.2; but it cannot
+universally approximate the full joint, as Theorem 5.1 demonstrates. We thus propose a simple tensor-
+decomposition inspired extension of multimodal CLIP, defined in (ΦHad-Tilting), that recovers the full
+expressiveness of CLIP at negligible additional computational overhead; see Theorem 5.3.
+Theorem 5.1 ((Φm-clip-Tilting) No UA of the Joint) For every m ≥3, there exist a measure µ
+satisfying Assumption 2.1 and κ > 0 such that, for all dLat, p ∈N, all parameter spaces Θ ⊆Rp and
+associated parameterizations of Mm-clip, all θ ∈Θ, and all τ > 0,
+Ex−3∼µ−3
+h
+DKL
+
+µx3|x−3
+ µm-clip
+x3|x−3( · ; θ)
+i
+≥κ.
+Consequently, Theorem 2.5 gives
+DKL
+ µ
+ µm-clip( · ; θ)
+
+≥κ.
+Thus, even after taking the union over all latent and parameter dimensions and all encoder param-
+eterizations, the resulting class of measures is not rich enough to universally approximate the joint
+distribution of arbitrary data-generating measures, in our setting.
+Proof (Sketch, Full details in Section A.4.1) We construct a measure µ whose density with respect
+to µP contains a three-way interaction x1x2x3 and show that (Φm-clip-Tilting) cannot approximate the
+full conditional; together with Theorem 2.5 this yields the desired result.
+The theorem shows that the generalization (Φm-clip-Tilting) of (Φ2-clip-Tilting) to m ≥3 modalities is
+insufficient to universally approximate arbitrary distributions µ, since the separable structure restricts
+the model to pairwise interactions, precluding higher-order multi-modal effects.
+Interestingly, this
+restriction is harmless for learning pairwise conditionals. In the setting of Theorem 2.6, the architecture
+can universally approximate all pairwise conditionals simultaneously. As before, we focus on compact
+support, with extensions to non-compact X available via tightness.
+12
+
+
+Theorem 5.2 ((Φm-clip-Tilting) UA of Pairwise Conditionals) Consider measure µ satisfying As-
+sumption 2.1. Assume that X ⋐Rd is compact, and let MNN be a parametric family satisfying UA
+Assumption 3.1. Then for every ϵ > 0, there exists a latent dimension dLat ∈N, p ∈N, parameters
+ˆθ = (ˆθ1, . . . , ˆθm) ∈Θ ⊆Rp with corresponding normalized encoders ¯gi( · ; ˆθi) : Xi →SdLat−1 and a
+temperature τ > 0 defining (Φm-clip-Tilting) such that the measure µm-clip( · ; ˆθ) induced by (Φa-Tilting)
+universally approximates all pairwise conditionals
+Exj∼µj
+h
+DKL
+
+µxi|xj
+ µm-clip
+xi|xj ( · ; ˆθ)
+i
+< ϵ,
+for pairings (i, j) ∈[m]2, i̸ = j.
+Proof
+(Sketch, Full details in Section A.5) We formulate the problem of approximating pairwise
+conditional distributions as a convex constrained projection problem. By a result of (Csiszar, 1975),
+we obtain a jointly consistent L1 representative of all pairwise conditionals, which takes the form of
+a sum of two-variable functions within an exponential family. We then universally approximate each
+representative using the results of Section 4, thereby approximating each pairwise conditional. Finally,
+using a block structure with additional padding dimensions to satisfy the encoders’ normalization con-
+straints, we combine the individual encoders consistently into the architecture of (Φm-clip-Tilting).
+Practitioners have addressed empirically observed limitations of CLIP, in particular for m ≥3
+modalities, via late fusion or two-leg architectures (Yuan et al., 2025). In these architectures, a small
+fusion network gfus( · ; ω) acts on top of frozen or jointly trained encoders. Formally, the tilting function
+takes the compositional form
+Φfus(x; θ, ω) := gfus(¯g(x1; θ1), . . . , ¯g(xm; θm); ω),
+where gfus is e.g. another neural network parametrized by parameter ω. We ask: what is the simplest
+fusion architecture that provably restores universal approximation?
+Classical m-CLIP fails because its tilting function captures only pairwise interactions between
+modalities, as formalized in Theorem 5.1 above. To restore universal approximation, a fusion archi-
+tecture must be capable of generating degree-m multilinear interactions.
+Motivated by tensor de-
+compositions (Ballard and Kolda, 2025), we propose a particularly simple fusion: a weighted sum of
+element-wise products of the encoder outputs. This creates a structure equivalent to a rank-dLat Tucker
+decomposition in the latent space corresponding to a tilting function Φa = ΦHad of the form
+ΦHad(x1, . . . , xm; θ, ω) :=
+dLat
+X
+k=1
+ωk
+m
+Y
+i=1
+(¯gi(xi; θi))k
+= ω⊤(¯g1(x1; θ1) ⊙· · · ⊙¯gm(xm; θm)) .
+(ΦHad-Tilting)
+In the notation of (Φa-Tilting), corresponding model measure is µHad( · ; θ, ω) := µΦHad( · ;θ,ω). We call
+this architecture Hadamard-CLIP (H-CLIP) because its fusion layer applies a learned linear functional
+to the Hadamard product of all encoder outputs. This adds only a single learnable linear layer ω ∈RdLat
+on top of the existing encoders, yet suffices to guarantee universal approximation as the following
+theorem shows. As before, this result can be generalized to X non-compact via tail-truncation.
+Theorem 5.3 (Hadamard-CLIP, Universal Approximation) Consider measure µ satisfying As-
+sumption 2.1. Assume that X ⋐Rd is compact, and let MNN be a parametric family satisfying UA
+Assumption 3.1. Then, for every ϵ > 0, there exist a latent dimension dLat ∈N, p ∈N, as well as
+parameters ˆθ ∈Θ ⊆Rp with corresponding normalized encoders ¯gi( · ; ˆθi) : Xi →SdLat−1, i = 1, . . . , m,
+and a weight vector ˆω ∈RdLat defining (ΦHad-Tilting) such that the measure µHad( · ; ˆθ, ˆω) induced by
+(Φa-Tilting) satisfies
+DKL
+
+µ
+ µHad( · ; ˆθ, ˆω)
+
+< ϵ.
+13
+
+
+Proof (Sketch, Full details in Section A.6) Using a Stone-Weierstraß argument, we show that the
+parametric family
+MHad =
+[
+p∈N
+
+x 7→
+dLat
+X
+k=1
+ωk
+m
+Y
+i=1
+¯gi,k(xi; θi) = ω⊤(¯g1(x1; θ1) ⊙· · · ⊙¯gm(xm; θm))
+
+dLat ∈N, ω ∈RdLat, {θi}m
+i=1 ⊂Θ ⊂Rp, ¯gi( · ; θi) : Xi →SdLat−1
+
+is dense in C0(X; R). The result is then a consequence of Proposition A.2.
+A key practical advantage of (Φm-clip-Tilting) is that retrieval and classification at inference require
+only stored embeddings, not the raw data (Baptista et al., 2025, Sec. 4). While using a general joint
+network ensures universal approximation by Theorem 3.2, it does not permit this efficiency.
+The structure of (ΦHad-Tilting) preserves this property. For a fixed modality i0 ∈[m], we define
+the pre-computable embeddings as a Hadamard product of the form
+v(n) :=
+K
+i̸=i0
+¯gi(x(n)
+i
+; θi) ∈RdLat,
+n = 1, . . . , N.
+Given a query vector xi0 ∈Xi0, retrieval of the best matching database item then reduces to
+x∗
+−i0 ∈arg max
+n=1,...,N
+ω⊤
+v(n) ⊙¯gi0(xi0; θi0)
+
+= arg max
+n=1,...,N
+ ω ⊙¯gi0(xi0; θi0)
+⊤v(n),
+where the equality follows from ω⊤(a ⊙b) = (ω ⊙a)⊤b. Inference therefore requires a single forward
+pass through gi0, followed by N dot products against the stored dLat-dimensional vectors v(n) which
+drastically reduces storage requirements in large-scale applications.
+Remark 5.4 (Geometric Interpretation of (ΦHad-Tilting)) We provide geometric intuition for
+(ΦHad-Tilting) and relate it to (Φm-clip-Tilting). Denote with ek ∈RdLat the k-th standard basis vector.
+CLIP. The CLIP (Φm-clip-Tilting) measures pairwise feature-by-feature agreement via
+⟨¯gi, ¯gj⟩=
+dLat
+X
+k=1
+⟨¯gi, ek⟩⟨¯gj, ek⟩,
+multiplying the projections of each modality onto axis ek and summing across axes. The per-axis term
+is positive if and only if both modalities project onto ek with the same sign, so the score is large when
+the two modalities agree axis-by-axis on the latent dimensions {ek}dLat
+k=1.
+H-CLIP. The Hadamard (ΦHad-Tilting) replaces the pairwise product with the m-fold product
+ω⊤(¯g1 ⊙· · · ⊙¯gm) =
+dLat
+X
+k=1
+ωk
+m
+Y
+i=1
+⟨¯gi, ek⟩,
+the natural m-way generalization of axis-wise agreement. The geometric reading shifts in two ways.
+First, the unweighted product Qm
+i=1⟨¯gi, ek⟩is large in magnitude only when every modality has non-
+trivial loading on ek, so each axis acts as a latent concept that contributes to the score only under
+joint participation across all m modalities; a single small projection suppresses the term regardless of
+the remaining m −1 loadings. Second, the learnable weights ω ∈RdLat, which in the bimodal case are
+redundant and can be absorbed into the encoder rescaling, become essential for m ≥3, since under
+the normalization ¯gi ∈SdLat−1 the signs of ωk (for odd m) and the per-axis magnitudes can no longer
+be folded into the encoders without additional padding dimensions.
+♦
+6 Conclusion and Future Work
+The perspective in this paper is to view contrastive learning as a methodology for learning approxi-
+mations of joint probability distributions known to us only through data. We adopt a population-level
+14
+
+
+perspective and focus on expressivity, asking which joint distributions a given contrastive parameteri-
+zation can represent at the population level. We show that bimodal two-tower CLIP is as expressive as
+a general joint network; that the sum-of-pairs generalization used in practice provably fails to represent
+arbitrary joints for three or more modalities while still matching every pairwise conditional; and that
+this gap is closed by Hadamard-CLIP, a minimal modification adding a single learned weight vector that
+restores universal approximation for any number of modalities while preserving fast, precomputable-
+embedding retrieval.
+Our analysis leaves several questions open. First, our guarantees do not provide sharp bounds on the
+latent dimension required for a given approximation accuracy; Proposition 4.3 shows that compression
+below the original dimension is in general impossible, but a tight characterization of the dimension-
+accuracy tradeoff remains open. Second, we work entirely in the population limit, opening the study
+of statistical learning to quantify the effect of empirical approximation. Thirdly we isolate expressivity
+from optimization: whether the contrastive objective actually recovers these expressive solutions, for
+instance through a mean-field analysis of the training dynamics, constitutes a challenging research
+question. Fourthly the use of divergences other than KL, such as those based on the energy score
+(Waghmare and Ziegel, 2026), could lead to improved computational methodology, and to interesting
+theoretical questions analogous to those studied, or proposed, in this paper.
+Acknowledgement
+AMS is supported by a Department of Defense (DoD) Vannevar Bush Faculty Fellowship (award
+N00014-22-1-2790). FW is supported by a Kortschak Fellowship at The California Institute of Tech-
+nology. The authors would like to thank Zakaria Baba, Ricardo Baptista, Georgia Gkioxari, Raphaela
+Kang, and Pietro Perona for fruitful discussions.
+References
+GPT-4V(ision) system card. https://openai.com/index/gpt-4v-system-card/, Feb. 2024. (Cited on
+page 2.)
+J.-B. Alayrac, J. Donahue, P. Luc, A. Miech, I. Barr, Y. Hasson, K. Lenc, A. Mensch, K. Millican,
+M. Reynolds, R. Ring, E. Rutherford, S. Cabi, T. Han, Z. Gong, S. Samangooei, M. Monteiro,
+J. L. Menick, S. Borgeaud, A. Brock, A. Nematzadeh, S. Sharifzadeh, M. Bińkowski, R. Barreira,
+O. Vinyals, A. Zisserman, and K. Simonyan. Flamingo: A Visual Language Model for Few-Shot
+Learning. Advances in Neural Information Processing Systems, 35:23716–23736, Dec. 2022. (Cited
+on page 2.)
+J. Ash, S. Goel, A. Krishnamurthy, and D. Misra. Investigating the Role of Negatives in Contrastive
+Representation Learning. In Proceedings of The 25th International Conference on Artificial Intelli-
+gence and Statistics, pages 7187–7209. PMLR, May 2022. (Cited on page 4.)
+P. Awasthi, N. Dikkala, and P. Kamath. Do More Negative Samples Necessarily Hurt In Contrastive
+Learning? In Proceedings of the 39th International Conference on Machine Learning, pages 1101–
+1116. PMLR, June 2022. (Cited on page 4.)
+P. Bachman, R. D. Hjelm, and W. Buchwalter.
+Learning Representations by Maximizing Mutual
+Information Across Views.
+In Advances in Neural Information Processing Systems, volume 32.
+Curran Associates, Inc., 2019. (Cited on page 3.)
+R. Bachmann, D. Mizrahi, A. Atanov, and A. Zamir. MultiMAE: Multi-modal Multi-task Masked
+Autoencoders.
+In S. Avidan, G. Brostow, M. Cissé, G. M. Farinella, and T. Hassner, editors,
+Computer Vision – ECCV 2022, volume 13697, pages 348–367. Springer Nature Switzerland, Cham,
+2022. ISBN 978-3-031-19835-9 978-3-031-19836-6. doi:10.1007/978-3-031-19836-6_20. (Cited
+on page 8.)
+R. Bachmann, O. F. Kar, D. Mizrahi, A. Garjani, M. Gao, D. Griffiths, J. Hu, A. Dehghan, and
+A. Zamir. 4M-21: An Any-to-Any Vision Model for Tens of Tasks and Modalities. Advances in
+Neural Information Processing Systems, 37:61872–61911, Dec. 2024. doi:10.52202/079017-1977.
+(Cited on pages 2 and 8.)
+15
+
+
+G. Ballard and T. G. Kolda. Tensor Decompositions for Data Science. Cambridge University Press,
+Cambridge, 2025. ISBN 978-1-009-47167-1. doi:10.1017/9781009471664. (Cited on page 13.)
+H. Bao, Y. Nagano, and K. Nozawa. On the Surrogate Gap between Contrastive and Supervised
+Losses. In Proceedings of the 39th International Conference on Machine Learning, pages 1585–1606.
+PMLR, June 2022. (Cited on page 4.)
+R. Baptista, A. M. Stuart, and S. Tran. A Mathematical Perspective On Contrastive Learning, May
+2025. arXiv:2505.24134. (Cited on pages 3, 7, and 14.)
+T. Chen, S. Kornblith, M. Norouzi, and G. Hinton. A Simple Framework for Contrastive Learning of
+Visual Representations, July 2020a. arXiv:2002.05709. (Cited on page 4.)
+T. Chen, S. Kornblith, K. Swersky, M. Norouzi, and G. Hinton. Big self-supervised models are strong
+semi-supervised learners. In Proceedings of the 34th International Conference on Neural Informa-
+tion Processing Systems, NIPS ’20, pages 22243–22255, Red Hook, NY, USA, Dec. 2020b. Curran
+Associates Inc. ISBN 978-1-7138-2954-6. (Cited on page 4.)
+Z. Chen, Y. Deng, Y. Li, and Q. Gu. Understanding Transferable Representation Learning and Zero-
+shot Transfer in CLIP. In The Twelfth International Conference on Learning Representations, Oct.
+2023. (Cited on page 3.)
+E. W. Cheney and W. A. Light. A Course in Approximation Theory. American Mathematical Soc.,
+Jan. 2009. ISBN 978-0-8218-4798-5. (Cited on page 9.)
+P. Comon and C. Jutten. Handbook of Blind Source Separation: Independent Component Analysis and
+Applications. Academic Press, Inc., USA, 1st edition, Feb. 2010. ISBN 978-0-12-374726-6. (Cited
+on page 4.)
+T. M. Cover and J. A. Thomas. Elements Of Information Theory. John Wiley & Sons Ltd, 2005.
+ISBN 978-0-471-06259-2. (Cited on pages 24 and 35.)
+I. Csiszar. $I$-Divergence Geometry of Probability Distributions and Minimization Problems. The
+Annals of Probability, 3(1):146–158, Feb. 1975. ISSN 0091-1798, 2168-894X. doi:10.1214/aop/
+1176996454. (Cited on pages 13 and 35.)
+I. Daunhawer, A. Bizeul, E. Palumbo, A. Marx, and J. E. Vogt. Identifiability Results for Multimodal
+Contrastive Learning. In The Eleventh International Conference on Learning Representations, Sept.
+2022. (Cited on page 3.)
+B. Dufumier, C. A. Barbano, R. Louiset, E. Duchesnay, and P. Gori. Integrating Prior Knowledge in
+Contrastive Learning with Kernel. In Proceedings of the 40th International Conference on Machine
+Learning, pages 8851–8878. PMLR, July 2023. (Cited on page 4.)
+C. Eckart and G. Young. The Approximation of One Matrix by Another of Lower Rank. Psychometrika,
+1(3):211–218, Sept. 1936. ISSN 0033-3123, 1860-0980. doi:10.1007/BF02288367. (Cited on page
+31.)
+A. Eftekhar, A. Sax, R. Bachmann, J. Malik, and A. Zamir. Omnidata: A Scalable Pipeline for Making
+Multi-Task Mid-Level Vision Datasets from 3D Scans, Oct. 2021. arXiv:2110.04994. (Cited on
+page 7.)
+A. V. Elst and D. Ghoshdastidar. Tight PAC-Bayesian Risk Certificates for Contrastive Learning.
+SIAM Journal on Mathematics of Data Science, 7(4):1904–1927, Dec. 2025. ISSN 2577-0187. doi:
+10.1137/24M1715283. (Cited on page 4.)
+P. Esser, S. Kulal, A. Blattmann, R. Entezari, J. Müller, H. Saini, Y. Levi, D. Lorenz, A. Sauer,
+F. Boesel, D. Podell, T. Dockhorn, Z. English, and R. Rombach. Scaling Rectified Flow Transformers
+for High-Resolution Image Synthesis. In Proceedings of the 41st International Conference on Machine
+Learning, pages 12606–12633. PMLR, July 2024. (Cited on page 2.)
+16
+
+
+L. C. Evans and R. F. Gariepy. Measure Theory and Fine Properties of Functions, Revised Edition.
+Chapman and Hall/CRC, New York, Apr. 2015. ISBN 978-0-429-16148-3. doi:10.1201/b18333.
+(Cited on page 25.)
+X. Feng and T. Watanabe. When Does Embedding Magnitude Matter? A Cross-Task Functional-
+Symmetry Framework, May 2026. arXiv:2602.09229. (Cited on page 11.)
+T. Furusawa. Mean Field Theory in Deep Metric Learning. In The Twelfth International Conference
+on Learning Representations, Oct. 2023. (Cited on page 3.)
+G. Ghiasi, B. Zoph, E. D. Cubuk, Q. V. Le, and T.-Y. Lin.
+Multi-Task Self-Training for Learn-
+ing General Representations. In 2021 IEEE/CVF International Conference on Computer Vision
+(ICCV), pages 8836–8845, Montreal, QC, Canada, Oct. 2021. IEEE.
+ISBN 978-1-6654-2812-5.
+doi:10.1109/ICCV48922.2021.00873. (Cited on page 7.)
+R. Girdhar, A. El-Nouby, Z. Liu, M. Singh, K. V. Alwala, A. Joulin, and I. Misra. ImageBind One
+Embedding Space to Bind Them All. In 2023 IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), pages 15180–15190, Vancouver, BC, Canada, June 2023. IEEE. ISBN
+979-8-3503-0129-8. doi:10.1109/CVPR52729.2023.01457. (Cited on pages 4 and 8.)
+J.-B. Grill, F. Strub, F. Altché, C. Tallec, P. H. Richemond, E. Buchatskaya, C. Doersch, B. A. Pires,
+Z. D. Guo, M. G. Azar, B. Piot, K. Kavukcuoglu, R. Munos, and M. Valko. Bootstrap your own
+latent: A new approach to self-supervised Learning, Sept. 2020. arXiv:2006.07733. (Cited on page
+4.)
+Y. Gui, C. Ma, and Z. Ma. Multi-modal contrastive learning adapts to intrinsic dimensions of shared
+latent variables, May 2025. arXiv:2505.12473. (Cited on page 3.)
+A. Guzhov, F. Raue, J. Hees, and A. Dengel. Audioclip: Extending Clip to Image, Text and Audio.
+In ICASSP 2022 - 2022 IEEE International Conference on Acoustics, Speech and Signal Processing
+(ICASSP), pages 976–980, May 2022. doi:10.1109/ICASSP43922.2022.9747631. (Cited on pages
+3 and 8.)
+J. Z. HaoChen, C. Wei, A. Gaidon, and T. Ma. Provable Guarantees for Self-Supervised Deep Learning
+with Spectral Contrastive Loss. In Advances in Neural Information Processing Systems, volume 34,
+pages 5000–5011. Curran Associates, Inc., 2021. (Cited on page 4.)
+K. He, H. Fan, Y. Wu, S. Xie, and R. Girshick. Momentum Contrast for Unsupervised Visual Repre-
+sentation Learning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 9729–9738, 2020. (Cited on page 4.)
+R. D. Hjelm, A. Fedorov, S. Lavoie-Marchildon, K. Grewal, P. Bachman, A. Trischler, and Y. Bengio.
+Learning deep representations by mutual information estimation and maximization. In International
+Conference on Learning Representations, Sept. 2018. (Cited on page 3.)
+W. Huang, M. Yi, X. Zhao, and Z. Jiang. Towards the Generalization of Contrastive Self-Supervised
+Learning. In The Eleventh International Conference on Learning Representations, Sept. 2022. (Cited
+on page 4.)
+Y. Huang, C. Du, Z. Xue, X. Chen, H. Zhao, and L. Huang. What Makes Multi-Modal Learning
+Better than Single (Provably). In Advances in Neural Information Processing Systems, volume 34,
+pages 10944–10956. Curran Associates, Inc., 2021. (Cited on page 3.)
+Y. Huang, Z. Wen, Y. Chi, and Y. Liang. A Theoretical Analysis of Self-Supervised Learning for
+Vision Transformers. In International Conference on Learning Representations, volume 2025, pages
+1326–1388, May 2025. (Cited on page 4.)
+A. Hyvärinen, J. Karhunen, and E. Oja. Independent Component Analysis. John Wiley & Sons, Mar.
+2004. ISBN 978-0-471-46419-8. (Cited on page 4.)
+A. Hyvarinen, H. Sasaki, and R. Turner. Nonlinear ICA Using Auxiliary Variables and Generalized
+Contrastive Learning. In Proceedings of the Twenty-Second International Conference on Artificial
+Intelligence and Statistics, pages 859–868. PMLR, Apr. 2019. (Cited on page 4.)
+17
+
+
+A. Hyvärinen, I. Khemakhem, and R. Monti. Identifiability of latent-variable and structural-equation
+models: From linear to nonlinear. Annals of the Institute of Statistical Mathematics, 76(1):1–33,
+Feb. 2024. ISSN 0020-3157, 1572-9052. doi:10.1007/s10463-023-00884-4. (Cited on page 4.)
+W. Ji, Z. Deng, R. Nakada, J. Zou, and L. Zhang. The Power of Contrast for Feature Learning: A
+Theoretical Analysis. Journal of Machine Learning Research, 24(330):1–78, 2023. ISSN 1533-7928.
+(Cited on page 4.)
+C. Jia, Y. Yang, Y. Xia, Y.-T. Chen, Z. Parekh, H. Pham, Q. Le, Y.-H. Sung, Z. Li, and T. Duerig.
+Scaling Up Visual and Vision-Language Representation Learning With Noisy Text Supervision. In
+Proceedings of the 38th International Conference on Machine Learning, pages 4904–4916. PMLR,
+July 2021. (Cited on pages 1 and 11.)
+L. Jing, P. Vincent, Y. LeCun, and Y. Tian. Understanding Dimensional Collapse in Contrastive Self-
+supervised Learning. In International Conference on Learning Representations, Oct. 2021. (Cited
+on page 4.)
+A. Klenke. Probability Theory: A Comprehensive Course. Universitext. Springer International Publish-
+ing, Cham, 2020. ISBN 978-3-030-56401-8 978-3-030-56402-5. doi:10.1007/978-3-030-56402-5.
+(Cited on page 10.)
+D. Krieg and M. Ullrich. Approximation of Functions: Optimal Sampling and Complexity, Feb. 2026.
+arXiv:2602.02066. (Cited on page 9.)
+G. Kwon, Z. Cai, A. Ravichandran, E. Bas, R. Bhotika, and S. Soatto. Masked Vision and Language
+Modeling for Multi-modal Representation Learning. In The Eleventh International Conference on
+Learning Representations, Sept. 2022. (Cited on page 2.)
+J. D. Lee, Q. Lei, N. Saunshi, and JIACHENG. ZHUO. Predicting What You Already Know Helps:
+Provable Self-Supervised Learning.
+In Advances in Neural Information Processing Systems, vol-
+ume 34, pages 309–323. Curran Associates, Inc., 2021. (Cited on page 4.)
+Y. Lei, T. Yang, Y. Ying, and D.-X. Zhou. Generalization Analysis for Contrastive Representation
+Learning. In Proceedings of the 40th International Conference on Machine Learning, pages 19200–
+19227. PMLR, July 2023. (Cited on page 4.)
+J. Li, R. R. Selvaraju, A. Gotmare, S. R. Joty, C. Xiong, and S. C.-H. Hoi. Align before Fuse: Vision and
+Language Representation Learning with Momentum Distillation. In M. Ranzato, A. Beygelzimer,
+Y. N. Dauphin, P. Liang, and J. W. Vaughan, editors, Advances in Neural Information Processing
+Systems 34: Annual Conference on Neural Information Processing Systems 2021, NeurIPS 2021,
+December 6-14, 2021, Virtual, pages 9694–9705, 2021. (Cited on page 2.)
+J. Li, D. Li, S. Savarese, and S. Hoi. BLIP-2: Bootstrapping Language-Image Pre-training with Frozen
+Image Encoders and Large Language Models. In Proceedings of the 40th International Conference
+on Machine Learning, pages 19730–19742. PMLR, July 2023. (Cited on page 2.)
+S. Li and H. Tang. Multimodal Alignment and Fusion: A Survey. International Journal of Computer
+Vision, 134(3):103, Feb. 2026. ISSN 1573-1405. doi:10.1007/s11263-025-02667-1. (Cited on
+page 3.)
+Y. Li, X. Wei, T. Yang, and Y. Ying.
+Statistical Consistency and Generalization of Contrastive
+Representation Learning, May 2026. arXiv:2605.02116. (Cited on page 3.)
+W. A. Light and E. W. Cheney. Approximation Theory in Tensor Product Spaces, volume 1169 of
+Lecture Notes in Mathematics. Springer, Berlin, Heidelberg, 1985. ISBN 978-3-540-16057-1 978-3-
+540-39741-0. doi:10.1007/BFb0075391. (Cited on page 9.)
+G. Lin, C. Gao, Y. Zheng, J. Chang, Y. Niu, Y. Song, K. Gai, Z. Li, D. Jin, Y. Li, and M. Wang.
+Mixed Attention Network for Cross-domain Sequential Recommendation.
+In Proceedings of the
+17th ACM International Conference on Web Search and Data Mining, WSDM ’24, pages 405–413,
+New York, NY, USA, Mar. 2024. Association for Computing Machinery. ISBN 979-8-4007-0371-3.
+doi:10.1145/3616855.3635801. (Cited on page 2.)
+18
+
+
+L. Lin and S. Mei. A Statistical Theory of Contrastive Learning via Approximate Sufficient Statistics. In
+The Thirty-ninth Annual Conference on Neural Information Processing Systems, Oct. 2025. (Cited
+on page 4.)
+H. Liu, C. Li, Q. Wu, and Y. J. Lee. Visual Instruction Tuning, Dec. 2023. arXiv:2304.08485. (Cited
+on page 2.)
+H. Liu, C. Li, Y. Li, and Y. J. Lee. Improved Baselines with Visual Instruction Tuning. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 26296–26306,
+2024. (Cited on page 2.)
+H. Liu, J. Y.-C. Hu, Z. Song, and H. Liu. Attention Mechanism, Max-Affine Partition, and Universal
+Approximation. In The Thirty-ninth Annual Conference on Neural Information Processing Systems,
+Oct. 2025. (Cited on page 9.)
+J. Lu, L. Song, M. Xu, B. Ahn, Y. Wang, C. Chen, A. Dehghan, and Y. Yang. AToken: A Unified
+Tokenizer for Vision, Sept. 2025. arXiv:2509.14476. (Cited on pages 2, 4, and 8.)
+T. Luddecke and A. Ecker. Image Segmentation Using Text and Image Prompts. In 2022 IEEE/CVF
+Conference on Computer Vision and Pattern Recognition (CVPR), pages 7076–7086, New Orleans,
+LA, USA, June 2022. IEEE. ISBN 978-1-6654-6946-3. doi:10.1109/CVPR52688.2022.00695. (Cited
+on page 2.)
+H. Luo, L. Ji, M. Zhong, Y. Chen, W. Lei, N. Duan, and T. Li. CLIP4Clip: An empirical study of
+CLIP for end to end video clip retrieval and captioning. Neurocomputing, 508:293–304, Oct. 2022.
+ISSN 09252312. doi:10.1016/j.neucom.2022.07.028. (Cited on pages 3 and 8.)
+C. Ma, Y. Jiang, J. Wu, J. Yang, X. Yu, Z. Yuan, B. Peng, and X. Qi. UniTok: A Unified Tokenizer
+for Visual Generation and Understanding, Oct. 2025. arXiv:2502.20321. (Cited on page 2.)
+Y. Marzouk and D. Xiu. A stochastic collocation approach to Bayesian inference in inverse problems.
+Communications in Computational Physics, 6(4):826–847, 2009. (Cited on page 3.)
+P. Mayilvahanan, T. Wiedemer, E. Rusak, M. Bethge, and W. Brendel. Does CLIP’s generalization
+performance mainly stem from high train-test similarity? In The Twelfth International Conference
+on Learning Representations, Oct. 2023. (Cited on page 3.)
+E. J. McShane. Extension of range of functions. Bulletin of the American Mathematical Society, 40
+(12):837–842, 1934. ISSN 1088-9485, 0273-0979. doi:10.1090/S0002-9904-1934-05978-0. (Cited
+on page 25.)
+L. Meng and C. Wang. Training Dynamics of Nonlinear Contrastive Learning Model in the High
+Dimensional Limit. IEEE Signal Processing Letters, 31:2535–2539, 2024. ISSN 1558-2361. doi:
+10.1109/LSP.2024.3434392. (Cited on page 3.)
+D. Mizrahi, R. Bachmann, O. F. Kar, T. Yeo, M. Gao, A. Dehghan, and A. Zamir. 4M: Massively
+Multimodal Masked Modeling. In A. Oh, T. Naumann, A. Globerson, K. Saenko, M. Hardt, and
+S. Levine, editors, Advances in Neural Information Processing Systems 36: Annual Conference on
+Neural Information Processing Systems 2023, NeurIPS 2023, New Orleans, LA, USA, December 10
+- 16, 2023, 2023. (Cited on pages 2 and 8.)
+B. Mustafa, C. Riquelme, J. Puigcerver, R. Jenatton, and N. Houlsby. Multimodal Contrastive Learn-
+ing with LIMoE: The Language-Image Mixture of Experts. Advances in Neural Information Pro-
+cessing Systems, 35:9564–9576, Dec. 2022. (Cited on page 2.)
+A. Nagrani, P. H. Seo, B. Seybold, A. Hauth, S. Manen, C. Sun, and C. Schmid. Learning Audio-
+Video Modalities from Image Captions. In S. Avidan, G. Brostow, M. Cissé, G. M. Farinella, and
+T. Hassner, editors, Computer Vision – ECCV 2022, pages 407–426, Cham, 2022. Springer Nature
+Switzerland. ISBN 978-3-031-19781-9. doi:10.1007/978-3-031-19781-9_24. (Cited on pages 3
+and 8.)
+19
+
+
+R. Nakada, H. I. Gulluk, Z. Deng, W. Ji, J. Zou, and L. Zhang. Understanding Multimodal Contrastive
+Learning and Incorporating Unpaired Data. In Proceedings of The 26th International Conference
+on Artificial Intelligence and Statistics, pages 4348–4380. PMLR, Apr. 2023. (Cited on page 3.)
+K. Nozawa and I. Sato. Understanding Negative Samples in Instance Discriminative Self-supervised
+Representation Learning. In Advances in Neural Information Processing Systems, volume 34, pages
+5784–5797. Curran Associates, Inc., 2021. (Cited on page 4.)
+K. Oko, L. Lin, Y. Cai, and S. Mei. A Statistical Theory of Contrastive Pre-training and Multimodal
+Generative AI, Oct. 2025. arXiv:2501.04641. (Cited on page 3.)
+OpenAI. DALL·E 3. https://openai.com/index/dall-e-3/, 2023. (Cited on page 2.)
+A. Pinkus. Approximation theory of the MLP model in neural networks. Acta Numerica, 8:143–195,
+Jan. 1999. ISSN 1474-0508, 0962-4929. doi:10.1017/S0962492900002919. (Cited on page 9.)
+B. Poole, S. Ozair, A. V. D. Oord, A. Alemi, and G. Tucker.
+On Variational Bounds of Mutual
+Information. In Proceedings of the 36th International Conference on Machine Learning, pages 5171–
+5180. PMLR, May 2019. (Cited on page 3.)
+J. A. Portillo-Quintero, J. C. Ortiz-Bayliss, and H. Terashima-Marín. A Straightforward Framework
+for Video Retrieval Using CLIP. In E. Roman-Rangel, Á. F. Kuri-Morales, J. F. Martínez-Trinidad,
+J. A. Carrasco-Ochoa, and J. A. Olvera-López, editors, Pattern Recognition, pages 3–12, Cham, 2021.
+Springer International Publishing. ISBN 978-3-030-77004-4. doi:10.1007/978-3-030-77004-4_1.
+(Cited on pages 3 and 8.)
+M. J. D. Powell. Approximation theory and methods, volume 2148. Cambridge university press Cam-
+bridge, 1981. (Cited on page 9.)
+A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell, P. Mishkin,
+J. Clark, G. Krueger, and I. Sutskever. Learning Transferable Visual Models From Natural Language
+Supervision. In M. Meila and T. Zhang, editors, Proceedings of the 38th International Conference
+on Machine Learning, ICML 2021, 18-24 July 2021, Virtual Event, volume 139 of Proceedings of
+Machine Learning Research, pages 8748–8763. PMLR, 2021. (Cited on pages 1 and 7.)
+A. Ramesh, M. Pavlov, G. Goh, S. Gray, C. Voss, A. Radford, M. Chen, and I. Sutskever. Zero-Shot
+Text-to-Image Generation, Feb. 2021. arXiv:2102.12092. (Cited on page 2.)
+A. Ramesh, P. Dhariwal, A. Nichol, C. Chu, and M. Chen.
+Hierarchical Text-Conditional Image
+Generation with CLIP Latents, Apr. 2022. arXiv:2204.06125. (Cited on page 2.)
+P. Reizinger, A. Bizeul, A. Juhos, J. E. Vogt, R. Balestriero, W. Brendel, and D. Klindt. Cross-Entropy
+Is All You Need To Invert the Data Generating Process. In The Thirteenth International Conference
+on Learning Representations, Oct. 2024. (Cited on page 4.)
+Y. Ren and Y. Li.
+On the Importance of Contrastive Loss in Multimodal Learning, Apr. 2023.
+arXiv:2304.03717. (Cited on page 3.)
+M. Roberts, J. Ramapuram, A. Ranjan, A. Kumar, M. A. Bautista, N. Paczan, R. Webb, and J. M.
+Susskind. Hypersim: A Photorealistic Synthetic Dataset for Holistic Indoor Scene Understanding,
+Aug. 2021. arXiv:2011.02523. (Cited on page 7.)
+E. Rusak, P. Reizinger, A. Juhos, O. Bringmann, R. S. Zimmermann, and W. Brendel. InfoNCE: Iden-
+tifying the Gap Between Theory and Practice. In Proceedings of The 28th International Conference
+on Artificial Intelligence and Statistics, pages 4159–4167. PMLR, Apr. 2025. (Cited on page 4.)
+N. Saunshi, O. Plevrakis, S. Arora, M. Khodak, and H. Khandeparkar. A Theoretical Analysis of Con-
+trastive Unsupervised Representation Learning. In Proceedings of the 36th International Conference
+on Machine Learning, pages 5628–5637. PMLR, May 2019. (Cited on page 4.)
+C. Schlarmann, F. Croce, N. Flammarion, and M. Hein. FuseLIP: Multimodal Embeddings via Early
+Fusion of Discrete Tokens, June 2025. arXiv:2506.03096. (Cited on page 2.)
+20
+
+
+S. Schneider, J. H. Lee, and M. W. Mathis.
+Learnable latent embeddings for joint behavioural
+and neural analysis.
+Nature, 617(7960):360–368, May 2023.
+ISSN 1476-4687.
+doi:10.1038/
+s41586-023-06031-6. (Cited on page 2.)
+M. Shridhar, L. Manuelli, and D. Fox. CLIPort: What and Where Pathways for Robotic Manipulation.
+In Proceedings of the 5th Conference on Robot Learning, pages 894–906. PMLR, Jan. 2022. (Cited
+on page 2.)
+R. Shwartz Ziv and Y. LeCun.
+To Compress or Not to Compress—Self-Supervised Learning and
+Information Theory: A Review. Entropy, 26(3):252, Mar. 2024. ISSN 1099-4300. doi:10.3390/
+e26030252. (Cited on page 3.)
+A. M. Stuart. Inverse problems: a Bayesian perspective. Acta numerica, 19:451–559, 2010. (Cited on
+page 3.)
+Z. Tan, Y. Zhang, J. Yang, and Y. Yuan. Contrastive Learning is Spectral Clustering on Similarity
+Graph. In The Twelfth International Conference on Learning Representations, Oct. 2023. (Cited on
+page 4.)
+G. Tevet, B. Gordon, A. Hertz, A. H. Bermano, and D. Cohen-Or. MotionCLIP: Exposing Human
+Motion Generation to CLIP Space.
+In S. Avidan, G. Brostow, M. Cissé, G. M. Farinella, and
+T. Hassner, editors, Computer Vision – ECCV 2022, pages 358–374, Cham, 2022. Springer Nature
+Switzerland. ISBN 978-3-031-20047-2. doi:10.1007/978-3-031-20047-2_21. (Cited on pages 3
+and 8.)
+Y. Tian. Understanding Deep Contrastive Learning via Coordinate-wise Optimization. In Advances
+in Neural Information Processing Systems, Oct. 2022. (Cited on page 4.)
+Y. Tian, D. Krishnan, and P. Isola. Contrastive Multiview Coding. In A. Vedaldi, H. Bischof, T. Brox,
+and J.-M. Frahm, editors, Computer Vision – ECCV 2020, volume 12356, pages 776–794. Springer
+International Publishing, Cham, 2020. ISBN 978-3-030-58620-1 978-3-030-58621-8. doi:10.1007/
+978-3-030-58621-8_45. (Cited on page 3.)
+C. Tosh, A. Krishnamurthy, and D. Hsu. Contrastive Estimation Reveals Topic Posterior Information
+to Linear Models. Journal of Machine Learning Research, 22(281):1–31, 2021a. ISSN 1533-7928.
+(Cited on page 4.)
+C. Tosh, A. Krishnamurthy, and D. Hsu. Contrastive learning, multi-view redundancy, and linear
+models. In Proceedings of the 32nd International Conference on Algorithmic Learning Theory, pages
+1179–1206. PMLR, Mar. 2021b. (Cited on page 4.)
+L. N. Trefethen. Approximation Theory and Approximation Practice, Extended Edition. SIAM, Jan.
+2019. ISBN 978-1-61197-594-9. (Cited on page 9.)
+M. Tschannen, J. Djolonga, P. K. Rubenstein, S. Gelly, and M. Lucic. On Mutual Information Maxi-
+mization for Representation Learning, Jan. 2020. arXiv:1907.13625. (Cited on page 3.)
+T. Uesaka, T. Suzuki, Y. Takida, C.-H. Lai, N. Murata, and Y. Mitsufuji. Weighted Point Set Em-
+bedding for Multimodal Contrastive Learning Toward Optimal Similarity Metric. In The Thirteenth
+International Conference on Learning Representations, Oct. 2024. (Cited on page 3.)
+A. van den Oord, O. Vinyals, and K. Kavukcuoglu. Neural Discrete Representation Learning, May
+2018. arXiv:1711.00937. (Cited on page 3.)
+J. von Kügelgen, Y. Sharma, L. Gresele, W. Brendel, B. Schölkopf, M. Besserve, and F. Locatello. Self-
+Supervised Learning with Data Augmentations Provably Isolates Content from Style. In Advances
+in Neural Information Processing Systems, volume 34, pages 16451–16467. Curran Associates, Inc.,
+2021. (Cited on page 4.)
+K. Waghmare and J. Ziegel. Proper Scoring Rules for Estimation and Forecast Evaluation. Annual
+Review of Statistics and Its Application, 13(Volume 13, 2026):271–296, Mar. 2026. ISSN 2326-8298,
+2326-831X. doi:10.1146/annurev-statistics-042424-050626. (Cited on page 15.)
+21
+
+
+H. Wang, X. Guo, Z.-H. Deng, and Y. Lu. Rethinking Minimal Sufficient Representation in Con-
+trastive Learning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 16041–16050, 2022. (Cited on page 4.)
+T. Wang and P. Isola. Understanding Contrastive Representation Learning through Alignment and
+Uniformity on the Hypersphere, Aug. 2022. arXiv:2005.10242. (Cited on pages 3, 4, and 11.)
+W. Wang, Q. Lv, W. Yu, W. Hong, J. Qi, Y. Wang, J. Ji, Z. Yang, L. Zhao, X. Song, J. Xu,
+K. Chen, B. Xu, J. Li, Y. Dong, M. Ding, and J. Tang. CogVLM: Visual Expert for Pretrained
+Language Models. Advances in Neural Information Processing Systems, 37:121475–121499, Dec.
+2024. doi:10.52202/079017-3860. (Cited on page 2.)
+Y. Wang, Q. Zhang, Y. Wang, J. Yang, and Z. Lin. Chaos is a Ladder: A New Theoretical Understand-
+ing of Contrastive Learning via Augmentation Overlap. In International Conference on Learning
+Representations, Oct. 2021. (Cited on page 4.)
+Y. Wei, Y. Xu, L. Zhu, J. Ma, and C. Peng. Multi-level cross-modal contrastive learning for review-
+aware recommendation. Expert Systems with Applications, 247:123341, Aug. 2024. ISSN 0957-4174.
+doi:10.1016/j.eswa.2024.123341. (Cited on page 2.)
+Z. Wen and Y. Li. Toward Understanding the Feature Learning Process of Self-supervised Contrastive
+Learning. In Proceedings of the 38th International Conference on Machine Learning, pages 11112–
+11122. PMLR, July 2021. (Cited on page 4.)
+D. Werner. Funktionalanalysis. Springer-Lehrbuch. Springer, Berlin, Heidelberg, 2011. ISBN 978-3-
+642-21016-7 978-3-642-21017-4. doi:10.1007/978-3-642-21017-4. (Cited on pages 28, 30, and 31.)
+J. Wu, J. Chen, J. Wu, W. Shi, X. Wang, and X. He.
+Understanding Contrastive Learning via
+Distributionally Robust Optimization.
+Advances in Neural Information Processing Systems, 36:
+23297–23320, Dec. 2023. (Cited on page 4.)
+M. Wu, C. Zhuang, M. Mosse, D. Yamins, and N. Goodman. On Mutual Information in Contrastive
+Learning for Visual Representations, June 2020. arXiv:2005.13149. (Cited on page 3.)
+S. Wu, H. Fei, X. Li, J. Ji, H. Zhang, T.-S. Chua, and S. Yan. Towards Semantic Equivalence of
+Tokenization in Multimodal LLM. In The Thirteenth International Conference on Learning Repre-
+sentations, Oct. 2024a. (Cited on page 2.)
+S. Wu, H. Fei, L. Qu, W. Ji, and T.-S. Chua. NExT-GPT: Any-to-Any Multimodal LLM. In Forty-
+First International Conference on Machine Learning, ICML 2024, Vienna, Austria, July 21-27,
+2024. OpenReview.net, 2024b. (Cited on page 2.)
+Y. Wu, Z. Zhang, J. Chen, H. Tang, D. Li, Y. Fang, L. Zhu, E. Xie, H. Yin, L. Yi, S. Han, and Y. Lu.
+VILA-U: A Unified Foundation Model Integrating Visual Understanding and Generation. In The
+Thirteenth International Conference on Learning Representations, Oct. 2024c. (Cited on page 2.)
+X. Xie, F. Sun, Z. Liu, S. Wu, J. Gao, B. Ding, and B. Cui. Contrastive Learning for Sequential
+Recommendation, Feb. 2021. arXiv:2010.14395. (Cited on page 2.)
+N. Yoshida, S. Hayakawa, Y. Takida, T. Uesaka, H. Wakaki, and Y. Mitsufuji. Theoretical Refinement
+of CLIP by Utilizing Linear Structure of Optimal Similarity, Oct. 2025. arXiv:2510.15508. (Cited
+on page 3.)
+J. Yu, Z. Wang, V. Vasudevan, L. Yeung, M. Seyedhosseini, and Y. Wu. CoCa: Contrastive Captioners
+are Image-Text Foundation Models. Transactions on Machine Learning Research, July 2022. ISSN
+2835-8856. (Cited on page 2.)
+Y. Yuan, Z. Li, and B. Zhao. A Survey of Multimodal Learning: Methods, Applications, and Future.
+ACM Comput. Surv., 57(7):167:1–167:34, Feb. 2025. ISSN 0360-0300. doi:10.1145/3713070. (Cited
+on pages 3 and 13.)
+A. Zamir, A. Sax, W. Shen, L. Guibas, J. Malik, and S. Savarese. Taskonomy: Disentangling Task
+Transfer Learning, Apr. 2018. arXiv:1804.08328. (Cited on page 7.)
+22
+
+
+Q. Zhang, Y. Wang, and Y. Wang. An Augmentation Overlap Theory of Contrastive Learning. Journal
+of Machine Learning Research, 26(228):1–42, 2025. ISSN 1533-7928. (Cited on page 4.)
+Y. Zhao, F. Xue, S. Reed, L. Fan, Y. Zhu, J. Kautz, Z. Yu, P. Krähenbühl, and D.-A. Huang.
+QLIP: Text-Aligned Visual Tokenization Unifies Auto-Regressive Multimodal Understanding and
+Generation, Feb. 2025. arXiv:2502.05178. (Cited on page 2.)
+K. Zhou, H. Wang, W. X. Zhao, Y. Zhu, S. Wang, F. Zhang, Z. Wang, and J.-R. Wen. S^3-Rec: Self-
+Supervised Learning for Sequential Recommendation with Mutual Information Maximization. In
+Proceedings of the 29th ACM International Conference on Information & Knowledge Management,
+pages 1893–1902, Oct. 2020. doi:10.1145/3340531.3411954. (Cited on page 2.)
+Y. Zhou, J. Yang, H. Zou, and L. Xie.
+TENT: Connect Language Models with IoT Sensors for
+Zero-Shot Activity Recognition. IEEE Transactions on Mobile Computing, pages 1–12, 2026. ISSN
+1558-0660. doi:10.1109/TMC.2025.3650710. (Cited on pages 3 and 8.)
+X. Zhu, S.-W. Huang, H. Ding, J. Yang, K. Chen, T. Zhou, T. Neiman, O. Xie, S. Tran, B. Yao, D. Gray,
+A. Bindal, and A. Dhua. Bringing Multimodality to Amazon Visual Search System. In Proceedings
+of the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining, pages 6390–6399,
+Barcelona Spain, Aug. 2024. ACM.
+ISBN 979-8-4007-0490-1.
+doi:10.1145/3637528.3671640.
+(Cited on pages 3 and 8.)
+R. S. Zimmermann, Y. Sharma, S. Schneider, M. Bethge, and W. Brendel. Contrastive Learning Inverts
+the Data Generating Process.
+In Proceedings of the 38th International Conference on Machine
+Learning, pages 12979–12990. PMLR, July 2021. (Cited on page 4.)
+L. Ziyin, E. S. Lubana, M. Ueda, and H. Tanaka. On Rotational Symmetry in the Loss landscape
+of Self-Supervised Learning. In NeurIPS 2022 Workshop on Symmetry and Geometry in Neural
+Representations, Nov. 2022. (Cited on page 4.)
+Appendix A. Technical Lemmas and Proofs
+This appendix collects the technical results and full proofs underlying the main text. The first sub-
+section proves that joint KL divergence controls the full and pairwise conditional losses. The second
+develops the general function-to-measure approximation tools used throughout our universal approxi-
+mation arguments. The third establishes the bimodal CLIP results, including the normalized-encoder
+construction and the latent-dimension obstruction. The fourth proves the failure of joint universal ap-
+proximation for the standard extension to m > 2 and constructs the consistent pairwise representative
+used thereafter. The fifth proves universal approximation of all pairwise conditionals, and the final
+subsection proves universal approximation for Hadamard-CLIP.
+A.1 Contrastive Learning Population-Level Loss Functions
+This subsection provides the full proofs of Theorems 2.5 and 2.6, which justify the population-level
+loss comparisons used in Section 2.3.
+A.1.1 Proof of Theorem 2.5
+Proof
+First, we verify that all KL divergences and conditional distributions appearing in the two
+statements are well-defined.
+(1) Absolute Continuity Relations. As highlighted before (RNCR), Φa is finite-valued, and hence
+dµa/dµP > 0 on X. Since µ ≪µP, this yields µ ≪µa, so the Radon-Nikodym chain rule (RNCR)
+applies even when Φ takes values in R∪{±∞}. For the marginals, by Assumption (A1) every marginal
+µi is absolutely continuous with respect to λ
+
+Xi for every i ∈[m]. Since µa ≪µP, by marginalizing it
+holds that every marginal µi is absolutely continuous with respect to µa
+i (interpreted as a measure on
+Xi). Analogously, µ−i ≪µa
+−i and µij ≪µa
+ij, since marginalization preserves absolute continuity.
+By the disintegration theorem, the conditional distributions µxi|x−i and µa
+xi|x−i exist µ−i-almost
+surely and µa
+−i-almost surely, respectively. The absolute continuity µxi|x−i ≪µa
+xi|x−i follows from
+23
+
+
+µ ≪µa and the chain rule representation below (Cover and Thomas, 2005, Thm. 2.5.3). The same
+reasoning applies to all pairwise conditionals in the proof of Theorem 2.6.
+(2) Upper Bound Full Conditionals. Fix an i ∈[m]. The KL divergence chain rule (Cover and
+Thomas, 2005, Thm. 2.5.3) applied to the decomposition µ = µ−i ⊗µxi|x−i and for µa = µa
+−i ⊗µa
+xi|x−i
+yields
+DKL(µ ∥µa) = DKL
+ µ−i
+ µa
+−i
+
++ Ex−i∼µ−i
+h
+DKL
+
+µxi|x−i( · |x−i)
+ µa
+xi|x−i( · |x−i)
+i
+(1)
+since DKL
+ µ−i
+ µa
+−i
+
+≥0 we obtain
+Ex−i∼µ−i
+h
+DKL
+
+µxi|x−i( · |x−i)
+ µa
+xi|x−i( · |x−i)
+i
+≤DKL(µ ∥µa) .
+A.1.2 Proof of Theorem 2.6
+Proof (1) Absolute Continuity. This step is the same as in the proof of Theorem 2.5, cf. Section A.1.1,
+applied to the pairwise conditionals.
+(2) Upper Bound Pairwise Conditionals. For a pair (i, j) ∈[m]2, i̸ = j, we apply the KL divergence
+chain rule (see proof of Proof of Theorem 2.5) on the decomposition x = ((xi, xj), x-(i,j)) and obtain
+DKL(µ ∥µa) = DKL
+ µij
+ µa
+ij
+
++ E(xi,xj)∼µij
+h
+DKL
+
+µx-(i,j)|xi,xj ( · |xi, xj)
+ µa
+x-(i,j)|xi,xj ( · |xi, xj)
+i
+and since the second term is non-negative, we get
+DKL
+ µij
+ µa
+ij
+
+≤DKL(µ ∥µa) .
+We apply (1) to the bivariate marginal measure µij and µa
+ij on Xi × Xj and conditioning on the
+variable xj gives
+DKL
+ µij
+ µa
+ij
+
+= DKL
+ µj
+ µa
+j
+
++ Exj∼µj
+h
+DKL
+
+µxi|xj
+ µa
+xi|xj
+i
+,
+and since DKL
+ µj
+ µa
+j
+
+≥0, we obtain
+Exj∼µj
+h
+DKL
+
+µxi|xj
+ µa
+xi|xj
+i
+≤DKL
+ µij
+ µa
+ij
+
+≤DKL(µ ∥µa) .
+A.2 General Universal Approximation Results
+This subsection develops the architecture-independent analytic tools that turn approximation of tilting
+functions into approximation of measures, supporting Theorems 3.2 and 3.3 and the architecture-
+specific results that invoke them. Although the main results concern probability measures, the auxiliary
+compact-support results must be stated for finite Borel measures: in the non-compact argument we
+restrict µ and µP to a compact truncation set K, and these restricted measures generally have masses
+µ(K) and µP(K) smaller than one.
+Keeping the more general formulation allows these masses, in
+particular µ(K), to be tracked explicitly through the approximation and normalization bounds.
+Lemma A.1 (Continuous Representative) Let X be a compact subset of a Euclidean space, µ a
+finite Borel measure on X with µ(X) ∈(0, ∞), and r : X →[0, ∞] be the density of µ with respect to
+a second finite Borel measure µP, satisfying Φ = log r ∈L1(X; µ). Then, for every ϵ > 0, there exists
+a continuous approximation Φc ∈C0(X; R) of the tilting function Φ such that
+∥log r −Φc∥L1(X,µ) = ∥Φ −Φc∥L1(X,µ) ≤ϵ
+and
+Z
+X
+exp(Φc) dµP ≤µ(X) + ϵ.
+24
+
+
+Proof Let ϵ > 0 be fix, by assumption log r is µ-measurable.
+(1) Double-sided Truncation. We define a constant M > 0 (to be specified later), and consider the
+truncated function
+sM(x) := min(max(log r(x), −M), M) ∈[−M, M],
+x ∈X
+by point-wise clipping the logarithm of the density, so sM is uniformly bounded.
+Integral Term. Since this is a concatenation of continuous functions with a µP-measurable function,
+sM is µP-measurable and thus also µ-measurable, since µ ≪µP. By construction of sM we can bound
+∥log(r) −sM∥L1(X,µ) =
+Z
+X
+|log r(x) −sM(x)| µ(dx)
+=
+Z
+{log r<−M}
+|log r(x) + M| µ(dx) +
+Z
+{log r≥M}
+|log r(x) −M| µ(dx)
+≤2
+Z
+{log r<−M}
+|log r(x)| µ(dx) + 2
+Z
+{log r≥M}
+|log r(x)| µ(dx)
+Since by assumption, log(r) ∈L1(X, µ), the dominated convergence theorem yields ∥log r−sM∥L1(X,µ) →
+0 as M →∞and thus, we can pick M = M(ϵ) > 0 large enough such that in total ∥log(r) −
+sM∥L1(X,µ) < ϵ
+2.
+Normalization Constant. We define rM := exp(sM) ∈[exp(−M), exp(M)] and we split the nor-
+malization term into:
+Z
+X
+rm dµP =
+Z
+{exp(−M)≤r≤exp(M)}
+r dµP
+|
+{z
+}
+↑µ(X) as M→∞
++ exp(−M) · µP({r < exp(−M)})
+|
+{z
+}
+≤exp(−M)µP(X)→0 as M→∞
++ exp(M) · µP({r > exp(M)})
+|
+{z
+}
+≤
+R
+{r>exp(M)} r dµP→0 as M→∞
+,
+where the first term convergence by monotone convergence to µ(X) as M →∞. The second term
+converges to zero as M →∞since µP(X) is finite and exp(−M) →0 and the third term converges to
+zero as M →∞by dominated convergence.
+Importantly, we can pick M = M(ϵ) > 0 large enough such that ∥log(r) −sM∥L1(X,µ) < ϵ
+2 and
+|
+R
+X rm dµP −µ(X)| ≤ϵ
+2.
+(2) Lusin’s Theorem on an Auxilary Measure. Set η := min{ η
+4M ,
+ϵ
+4 exp(M)} > 0. We define the
+measure
+ν := µ + µP,
+which is by assumption a finite Borel measure on X and ν ≪µP. Since sM is µP-measurable and by
+absolute continuity µ-measurable, it is also ν-measurable. By Lusin’s theorem (Evans and Gariepy,
+2015, Thm. 1.14) applied to ν and sM there exists a compact K = K(η) ⋐X such that sM
+
+K is
+continuous and ν(X \ K) < η. By the construction of ν we obtain
+µ(X \ K), µP(X \ K) ≤ν(X \ K) < η.
+By Tietze’s extension theorem (McShane, 1934, Cor. 2), we can extend sM
+
+K to a continuous function
+Φc ∈C0(X; R) on the entire domain X, with Φc satisfying
+Φc(x) = sM(x)
+∀x ∈K
+|Φc(x)| ≤M
+∀x ∈X,
+where the global bounds hold because Tietze’s theorem preserves the supremum of sM which takes
+values in [−M, M] on K by construction.
+25
+
+
+(3) L1-error of Lusin Approximation. Since Φc = sM on K we get
+∥sM −Φc∥L1(X,µ) =
+Z
+X\K
+|sM(x) −Φc(x)| µ(dx) ≤2M · µ(X \ K) ≤ϵ
+2.
+We combine the two inequalities from above using the triangle inequality to obtain
+∥log r −Φc∥L1(X,µ) ≤∥log(r) −sM∥L1(X,µ) + ∥sM −Φc∥L1(X,µ) ≤ϵ,
+and for the normalization constant, we have
+|
+Z
+X
+exp(Φc) dµP −
+Z
+X
+rM dµP| ≤2 exp(M) · µP(X \ K) ≤2 exp(M)η < ϵ
+2.
+Combined with the second part of step (1), we obtain
+Z
+X
+exp(Φc) dµP ≤µ(X) + ϵ,
+concluding the claim.
+We formulate the following meta-theorem for finite Borel measures, which we will later on apply
+directly to X in the compact support setting, and in the non-compact setting to the compact subset
+K ⋐X given by tightness of µ and µP.
+Proposition A.2 (Function-to-Measure, Compact Support) Let X be a compact subset of a
+Euclidean space, µP a finite Borel measure and r : X →[0, ∞] the density of µ with respect to µP,
+satisfying Φ = log r ∈L1(X, µ).
+Let Φc be the continuous function from Lemma A.1 with parameter ϵ > 0. For any measurable
+function Φa : X →R satisfying
+∥Φc −Φa∥∞,X ≤δ
+for some δ > 0, the measure µa constructed via (Φa-Tilting) satisfies
+DKL(µ ∥µa) ≤ϵ + δ · µ(X) + δ + log(µ(X)) +
+ϵ
+µ(X).
+Proof We expand the KL divergence using the (RNCR) to obtain
+DKL(µ ∥µa) =
+Z
+X
+(Φ −Φa) dµ + log Za.
+We can bound the first term by using the triangle inequality
+Z
+X
+(Φ −Φa) dµ ≤
+Z
+X
+|Φ −Φc| dµ +
+Z
+X
+|Φc −Φa| dµ,
+where the first term is upper bounded by ϵ by Lemma A.1 and the second term satisfies
+Z
+X
+|Φc −Φa| dµ ≤∥Φc −Φa∥∞,X · µ(X) ≤δ · µ(X),
+bounding the integral part overall by
+Z
+X
+(Φ −Φa) dµ ≤ϵ + δ · µ(X).
+Next, we bound the normalization constant Za. Since we have ∥Φc −Φa∥∞,X ≤δ, we obtain the
+point-wise bound Φa(x) ≤Φc(x) + δ for all x ∈X:
+Za =
+Z
+X
+exp(Φa) dµP ≤exp(δ) ·
+Z
+X
+exp(Φc) dµP ≤exp(δ) · (µ(X) + ϵ).
+26
+
+
+Taking the logarithm results in
+log Za ≤δ + log(µ(X) + ϵ) ≤δ + log(µ(X)) +
+ϵ
+µ(X),
+which yields the desired result.
+For measures µ and µP and a tilting function Φ as below, fix ϵ, η > 0 and define the finite Borel
+measure ν(A) :=
+R
+A|Φ| dµ. Tightness of µ, µP, and ν yields a compact K ⋐X satisfying the three
+tail bounds below. Applying Lemma A.1 to the restricted measures on K then yields a continuous
+function Φc satisfying the remaining two bounds. Thus, the auxiliary objects assumed in the following
+proposition always exist.
+Proposition A.3 (Function-to-Measure, Tightness) Let X ⊂Rd, not necessarily compact, r :
+X →[0, ∞] be the density of the probability measure µ with respect to the probability measure µP,
+satisfying Φ = log r ∈L1(X, µ).
+Let ϵ, η > 0, and suppose that a compact K ⋐X and Φc ∈C0(K; R) satisfy
+µ(X \ K) < η,
+µP(X \ K) < η,
+and
+Z
+X\K
+|Φ| dµ < η,
+as well as the bounds
+∥Φ −Φc∥L1(K,µ) ≤ϵ
+and
+Z
+K
+exp(Φc) dµP ≤µ(K) + ϵ.
+Suppose Φa : X →R is any measurable function satisfying
+∥Φc −Φa∥∞,K ≤δ
+and
+|Φa(x)| ≤B, ∀x ∈X \ K
+for constants δ > 0 and B ≥0, then the measure constructed via (Φa-Tilting) fulfills
+DKL(µ ∥µa) ≤2ϵ + 2δ + (1 + B + exp(B))η.
+Proof We split the proof into two parts: controlling the integral term and controlling the normalization
+constant.
+(1) Integral term. By applying (RNCR) we obtain
+DKL(µ ∥µa) =
+Z
+X
+Φ −Φa dµ + log Za.
+We bound the first integral by splitting the domain into K and X \ K to get
+Z
+X
+Φ −Φa dµ =
+Z
+K
+Φ −Φa dµ +
+Z
+X\K
+Φ −Φa dµ,
+where we can bound the first integral by
+Z
+K
+Φ −Φa dµ =
+Z
+K
+Φ −Φc dµ +
+Z
+K
+Φc −Φa dµ
+≤∥Φ −Φc∥L1(K,µ) + δ · µ(K) ≤ϵ + δ · µ(K)
+≤ϵ + δ · µ(X) = ϵ + δ,
+and we can bound the difference on the tail by
+Z
+X\K
+Φ −Φa dµ ≤
+Z
+X\K
+|Φ −Φa| dµ ≤
+Z
+X\K
+|Φ| dµ + B · µ(X \ K)
+≤η + Bη = (1 + B)η
+where we controlled the first term via η and the absolute continuity of the integral, and the second
+term is bounded by µ(X \ K) < η. In total, the integral term is bounded by ϵ + δ + (1 + B)η.
+27
+
+
+(2) Normalization Constant. We split the domain again into K and X \K, use the point-wise bound
+inside K and the global bound B on the tail:
+Z
+K
+exp(Φa) dµP ≤exp(δ)
+Z
+K
+exp(Φc) dµP ≤exp(δ) · (µ(K) + ϵ) ≤exp(δ) · (1 + ϵ) .
+Outside of K we obtain
+Z
+X\K
+exp(Φa) dµP ≤exp(B) · µP(X \ K) ≤exp(B)η.
+Adding the two gives an upper bound of Z′ and taking the logarithm results in
+log Za ≤δ + log(1 + ϵ + exp(B −δ)η) ≤δ + ϵ + exp(B)η,
+concluding the proof.
+A.3 CLIP: Contrastive Learning m = 2
+This subsection supplies the approximation results specific to bimodal CLIP: it first treats unnor-
+malized encoders, then transfers the result to normalized encoders with a learnable temperature, and
+finally proves the latent-dimension obstruction stated in Proposition 4.3.
+Proposition A.4 (Stone-Weierstraß) Let X ⊂Rd be a compact set and denote with C(X; R) the
+Banach-algebra of real-valued continuous functions on X with the topology induced by the supremum
+norm.
+Let A ⊂C(X; R) be a sub-algebra that separates points and contains a non-zero constant
+function, then A is dense in C(X; R).
+Proof See (Werner, 2011, Thm. VIII.4.7).
+We can adapt this result to our particular case.
+We start with a general separable composition
+of continuous functions, which we will then extend to the case of separable encoders. We want to
+highlight that the assumption of m = 2 modalities is crucial for this theoretical direction, since with
+m ≥3, e.g. for (Φm-clip-Tilting), the closedness under multiplication in the following construction
+breaks and we cannot apply the Stone-Weierstraß theorem.
+Lemma A.5 (Stone-Weierstraß, Bimodal) For d1, d2 ∈N let X1 ⊂Rd1, X2 ⊂Rd2 be compact
+sets, and let Φ : X1 × X2 →R be continuous. Then for every ϵ > 0, there exist a latent dimension
+dLat ∈N, continuous functions g1,1, . . . , g1,dLat ∈C0(X1; R), and continuous functions g2,1, . . . , g2,dLat ∈
+C0(X2; R), such that
+∥Φ −
+dLat
+X
+k=1
+g1,k · g2,k∥∞< ϵ.
+Proof We define the set
+A2-clip :=
+
+
+
+dLat
+X
+k=1
+g1,k · g2,k
+ dLat ∈N, g1,k ∈C0(X1; R), g2,k ∈C0(X2; R) for k ∈[dLat]
+
+
+
+which is a subalgebra of C0(X1 × X2; R): it is closed under addition, scalar multiplication, and multi-
+plication, and contains the constant functions (take g1,i(x) ≡1, g2,i(y) ≡1).
+To apply the Stone-Weierstraß theorem, we must verify that A separates points of X1 × X2. Let
+(x1, y1), (x2, y2) ∈X1 × X2 with (x1, y1)̸ = (x2, y2). Then either x1̸ = x2 or y1̸ = y2. In the first
+case, there exists g1,1 ∈C0(X1; R) such that g1,1(x1)̸ = g1,1(x2); then the function g1,1(x) · 1 ∈A
+distinguishes the two points. In the second case, a similar argument with a function g2,2 ∈C0(X2; R)
+works.
+28
+
+
+Hence A is a subalgebra of C0(X1 × X2; R) that separates points and contains the constants. By
+the Stone-Weierstraß theorem, A is dense in C0(X1 × X2; R) in the supremum norm. Thus, for any
+ϵ > 0, there exists a function of the form PdLat
+i=1 g1,k · g2,k ∈A such that
+
+Φ −
+dLat
+X
+k=1
+g1,k · g2,k
+
+∞
+< ϵ,
+concluding the proof.
+A.3.1 Proof of Theorem 4.1
+Proof We verify that (Φ2-clip-Tilting) with unnormalized encoders itself satisfies UA Assumption 3.1.
+Let ϵ > 0 fixed and without loss of generality we assume τ = 1 to be fixed, otherwise we approximate
+τ ·Φ, which is also a continuous function. By Lemma A.5 we can pick dLat ∈N and continuous functions
+gi,1, . . . , gi,dLat : Xi →R, i = 1, 2, such that
+∥Φ −
+dLat
+X
+k=1
+g1,k · g2,k∥∞< ϵ
+2.
+Define G := maxi=1,2 maxk=1,...,dLat∥gi,k∥∞< ∞since every gi,k is continuous and X is compact.
+With a target accuracy of δ := min
+n
+1
+dLat·(2G+1) · ϵ
+2, 1
+o
+, we invoke our parametric family using UA
+Assumption 3.1 to obtain parameters (ˆθi,k)i,k ∈Θ and corresponding encoders with
+∥gi,k −gi,k( · ; ˆθi,k)∥∞< δ,
+for i = 1, 2 and k = 1, . . . , dLat. We write ˆgi,k := gi,k( · ; ˆθi,k) for the sake of brevity and obtain via the
+triangle inequality
+∥g1,kg2,k −ˆg1,kˆg2,k∥∞≤∥g1,kg2,k −ˆg1,kg2,k∥∞+ ∥ˆg1,kg2,k −ˆg1,kˆg2,k∥∞
+≤G · δ + (G + δ) · δ ≤(2G + 1) · δ
+since δ ≤1 by construction. For i = 1, 2, we define the (unnormalized) encoders
+gi( · ; θi) : Xi →RdLat; x 7→(gi,1(x, ˆθi,1), . . . gi,dLat(x; ˆθi,dLat))⊤
+with parameters ˆθi := (ˆθi,1, . . . ˆθi,dLat)⊤. By the triangular inequality, we obtain
+∥Φ −⟨g1( · ; ˆθ1), g2( · ; ˆθ2)⟩∥∞
+≤∥Φ −
+dLat
+X
+k=1
+g1,k · g2,k∥∞+ ∥
+dLat
+X
+k=1
+g1,k · g2,k −⟨g1( · ; ˆθ1), g2( · ; ˆθ2)⟩∥∞
+≤ϵ
+2 + dLat · (2G + 1) · δ ≤ϵ
+2 + ϵ
+2 = ϵ,
+verifying UA Assumption 3.1. Invoking Theorem 3.2 and Theorem 3.3, respectively, concludes the
+proof.
+A.3.2 Proof of Theorem 4.2
+Proof
+We verify that (Φ2-clip-Tilting) with normalized encoders itself satisfies UA Assumption 3.1.
+Let ϵ > 0, then by invoking Theorem 4.1 with τ0 = 1, we obtain dLat ∈N, parameters ˆθ ∈Θ and
+corresponding unnormalized encoders gi = (gi,1, . . . , gi,dLat) : Xi →RdLat, i = 1, 2 achieving
+∥Φ −⟨g1( · ; ˆθ1), g2( · ; ˆθ2)⟩∥≤ϵ.
+29
+
+
+We define the constant G and a scaling factor α as
+G := max
+i=1,2
+max
+k=1,...,dLat∥gi,k∥∞,
+α :=
+1
+2
+p
+dLatG + 1
+> 0,
+which guarantee α2 PdLat
+k=1 g2
+i,k(xi) ≤α2dLatG2 ≤1
+4 for both encoders i = 1, 2. We construct normalized
+encoders ¯gi : Xi →SdLat+1 by embedding into orthogonal padding dimensions
+¯g1(x1; ˆθ1) := (α2g1,1(x1), . . . , α2g1,dLat(x1),
+v
+u
+u
+t1 −α2
+dLat
+X
+k=1
+g1,k(x1), 0)
+¯g2(x2; ˆθ2) := (α2g2,1(x2), . . . , α2g2,dLat(x2), 0,
+v
+u
+u
+t1 −α2
+dLat
+X
+k=1
+g2,k(x2)),
+which are normalized in the ∥· ∥2-sense by construction. Note that the choice of α ensures the well-
+definedness of the square root in the last term. Their inner product is given by
+⟨¯g(x1; ˆθ1), ¯g(x2; ˆθ2)⟩= α2 · ⟨g1(x1; ˆθ1), g2(x2; ˆθ2)⟩,
+since the padding dimensions are orthogonal and thus do not contribute to the inner product. By
+setting the (learnable) temperature τ := α2τ0 > 0, we perfectly recover
+⟨¯g(x1; ˆθ1), ¯g(x2; ˆθ2)⟩/τ = ⟨g1(x1; ˆθ1), g2(x2; ˆθ2)⟩,
+and thus exactly mimic the unnormalized approximation guarantee. As in the proof of Theorem 5.2,
+the claim now follows by invoking Theorem 3.2 or Theorem 3.3, respectively.
+A.3.3 Proof of Proposition 4.3
+Proof
+We first derive an obstruction to low-rank approximation of the tilting function and turn it
+into a KL lower bound that is uniform over all temperatures τ > 0.
+Let X1 = X2 = [−1, 1] and µ1 = µ2 = U([−1, 1]). Thus µP = µ1 ⊗µ2. Consider the similarity score
+Φ0(x1, x2) := cos
+ π(x1 −x2)
+
++ cos
+ 2π(x1 −x2)
+
+.
+The normalization constant
+Z :=
+Z 1
+−1
+exp
+ Φ0(x1, x2)
+
+µ2(dx2)
+is independent of x1 by periodicity. Consequently, the probability measure µ defined by
+dµ
+dµP
+(x1, x2) = r(x1, x2) := 1
+Z exp
+ Φ0(x1, x2)
+
+has marginals µ1 and µ2. In the notation of (Φa-Tilting), its tilting function is Φ = log r = Φ0 −log Z.
+Since |Φ0| ≤2, we have
+exp(−2) ≤Z ≤exp(2)
+and
+exp(−4) ≤r ≤exp(4).
+Expanding the trigonometric differences gives the dictionary representation
+Φ0(x1, x2) = cos(πx1) cos(πx2) + sin(πx1) sin(πx2)
++ cos(2πx1) cos(2πx2) + sin(2πx1) sin(2πx2).
+(Φ0-Tilting)
+The four functions appearing in each variable are mutually orthogonal in L2([−1, 1], U([−1, 1])) and
+have squared norm 1/2. Since Φ0 ∈L2([−1, 1]2, µP), it defines, by (Werner, 2011, Thm. VI.6.3), a
+compact Hilbert–Schmidt operator KΦ0 : L2([−1, 1], µ2) →L2([−1, 1], µ1) via
+(KΦ0f)(x1) :=
+Z 1
+−1
+Φ0(x1, x2)f(x2) µ2(dx2).
+30
+
+
+Under this isometric identification (Werner, 2011, Thm. VI.6.3), if Kh denotes the integral operator
+with kernel h, then
+∥Kh∥HS = ∥h∥L2(µP),
+and the finite separable rank of h agrees with the operator rank of Kh.
+The representation in
+(Φ0-Tilting) shows that KΦ0 is self-adjoint and positive semidefinite, has rank four, and has four
+non-zero singular values equal to 1/2. Let
+E := span{cos(π · ), sin(π · ), cos(2π · ), sin(2π · )},
+and let PE denote the orthogonal projection onto E. Then KΦ0 = PEKΦ0PE. For every Hilbert–Schmidt
+operator T with rk(T) ≤d,
+rk(PETPE) ≤d,
+∥KΦ0 −PETPE∥HS = ∥PE(KΦ0 −T)PE∥HS ≤∥KΦ0 −T∥HS.
+Hence the optimization may be restricted to operators on E. With respect to the orthonormalized
+Fourier basis, KΦ0|E corresponds to the matrix 1/2I4, and the Hilbert–Schmidt norm becomes the
+Frobenius norm.
+The finite-dimensional Eckart–Young–Mirsky theorem (Eckart and Young, 1936)
+therefore gives
+inf
+rk(h)≤d∥Φ0 −h∥2
+L2(µP) =
+inf
+rk(T )≤d∥KΦ0 −T∥2
+HS
+=
+inf
+rk(B)≤d∥1/2I4 −B∥2
+F = 4 −d
+4
+> 0,
+for d ∈{1, 2, 3}. For a normalized CLIP model with dLat = d, the score factorizes as
+Φ2-clip(x1, x2) = 1
+τ
+d
+X
+k=1
+¯g1,k(x1)¯g2,k(x2),
+and hence has rank at most d. This rank bound is unaffected by the value of τ: multiplication by
+1/τ changes the singular values but not their number. Next, we translate this rank obstruction into a
+measure-level bound via a localized version of the same finite-dimensional argument. Define
+zk := −4
+5 + 2k
+5 ,
+k = 0, . . . , 4,
+ϵ := 1
+8,
+ρ :=
+1
+48π ,
+and let Ik := [zk −ρ, zk + ρ]. These constants are chosen so that the intervals Ik are pairwise disjoint
+and 2ϵ + 12πρ =
+1
+2 <
+5
+8, which ensures 4(2ϵ + 12πρ) < 5/2, as required for the Frobenius-norm
+contradiction below. At the grid points,
+log r(zi, zj) −log r(zi, z0) = 5
+2 1[i = j],
+i, j ∈{1, . . . , 4}.
+The subtraction of the reference column z0 cancels the normalizing constant in log r. Now let d ∈
+{1, 2, 3} be the latent dimension, and take arbitrary xi ∈Ii, yj ∈Ij, i, j ∈{1, . . . , 4}, and y0 ∈I0.
+The matrix
+A :=
+
+log r2-clip(xi, yj) −log r2-clip(xi, y0)
+4
+i,j=1
+has entries
+Aij = 1
+τ
+d
+X
+k=1
+¯g1,k(xi) (¯g2,k(yj) −¯g2,k(y0)) .
+Thus A has rank at most d, independently of τ. On the grid, the target matrix is M0 = (5/2)I4. Since
+all four singular values equal 5/2, the Eckart–Young–Mirsky (Eckart and Young, 1936) theorem gives
+inf
+rk(B)≤d∥M0 −B∥F = 5
+2
+√
+4 −d ≥5
+2.
+31
+
+
+On the other hand, if |log r2-clip −log r| < ϵ at all the points involved, then inserting the corresponding
+target log-densities into each column difference gives
+|Aij −(M0)ij| ≤|log r2-clip(xi, yj) −log r(xi, yj)|
++ |log r2-clip(xi, y0) −log r(xi, y0)|
++ |log r(xi, yj) −log r(zi, zj)|
++ |log r(xi, y0) −log r(zi, z0)|.
+The first two terms are smaller than ϵ. For the last two terms, the constant −log Z cancels and
+∂x1Φ0(x1, x2) = −π sin
+ π(x1 −x2)
+
+−2π sin
+ 2π(x1 −x2)
+
+,
+∂x2Φ0(x1, x2) = −∂x1Φ0(x1, x2).
+Thus both partial derivatives have absolute value at most 3π. Hence log r is 3π-Lipschitz with respect
+to the ℓ1 distance, and, since all arguments lie within ρ of their grid points,
+|log r(xi, yj) −log r(zi, zj)| ≤3π
+ |xi −zi| + |yj −zj|
+
+≤6πρ,
+|log r(xi, y0) −log r(zi, z0)| ≤3π
+ |xi −zi| + |y0 −z0|
+
+≤6πρ.
+Combining the four estimates yields, entrywise,
+|Aij −(M0)ij| < 2ϵ + 12πρ = 1
+2.
+Consequently, ∥A−M0∥F < 4/2 = 2, contradicting the preceding Eckart–Young–Mirsky bound. Thus,
+for every choice of the points, at least one of the log-density errors involved is at least ϵ. To turn this
+pointwise alternative into a measure bound, let
+D :=
+
+(x1, x2) ∈[−1, 1]2 | |log r2-clip(x1, x2) −log r(x1, x2)| ≥ϵ
+	
+.
+Equivalently, for every such choice of the points, at least one has to belong to D, thus
+1 ≤
+4
+X
+i,j=1
+1D(xi, yj) +
+4
+X
+i=1
+1D(xi, y0).
+Now draw all these variables independently, with xi distributed as µ1( · | Ii), yj as µ2( · | Ij), and y0
+as µ2( · | I0). Each interval has marginal measure ρ, and therefore, for example,
+E[1D(xi, yj)] =
+Z
+Ii
+Z
+Ij
+1D(x, y)µ2(dy)
+µ2(Ij)
+µ1(dx)
+µ1(Ii) = 1
+ρ2
+Z
+Ii
+Z
+Ij
+1D(x, y) µ2(dy)µ1(dx) = µP(D ∩(Ii × Ij))
+ρ2
+.
+Taking expectations in the pointwise indicator inequality gives
+1 ≤1
+ρ2
+
+
+4
+X
+i,j=1
+µP(D ∩(Ii × Ij)) +
+4
+X
+i=1
+µP(D ∩(Ii × I0))
+
+≤µP(D)
+ρ2
+,
+where the last inequality uses the disjointness of the rectangles. Hence µP(D) ≥ρ2.
+On D, the density ratio lies outside (exp(−ϵ), exp(ϵ)), and hence |r2-clip/r −1| ≥1−exp(−ϵ). Since
+r ≥exp(−4), it follows that
+∥r −r2-clip∥L1(µP) ≥exp(−4)(1 −exp(−ϵ))ρ2.
+Pinsker’s inequality now gives the following lower bound, uniformly over all temperatures, parameter
+dimensions, and encoder parameterizations:
+DKL
+ µ
+ µ2-clip( · ; θ)
+
+≥κ := exp(−8)
+2
+
+1 −exp
+
+−1
+8
+2  1
+48π
+4
+> 0,
+dLat = d ∈{1, 2, 3}.
+32
+
+
+The latent-dimension threshold is sharp for the normalized CLIP family. Define identical normal-
+ized encoders ¯gi : [−1, 1] →S3, i = 1, 2, by
+¯gi(xi) :=
+1
+√
+2
+ cos(πxi), sin(πxi), cos(2πxi), sin(2πxi)
+⊤.
+Then ∥¯gi(xi)∥2 = 1 and, with τ = 1/2,
+⟨¯g1(x1), ¯g2(x2)⟩
+τ
+= Φ0(x1, x2).
+Thus a four-dimensional Fourier dictionary represents µ exactly, even though each modality is one-
+dimensional.
+A.4 Contrastive Learning m > 2
+This subsection proves Theorem 5.1, showing that the standard pairwise extension of CLIP cannot
+universally approximate the joint. We then develop a consistent exponential-family representative that
+preserves all pairwise conditionals for use in the next subsection.
+A.4.1 Proof of Theorem 5.1
+Proof Consider X = [−1, 1]m equipped with the reference measure µP = U([−1, 1])⊗m and define the
+measure µ through
+dµ
+dµP
+(x) = r(x) := 1
+2(x1x2x3 + 2).
+Since r ∈
+ 1
+2, 3
+2
+
+on X and EµP[x1x2x3] = 0, r is a valid probability density. Moreover, the tilting
+function Φ = log r is continuous and bounded.
+Step 1: Pairwise marginals coincide with the product. Integrating r with respect to any one of the
+first three variables eliminates the three-way interaction. It follows that all univariate and pairwise
+marginals of µ coincide with those of µP, verifying that the reference measure is indeed the product of
+the marginals of µ. Consequently, µj3 = µj ⊗µ3 for every j̸ = 3, and µ−3 = µP,−3 = N
+j̸=3 µj.
+Step 2: Conditional density of the pairwise model. Fix arbitrary dLat, p ∈N, a parameter space
+Θ ⊆Rp and associated normalized encoder parameterization, θ ∈Θ, and τ > 0. For j̸ = 3, define the
+pairwise tilting terms involving modality 3 by
+fj3(xj, x3; θ) := ⟨¯gj(xj; θj), ¯g3(x3; θ3)⟩/τ,
+and let
+G(x−3, x3; θ) :=
+X
+j̸=3
+fj3(xj, x3; θ).
+All terms in (Φm-clip-Tilting) that do not involve x3 cancel upon conditioning on x−3. Hence
+dµm-clip
+x3|x−3( · ; θ)
+dµ3
+(x3|x−3) = exp(G(x−3, x3; θ))
+Z(x−3; θ)
+,
+where
+Z(x−3; θ) :=
+Z 1
+−1
+exp(G(x−3, t; θ)) µ3(dt).
+Step 3: Reduction to a KL against the uniform measure. By the pairwise marginal identities from
+Step 1, we obtain
+Ex∼µ[G(x−3, x3; θ)] =
+X
+j̸=3
+E(xj,x3)∼µj⊗µ3[fj3(xj, x3; θ)] = Ex∼µP[G(x−3, x3; θ)] ,
+33
+
+
+and expanding the conditional KL divergences using this identity and µ−3 = µP,−3 yields
+Ex−3∼µ−3
+h
+DKL
+
+µx3|x−3
+ µm-clip
+x3|x−3( · ; θ)
+i
+= Ex−3∼µ−3
+
+DKL
+ µx3|x−3
+ µ3
+
++ Ex−3∼µ−3
+h
+DKL
+
+µ3
+ µm-clip
+x3|x−3( · ; θ)
+i
+≥Ex−3∼µ−3
+
+DKL
+ µx3|x−3
+ µ3
+
+.
+The key step of this proof, is that now the right-hand side no longer depends on θ or any other model
+choice, so it remains only to lower-bound a quantity determined by µ.
+Step 4: Pinsker’s inequality. For fixed x−3, set a(x−3) := x1x2. The true conditional and the
+marginal µ3 have Lebesgue densities (a(x−3)x3 + 2)/4 and 1/2, respectively.
+A direct calculation
+therefore yields
+DTV
+ µx3|x−3
+ µ3
+
+= 1
+2
+Z 1
+−1
+
+a(x−3)x3 + 2
+4
+−1
+2
+ dx3 = |a(x−3)|
+8
+,
+so Pinsker’s inequality gives
+DKL
+ µx3|x−3
+ µ3
+
+≥2DTV
+ µx3|x−3
+ µ3
+2 = a(x−3)2
+32
+.
+Here a(x−3) = x1x2 is determined by the conditioning variables rather than chosen. Since x1 and x2
+are independent and uniformly distributed on [−1, 1], taking expectations and using Step 3 gives
+Ex−3∼µ−3
+h
+DKL
+
+µx3|x−3
+ µm-clip
+x3|x−3( · ; θ)
+i
+≥1
+32E
+
+x2
+1
+
+· E
+
+x2
+2
+
+= 1
+32 · 1
+9 =
+1
+288.
+Since all model choices above were arbitrary, this bound is uniform over latent dimensions, param-
+eter dimensions, encoder parameterizations, parameters, and temperatures. Moreover, Theorem 2.5
+(applied to i = 3) yields
+DKL
+ µ
+ µm-clip( · ; θ)
+
+≥
+1
+288 > 0.
+Thus, the choice κ := 1/288 proves the claim.
+A.4.2 Consistent L1 Representatives for Pairwise Conditionals
+Lemma A.6 Let X ⊂Rd, not necessarily compact. Assume the data generating measure µ has a
+tilting r : X →[0, ∞] with respect to µP satisfying Φ = log r ∈L1(X, µ).
+Then there exists a measure µ⋆∈P(X) with a tilting of the form
+dµ⋆
+dµP
+(x) = exp
+
+
+X
+1≤i<j≤m
+Φ⋆
+ij(xi, xj) −log(Z⋆)
+
+
+(µ⋆-Tilting)
+for measurable functions Φ⋆
+ij : Xi × Xj →R, with Φij ∈L1(X, µij), for (i, j) ∈[m]2, i̸ = j and a
+normalization constant Z⋆> 0, such that for all pairwise marginals
+µ⋆
+ij = µij
+holds. Consequently, by the chain rule of the KL divergence, the pairwise conditionals
+Exj∼µj
+h
+DKL
+
+µxi|xj
+ µ⋆
+xi|xj
+i
+= 0
+are perfectly matched.
+34
+
+
+Proof
+The main technically challenge is to find a consistent representative, i.e. formally we are
+interested in finding a solution to the following (constrained) projection problem
+min
+ν∈Cµ DKL(ν ∥µP) , s.t. Cµ := {ν ∈P(X) | νij = µij for all i < j},
+(Marg-Proj)
+where the constraint set contains all probability measures matching the pairwise marginals of the data
+generating measure µ. This set Cµ is non-empty, since µ ∈Cµ, and, since we assume log r ∈L1(X, µ), it
+contains with the measure µ itself an element in Cµ ∩{DKL( · ∥µP) < ∞}. Additionally, the constraint
+is linear, making Cµ convex. Moreover, Cµ is variation-closed with respect to the total variation (TV).
+I.e. for a sequence (νn)n∈N ⊂Cµ with νn →ν in TV, it holds ν ∈Cµ, since marginalization is a
+contraction in TV.
+Theorem 2.1 in Csiszar (1975) implies that there exists a (unique) solution µ⋆for (Marg-Proj).
+By the extension of Corollary 3.1 in Csiszar (1975) to prescribed marginals on product spaces (cf.
+(Csiszar, 1975, p. 151) and see Cor. 3.2 for the bi-modal case), µ⋆has a density with respect to µP of
+the form
+dµ⋆
+dµP
+(x) = exp
+
+
+X
+1≤i<j≤m
+Φ⋆
+ij(xi, xj) −log(Z⋆)
+
+,
+where Φ⋆
+ij : Xi × Xj →R are µij-measurable, Φ⋆
+ij ∈L1(Xi × Xj, µij), and a constant Z⋆> 0; i.e.
+(µ⋆-Tilting) holds. This composition holds up to a set N ⊂X which satisfies ν(N) = 0 for every
+ν ∈Cµ ∩{DKL( · ∥µ) < ∞}, in particular we have µ(N) = 0, which is important for the next step when
+we apply the KL divergence chain rule.1
+Since the measure µ⋆has full support by construction except for a set N which fulfills µ(N) = 0,
+we have µ ≪µ⋆. Applying the chain rule for the KL divergence (Cover and Thomas, 2005, Thm.
+2.5.3) yields
+DKL
+ µij
+ µ⋆
+ij
+
+= DKL
+ µj
+ µ⋆
+j
+
++ Exj∼µj
+h
+DKL
+
+µxi|xj
+ µ⋆
+xi|xj
+i
+and rearranging leads to
+Exj∼µj
+h
+DKL
+
+µxi|xj
+ µ⋆
+xi|xj
+i
+= DKL
+ µij
+ µ⋆
+ij
+
+−DKL
+ µj
+ µ⋆
+j
+
+≤DKL
+ µij
+ µ⋆
+ij
+
+= 0.
+In total, the measure µ⋆is an instance of the exponential family, which we can approximate with our
+CLIP architecture, and perfectly interpolates all pairwise conditionals of the original measure µ.
+A.5 Proof of Theorem 5.2
+This subsection combines the consistent pairwise representative, the bimodal CLIP approximation
+result, and a block-orthogonal normalized-encoder construction to prove simultaneous universal ap-
+proximation of all pairwise conditionals.
+Proof Our proof consists of three steps: First, we use Lemma A.6 to get a proxy target µ⋆for our
+approximation guarantee. Second, µ⋆has density with a separable structure for which we can apply
+our results of the bi-modal CLIP individually and third, we translate these pairwise approximation
+guarantees using Proposition A.2 and Theorem 2.6 into a guarantee for the pairwise conditionals,
+since µ⋆perfectly matches the pairwise conditionals of our target measure µ. Define the accuracy
+ϵ′ := ϵ/(2 ·
+ m
+2
+
+).
+(1) Consistent Representative as Proxy. Using (µ⋆-Tilting) of Lemma A.6 yields a tilting function
+of the form P
+i<j Φ⋆
+ij(xi, xj), for Φ⋆
+ij measurable and Φ⋆
+ij ∈L1(Xi×Xj; µij). For each pair (i, j) ∈[m]2,
+i < j, invoking Lemma A.1 on the marginal of µ⋆
+ij yields continuous representatives Φc
+ij : Xi × Xj →R
+such that
+∥Φ⋆
+ij −Φc
+ij∥L1(Xi×Xj;µij) < ϵ′
+and
+Z
+Xi×Xj
+exp(Φc
+ij) dµP,ij ≤1 + ϵ′.
+1. Note that technically Corollary 3.1 in Csiszar (1975) yields a decomposition of the form dµ⋆
+dµP = Q
+1≤i<j≤m r⋆
+ij(xi, xj),
+where each term (i, j) ∈[m]2, i < j, satisfies log r⋆
+ij ∈L1(Xi × Xj, µij), via log-exp transformation Φ⋆
+ij := log r⋆
+ij.
+35
+
+
+(2) Block-orthogonal Encoder Construction. For every pair (i, j) ∈[m]2, i < j, by Theorem 4.1
+applied to the bi-modal problem of approximating Φc
+ij, we can find a latent dimension dij ∈N and
+continuous (unnormalized) encoders g(ij)
+i
+, g(ij)
+j
+: Xi, Xj →Sdij−1 with
+∥Φc
+ij −⟨g(ij)
+i
+, g(ij)
+j
+⟩∥∞,Xi×Xj < ϵ′,
+which we will use to construct a consistent, block-orthogonal encoder structure. We have
+ m
+2
+
+pairs
+of encoders, which we order as (1, 2), (1, 3), . . . , (1, m), (2, 3), . . . , (m −1, m).
+Define dLat := m +
+P
+1≤i<j≤m dij and we interpret the latent space
+RdLat ∼= Rd12 ⊕Rd13 ⊕· · · ⊕Rdm−1,m ⊕Rm
+as a concatenation of blocks Bij, i < j, with an additional padding block of size m.
+To ensure
+normalized encoders, we construct, similar to the proof of Theorem 4.2, a rescaling and padding of the
+form
+G := max
+i<j max{∥g(ij)
+i
+∥∞,Xi, ∥g(ij)
+j
+∥∞,Xj},
+d := max
+i<j dij,
+α :=
+1
+2
+p
+(m −1) · d · G2 + 1
+,
+and we define the normalization
+pi(xi) :=
+s
+1 −α2 X
+j̸=i
+∥g(ij)
+i
+(xi)∥2
+2,
+where the choice of α ensures that pi ≥
+√
+3/2 > 0. We formally define the (normalized) block-encoders
+as
+¯gi(xi; ˆθi) := α ·
+h
+δi∈{k,l} · g(kl)
+i
+(xi; ˆθ(kl)
+i
+)
+i
+1≤k<l≤m
+
+⊕pi(xi) · ei ∈RdLat,
+where δi∈{k,l} := 1 [i ∈{k, l}], ei ∈Rm is the standard i-th basis vector and we collect all pair-specific
+parameters involving the modality i into ˆθi :=
+ ˆθ(ij)
+i
+
+j>i ⊕
+ ˆθ(ji)
+i
+
+j<i. Intuitively and by omitting the
+parameters for brevity, one can illustrate this construction in matrix form as
+
+
+
+
+
+
+
+g1
+g2
+g3
+...
+gm
+
+
+
+
+
+
+
+=
+
+
+
+
+
+
+
+
+g(12)
+1
+g(13)
+1
+. . .
+g(1m)
+1
+0
+0
+. . .
+0
+. . .
+g(12)
+2
+0
+. . .
+0
+g(23)
+2
+g(24)
+2
+. . .
+g(2,m)
+2
+. . .
+0
+g(13)
+3
+0
+. . .
+0
+g(2,3)
+3
+0
+. . .
+0
+. . .
+...
+0
+. . .
+0
+g(1m)
+m
+0
+. . .
+0
+g(2,m)
+m
+. . .
+
+
+
+
+
+
+
+
+which ensures that the inner product of the block encoders exactly mimics the interactions of the
+pairwise encoders we constructed. We define the shared temperature τ := α2 > 0, and the construction
+of ¯gi ensures ∥¯gi(xi; ˆθi)∥2 = 1 and by the block-wise structure we obtain
+1
+τ ⟨¯gi(xi; ˆθi), ¯gj(xj; ˆθj)⟩
+= α2
+τ
+X
+1≤k<l≤m
+1 [i ∈{k, l}] · 1 [j ∈{k, l}] · ⟨g(kl)
+i
+(xi; ˆθ(kl)
+i
+), ¯g(kl)
+j
+(xj; ˆθ(kl)
+j
+)⟩+ 1
+τ pi(xi)pj(xj)δij
+= ⟨g(ij)
+i
+(xi; ˆθ(ij)
+i
+), g(ij)
+j
+(xj; ˆθ(ij)
+j
+)⟩,
+since the product of the two indicator functions is 1 [{i, j} ⊆{k, l}], which for i̸ = j forces {k, l} =
+{i, j}, we recover exactly the unnormalized encoder inner product. By stacking all parameters together
+as ˆθ := (ˆθ⊤
+1 , . . . ˆθ⊤
+m)⊤, the total approximation guarantee of the tilting functions Φc
+ij is given by
+
+X
+1≤i<j≤m
+Φc
+ij −
+X
+1≤i<j≤m
+⟨¯gi( · ; ˆθi), ¯gj( · ; ˆθj)⟩
+τ
+
+∞,X
+≤
+X
+1≤i<j≤m
+Φc
+ij −⟨¯gi( · ; ˆθi), ¯gj( · ; ˆθj)⟩
+τ
+
+∞,Xi×Xj
+<
+m
+2
+
+· ϵ′
+36
+
+
+and Proposition A.2 yields that
+DKL
+
+µ⋆ µm-clip( · ; ˆθ)
+
+≤
+m
+2
+
+(ϵ′ + ϵ′) = ϵ,
+i.e. µm-clip( · ; ˆθ) universally approximates (the joint distribution of) the proxy target µ⋆.
+(3) Translation to Pairwise Conditionals Approximation. By Lemma A.6, it holds µ⋆
+ij = µij as
+measures on Xi × Xj and by integrating over xi, we obtain µ⋆
+j = µj as a measure on Xj. By the
+disintegration theorem, we obtain
+µ⋆
+xi|xj( · |xj) = µxi|xj( · |xj)
+for µj-almost all xj, as probability measures on Xi. Since µm-clip( · ; ˆθ) has a strictly positive density,
+µ⋆≪µm-clip( · ; ˆθ) holds. Invoking Theorem 2.6 yields
+Exj∼µj
+h
+DKL
+
+µxi|xj
+ µm-clip
+xi|xj ( · ; ˆθ)
+i
+= Exj∼µ⋆
+j
+h
+DKL
+
+µ⋆
+xi|xj
+ µm-clip
+xi|xj ( · ; ˆθ)
+i
+≤DKL
+
+µ⋆ µm-clip( · ; ˆθ)
+
+≤ϵ
+for all pairs i < j, concluding the proof.
+A.6 Proof of Theorem 5.3
+This, final, subsection proves universal approximation for Hadamard-CLIP by establishing density
+of fully separable products through Stone–Weierstrass, approximating their factors with the encoder
+families, and then enforcing encoder normalization through rescaling and orthogonal padding.
+Proof We structure this proof into three steps: first, we show a density-type result of a more generic
+sub-algebra using the Stone-Weierstraß theorem. Second, we prove that we can approximate this sub-
+algebra using our parametric family and third, we extend this approximation to normalized encoders.
+(1) Sub-algebra Argument. To use the Stone Weierstraß argument in Proposition A.4, we define
+the set
+AHad :=
+( K
+X
+k=1
+ωk
+m
+Y
+i=1
+φi,k(xi)
+ K ∈N, φi,k ∈C0(Xi; R), i = 1, . . . , m; k = 1, . . . , K; ω ∈RK
+)
+and show that AHad is a subalgebra, contains constants and separates points. Closedness under mul-
+tiplication with scalar and addition is clear. For two elements h, h′ ∈AHad of the form
+h =
+K
+X
+k=1
+ωk
+m
+Y
+i=1
+φi,k,
+h′ =
+L
+X
+l=1
+ω′
+l
+m
+Y
+i=1
+ψi,l
+their product is
+h · h′ =
+K
+X
+k=1
+L
+X
+l=1
+ωkω′
+l
+m
+Y
+i=1
+φi,k ·
+m
+Y
+i=1
+ψi,l =
+K
+X
+k=1
+L
+X
+l=1
+(ωk · ω′
+l)
+|
+{z
+}
+=:˜ωkl
+m
+Y
+i=1
+φi,k · ψi,l
+|
+{z
+}
+=:χi,(k,l)∈C0(Xi)
+which is a sum of K · L fully separable monomials. Since products of continuous functions are con-
+tinuous, we have that each χi,(k,l) ∈C0(Xi; R), so in total h · h′ ∈AHad. Since AHad trivially contains
+a non-zero constant function and separates points, with Proposition A.4 the set AHad is dense in
+C0(X; R).
+(2) Approximation Guarantee. For an arbitrary ϵ > 0 and a continuous function Φ ∈C0(X; R), we
+can pick K ∈N, a weight vector ω ∈RK and continuous functions φi,k, i = 1, . . . , m, k = 1, . . . , K
+such that
+Φ −
+K
+X
+k=1
+ωk
+m
+Y
+i=1
+φi,k
+
+∞,X
+< ϵ
+2.
+37
+
+
+With constants F := maxi,k∥φi,k∥∞,X , W := ∥ω∥∞,X , δ := min{1,
+ϵ
+2K·W ·m(F +1)m−1 } and by using UA
+Assumption 3.1, we can find parameters ˆθi,k and corresponding (unnormalized) encoders with
+∥φi,k −gi,k( · ; ˆθi,k)∥∞,X < δ.
+For a single monomial k ∈[K], we can use a telescoping product trick to obtain
+
+m
+Y
+i=1
+φi,k(xi) −
+m
+Y
+i=1
+gi,k(xi; ˆθi,k)
+
+=
+
+m
+X
+j=1
+
+Y
+i<j
+gi,k(xi; ˆθi,k)
+
+
+
+φj,k(xi) −gi,k(xi; ˆθi,k)
+
+
+Y
+i>j
+φi,k(xi)
+
+
+
+≤
+m
+X
+j=1
+(F + δ)j−1 · δ · F m−j ≤m(F + δ)m−1 · δ
+for every xi ∈Xi. Summing over all K monomials with weights ω yields
+
+K
+X
+k=1
+ωk
+m
+Y
+i=1
+φi,k(xi) −
+K
+X
+k=1
+ωk
+m
+Y
+i=1
+gi,k(xi; ˆθi,k)
+ ≤K · W · m(F + δ)m−1 · δ < ϵ
+2,
+which shows ϵ-closeness in the supremum norm via the triangle inequality.
+(3) Normalized Encoders. We can apply the same rescaling trick combined with orthogonal padding,
+i.e. define
+α :=
+1
+2
+√
+K(F + δ) + 1
+> 0
+which guarantees that α2 PK
+k=1 φ2
+i,k(xi) ≤αK(F +δ)2 < 1
+4 for all xi ∈Xi and all i = 1, . . . , m. In this
+case, we need an orthogonal padding of m, i.e. with dLat := K + m and define
+¯gi(xi; ˆθi) :=
+
+αgi,1(xi; ˆθi,1), . . . , αgi,K(xi; ˆθi,K), (δji)j∈[m] ·
+v
+u
+u
+t1 −α2
+K
+X
+k=1
+g2
+i,k(xi; ˆθi,k)
+
+
+⊤
+∈RdLat,
+where (δij)j∈[m] is the Kronecker delta vector of dimension m with an entry of value one at position i
+and ˆθi := (ˆθ⊤
+i,1, . . . , ˆθ⊤
+i,K)⊤is vector with the concatenated parameters. By construction ∥¯gi(xi; ˆθi)∥2 =
+1 and for the hadamard product of the normalized encoders we have for k ≤K
+m
+Y
+i=1
+(¯gi(xi, ˆθi))k = αm
+m
+Y
+i=1
+gi,k(xi; ˆθi,k),
+and for k > K at least one factor of the padding coordinates is zero so the entire product vanishes.
+Under slight abuse of notation, we can absorb the weight via
+ωk :=
+(
+α−mωk,
+for k ≤K
+0,
+for k > K ,
+which exactly recovers the unnormalized approximation. The final approximation result of measures
+is a consequence of invoking Theorem 3.2 or Theorem 3.3, respectively, concluding the proof.
+38

@@ -6,77 +6,77 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-21
-- 运行时间：2026-08-21 20:09:42 UTC
+- 最新运行日期：2026-08-22
+- 运行时间：2026-08-22 19:34:41 UTC
 - 运行状态：成功
 - 本次总论文数：19
 - 精读区：7
 - 速读区：12
 
 ### 今日简报（AI）
-今日聚焦LLM量化与视频推理，精读两篇9分论文，并覆盖GPU共享、多语言模型与长上下文压缩等方向。最值得关注的是SchurQuant的层间量化离散优化，以及Beyond Visual CoT的主动视频推理。建议普通读者优先从这两篇精读入手，理解量化效率与视频推理的前沿进展。
-- 详情：[/202608/21/README](/202608/21/README)
+今日精读7篇、速读12篇，聚焦知识图谱推理与AI生成图像检测两大方向。最值得关注的是《Structure-Internalized Rule Language Model》提出的规则内化推理方法（9.0分），以及《UC-VLM》用于AI图像检测的视觉语言一致性学习（8.0分）。下一步可延伸关注多模态对比学习与动态场景4D理解相关研究。
+- 详情：[/202608/22/README](/202608/22/README)
 
 ### 精读区论文标签
-1. [SchurQuant: Groupwise Discrete Optimization for Layer-Wise LLM Quantization](/202608/21/2608.15567v1-schurquant-groupwise-discrete-optimization-for-layer-wise-llm-quantization)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：直接提出大模型权重的训练后量化（PTQ）优化方法，属于典型后训练技术。
-2. [Beyond Visual CoT: Internalized Visual Thinking for Proactive Video Reasoning](/202608/21/2608.15869v1-beyond-visual-cot-internalized-visual-thinking-for-proactive-video-reasoning)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：面向视觉语言模型的视频推理后训练框架，将视觉思考内化至训练阶段
-3. [Scaffolding Minds: Optimizing Latent Visual Target Representations for Multimodal Reasoning](/202608/21/2608.19669v1-scaffolding-minds-optimizing-latent-visual-target-representations-for-multimodal-reasoning)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：面向多模态推理的潜视觉表征SFT与RL训练
-4. [SABET-QA: Temporal Knowledge Graph Question Answering](/202608/21/2608.20083v1-sabet-qa-temporal-knowledge-graph-question-answering)  
+1. [Structure-Internalized Rule Language Model for Faithful Knowledge Graph Reasoning](/202608/22/2608.17443v1-structure-internalized-rule-language-model-for-faithful-knowledge-graph-reasoning)  
    标签：评分：9.0/10、query:mr
-   evidence：针对时序知识图谱上的多步查询，通过多轮迭代多跳精化进行推理，直接对应多跳推理需求。
-5. [Inject, Align, Recover: Staged Post-Training for Retrieval-Free Document Knowledge Internalization](/202608/21/2608.20281v1-inject-align-recover-staged-post-training-for-retrieval-free-document-knowledge-internalization)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：面向大语言模型的后训练分阶段方案，与后训练技术需求高度契合
-6. [MidTool: Mid-training Data Synthesis for Agentic Tool Use](/202608/21/2608.20314v1-midtool-mid-training-data-synthesis-for-agentic-tool-use)  
-   标签：评分：9.0/10、query:post-multi
-   evidence：面向大模型中期后训练的数据合成，增强智能体工具使用能力。
-7. [MODAL: Multi-Modal Object Re-ID via Model-Driven Sparse Decoupling and Text-Image Differential Filtering](/202608/21/2608.15096v1-modal-multi-modal-object-re-id-via-model-driven-sparse-decoupling-and-text-image-differential-filtering)  
+   evidence：基于知识图谱的语言模型推理，支持忠实的多跳推断
+2. [UC-VLM: Consistency-Driven Learning for AI-Generated Image Detection with Vision-Language Large Models](/202608/22/2608.15238v1-uc-vlm-consistency-driven-learning-for-ai-generated-image-detection-with-vision-language-large-models)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：面向视觉语言大模型的一致性驱动多阶段训练框架
+3. [GRIP: Grounded Reasoning via Information-Restricted Premises](/202608/22/2608.16776v2-grip-grounded-reasoning-via-information-restricted-premises)  
    标签：评分：8.0/10、query:mr
-   evidence：多模态目标重识别中的跨模态检索与文本-图像差分过滤
+   evidence：通过对检索证据施加信息瓶颈来改善检索增强生成
+4. [SE-MoLoRA: Shared-Expert LoRA Adapters for Domain-Specific Photographic Assessment](/202608/22/2608.17514v1-se-molora-shared-expert-lora-adapters-for-domain-specific-photographic-assessment)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：面向特定领域评估的视觉-语言模型参数高效适配
+5. [Role-Conditioned Sub-Token Routing for Efficient Vision-Language-Action Policies](/202608/22/2608.18410v1-role-conditioned-sub-token-routing-for-efficient-vision-language-action-policies)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：基于角色条件的子标记路由实现高效视觉-语言-动作策略
+6. [Which Negatives Matter? Ask Your Text Encoder: Adaptive Similarity Margins for Dense-Caption Retrieval](/202608/22/2608.18521v2-which-negatives-matter-ask-your-text-encoder-adaptive-similarity-margins-for-dense-caption-retrieval)  
+   标签：评分：8.0/10、query:mr
+   evidence：用于密集字幕跨模态检索的自适应相似度边界
+7. [Projector Is All You Train](/202608/22/2608.19726v1-projector-is-all-you-train)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：仅训练投影器的高效多模态大语言模型训练方法
 
 ### 速读区论文标签
-1. [Rollplex: Cross-Phase GPU Spatial Sharing for Vision Language Model Post-Training](/202608/21/2608.14498v1-rollplex-cross-phase-gpu-spatial-sharing-for-vision-language-model-post-training)  
+1. [PROBE: Manipulation-Grounded Visual Question Answering with VLM Agents](/202608/22/2608.17129v1-probe-manipulation-grounded-visual-question-answering-with-vlm-agents)  
    标签：评分：8.0/10、query:post-multi
-   evidence：面向视觉语言模型强化学习后训练的运行系统，直接涉及VLM后训练
-2. [Why Vision Fails as a Universal Bridge: Rectifying Modality Asynchrony in Multilingual MLLMs](/202608/21/2608.15085v1-why-vision-fails-as-a-universal-bridge-rectifying-modality-asynchrony-in-multilingual-mllms)  
+   evidence：提出了一个在操作接地视觉问答上对VLM智能体进行基准测试和微调的框架
+2. [Expressivity In Multimodal Contrastive Learning](/202608/22/2608.17203v1-expressivity-in-multimodal-contrastive-learning)  
    标签：评分：8.0/10、query:post-multi
-   evidence：通过机制分析矫正多语言多模态大模型中的模态异步问题
-3. [SEER: Long-Context Reasoning via Selective Visual-Text Compression](/202608/21/2608.15962v1-seer-long-context-reasoning-via-selective-visual-text-compression)  
-   标签：评分：8.0/10、query:mr
-   evidence：通过视觉扫描与按需文本检索实现多模态长上下文推理，属于典型多模态检索增强推理架构。
-4. [Multi-Granularity Sentiment Integration for LLM-Based Multimodal Sentiment Analysis](/202608/21/2608.16201v1-multi-granularity-sentiment-integration-for-llm-based-multimodal-sentiment-analysis)  
+   evidence：对多模态对比学习表达能力的理论分析
+3. [CL4D: Contrastive Language-4D Pretraining for Vision-Language Reasoning in Dynamic Scenes](/202608/22/2608.18734v1-cl4d-contrastive-language-4d-pretraining-for-vision-language-reasoning-in-dynamic-scenes)  
    标签：评分：8.0/10、query:post-multi
-   evidence：一种基于LLM的多模态情感分析多粒度集成方法，改善跨模态对齐与多模态学习。
-5. [When Is a Task Vector Enough? An Empirical Theory of Implicit Multimodal ICL](/202608/21/2608.13385v1-when-is-a-task-vector-enough-an-empirical-theory-of-implicit-multimodal-icl)  
+   evidence：在动态点云上进行对比式视觉语言预训练，将文本与4D场景表示对齐
+4. [GRACE: Grounded Reasoning via Adapter Composition and Evidence-Aware Calibration for Educational Visual Question Answering](/202608/22/2608.19355v1-grace-grounded-reasoning-via-adapter-composition-and-evidence-aware-calibration-for-educational-visual-question-answering)  
+   标签：评分：8.0/10、query:post-multi
+   evidence：针对冻结多模态大模型的参数高效适配，用于视觉问答
+5. [When Deep Research Agents Stagnate: Enhancing Reasoning with Retrieval-Aware Agent Control](/202608/22/2608.15191v1-when-deep-research-agents-stagnate-enhancing-reasoning-with-retrieval-aware-agent-control)  
+   标签：评分：7.0/10、query:mr
+   evidence：用检索感知控制增强深度研究智能体的多步推理轨迹
+6. [SAPE: Sandwich Adapters for Parameter Efficiency in Large Language Model Fine-Tuning](/202608/22/2608.15360v1-sape-sandwich-adapters-for-parameter-efficiency-in-large-language-model-fine-tuning)  
    标签：评分：7.0/10、query:post-multi
-   evidence：针对隐式多模态上下文学习提出选择-实现假说，揭示任务向量等干预的作用机制。
-6. [Fine-Grained Action Recognition with Cross-Attentive Latent Sparse Experts](/202608/21/2608.13458v1-fine-grained-action-recognition-with-cross-attentive-latent-sparse-experts)  
+   evidence：利用层级三明治权重共享实现大模型后训练阶段的参数高效微调
+7. [Noesis: Bidirectional Graph-RAG with Adaptive Parallelism and Cross-Knowledge-Base Semantic Discovery](/202608/22/2608.15919v1-noesis-bidirectional-graph-rag-with-adaptive-parallelism-and-cross-knowledge-base-semantic-discovery)  
+   标签：评分：7.0/10、query:mr
+   evidence：基于图的双向遍历RAG，支持在知识库上进行多跳推理
+8. [SAUL: Sharpness-Aware Augmented-Lagrangian Unlearning](/202608/22/2608.16249v1-saul-sharpness-aware-augmented-lagrangian-unlearning)  
    标签：评分：7.0/10、query:post-multi
-   evidence：通过交叉注意力和稀疏专家混合实现多模态融合
-7. [FZ-VLM: A Two Stage Florence-Zephyr Vision Language Model Framework for Pulmonary Nodule Characterization and Clinical Decision Making](/202608/21/2608.15004v1-fz-vlm-a-two-stage-florence-zephyr-vision-language-model-framework-for-pulmonary-nodule-characterization-and-clinical-decision-making)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：两阶段视觉语言模型训练框架，与视觉语言模型训练需求相关
-8. [Quantum Models with Multi-Stage Training for Compositional Concept Generalization](/202608/21/2608.15601v1-quantum-models-with-multi-stage-training-for-compositional-concept-generalization)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：使用张量与变分量子电路，面向多模态学习中的组合概念泛化提出多阶段训练方法。
-9. [ERSkill: Evolving for Skill-Guided Adaptive Memory Retrieval](/202608/21/2608.12720v1-erskill-evolving-for-skill-guided-adaptive-memory-retrieval)  
+   evidence：面向LLM的后训练遗忘方法，用约束优化在遗忘目标知识的同时保持通用能力
+9. [OpenBelief-Nav: Evidence-Preserving Object Memory for Open-Vocabulary Language-Guided Navigation](/202608/22/2608.13923v1-openbelief-nav-evidence-preserving-object-memory-for-open-vocabulary-language-guided-navigation)  
    标签：评分：6.0/10、query:mr
-   evidence：LLM智能体自适应记忆检索，技能引导证据构造，与RAG架构相关。
-10. [A Comprehensive Empirical Evaluation of Vector Database Systems for Approximate Nearest Neighbor Search: Performance, Quality, and Resource Trade-offs](/202608/21/2608.12812v1-a-comprehensive-empirical-evaluation-of-vector-database-systems-for-approximate-nearest-neighbor-search-performance-quality-and-resource-trade-offs)  
+   evidence：开放词汇3D场景图作为多模态知识记忆
+10. [OvDSGG: End-to-End Open-Vocabulary Dynamic Scene Graph Generation](/202608/22/2608.14835v1-ovdsgg-end-to-end-open-vocabulary-dynamic-scene-graph-generation)  
    标签：评分：6.0/10、query:mr
-   evidence：系统评估七种向量数据库在ANN检索上的性能与质量，为RAG（含多模态）提供检索基础设施选型依据
-11. [GLaQ: Grounding Latent Queries in Visual Evidence for Multimodal Reasoning](/202608/21/2608.15517v2-glaq-grounding-latent-queries-in-visual-evidence-for-multimodal-reasoning)  
+   evidence：提出端到端开放词汇动态场景图生成，是从视频构建多模态知识图谱的一种形式
+11. [MetaReason: Precise Interleaved Multimodal Reasoning via Editing Meta Information for Solving Geometry Problems](/202608/22/2608.15006v1-metareason-precise-interleaved-multimodal-reasoning-via-editing-meta-information-for-solving-geometry-problems)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：基于元信息编辑的交错多模态推理
+12. [What You Ask is What You Ground: Bridging Question Intent to Temporal Evidence for Grounded VideoQA](/202608/22/2608.15708v1-what-you-ask-is-what-you-ground-bridging-question-intent-to-temporal-evidence-for-grounded-videoqa)  
    标签：评分：6.0/10、query:mr
-   evidence：通过潜在查询锚定视觉证据改进多模态推理，并解决潜在推理中的信息重复问题，与多跳推理相关。
-12. [Can Retrievers Find the Same Paper from Different Aspects? A Multi-Aspect Full-Paper Scientific Retrieval Benchmark](/202608/21/2608.15624v1-can-retrievers-find-the-same-paper-from-different-aspects-a-multi-aspect-full-paper-scientific-retrieval-benchmark)  
-   标签：评分：6.0/10、query:mr
-   evidence：基于多模态内容的全论文检索基准，可用于评估RAG中的检索环节
+   evidence：以问题意图条件化视频特征来定位时间证据，属于跨模态基础检索
 
 
 <div class="dpr-home-promo-card">

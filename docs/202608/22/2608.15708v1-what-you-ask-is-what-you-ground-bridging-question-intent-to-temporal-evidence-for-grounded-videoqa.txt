@@ -1,0 +1,2083 @@
+What You Ask is What You Ground:
+Bridging Question Intent to Temporal Evidence
+for Grounded VideoQA
+Jinhwan Seo1 , Kyubeom Han1 , Jumin Lee1 , Junhyug Noh2† , and
+Sung-eui Yoon1†
+1 KAIST
+2 Ewha Womans University
+{jinhwan.seo,qbhan,jmlee}@kaist.ac.kr, junhyug@ewha.ac.kr,
+sungeui@kaist.ac.kr
+Q1: Why did the child went to the corner 
+of the room and sat for some time?
+A: read a book
+Q2: What did the child play with near the 
+wardrobe at the end of the video?
+A: a strap
+Q3: What was the child trying to do at 
+the end of the video?
+A: touch the camera
+Ours
+NG+
+CRA-GQA
+Q3
+[Q1,3]
+Q1
+Q2
+Q3
+Q1
+Q2
+Q3
+Q1
+Q2
+[Q1, 2, 3]
+Q1
+Q2 Q3
+0:00
+1:05
+Gaussian mask
+Attention scores
+Prediction
+Ground truth
+[Q2]
+Fig. 1: Given a single video and three distinct questions targeting different temporal
+moments, prior methods yield nearly identical temporal predictions regardless of ques-
+tion intent. In contrast, GroundFormer produces three distinct segments, each aligned
+with the event required to reason toward the corresponding answer.
+Abstract. We study a critical yet overlooked failure mode in Grounded
+Video Question Answering: question-invariant grounding, where models
+predict nearly identical temporal segments for different questions about
+the same video. We trace this behavior to two structural limitations
+in prior common designs: (i) modality isolation that fixes video repre-
+sentations before they receive question semantics, and (ii) weak ques-
+tion injection inside the grounding module. To address this, we propose
+†Corresponding authors.
+arXiv:2608.15708v1  [cs.CV]  16 Aug 2026
+
+
+2
+J. Seo et al.
+GroundFormer, which conditions video features on question intent before
+localization via learnable communication tokens that mediate directed
+visuo-lingual interaction. On top of the question-conditioned features, a
+factorized MIL cross-attention couples answer selection with temporal
+evidence under candidate-level supervision, while Gaussian smoothing
+converts peaked attention into temporally coherent segments. We further
+introduce a hierarchical multi-modal contrastive loss that aligns video,
+question, and answer embeddings across a two-pass training pipeline.
+GroundFormer achieves state-of-the-art grounded VideoQA performance
+on NExT-GQA and STAR, substantially improving question-discriminative
+temporal grounding.
+Keywords: Grounded VideoQA · Question-Conditioned Grounding ·
+Weakly Supervised Temporal Localization
+1
+Introduction
+Video Question Answering (VideoQA) [2, 4, 12, 30] has emerged as a primary
+benchmark for evaluating the multi-modal reasoning capabilities of vision-language
+models (VLMs) [1,5,14,15,23,27]. Recent advances in large-scale pretraining of
+large language models [6,10,17] have driven remarkable progress on the VideoQA
+task, yet the BlindQA experiment [31] reveals that models without video in-
+put achieve performance on par with state-of-the-art methods, suggesting that
+predictions may reflect linguistic priors rather than visual understanding. This
+experiment motivates Grounded VideoQA [31], which requires models to pro-
+duce not only a correct answer but also the temporal segment from which it
+is derived, ensuring that answers are grounded in visual evidence. However, we
+identify a tendency that persists across existing methods [3, 16, 31]: question-
+invariant grounding, where models produce nearly identical temporal predictions
+for different questions within the same video.
+As illustrated in Fig. 1, when multiple questions target different temporal
+events within the same video, existing methods such as NG+ [31] and CRA-
+GQA [3] collapse all predictions onto the same segment regardless of question
+intent. Each question asks about a distinct moment, yet the predicted grounding
+intervals are nearly indistinguishable across questions, revealing that previous
+methods [3,31] fail to condition on what each question asks. We attribute such
+phenomena to two structural limitations: visual representations are fixed before
+any question signal reaches them, and the question is reduced to a single token
+at the grounding stage that is immediately absorbed by the dominant visual
+stream. As a result, the grounding module operates on representations that are
+blind to what each question asks.
+In this work, we propose GroundFormer, a framework that addresses question-
+invariant grounding by establishing a visuo-lingual communication pathway through
+which question intent is propagated into visual representations. To counter modal-
+ity isolation, we introduce learnable communication tokens that act as a bottle-
+neck between the visual and linguistic branches: the tokens extract fine-grained
+
+
+Bridging Question Intent to Temporal Evidence for Grounded VideoQA
+3
+question semantics from the linguistic stream and inject the captured intent
+into visual encoding. To overcome the insufficient language signal in the ground-
+ing module, we formulate Grounded VideoQA as a Multiple Instance Learning
+(MIL) problem via cross-attention, where question-conditioned communication
+tokens serve as queries and video tokens as keys and values, such that temporal
+evidence is derived from question intent under candidate-level supervision alone.
+In summary, our contributions are:
+– We introduce learnable communication tokens as an explicit bottleneck be-
+tween the visual and linguistic branches, enabling question intent to shape
+video representations before grounding and alleviating modality isolation.
+– We cast Grounded VideoQA as a multiple instance learning (MIL) problem
+and propose a MIL cross-attention that couples answer prediction with tem-
+poral evidence, producing question-conditioned localization from candidate-
+level QA supervision alone.
+– We achieve state-of-the-art Acc@GQA and grounding performance on NExT-
+GQA and STAR, and PIoU and GT-Pred Correlation analyses confirm that
+our grounding is more question-discriminative than prior methods.
+2
+Related Work
+VideoQA. With the success of vision-language models (VLMs) [5, 13–15, 23],
+VideoQA has advanced from simple action recognition to tasks requiring reason-
+ing over event sequences, causal relationships, and temporal dependencies across
+video [4,12,21,25,30]. Early approaches employed RNNs and CNNs [12,24,35],
+while recent methods adopted transformer-based architectures [24, 32] and Q-
+Former frameworks [13, 36] that couple frozen visual encoders with large lan-
+guage models (LLMs) via learnable queries. Each generation improves QA ca-
+pability, yet whether these gains reflect visual understanding or linguistic priors
+inherited in the LLM backbone remains unresolved [31]. This ambiguity moti-
+vates Grounded VideoQA, which requires not only a correct answer but also the
+temporal evidence from which it is derived.
+Grounded VideoQA. NExT-GQA [31] formalizes visually grounded VideoQA
+by introducing temporal grounding as an explicit evaluation criterion under weak
+supervision, where no grounding annotations are available during training. Sub-
+sequent methods tackle this challenge from complementary perspectives. Time-
+Craft [16] enforces cycle consistency between causally reversed Q&A pairs as a
+self-supervised grounding signal, while CRA-GQA [3] applies causal intervention
+to disentangle visual and linguistic confounders. QGAC-TR [33] calibrates tem-
+poral attention via contrastive objectives over visual and textual context; on the
+generative side, Grounded-VideoLLM [26] augments the vocabulary with discrete
+temporal tokens, and TOGA [9] couples timestamp prediction with open-ended
+answer generation under weak supervision. Despite these efforts, our analysis
+shows that existing methods often produce identical temporal grounding for dif-
+ferent questions within the same video, which we attribute to late fusion of inde-
+pendently encoded modalities. GroundFormer addresses this question-invariant
+
+
+4
+J. Seo et al.
+Table 1: Question-invariant grounding analysis on NExT-GQA. Lower PIoU indicates
+less collapse across questions; higher GT–Pred Corr. indicates better agreement with
+the ground-truth pairwise overlap structure.
+Metric
+NG+ [31]
+CRA-GQA [3]
+GroundFormer
+Ground Truth
+PIoU ↓
+85.7
+88.9
+28.2
+21.3
+GT–Pred Corr. ↑
+0.005
+0.006
+0.121
+–
+grounding by introducing learnable tokens for stronger visuo-lingual alignment
+under QA weak supervision.
+Weakly Supervised Learning for Temporal Grounding. In the absence
+of frame-level annotations, Multiple Instance Learning (MIL) [7] treats each
+video as a bag of temporal instances and identifies relevant segments from video-
+level supervision alone. Prior MIL-based methods [8, 11, 19, 22] learn segment-
+level representations by contrasting matched and mismatched visual-language
+pairs, achieving competitive performance in video moment retrieval [19,22] and
+video grounding [8,11]. However, these methods operate on declarative queries
+(e.g., “A person throws a ball”) that explicitly describe the target event, whereas
+Grounded VideoQA poses interrogative queries (e.g., “Why did the person throw
+the ball?”) whose supporting evidence is only implicitly defined by the question–
+answer relationship. Our approach is the first to adopt a MIL-based formulation
+for Grounded VideoQA, coupling answer selection with temporal localization
+through a cross-attention mechanism.
+3
+Motivation
+Observation. Most existing Grounded VideoQA methods [3,16,31] share a com-
+mon grounding structure built upon a Gaussian-based localization module. Yet,
+as Fig. 1 illustrates, the previous methods often show question-invariant ground-
+ing, where models produce nearly identical temporal predictions regardless of the
+questions. To quantify this behavior, we introduce two diagnostic metrics. Pair-
+wise IoU (PIoU) measures the average temporal IoU between predictions for
+different questions within the same video; high PIoU indicates invariant ground-
+ing, while low PIoU indicates question-discriminative grounding. GT-Pred Cor-
+relation (GT-Pred Corr.) complements PIoU by measuring whether predicted
+overlaps vary in the same direction as ground-truth overlaps, computed as the
+Pearson correlation between ground-truth and predicted pairwise IoU across the
+dataset.
+We evaluate PIoU and GT-Pred Corr. on NG+ [31] and CRA-GQA [3]
+in Tab. 1. Both methods record PIoU of 85.7 and 88.9, far above the ground-
+truth PIoU of 21.3, while their GT-Pred Corr. remains near zero (0.005 and
+0.006). These results indicate that their grounding predictions are nearly indis-
+tinguishable across questions, motivating our analysis of the common grounding
+structure underlying this failure.
+
+
+Bridging Question Intent to Temporal Evidence for Grounded VideoQA
+5
+Preliminary. Given an untrimmed video v, a question q, and answer candidates
+A = {a1, . . . , aAn}, a vision encoder extracts frame-level features xv ∈RB×T ×DV
+from T sampled frames, where B is the batch size and DV the visual feature
+dimension. A language encoder produces embeddings xl ∈RB×Ln×Ll×DL, where
+Ln denotes the number of candidates (question or answer) and Ll is the max-
+imum token length, and DL the language feature dimension. The pooled ques-
+tion and answer embeddings, denoted xq and xa, respectively, are projected to
+a shared dimension D. The methods then solve:
+  a ^* , t^ * =
+ \o
+per a tor na me *{ a rg \, max}_{a \in A} \ \Psi \!\left (a \mid v_t, q, A\right )\ \Phi \!\left (t \mid v, q\right ), \label {eq:dual-style} 
+(1)
+where Φ is a grounding module that estimates a temporal grounding distribution
+t given (v, q), and Ψ predicts the answer from the localized evidence vt.
+A representative grounding module Φ(t | v, q) injects the question into the
+visual stream as a single token. Let xqn denote the question token; it is con-
+catenated with T visual tokens to form [xv; xqn] ∈RB×(T +1)×D, which is then
+sum-pooled to RB×D and passed through Φ to regress Gaussian parameters for
+temporal grounding:
+  \ beg i n {gathered } (\mu 
+, \sig m a ^2 ) = 
+\Phi \ !\left (\math t t { p
+oo l }\!\le f t ([x_v ;\ x_{q_n}]\right )\right ), \qquad \mathbf {g}_{\text {gauss}} = \mathcal {N}(\mu , \sigma ^2),\\ \mathbf {g}_{\text {attn}} = \mathtt {Linear}\!\left (\mathbf {g}_{\text {gauss}} \odot x_v\right ), \qquad t^* = \left (\mathbf {g}_{\text {attn}} \cap \mathbf {g}_{\text {gauss}}\right ). \label {eq:grounding_module} \end {gathered} 
+(2)
+Discussion. Based on our formulation of the common grounding structure
+in Eq. (2), we identify two structural limitations that make the grounding module
+Φ prone to question-invariant behavior.
+1. Modality isolation before Φ. Visual and linguistic branches encode inde-
+pendently, and cross-modal interaction occurs only at a late stage. Conse-
+quently, frame features carry only limited information about what the ques-
+tion asks, leaving the grounding module Φ to operate on question-agnostic
+video features.
+2. Insufficient linguistic signal inside Φ. The question is injected as a single
+token among T visual tokens in [xv; xqn] ∈RB×(T +1)×D and is immediately
+collapsed by pooling. With a 1:T imbalance, the question signal is easily
+absorbed by the dominant visual stream, making the input to Φ weakly
+dependent on the question and falling back to question-invariant grounding.
+These two limitations compound: modality isolation removes question seman-
+tics from the visual features, while the weak linguistic signal prevents Φ from
+recovering question dependence later. As quantified in Tab. 1, this drives ex-
+isting methods toward question-invariant grounding. GroundFormer breaks this
+pattern by conditioning visual representations on question semantics before Φ,
+thereby restoring question-discriminative grounding (Fig. 2).
+4
+Approach
+We propose GroundFormer, a framework that conditions visual encoding on
+question semantics prior to the grounding module. The framework operates as
+
+
+6
+J. Seo et al.
+GroundFormer (Ours)
+Previous Works
+Grounding
+MIL
+Cross-Attention
+Video
+Language
+⋯
+𝑇
+Video
+Language
+QA
+Visual
+Refinement
+Linguistic 
+Transfer
+Q1≈Q2≈Q3
+Q1
+Q3
+Q2
+0
+T
+0
+T
+Attention Score
+⋯
+Q
+K,V
+Fig. 2: Overview of GroundFormer. Left: Prior methods [3, 16, 31] weakly inject
+question information into the grounding module, often collapsing different questions to
+the same salient interval. Right: GroundFormer conditions video features on question
+semantics via communication tokens (Linguistic Transfer →Visual Refinement) and
+couples answer selection with temporal grounding using MIL Cross-Attention (token
+queries, video keys/values), producing question-discriminative segments.
+a two-pass pipeline that separates question understanding from answer predic-
+tion (Sec. 4.1). Within each pass, learnable communication tokens bridge the
+two modalities via Linguistic Transfer and Visual Refinement, and MIL cross-
+attention derives a question-conditioned grounding signal from answer supervi-
+sion alone; Gaussian smoothing then refines sparse attention peaks into tem-
+porally coherent segments (Sec. 4.2). A two-pass pipeline further encourages
+question-discriminative visual representations during training (Sec. 4.3), and the
+model is optimized with classification and hierarchical multi-modal contrastive
+objectives (Sec. 4.4).
+4.1
+Two-Pass Pipeline
+GroundFormer performs two passes over shared weights. The question pass takes
+question candidates as input, constructed by pairing the ground-truth question
+with questions sampled from other videos in the mini-batch as negatives, and
+identifies the most video-relevant question, encoding visual discriminativity with
+respect to question semantics. The second pass takes answer candidates as input
+and produces the answer prediction ˆa along with the grounding signal. This dis-
+entanglement allows the hierarchical multi-modal contrastive loss to encourage
+question-discriminative visual representations. Note that despite the two-pass
+pipeline, the design introduces no additional computational cost at inference, as
+the two passes share weights and only the answer pass executes at test time.
+4.2
+Architecture
+GroundFormer consists of two core components: learnable communication to-
+kens that transfer question semantics into visual representations, and MIL cross-
+attention that derives a question-conditioned grounding signal from answer su-
+pervision. Fig. 3 illustrates the overall architecture and attention flow.
+
+
+Bridging Question Intent to Temporal Evidence for Grounded VideoQA
+7
+[TYPE]
+⋯
+⋯
+1. Linguistic Transfer
+2. Visual Refinement
+3. MIL Cross-Attention
+𝒛𝒛
+⋯
+𝒙𝒙𝒍𝒍
+𝒙𝒙𝒗𝒗
+𝑧𝑧
+𝑥𝑥𝑙𝑙
+𝑧𝑧
+𝑥𝑥𝑙𝑙
+Mask (𝑴𝑴𝒍𝒍)
+Attend
+Masked
+[TYPE]
+⋯
+ത𝒛𝒛
+෥𝒙𝒙𝒍𝒍
+(Key)̅
+𝑧𝑧
+𝑥𝑥𝑣𝑣
+Mask (𝑴𝑴𝒗𝒗)
+Attend
+Masked̅
+𝑧𝑧
+𝑥𝑥𝑣𝑣
+⋯̃
+𝒍𝒍𝒄𝒄𝒄𝒄𝒄𝒄𝒄𝒄
+⋯̃
+𝒍𝒍𝒕𝒕𝒕𝒕𝒕𝒕𝒕𝒕
+⋯
+⋯
+⋯
+⋯
+⋯
+⋯
+⋯
+⋯
+𝐬𝐬𝐬𝐬𝐬𝐬𝐬𝐬𝐬𝐬𝐬𝐬𝐬𝐬 (𝐓𝐓)̃
+𝒍𝒍𝒎𝒎𝒎𝒎𝒎𝒎
+෤𝒛𝒛
+(Query)
+Video tokens
+Language tokens
+Communication tokens
+1st pass - (Question)
+2nd pass - (Answer)
+Self-attention
+Transfer
+Refine
+ℒ𝑡𝑡𝑡𝑡𝑡𝑡𝑡𝑡
+ℒ𝑚𝑚𝑚𝑚𝑚𝑚
+(V →𝑄𝑄→𝐴𝐴)
+ℒ𝑎𝑎𝑎𝑎𝑎𝑎
+ℒ𝑞𝑞𝑞𝑞𝑞𝑞
+Fig. 3: Details of GroundFormer. (1) Linguistic Transfer: communication tokens
+z attend to language tokens xl under an asymmetric mask Ml to absorb candidate se-
+mantics. (2) Visual Refinement: video tokens xv attend to the distilled tokens ¯z
+under Mv, producing question-conditioned features ˜xv while keeping tokens uncon-
+taminated. (3) MIL Cross-Attention: token queries attend to video keys/values to
+obtain attention logits, which are factorized into candidate and temporal distributions
+(˜ℓcand, ˜ℓtime) whose product yields MIL scores and an implicit grounding signal. The
+model is trained with losses for question matching (1st pass) and answer prediction
+(2nd pass), together with type and multi-modal contrastive objectives.
+Communication Tokens. GroundFormer introduces a set of communication
+tokens z = [ztype; zquery] ∈RB×(1+N)×D as a bottleneck between two modalities.
+The [TYPE] token ztype ∈RB×1×D encodes a coarse question category and is
+supervised by an auxiliary loss (Sec. 4.4); this coarse prior guides the remaining
+tokens to specialize across reasoning patterns. The N query tokens zquery ∈
+RB×N×D capture fine-grained question semantics and propagate the captured
+intent to the visual representation through two steps: Linguistic Transfer and
+Visual Refinement.
+Linguistic Transfer first transfers candidate semantics into the communica-
+tion tokens via asymmetric masked self-attention. A transformer layer concate-
+nates z with xl along the token dimension, allowing z to attend to both z and
+xl while xl attends only to itself:
+ \ bar {z} = \ tex
+tt
+t {SA}_1([z;\ x_l], M_l)\big |_{z}. \label {eq:intent} 
+(3)
+The asymmetric mask ensures that ¯z captures candidate semantics while pre-
+venting the communication tokens from corrupting the language representations.
+Visual Refinement propagates the captured intent ¯z into the visual stream
+via a second asymmetric masked self-attention layer. Concatenating xv with ¯z,
+
+
+8
+J. Seo et al.
+the layer allows xv to attend to both xv and ¯z while ¯z attends only to itself
+ \ t ilde {x} _v = \t
+ex
+ttt
+ { S A}_2([x_ v;\ \ba
+r 
+{z}], M_v)\big |_{x_v}, \qquad \tilde {z} = \texttt {SA}_2([x_v;\ \bar {z}], M_v)\big |_{z}. \label {eq:refine} 
+(4)
+Each frame in ˜xv now encodes candidate-specific information, resolving the
+modality isolation. The asymmetric mask keeps ˜z independent of visual con-
+tent, and the updated ˜zquery serves as queries for the subsequent grounding step.
+Weakly-Supervised Grounding via MIL Cross-Attention. We generate a
+grounding signal from QA supervision alone using MIL cross-attention mech-
+anism. We stack candidates along the Ln dimension, yielding intent queries
+˜zquery ∈RB×Ln×N×D and question-conditioned visual tokens ˜xv ∈RB×Ln×T ×D.
+We compute cross-attention logits:
+  \ begin {gath e red} \ti
+lde
+ {\ell } = 
+\frac { (\tilde {z}_{
+\matht t {query}}W_Q) 
+\cdot 
+(
+\
+til
+d
+e {x}_ v W_K)^{
+\
+i ntercal }}{\sqrt {D_k}} \in \mathbb {R}^{B\times L_n\times N\times T},\\ \tilde {\ell }_{time} = \mathtt {softmax}_{T}(\tilde {\ell }), \qquad \tilde {\ell }_{cand} = \mathtt {softmax}_{L_n}(\tilde {\ell }),\\ \tilde {\ell }_{mil} = \sum _{t=1}^{T}\left (\tilde {\ell }_{time}\odot \tilde {\ell }_{cand}\right ) \in \mathbb {R}^{B\times L_n\times N}. \label {eq:mil} \end {gathered} 
+(5)
+Here, ˜ℓtime distributes probability over frames for each candidate, acting as the
+temporal evidence signal, while ˜ℓcand distributes probability over candidates at
+each frame. Their element-wise product assigns a high score to a candidate only
+when it is supported by frames that also receive high temporal attention; av-
+eraging over time yields the MIL logit ˜ℓmil. This factorization binds the can-
+didate score to its supporting frames, so ˜ℓtime serves as a grounding signal de-
+rived from answer supervision. The cross-attention output aggregates visual evi-
+dence weighted by ˜ℓtime, and average pooling over the N query tokens produces
+ˆz ∈RB×Ln×D, which is fed to the classifier heads.
+Grounding Refinement via Gaussian Kernel. MIL Cross-Attention pro-
+duces a candidate-conditioned temporal distribution ˜ℓtime. In the answer pass,
+we take the temporal attention associated with the predicted answer ˆa as the raw
+grounding signal gattn ∈RB×T . MIL factorization often concentrates attention
+on the most discriminative frames, resulting in sharply peaked signals that can
+fragment the predicted temporal segment. We therefore apply a 1-D Gaussian
+kernel to smooth gattn into a temporally continuous segment.
+  \ma t hca
+l
+ {G
+}_{
+\
+s
+igma } ( k) = \exp \!\left (-\frac {k^2}{2\sigma ^2}\right ), \qquad \mathbf {g}_{gauss} = \mathcal {G}_{\sigma } * \mathbf {g}_{attn}, \label {eq:gauss_grounding} 
+(6)
+where k indexes the kernel position, ∗denotes 1-D convolution over the T frames,
+and σ controls the smoothing extent. We use ggauss to derive the final grounded
+segment.
+4.3
+Hierarchical Multi-modal Contrastive Learning
+Unlike declarative queries that directly describe a target event, interrogative
+queries in Grounded VideoQA require an intermediate reasoning step: the model
+
+
+Bridging Question Intent to Temporal Evidence for Grounded VideoQA
+9
+must first identify the relevant visual evidence before arriving at the answer. This
+two-step reasoning naturally motivates a hierarchical alignment structure across
+the two-pass pipeline. In the first pass, video embeddings are aligned with ques-
+tion embeddings (V→Q), grounding visual representations in question semantics.
+In the second pass, question embeddings are aligned with answer embeddings
+(Q→A), binding the answer to the question-conditioned visual evidence. To-
+gether, V→Q→A alignment pulls video, question, and answer embeddings into
+a coherent embedding space progressively, using in-batch candidates as negative
+samples.
+4.4
+Training Objectives
+GroundFormer is trained end-to-end with candidate-level supervision only. Each
+pass is supervised by standard cross-entropy over its candidates using the pooled
+representation ˆz. We additionally apply cross-entropy on the MIL logits ˜ℓmil to
+ensure that the factorized scoring aligns with the ground-truth candidate:
+  \b e gin {gather ed} \m
+a
+thc
+al { L}
+_
+{
+qns} = \mathtt { CE} \ !\
+l
+eft
+ (f_ Q(
+\
+hat {z}_Q), y_q\right ) + \mathtt {CE}\!\left (\tilde {\ell }_{mil}^{Q}, y_q\right ),\\ \mathcal {L}_{ans} = \mathtt {CE}\!\left (f_A(\hat {z}_A), y_a\right ) + \mathtt {CE}\!\left (\tilde {\ell }_{mil}^{A}, y_a\right ), \label {eq:ce_loss} \end {gathered} 
+(7)
+where fQ and fA are the question and answer classifier heads, yq and ya are the
+ground-truth indices.
+The hierarchical multi-modal contrastive loss aligns embeddings progressively
+across the two passes. Let ˜xi
+v ∈RD denote the pooled video embedding from
+the question pass for the i-th sample in a mini-batch of size B, ¯x+,i
+q
+∈RD its
+ground-truth question embedding, and τ a temperature parameter. All B × Qn
+question embeddings in the mini-batch form the contrastive pool, where ¯xj,m
+q
+is the m-th question-candidate embedding of the j-th sample. So the (V→Q)
+alignment is:
+  \ m a t
+h
+c
+a
+l {
+L}_
+{vq
+}
+ = -\fr
+ac {1}{
+B
+} \ s
+u
+m 
+_{i
+=1}
+^{B } \
+l
+og \frac { \ex
+p
+ \ b
+igl (\mathrm {sim}(\tilde {x}_v^i,\, \bar {x}_{q}^{+,i}) \,/\, \tau \bigr ) }{ \sum _{j=1}^{B}\sum _{m=1}^{Q_n} \exp \bigl (\mathrm {sim}(\tilde {x}_v^i,\, \bar {x}_{q}^{j,m}) \,/\, \tau \bigr ) }. \label {eq:loss_vq} 
+(8)
+Using the same anchor ¯x+,i
+q
+, the (Q→A) alignment is defined against all B × An
+answer embeddings:
+  \ m a t
+h
+c
+a
+l {
+L}_
+{qa
+}
+ &= -\fra
+c
+ {1}{B
+} \ s u
+m
+ _
+{i=
+1}^
+{B} \l
+o
+g \frac {
+ 
+\ exp \
+b
+i g l
+ 
+(\m
+athr m {s i m}(\bar {x}_{q}^{+,i},\, \bar {x}_{a}^{+,i}) \,/\, \tau \bigr ) }{ \sum _{j=1}^{B}\sum _{m=1}^{A_n} \exp \bigl (\mathrm {sim}(\bar {x}_{q}^{+,i},\, \bar {x}_{a}^{j,m}) \,/\, \tau \bigr ) } \label {eq:loss_qa}\\ \mathcal {L}_{mcl} &= \mathcal {L}_{vq} + \mathcal {L}_{qa} \label {eq:loss_mcl}
+(10)
+The [TYPE] is supervised with an auxiliary classification loss:
+  \ma t hcal {L}_{type } = \m athtt {CE}\!\left (f_T(\tilde {z}_{type}), y_{type}\right ), \label {eq:type_loss} 
+(11)
+where fT is a linear classifier and ytype is the question category label provided
+by each benchmark [29,30].
+
+
+10
+J. Seo et al.
+The total loss combines all objectives:
+  \mat h cal { L} = \mathcal {L}_{ans} + \mathcal {L}_{qns} + \mathcal {L}_{mcl} + \mathcal {L}_{type}. \label {eq:total_loss} 
+(12)
+5
+Experiment
+5.1
+Experimental Setup
+Datasets. We evaluate GroundFormer on two popular grounded VideoQA bench-
+marks. NExT-GQA [31] targets causal and temporal reasoning through human-
+annotated questions, while STAR [29] targets situated reasoning through pro-
+grammatically generated questions.
+– NExT-GQA [31] extends NExT-QA [30] with temporal grounding anno-
+tations for the validation and test splits (10.5K annotated QA pairs), en-
+abling evaluation of both answer correctness and evidence localization. Com-
+pared to short-clip VideoQA benchmarks [4,12,21] (∼10 s), it contains longer
+untrimmed videos (avg. ∼44 s) and emphasizes causal and temporal reasoning
+under weak supervision, spanning five question types: Causal-Why, Causal-
+How, Temporal-Before&After, Temporal-When, and Temporal-Present.
+– STAR [29] is a situated reasoning benchmark with 4,901 videos and 60,206
+QA pairs, each annotated with a temporal segment. Videos average ∼30 s
+with a segment-to-video ratio of ∼0.4, roughly twice that of NExT-GQA.
+Questions are categorized into four types: Interaction, Sequence, Prediction,
+and Feasibility.
+Evaluation Metrics. We report metrics for both answering and grounding. For
+QA, we report Acc@VQA, the percentage of correctly answered questions. For
+localization, we report mIoU and mIoP between the predicted and ground-truth
+temporal segments. Since Grounded VideoQA requires both a correct answer and
+faithful grounding, we use Acc@GQA as the primary metric. Following NExT-
+GQA, Acc@GQA counts a prediction as correct only if the answer is correct and
+the grounded segment achieves IoP ≥0.5.
+Implementation Details. We implement GroundFormer in PyTorch. For video
+representation, we uniformly sample T=32 frames per video and extract features
+using a frozen CLIP ViT-L/14 vision encoder [23]. For text, we use a frozen
+RoBERTa-base encoder [17] to embed questions and answer candidates. The
+GroundFormer block consists of 4 transformer layers. We set the number of
+learnable query tokens to N=32 and the Gaussian kernel to σ=2. We train for
+30 epochs with batch size 16 using AdamW [18], an initial learning rate of 10−5,
+and a cosine decay schedule. All experiments are conducted on RTX 3090 GPUs.
+Baselines. We compare our method against grounding methods: PH [31], NG+ [31],
+TimeCraft [16], and CRA-GQA [3], while varying their base architectures with
+different capacities: Temp[CLIP] [31] (130–145M) and FrozenBiLM [34] (1.2B).
+We also compare our method with QGAC-TR [33] using its own architecture for
+Grounded VideoQA.
+
+
+Bridging Question Intent to Temporal Evidence for Grounded VideoQA
+11
+Table 2: Comparison with state-of-the-art methods on NExT-GQA [31].
+Arch.
+Method
+Param.
+Acc@GQA
+Acc@VQA
+mIoP
+TIoP@0.3
+TIoP@0.5
+mIoU
+TIoU@0.3
+TIoU@0.5
+Temp[CLIP] [31]
+PH [31]
+130M
+15.2
+59.4
+25.4
+28.2
+25.5
+6.6
+9.3
+4.1
+NG+ [31]
+130M
+16.0
+60.2
+25.7
+31.4
+25.5
+12.1
+17.5
+8.9
+TimeCraft [16]
+130M
+18.2
+65.6
+28.1
+35.1
+27.8
+15.6
+21.2
+9.6
+CRA-GQA [3]
+145M
+18.2
+61.1
+28.6
+34.3
+28.5
+14.2
+21.4
+10.6
+FrozenBiLM [34]
+PH [31]
+1.2B
+15.8
+69.1
+22.7
+25.8
+22.1
+7.1
+10.0
+4.4
+NG+ [31]
+1.2B
+17.5
+70.8
+24.2
+28.5
+23.7
+9.6
+13.5
+6.1
+TimeCraft [16]
+1.2B
+18.5
+74.7
+26.3
+32.7
+24.9
+13.2
+18.6
+8.4
+CRA-GQA [3]
+1.2B
+18.8
+70.2
+26.5
+32.6
+25.9
+13.5
+20.1
+9.6
+QGAC-TR [33]
+–
+18.3
+63.6
+28.3
+32.8
+27.7
+15.7
+18.6
+11.7
+GroundFormer
+211M
+21.5
+61.7
+34.0
+41.5
+33.7
+17.5
+26.5
+12.8
+0:00
+0:26
+Q1: What does the baby do after turning his head?
+A: Look up smile and move hand
+0:00
+0:30
+Q1: How does the baby get the piece of paper?
+A: Pick it up
+Q2: How does the boy feel being on the bus?
+A: Happy
+Q2: What does the baby in white do as the lady was unwrapping the gift?
+A: Watching
+Q3: what is the response of the boy as an adult touches his head?
+A: Turn around and smile
+Q3: What does the lady do while the baby in white was sitting on the floor?
+A: Unwrap the present
+19.7-26.2s
+3.2-6.7s
+1.7-8.2s
+Q1
+Q3
+Q2
+18.2-24.7s
+1.0-5.5s
+Groundtruth
+3.7-6.0s
+Q3
+Q1
+Q2
+Groundtruth
+1.9-10.3s
+14.7-18.2s
+13.5-17.0s
+5.7-12.2s
+1.7-9.2s
+5.3-13.1s
+Fig. 4: Qualitative comparison on NExT-GQA. For each video, we show three
+questions (Q1–Q3) with their answers and the predicted grounding intervals, along
+with the ground-truth segments (bottom). GroundFormer produces distinct, question-
+conditioned temporal segments that follow the ground-truth ordering, whereas prior
+methods collapse different questions onto similar intervals.
+5.2
+Comparison With State-of-the-Art Methods
+We demonstrate the robustness of GroundFormer on two Grounded VideoQA
+benchmarks [29, 31]. Our framework achieves new state-of-the-art Acc@GQA
+and temporal grounding across both datasets regardless of network capacity.
+NExT-GQA. Tab. 2 compares GroundFormer with prior methods on the NExT-
+GQA test set. GroundFormer achieves the best Acc@GQA of 21.5, setting a new
+state of the art with consistent gains in localization quality across all grounding
+metrics and thresholds. While FrozenBiLM variants attain higher Acc@VQA
+(up to 74.7) due to their larger capacity, GroundFormer yields substantially
+stronger grounded performance: it improves Acc@GQA (21.5 vs. 18.8), mIoP
+(34.0 vs. 26.5), and mIoU (17.5 vs. 13.5) over the best FrozenBiLM baseline,
+despite using only 17.6% of its parameters.
+
+
+12
+J. Seo et al.
+Table 3: Comparison with state-of-the-art methods on STAR [29].
+Arch.
+Method
+Acc@GQA
+Acc@VQA
+mIoP@0.5
+mIoU@0.5
+TempCLIP [31]
+NG+ [31]
+24.4
+57.3
+41.4
+4.7
+CRA-GQA [3]
+26.8
+58.6
+44.5
+5.5
+FrozenBiLM [34]
+NG+ [31]
+25.8
+60.1
+40.9
+7.8
+CRA-GQA [3]
+27.8
+60.5
+43.1
+5.1
+GroundFormer
+30.7
+61.1
+49.3
+15.8
+Table 4: Ablation on NExT-GQA. We factorize design choices into structural compo-
+nents (two-pass training, communication tokens) and auxiliary components.
+Structure
+Auxiliary Components
+QA
+Localization (IoP)
+Localization (IoU)
+Two-pass
+train
+Comm.
+tokens
+Ltype Lmcl Gσ
+MIL
+Acc@GQA Acc@VQA mIoP TIoP@0.3 TIoP@0.5 mIoU TIoU@0.3 TIoU@0.5
+✓
+14.8
+58.5
+26.5
+33.3
+24.8
+14.7
+21.9
+10.6
+✓
+✓
+18.6
+59.8
+29.6
+37.0
+28.6
+17.0
+25.8
+13.0
+✓
+✓
+✓
+19.0
+60.4
+30.5
+37.9
+30.2
+16.9
+25.8
+13.2
+✓
+✓
+✓
+✓
+20.1
+61.2
+32.0
+39.5
+30.3
+17.2
+25.8
+12.5
+✓
+✓
+✓
+✓
+✓
+20.8
+61.2
+32.4
+39.3
+32.0
+16.5
+25.0
+12.0
+✓
+✓
+✓
+15.7
+58.2
+26.7
+32.8
+25.9
+14.6
+21.8
+10.8
+✓
+✓
+✓
+✓
+✓
+✓
+21.5
+61.7
+34.0
+41.5
+33.7
+17.5
+26.5
+12.8
+Fig. 4 further illustrates the benefit of GroundFormer’s question-conditioned
+grounding capability. In the left example, three questions target temporally dis-
+tinct events: Q3 asks about a reaction near the beginning, Q2 about a feeling
+in the middle, and Q1 about an action toward the end. GroundFormer localizes
+each question to a different temporal region that aligns with the correspond-
+ing ground-truth segment. In the right example, three questions again refer to
+separate moments, and GroundFormer produces three non-overlapping predic-
+tions that match the ground-truth ordering. In both cases, NG+ and CRA-GQA
+collapse all predictions onto a single interval regardless of the question. Thus,
+our result confirms that GroundFormer ensures correct answers are derived from
+accurately localized temporal evidence compared to baseline methods.
+STAR. Tab. 3 demonstrates the generalization capability of GroundFormer on
+STAR benchmark. Compared to existing methods under both TempCLIP [31]
+and FrozenBiLM [34] architectures, GroundFormer establishes a new state-of-
+the-art with an Acc@GQA of 30.7. The improvement is driven by robust tem-
+poral grounding, as shown by an mIoP@0.5 of 49.3 and mIoU@0.5 of 15.8.
+5.3
+Analysis
+How does each module contribute? Tab. 4 summarizes how each design
+choice contributes to question-conditioned grounding on NExT-GQA. Starting
+from a baseline that uses a standard cross-attention grounding head (no com-
+munication tokens or auxiliary objectives), we obtain 14.8 Acc@GQA and 26.5
+mIoP. Introducing communication tokens with Linguistic Transfer and Visual
+Refinement yields a large jump to 18.6 Acc@GQA and 29.6 mIoP, confirming
+
+
+Bridging Question Intent to Temporal Evidence for Grounded VideoQA
+13
+Table 5: Acc@GQA (%) by question type on NExT-GQA.
+Method
+Causal
+Temporal
+Why
+How
+Before & After
+When
+Present
+NG+ [31]
+16.9
+17.2
+12.0
+17.5
+10.8
+GroundFormer (Ours)
+22.2
+23.1
+17.3
+25.8
+12.9
+169M
+147M
+190M
+211M
+232M
+254M
+0
+20
+40
+60
+1
+2
+4
+8
+16
+32
+64
+(a) No. Tokens
+0
+20
+40
+60
+1
+2
+3
+4
+5
+6
+(b) No. Layers
+0
+20
+40
+60
+1
+2
+3
+4
+5
+(c) 𝜎
+Performance
+VQA
+GQA
+mIoP
+mIoU
+Fig. 5: Hyperparameter sensitivity on NExT-GQA. (a) Number of learnable
+query tokens N, (b) number of Transformer layers in the GroundFormer block, and (c)
+Gaussian smoothing width σ. We report Acc@VQA, Acc@GQA, mIoP, and mIoU.
+that conditioning video features on question semantics before localization is crit-
+ical. Adding our auxiliary objectives provides further gains: question-type super-
+vision and the hierarchical contrastive loss improve Acc@GQA to 19.0 and 20.1,
+respectively, indicating that coarse reasoning priors and cross-modal alignment
+are complementary. Finally, adding the localization heads (Gaussian smoothing
+and MIL) strengthens localization and leads to the best overall performance.
+We also ablate the two-pass training strategy in Tab. 4. The second-to-last
+row reports a single-pass variant trained using only the answer pass; in this
+setting, the question-pass objectives (e.g., Lqns, Ltype and the V→Q term in
+Lmcl) are not applicable. This single-pass training results in 15.7 Acc@GQA
+and 26.7 mIoP. In contrast, enabling two-pass training by adding the question
+pass activates the full hierarchical objectives and improves performance to 21.5
+Acc@GQA and 34.0 mIoP (last row). Importantly, this gain comes without in-
+ference overhead, since only the answer pass is executed at test time.
+How does question type shape grounding? Tab. 5 reports Acc@GQA per-
+formance separately for each question types defined in NExT-QA [30]: Causal
+(Why, How) and Temporal (Before & After, When, Present). GroundFormer
+outperforms NG+ across all five types, confirming that our question condition-
+ing improves grounding across question types. In addition, we found that the
+largest gains appear on Temporal-When (+8.3) and Causal-How (+5.9), both of
+which demand precise temporal discrimination to locate a specific moment.
+Hyperparameter sensitivity. Fig. 5 reports performance under different num-
+bers of learnable tokens N, Transformer layers, and Gaussian kernel width σ.
+The Acc@GQA and mIoP peak at N = 32, after which additional tokens yield
+diminishing returns while increasing parameter count. Performance increases
+steadily up to 4 layers and saturates thereafter. For σ, the optimum lies at σ=2;
+
+
+14
+J. Seo et al.
+[Q3,4]
+[Q1,Q2]
+7.2-11.7s
+0.1-6.2s
+Groundtruth
+Q1: Why does the flags move violently on the outside?
+A: Windy
+1.7-4.2s
+Q2: Why is lot of water streaming out from the top of the house?
+A: Raining
+1.2-5.7s
+0:00
+0:18
+Q3: Why is the dog in the house?
+A: Stay dry
+7.7-11.2s
+Q4: What did the dog do after looking into the camera
+A: Sit down
+7.7-11.2s
+Fig. 6: Grounding for semantically similar questions. In the same video,
+GroundFormer groups Q1–Q2 (outdoor weather) into an early interval and Q3–Q4
+(indoor dog event) into a later interval, matching the ground-truth split. Shaded spans
+indicate predicted grounded segments.
+larger values over-smooth the temporal signal and degrade mIoU. We adopt N
+= 32, 4 layers, and σ = 2 throughout all other experiments.
+How does grounding behave for similar questions? Fig. 6 shows that
+GroundFormer produces consistent temporal grounding for semantically related
+questions while remaining discriminative across different events within the same
+video. Q1 (windy flags) and Q2 (rain streaming from the roof) both refer to
+the outdoor weather, and GroundFormer grounds them in the early portion of
+the video (0.1–6.2 s), consistent with the ground-truth intervals (Q1: 1.7–4.2 s;
+Q2: 1.2–5.7 s). In contrast, Q3 (dog stays indoors to stay dry) and Q4 (dog sits
+after looking into the camera) target the later indoor event, and the predicted
+grounding shifts to 7.2–11.7 s, aligning with the shared ground-truth segment
+(7.7–11.2 s). These results suggest that GroundFormer’s temporal grounding fol-
+lows question semantics rather than collapsing onto a single salient moment.
+6
+Conclusion
+We identified question-invariant grounding as a key failure mode in weakly-
+supervised Grounded VideoQA: existing methods produce nearly identical tem-
+poral predictions regardless of question intent, a consequence of modality isola-
+tion and weak question injection in the grounding module. To address this, we
+proposed GroundFormer, which conditions visual tokens on question semantics
+before localization via asymmetric masked attention and couples answer selec-
+tion with temporal grounding through MIL Cross-Attention. To further bind
+grounding to question intent, we introduce a hierarchical multi-modal contrastive
+
+
+Bridging Question Intent to Temporal Evidence for Grounded VideoQA
+15
+objective that aligns video, question, and answer embeddings progressively along
+a V→Q→A. As a result, GroundFormer achieves state-of-the-art Acc@GQA on
+both NExT-GQA and STAR, with PIoU and GT-Pred Correlation analyses con-
+firming substantially more question-discriminative grounding.
+Acknowledgements
+This work was supported by Institute of Information & communications Tech-
+nology Planning & Evaluation (IITP) grant funded by the Korea government
+(MSIT) (No.RS-2025-25443318, Physically-grounded Intelligence: A Dual Com-
+petency Approach to Embodied AGI through Constructing and Reasoning in
+the Real World) and the NRF grant (No. RS-2023-00208506). Junhyug Noh was
+supported by the National Research Foundation of Korea (NRF) grant funded
+by the Korean government (MSIT) (RS-2026-25499022), and Global – Learn-
+ing & Academic research institution for Master’s · PhD students, and Postdocs
+(G-LAMP) Program of the NRF funded by the Ministry of Education (RS-2025-
+25442252).
+
+
+16
+J. Seo et al.
+References
+1. Alayrac, J.B., Donahue, J., Luc, P., Miech, A., Barr, I., Hasson, Y., Lenc, K., Men-
+sch, A., Millican, K., Reynolds, M., et al.: Flamingo: a visual language model for
+few-shot learning. Advances in neural information processing systems 35, 23716–
+23736 (2022)
+2. Antol, S., Agrawal, A., Lu, J., Mitchell, M., Batra, D., Zitnick, C.L., Parikh, D.:
+Vqa: Visual question answering. In: Proceedings of the IEEE international confer-
+ence on computer vision. pp. 2425–2433 (2015)
+3. Chen, W., Liu, Y., Chen, B., Su, J., Zheng, Y., Lin, L.: Cross-modal causal relation
+alignment for video question grounding. In: Proceedings of the Computer Vision
+and Pattern Recognition Conference. pp. 24087–24096 (2025)
+4. Choi, S., On, K.W., Heo, Y.J., Seo, A., Jang, Y., Lee, M., Zhang, B.T.: Dramaqa:
+Character-centered video story understanding with hierarchical qa. In: Proceedings
+of the aaai conference on artificial intelligence. vol. 35, pp. 1166–1174 (2021)
+5. Dai, W., Li, J., Li, D., Tiong, A., Zhao, J., Wang, W., Li, B., Fung, P.N., Hoi,
+S.: Instructblip: Towards general-purpose vision-language models with instruction
+tuning. Advances in neural information processing systems 36, 49250–49267 (2023)
+6. Devlin, J., Chang, M.W., Lee, K., Toutanova, K.: Bert: Pre-training of deep bidi-
+rectional transformers for language understanding. In: Proceedings of the 2019
+conference of the North American chapter of the association for computational
+linguistics: human language technologies, volume 1 (long and short papers). pp.
+4171–4186 (2019)
+7. Dietterich, T.G., Lathrop, R.H., Lozano-Pérez, T.: Solving the multiple instance
+problem with axis-parallel rectangles. Artificial intelligence 89(1-2), 31–71 (1997)
+8. Gao, M., Davis, L., Socher, R., Xiong, C.: Wslln: Weakly supervised natural lan-
+guage localization networks. In: Proceedings of the 2019 conference on empirical
+methods in natural language processing and the 9th international joint conference
+on natural language processing (EMNLP-IJCNLP). pp. 1481–1487 (2019)
+9. Gupta, A., Roy, A., Chellappa, R., Bastian, N.D., Velasquez, A., Jha, S.: Toga:
+Temporally grounded open-ended video qa with weak supervision. arXiv preprint
+arXiv:2506.09445 (2025)
+10. He, P., Liu, X., Gao, J., Chen, W.: Deberta: Decoding-enhanced bert with disen-
+tangled attention. arXiv preprint arXiv:2006.03654 (2020)
+11. Huang, J., Liu, Y., Gong, S., Jin, H.: Cross-sentence temporal and semantic rela-
+tions in video activity localisation. In: Proceedings of the IEEE/CVF international
+conference on computer vision. pp. 7199–7208 (2021)
+12. Jang, Y., Song, Y., Yu, Y., Kim, Y., Kim, G.: Tgif-qa: Toward spatio-temporal
+reasoning in visual question answering. In: Proceedings of the IEEE conference on
+computer vision and pattern recognition. pp. 2758–2766 (2017)
+13. Li, J., Li, D., Savarese, S., Hoi, S.: Blip-2: Bootstrapping language-image pre-
+training with frozen image encoders and large language models. In: International
+conference on machine learning. pp. 19730–19742. PMLR (2023)
+14. Li, J., Li, D., Xiong, C., Hoi, S.: Blip: Bootstrapping language-image pre-training
+for unified vision-language understanding and generation. In: International confer-
+ence on machine learning. pp. 12888–12900. PMLR (2022)
+15. Liu, H., Li, C., Wu, Q., Lee, Y.J.: Visual instruction tuning. Advances in neural
+information processing systems 36, 34892–34916 (2023)
+16. Liu, H., Ma, X., Zhong, C., Zhang, Y., Lin, W.: Timecraft: Navigate weakly-
+supervised temporal grounded video question answering via bi-directional reason-
+ing. In: European Conference on Computer Vision. pp. 92–107. Springer (2024)
+
+
+Bridging Question Intent to Temporal Evidence for Grounded VideoQA
+17
+17. Liu, Y.: Roberta: A robustly optimized bert pretraining approach. arXiv preprint
+arXiv:1907.11692 364 (2019)
+18. Loshchilov, I., Hutter, F.: Decoupled weight decay regularization. arXiv preprint
+arXiv:1711.05101 (2017)
+19. Ma, M., Yoon, S., Kim, J., Lee, Y., Kang, S., Yoo, C.D.: Vlanet: Video-language
+alignment network for weakly-supervised video moment retrieval. In: European
+conference on computer vision. pp. 156–171. Springer (2020)
+20. Miech, A., Alayrac, J.B., Smaira, L., Laptev, I., Sivic, J., Zisserman, A.: End-to-end
+learning of visual representations from uncurated instructional videos. In: Proceed-
+ings of the IEEE/CVF conference on computer vision and pattern recognition. pp.
+9879–9889 (2020)
+21. Min, J., Buch, S., Nagrani, A., Cho, M., Schmid, C.: Morevqa: Exploring modular
+reasoning models for video question answering. In: Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition. pp. 13235–13245 (2024)
+22. Mithun, N.C., Paul, S., Roy-Chowdhury, A.K.: Weakly supervised video moment
+retrieval from text queries. In: Proceedings of the IEEE/CVF Conference on Com-
+puter Vision and Pattern Recognition. pp. 11592–11601 (2019)
+23. Radford, A., Kim, J.W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G.,
+Askell, A., Mishkin, P., Clark, J., et al.: Learning transferable visual models from
+natural language supervision. In: International conference on machine learning. pp.
+8748–8763. PmLR (2021)
+24. Sun, C., Baradel, F., Murphy, K., Schmid, C.: Learning video representations using
+contrastive bidirectional transformer. arXiv preprint arXiv:1906.05743 (2019)
+25. Tapaswi, M., Zhu, Y., Stiefelhagen, R., Torralba, A., Urtasun, R., Fidler, S.:
+Movieqa: Understanding stories in movies through question-answering. In: Pro-
+ceedings of the IEEE conference on computer vision and pattern recognition. pp.
+4631–4640 (2016)
+26. Wang, H., Xu, Z., Cheng, Y., Diao, S., Zhou, Y., Cao, Y., Wang, Q., Ge, W., Huang,
+L.: Grounded-videollm: Sharpening fine-grained temporal grounding in video large
+language models. arXiv preprint arXiv:2410.03290 (2024)
+27. Wang, Y., Li, K., Li, Y., He, Y., Huang, B., Zhao, Z., Zhang, H., Xu, J., Liu, Y.,
+Wang, Z., et al.: Internvideo: General video foundation models via generative and
+discriminative learning. arXiv preprint arXiv:2212.03191 (2022)
+28. Wang, Y., Deng, J., Zhou, W., Li, H.: Weakly supervised temporal adjacent net-
+work for language grounding. IEEE Transactions on Multimedia 24, 3276–3286
+(2021)
+29. Wu, B., Yu, S., Chen, Z., Tenenbaum, J.B., Gan, C.: STAR: A benchmark for
+situated reasoning in real-world videos. In: Thirty-fifth Conference on Neural In-
+formation Processing Systems (NeurIPS) (2021)
+30. Xiao, J., Shang, X., Yao, A., Chua, T.S.: Next-qa: Next phase of question-answering
+to explaining temporal actions. In: Proceedings of the IEEE/CVF conference on
+computer vision and pattern recognition. pp. 9777–9786 (2021)
+31. Xiao, J., Yao, A., Li, Y., Chua, T.S.: Can i trust your answer? visually grounded
+video question answering. In: Proceedings of the IEEE/CVF Conference on Com-
+puter Vision and Pattern Recognition. pp. 13204–13214 (2024)
+32. Xiao, J., Zhou, P., Chua, T.S., Yan, S.: Video graph transformer for video ques-
+tion answering. In: European Conference on Computer Vision. pp. 39–58. Springer
+(2022)
+33. Xu, Y., Wei, Y., Zhong, S., Chen, X., Qi, J., Wu, B.: Exploring question guidance
+and answer calibration for visually grounded video question answering. In: Findings
+
+
+18
+J. Seo et al.
+of the Association for Computational Linguistics: EMNLP 2024. pp. 3121–3133
+(2024)
+34. Yang, A., Miech, A., Sivic, J., Laptev, I., Schmid, C.: Zero-shot video question an-
+swering via frozen bidirectional language models. Advances in Neural Information
+Processing Systems 35, 124–141 (2022)
+35. Yin, C., Tang, J., Xu, Z., Wang, Y.: Memory augmented deep recurrent neural
+network for video question answering. IEEE transactions on neural networks and
+learning systems 31(9), 3159–3167 (2019)
+36. Zhang, H., Li, X., Bing, L.: Video-llama: An instruction-tuned audio-visual lan-
+guage model for video understanding. arXiv preprint arXiv:2306.02858 (2023)
+
+
+[Supplementary Material]
+What You Ask is What You Ground:
+Bridging Question Intent to Temporal Evidence
+for Grounded VideoQA
+Jinhwan Seo1, Kyubeom Han1, Jumin Lee1, Junhyug Noh2†, and Sung-eui
+Yoon1†
+1 KAIST
+2 Ewha Womans University
+{jinhwan.seo,qbhan,jmlee}@kaist.ac.kr, junhyug@ewha.ac.kr,
+sungeui@kaist.ac.kr
+A
+Analysis of Question-Invariant Grounding
+A.1
+Definitions of PIoU and GT-Pred Corr.
+A.2
+PIoU Distribution
+A.3
+PIoU Robustness by Number of Questions
+B
+Additional Ablation Studies
+B.1
+PIoU and GT–Pred Corr by Component
+B.2
+MIL Alternatives
+B.3
+Performance by Question Type
+C
+More Qualitative Results
+C.1
+Success Cases
+C.2
+Similar Questions
+D
+Reproducibility
+D.1
+Implementation Configuration
+D.2
+Training and Inference Cost
+D.3
+Code Release
+E
+Limitation
+E.1
+Failure Cases
+E.2
+Discussion
+A
+Analysis of Question-Invariant Grounding
+In the main paper, we identify question-invariant grounding as a common failure
+mode in Grounded VideoQA, where models produce nearly identical temporal
+segments for different questions within the same video. To quantify this behav-
+ior, we introduce two diagnostic metrics: Pairwise IoU (PIoU) and GT–Pred
+Correlation. This section defines the two metrics (Sec. A.1), visualizes PIoU dis-
+tributions across methods (Sec. A.2), and analyzes PIoU robustness with respect
+to the number of questions per video (Sec. A.3).
+
+
+20
+J. Seo et al.
+A.1
+Definitions of PIoU and GT–Pred Corr.
+Pairwise IoU (PIoU). PIoU measures whether a model produces question-
+conditioned grounding or collapses to a near-constant prediction per video. For
+a video v with questions Q = {q1, . . . , qn}, let ˆsi be the predicted temporal
+segment for qi, and let S∗
+i be the set of ground-truth segments for qi. For each
+question pair (qi, qj), we first compute the ground-truth overlap as
+  \mathrm {I o
+U}_
+{\ma
+t h rm {g
+t
+}}(q_i , q_j) = \max _{s \in \mathcal {S}_i^*,\, s' \in \mathcal {S}_j^*} \mathrm {IoU}(s, s'), \label {eq:iou_gt} 
+(13)
+where IoU(·, ·) denotes temporal intersection-over-union. The predicted overlap
+is IoUpred(qi, qj) = IoU(ˆsi, ˆsj).
+Questions that share the same evidence should legitimately overlap; including
+them would understate collapse. We therefore retain only pairs whose ground-
+truth overlap is small:
+  \
+m
+athc al { P } _v = \bigl \{( q _
+i
+,q_j)\mid i<j,\ \mathrm {IoU}_{\mathrm {gt}}(q_i,q_j)\le \tau \bigr \}, \label {eq:piou_filter} 
+(14)
+where τ is a filtering threshold (default τ=0.5). PIoU is then the mean predicted
+overlap over all filtered pairs:
+  \m a
+t
+hrm
+ {P
+Io
+U
+}
+ 
+= \frac {1
+}{\bigl |\b igcup _v \mathcal {P}_v\bigr |} \sum _{v}\sum _{(q_i,q_j)\in \mathcal {P}_v} \mathrm {IoU}_{\mathrm {pred}}(q_i,q_j). \label {eq:piou} 
+(15)
+A question-invariant model yields PIoU ≈1.0, whereas a question-conditioned
+model produces low PIoU values, closer to the ground-truth overlap distribution.
+GT–Pred Correlation. PIoU captures whether predictions collapse, but it
+does not tell whether a method preserves the relative overlap structure implied
+by the ground truth. To measure this, we consider all question pairs in each video
+without filtering, Av = {(qi, qj) | i < j}, and compute the Pearson correlation
+between ground-truth and predicted overlaps over A = S
+v Av:
+  r = \ma
+t
+hrm {Pears on}\!\Bigl ( \ {\mathrm {Io U}_{\mathrm {
+g
+t}}(q_i,q_j)\}_{(q_i,q_j)\in \mathcal {A}},\; \{\mathrm {IoU}_{\mathrm {pred}}(q_i,q_j)\}_{(q_i,q_j)\in \mathcal {A}} \Bigr ). \label {eq:gt_pred_corr} 
+(16)
+A question-invariant method yields near-constant IoUpred across pairs, resulting
+in r ≈0. A question-conditioned method assigns higher predicted overlap to pairs
+whose ground-truth segments overlap and lower overlap to pairs that do not,
+producing r > 0. Together, PIoU and GT–Pred Correlation are complementary:
+PIoU detects collapse, while GT–Pred Correlation evaluates whether predicted
+overlaps vary in the correct direction.
+A.2
+PIoU Distribution Across Methods
+Fig. 7 shows the PIoU histogram for each method on the NExT-GQA test split.
+NG+ [31] and CRA-GQA [3] place the majority of pairs near PIoU= 1.0, indi-
+cating that different questions within the same video often receive nearly identi-
+cal grounding. In contrast, the ground-truth distribution concentrates near zero
+
+
+Supplementary Material
+21
+0
+2000
+4000
+6000
+8000
+Ground-truth
+0.2
+0.4
+0.6
+0.8
+1.0
+0
+2000
+4000
+6000
+8000
+GroundFormer
+0.2
+0.4
+0.6
+0.8
+1.0
+0
+2000
+4000
+6000
+8000
+NG+
+0.2
+0.4
+0.6
+0.8
+1.0
+0
+2000
+4000
+6000
+8000
+CRA-GQA
+0.2
+0.4
+0.6
+0.8
+1.0
+Fig. 7: PIoU distribution on the NExT-GQA test split. Lower values indicate less
+question-invariant collapse.
+Table 6: PIoU by the number of questions per video on the NExT-GQA test split.
+Lower is better.
+Method
+2Q (8.6%)
+3Q (9.5%)
+4–5Q (28.3%)
+6+Q (50.5%)
+NG+ [31]
+83.2
+89.9
+87.7
+87.9
+CRA-GQA [3]
+88.3
+87.6
+88.2
+88.9
+GroundFormer
+23.7
+22.0
+28.7
+29.6
+because many questions in a video target distinct, non-overlapping segments.
+GroundFormer shifts the predicted distribution toward lower PIoU values, pro-
+ducing a profile that more closely resembles the ground truth. This indicates
+that the gains reported in the main paper reflect broadly improved question-
+conditioned grounding rather than changes in a small number of outlier cases.
+A.3
+PIoU Robustness by Number of Questions
+PIoU is defined over videos with at least two questions. In the NExT-GQA test
+split, 959 out of 990 videos (96.9%) contain two or more questions and therefore
+contribute to PIoU; only 31 single-question videos are excluded by definition.
+The average number of questions per video is 5.6.
+Tab. 6 shows that prior methods remain highly collapsed across all question-
+count bins, with PIoU consistently above 83. In contrast, GroundFormer remains
+close to the overall ground-truth PIoU of 21.3 across bins. This confirms that
+the PIoU improvement is not biased toward videos with a particular number of
+questions.
+B
+Additional Ablation Studies
+This section provides additional ablations beyond the main paper. We first an-
+alyze how structural design choices and auxiliary components affect question-
+invariant grounding using PIoU and GT–Pred Correlation (Sec. B.1). We then
+
+
+22
+J. Seo et al.
+Table 7: Ablation on NExT-GQA with question-invariant grounding metrics. PIoU:
+lower is better (less collapse). GT–Pred Corr.: higher is better (better agreement with
+the ground-truth overlap structure).
+Structure
+Aux. Comp.
+QA
+IoP
+IoU
+Question-Invariant
+Two-pass
+train
+Comm.
+tokens
+Ltype
+Lmcl
+Gσ
+MIL
+Acc@GQA Acc@VQA
+mIoP TIoP@0.5
+mIoU TIoU@0.5
+PIoU ↓GT–Pred Corr. ↑
+✓
+14.8
+58.5
+26.5
+24.8
+14.7
+10.6
+57.4
+0.06
+✓
+✓
+18.6
+59.8
+29.6
+28.6
+17.0
+13.0
+43.5
+0.10
+✓
+✓
+✓
+19.0
+60.4
+30.5
+30.2
+16.9
+13.2
+37.9
+0.10
+✓
+✓
+✓
+✓
+20.1
+61.2
+32.0
+30.3
+17.2
+12.5
+29.4
+0.12
+✓
+✓
+✓
+✓
+✓
+20.8
+61.2
+32.4
+32.0
+16.5
+12.0
+29.4
+0.12
+✓
+✓
+✓
+15.7
+58.2
+26.7
+25.9
+14.6
+10.8
+51.4
+0.05
+✓
+✓
+✓
+✓
+✓
+✓
+21.5
+61.7
+34.0
+33.7
+17.5
+12.8
+28.2
+0.12
+compare MIL Cross-Attention with alternative weakly supervised grounding ob-
+jectives (Sec. B.2) and report performance by question type on NExT-GQA and
+STAR (Sec. B.3).
+B.1
+PIoU and GT–Pred Corr. by Component
+Tab. 7 shows that reducing question-invariant grounding requires both struc-
+tural conditioning and appropriate supervision. Starting from the two-pass base-
+line (row 1), PIoU remains high (57.4), indicating substantial collapse across
+questions. Adding communication tokens (row 2) sharply lowers PIoU (43.5)
+and increases GT–Pred Corr. (0.06→0.10), confirming that early visuo-lingual
+conditioning is central to question-specific grounding. The auxiliary losses fur-
+ther improve question sensitivity: Ltype (row 3) reduces PIoU to 37.9, and adding
+Lmcl (row 4) yields the largest drop to 29.4 with the strongest correlation (0.12),
+suggesting that type priors and hierarchical alignment provide complementary
+supervision for preserving question-dependent overlap structure.
+In contrast, Gaussian smoothing alone (row 5) leaves PIoU and GT–Pred
+Corr. unchanged, consistent with its role as a temporal refinement step rather
+than a source of question conditioning. Finally, enabling MIL cross-attention
+together with two-pass training and auxiliary objectives (row 7) achieves the best
+overall behavior, with the lowest PIoU (28.2) and highest GT–Pred Corr. (0.12),
+while also improving Acc@GQA and localization metrics. Notably, MIL without
+two-pass training (row 6) improves neither PIoU nor GT–Pred Corr. (51.4 /
+0.05), indicating that MIL factorization alone is insufficient without the training-
+time question pass that promotes question-discriminative visual representations.
+B.2
+Comparison with Weakly Supervised Grounding Alternatives
+To examine whether the gains come from the proposed candidate–temporal MIL
+factorization or simply from adding a weakly supervised temporal grounding ob-
+jective, we compare MIL Cross-Attention with three weakly supervised moment-
+localization objectives: TGA [22], MIL-NCE [20], and WSTAN [28]. All variants
+use the same backbone and apply Gaussian smoothing for fair comparison.
+
+
+Supplementary Material
+23
+Table 8: Comparison with weakly supervised grounding alternatives on NExT-GQA.
+Method
+Acc@GQA
+Acc@VQA
+mIoP
+mIoU
+Cross attention
+14.8
+58.5
+26.5
+14.7
+TGA [22]
+19.5
+59.5
+31.6
+17.2
+MIL-NCE [20]
+19.1
+59.4
+31.4
+16.7
+WSTAN [28]
+20.0
+60.9
+31.9
+18.3
+GroundFormer
+21.5
+61.7
+34.0
+17.5
+Table 9: Per-type performance on NExT-GQA [31].
+Method
+Question Type
+Acc@GQA
+Acc@VQA
+TIoP@0.5
+TIoU@0.5
+NG+ [31]
+Causal
+Why
+16.9
+60.1
+27.6
+9.3
+How
+17.2
+60.3
+27.6
+9.4
+Temporal
+Before&After
+12.0
+59.3
+19.5
+9.0
+When
+17.5
+63.0
+27.0
+9.4
+Present
+10.8
+60.3
+19.4
+4.3
+GroundFormer
+Causal
+Why
+22.2
+61.9
+35.6
+13.1
+How
+23.1
+60.3
+37.1
+12.7
+Temporal
+Before&After
+17.3
+59.6
+26.6
+12.3
+When
+25.8
+60.3
+37.7
+13.3
+Present
+12.9
+61.3
+23.7
+8.6
+Table 10: Per-type performance on STAR [29].
+Method
+Question Type
+Acc@GQA
+Acc@VQA
+TIoP@0.5
+TIoU@0.5
+NG+ [31]
+Interaction
+12.5
+52.3
+23.6
+5.6
+Sequence
+32.0
+59.5
+53.2
+4.2
+Prediction
+33.2
+61.5
+51.9
+5.3
+Feasibility
+16.1
+61.5
+28.4
+4.2
+CRA-GQA [3]
+Interaction
+14.1
+53.3
+25.5
+7.5
+Sequence
+34.9
+60.9
+57.3
+3.8
+Prediction
+36.5
+62.8
+56.9
+4.6
+Feasibility
+17.6
+63.3
+27.8
+8.6
+GroundFormer
+Interaction
+22.4
+56.0
+38.2
+24.1
+Sequence
+37.8
+63.8
+58.1
+10.8
+Prediction
+25.5
+64.7
+38.0
+5.4
+Feasibility
+13.9
+65.1
+23.1
+11.0
+As shown in Tab. 8, existing weakly supervised moment-localization objec-
+tives improve over standard cross-attention, confirming that temporal supervi-
+sion signals are useful for Grounded VideoQA. However, they mainly optimize
+temporal selection independently of answer-candidate competition. GroundFormer
+performs best on Acc@GQA, Acc@VQA, and mIoP, supporting our design choice
+that temporal evidence should be selected jointly with answer candidates.
+B.3
+Performance by Question Type
+Tabs. 9 and 10 report per-type results on NExT-GQA and STAR, respectively.
+On NExT-GQA, GroundFormer consistently improves Acc@GQA and localiza-
+tion at IoP@0.5 (TIoP@0.5) over NG+ across all causal and temporal categories,
+
+
+24
+J. Seo et al.
+with the largest gain on Temporal–When, which requires pinpointing a specific
+moment. On STAR, GroundFormer improves Acc@GQA across Interaction and
+Sequence questions with substantial gains in temporal IoU at 0.5, indicating
+more faithful segment boundaries. Performance is weaker on Prediction questions
+in terms of IoU, suggesting that forward-looking reasoning remains challenging
+when the supporting evidence is subtle or distributed.
+C
+More Qualitative Results
+We provide additional qualitative results on NExT-GQA to illustrate how Ground-
+Former grounds temporal evidence in a question-dependent manner. Sec. C.1
+presents success cases where distinct questions within the same video are local-
+ized to distinct temporal segments. Sec. C.2 further examines whether the model
+assigns similar intervals to semantically related questions while separating ques-
+tions that target different events.
+C.1
+Success Cases
+Figs. 8 and 9 show representative success cases. In Fig. 8, three questions refer to
+different people and moments within a 26-second video; GroundFormer localizes
+each question to a different interval that closely matches the ground-truth. In
+Fig. 9, the questions target successive stages of an interaction (walking, reaching
+out, preparing support) in a 12-second clip, and the predicted segments follow
+the ground-truth temporal ordering without collapsing to a single interval.
+C.2
+Similar Questions
+Figs. 10 and 11 examine whether GroundFormer yields consistent grounding
+for semantically related questions while remaining discriminative across distinct
+0:00
+0:26
+Q1: why was the lady in pink scarf looking down in the video?
+A: Using phone
+Q2: what was the lady in white doing as the lady in black jacket was taking a picture of her?
+A: Eating
+Q3: why did the lady in black jacket and light brown pants lift her hands out near the middle?
+A: Take photo
+14.7-19.7s
+7.2-10.2s
+6.2-11.2s
+Q1
+Q2 Q3
+13.0-19.1s
+Groundtruth
+7.8-12.8s
+7.8-12.2s
+Fig. 8: Additional qualitative result on NExT-GQA. GroundFormer produces distinct,
+question-specific grounding intervals within the same video.
+
+
+Supplementary Material
+25
+0:00
+0:12
+Q1: Why did the baby in yellow stretch his hands out when he is walking?
+A: Balance
+Q2: Why did the adult put her hands out towards the baby when the baby walks towards her?
+A: Catch baby if fall
+Q3: How did the adult prepare to support the baby when he is walking to her?
+A: Stretch hands out
+5.7-8.2s
+6.2-10.7s
+9.7-12.2s
+Q1
+Q2
+Q3
+4.2-9.5s
+9.8-12.0s
+Groundtruth
+8.0-9.7s
+Fig. 9: Additional qualitative result on NExT-GQA. GroundFormer preserves tem-
+poral ordering across questions and avoids collapsing multiple questions to a single
+segment.
+events within the same video. In Fig. 10, Q1 and Q2 both refer to the sign-
+related event and are grounded to the same interval (4.7–6.7s), whereas Q3 and
+Q4 both target the later drinking action and are localized to a different inter-
+val (8.7–10.7s); importantly, the two event groups are clearly separated. Fig. 11
+shows the same behavior in a longer 61-second video: Q1–Q2 about the baby and
+toys map to an early segment (3.7–13.2s), while Q3–Q4 about the boy near the
+crib concentrate on a late segment (48.7–60.2s). Overall, GroundFormer assigns
+overlapping intervals when questions share the same temporal evidence and pro-
+[Q3,4]
+[Q1]
+7.3-10.7s
+Groundtruth
+4.4-7.5s
+Q1: Why does the person hold up his fingers?
+A: Show a sign
+4.7-6.7s
+Q2: How does the man in black react after the sign is put up?
+A: Stops talking
+4.7-6.7s
+0:00
+0:12
+Q3: Why does the man move the can in between?
+A: To drink
+8.7-10.7s
+Q4: What does the man in black do after the hand is put down?
+A: Drinks from his can
+8.7-11.2s
+3.1-6.3s
+[Q2]
+Fig. 10: Grounding consistency for semantically related questions within a video: ques-
+tions about the same event receive overlapping intervals, while different events are sep-
+arated.
+
+
+26
+J. Seo et al.
+[Q3,4]
+[Q1,2]
+49.6-59.9s
+Groundtruth
+Q1: How are the toys in front of the baby moving?
+A: Move in circle
+3.7-11.2s
+Q2: Why is the baby looking up?
+A: Looking at toy
+3.7-13.2s
+0:00
+1:01
+Q3: Why does the boy stands next to baby’s bed?
+A: To look at the baby
+48.7-60.2s
+Q4: How did the boy support himself as he looked at the baby?
+A: Holding railings
+48.7-60.2s
+0.3-23.s
+Fig. 11: Grounding consistency on a longer video: early-event questions (baby/toys)
+and late-event questions (boy/crib) are localized to distinct temporal regions.
+duces distinct segments when questions refer to different events, indicating that
+grounding is driven by question semantics rather than superficial phrasing.
+D
+Reproducibility
+This section provides details needed to reproduce our experiments. We summa-
+rize the implementation configuration and hyperparameters in Sec. D.1, report
+training and inference cost in Sec. D.2, and describe the code release plan in
+Sec. D.3.
+D.1
+Implementation Configuration
+Tab. 11 summarizes the model architecture, training setup, and key hyperpa-
+rameters used for all experiments. Unless otherwise stated, we use the same
+configuration for both benchmarks.
+D.2
+Training and Inference Cost
+We measure per-epoch training time on an RTX 3090 GPU. GroundFormer takes
+approximately 2.1× the per-epoch training time of NG+, mainly because the
+training-time question pass is added to enable hierarchical V→Q→A contrastive
+alignment. At inference, however, GroundFormer executes only the answer pass.
+Thus, the two-pass design increases training cost but introduces no additional
+inference pass.
+D.3
+Code Release
+We provide the full codebase as a zip file in the supplementary material and will
+publicly release the repository with pre-trained checkpoints upon acceptance.
+
+
+Supplementary Material
+27
+Table 11: Implementation configuration and hyperparameters.
+Component
+Hyperparameter
+Value
+Encoders
+Vision encoder
+CLIP ViT-L/14
+Vision dim. (DV )
+768
+Language encoder
+RoBERTa-base
+Language dim. (DL)
+768
+Projection dim. (D)
+768
+Video sampling
+Frames (T)
+32 (uniform)
+Frame resolution
+224 × 224
+Comm. tokens
+Query tokens (N)
+32
+GroundFormer
+Transformer layers
+4
+Attention heads
+12
+FFN hidden dim.
+3072
+Gaussian kernel (σ)
+2
+Two-pass
+Question candidates (Qn)
+5 (1 GT + 4 neg.)
+Answer candidates (An)
+NExT-GQA: 5,
+STAR: 4
+Training
+Optimizer
+AdamW
+Learning rate
+1 × 10−5
+Weight decay
+1 × 10−2
+LR schedule
+Cosine decay
+Epochs
+30
+Batch size
+16
+Temperature (τ)
+0.07
+E
+Limitations
+E.1
+Failure Cases
+Following ECCV’s suggested author practices, we summarize representative lim-
+itations observed in qualitative analysis and clarify the conditions under which
+our current formulation can fail.
+Repeated actions and multi-interval evidence. In Fig. 12, all three ques-
+tions describe repeated duck-feeding behavior (e.g., dipping, submerging, sur-
+facing). Because the relevant evidence recurs across the video, the ground-truth
+spans multiple disjoint temporal positions. Our model predicts only a single in-
+terval and thus localizes only the late occurrence, missing earlier repetitions. This
+exposes a limitation of our single-interval grounding formulation: when evidence
+appears multiple times, one predicted segment per question cannot capture all
+relevant instances.
+Fine-grained motion. Fig. 13 shows a car crossing a river while a man films
+from the shore. Q1 and Q2 are grounded correctly, but Q3 has two ground-
+truth deceleration segments (3.4–5.9s and 8.4–10.6s), and the model captures
+only the earlier one. This failure reflects two compounding factors: (i) single-
+interval grounding cannot represent repeated evidence, and (ii) uniform sampling
+at T=32 frames may be temporally too coarse to reliably capture subtle speed
+changes. Distinguishing deceleration from ordinary crossing often requires fine-
+
+
+28
+J. Seo et al.
+[Q1,2,3]
+6.9-11.1s
+Groundtruth
+0:00
+0:12
+1.2-3.2s
+Q3: What did the ducks do after they dipped their heads in the water?
+A: Surface
+8.2-10.7s
+3.7-6.0s
+[Q1,2,3]
+[Q1,2,3]
+Q2: Why do the ducks dip their heads below the water surface?
+A: Find food
+6.2-9.7s
+Q1: How did the ducks see if there are food underwater?
+A: Dip head into water
+6.7-9.2s
+Fig. 12: Failure case: repeated actions with evidence appearing in multiple disjoint
+intervals.
+[Q3]
+9.3-11.5s
+Groundtruth
+Q1: Why did the man walk towards the car after the car crossed over to his side of the shore?
+A: Follow it
+8.2-10.7s
+Q3: How did the car move while crossing the river?
+A: Slowly
+4.2-7.2s
+0:00
+0:12
+Q2: What did the man do when the car drove across the pool of water?
+A: Take a footage of the car
+5.2-8.7s
+3.4-5.9s
+5.4-8.8s
+[Q2]
+[Q1]
+8.4-10.6s
+[Q3]
+Fig. 13: Failure case: fine-grained motion cues (e.g., deceleration) under sparse tem-
+poral sampling.
+grained motion cues that can be attenuated by sparse sampling and by using
+frozen frame-level features.
+
+
+Supplementary Material
+29
+E.2
+Discussion
+This work identifies question-invariant grounding as a failure mode in weakly-
+supervised Grounded VideoQA and shows that early visuo-lingual condition-
+ing can substantially mitigate question-invariant grounding. However, question-
+conditioned grounding is not sufficient for faithful localization in all cases. In
+particular, our current design predicts a single temporal segment per question,
+which is mismatched to scenarios where evidence repeats across disjoint inter-
+vals. Moreover, the common practice of uniform sparse sampling can discard
+fine-grained temporal cues needed for subtle action distinctions. These limita-
+tions suggest promising directions such as multi-interval grounding formulations
+and more temporally sensitive representations. We also expect the diagnostic
+metrics introduced in this work (PIoU and GT–Pred Correlation) to comple-
+ment standard localization scores by explicitly measuring whether grounding
+behavior varies with question semantics.
