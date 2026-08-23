@@ -1,0 +1,493 @@
+Title: Question-Guided Evidence Acquisition for Multimodal Visual Question Answering
+
+URL Source: https://arxiv.org/pdf/2608.19739v1
+
+Published Time: Fri, 21 Aug 2026 00:38:45 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# Question-Guided Evidence Acquisition for Multimodal Visual Question Answering 
+
+Alin-Ionut Popa 
+
+Amazon Inc. 
+
+popaaln@amazon.com 
+
+Fig. 1: From uniform perception to question-conditioned evidence recovery. 
+
+Direct MLLM inference ( Left ) processes the document uniformly and answers from in-complete perception. Q-Guide ( Right ) directs perception toward the question—locating landmarks, reading targeted labels, and verifying spatial relationships—before commit-ting to an answer. 
+
+Abstract. Multimodal LLMs can see a document, but they often can’t read it reliably. Small text, tables, visual cues, and topological elements still trip them up under direct visual inference, even when the page is al-ready sitting in the model’s context. Most document-VQA systems treat perception as fixed: they encode the page once, ask the question, and answer from whatever the model happened to extract in that single fast pass. We think document VQA needs slower, more deliberate perception: rather than answering from one fixed encoding, the model should spend a bit of extra compute at inference time working out what to look at next, and only then answer. We build this into Q-Guide , a small agent that reads a question, works out what evidence it is still missing, and calls tar-geted tool(s) to recover it—reading text where text is needed, zooming in where detail is needed, or grounding a region where position mat-ters. On DocVQA2026 and Manga109, Q-Guide outperforms both direct prompting and recent multi-agent document systems ( 65 .0% vs. 40 .0% 
+
+on DocVQA2026, 32 .4% vs. 24 .4% on Manga109), and the improvement holds across three Claude backbones (Opus 4.6, Sonnet 4.6, and Opus 4.5). We find that accuracy scales with the perception budget—most of the gain appears within two to three deliberate rounds—and that the gain comes from directing perception to the right place, not from com-plex control logic: adding planners, routers, or multiple collaborating agents does not help. 
+
+Keywords: Multimodal Reasoning · Slow Thinking · Test-Time Com-pute · Question-Conditioned Perception · Agentic VQA arXiv:2608.19739v1 [cs.CV] 20 Aug 2026 2 A.-I. Popa  
+
+> Fig. 2: Overview of Q-Guide. Given unstructured multimodal content and a user question, Q-Guide makes perception question-conditioned: the agent inspects the doc-ument, reasons about what evidence is still missing, selects perceptual recovery tools to fill the gap, and updates its evidence state. The loop continues until the recovered evidence supports an answer.
+
+## 1 Introduction 
+
+Multimodal large language models have become very good at looking at doc-uments, grounding regions, and reasoning across modalities [7, 11, 36, 49]. But there is still a gap between seeing a document and actually reading it, and that gap grows as documents get visually denser. A model can have a page in its context window and still misread a dimension on an engineering drawing, miss which table cell is highlighted, or overlook a small label on a map. In our experi-ments this was the most common failure: the model could reason fine, but it did not reliably perceive the specific piece of evidence the question depended on. One reason is that most document-VQA pipelines perceive the document in a single fast pass, the same way regardless of the question [7,16,26,28]. The page is encoded once, and the model answers from whatever it extracted—a System-1 style of perception that commits before it has really looked. This is fine when the relevant evidence is large and central, but visually rich documents are not like that [30, 33, 45, 51]. The evidence for one question might be a value printed in red; for the next it might be a route on a map or a name in a speech bubble, sitting somewhere else and needing a different way of being read. Our idea is to make perception slow and deliberate, and to condition it on the question [17,30,34,44,48]. Rather than committing after one pass, the model asks what this particular question requires it to perceive, spends test-time compute recovering exactly that, and repeats until it has enough evidence to answer—a System-2 loop over perception rather than over language alone. We build this into a compact agent we call Q-Guide .We list three main contributions. First, we cast document VQA as test-time perceptual reasoning: a question-conditioned loop that spends extra compute on 
+
+what to perceive beats heavier reasoning orchestration (planning agents, routing, and multi-agent collaboration) on the same backbone [15, 20, 41, 52], and accu-Q-Guide 3
+
+racy scales with the perception budget until it saturates around two to three rounds. Second, the same design transfers to very different visual domains, from document pages to manga, without any structural changes. Third, the gains are not specific to one model: they hold across Claude Opus 4.6, Sonnet 4.6, and Opus 4.5. On acceptance we will release the evaluation splits and code. We evaluate on two benchmarks that stress different things. DocVQA2026 [28] spans eight document categories with reasoning over up to 181 pages, and tests breadth across layouts, tables, and long documents. M109NC, a character-naming task we build from Manga109 [1, 6, 43], tests one hard axis instead: matching a character’s identity across pages from Japanese dialogue and vi-sual appearance. On both, Q-Guide beats direct prompting and recent agen-tic baselines [15, 34, 41]. Since these baselines were originally reported on dif-ferent MLLM backbones, we re-implement each on our Claude backbones— keeping each method’s own tools and control logic—so any difference reflects the evidence-acquisition strategy, not the underlying model. Ablations then con-firm the gains come from directing perception toward question-relevant evidence; adding orchestration layers does not help and sometimes hurts [52]. 
+
+## 2 Related Work 
+
+The gap we described in the introduction—models that see a page but do not reliably read the evidence a question needs—has been approached from two direc-tions. One is model-side: train or adapt MLLMs to perceive text-rich documents better. The other is system-side: keep a general-purpose MLLM and give it ex-ternal perception it can call on. Q-Guide is a system-side method: the MLLM stays as-is, but gains question-conditioned recovery tools that surface evidence it cannot reliably extract from pixels alone [1, 6, 8, 11, 16, 26, 28, 50]. 
+
+OCR-free and document-specialized MLLMs. OCR-free and document-specialized MLLMs improve the model-side representation of text-rich docu-ments [7, 9, 16, 25, 26, 36, 39]. These models internalize document perception through architecture, training data, or visual encoding. Q-Guide goes the other way: it retains a general-purpose MLLM and instead exposes question-conditioned perceptual recovery tools the model can invoke on demand [2, 35]. 
+
+Tool-augmented and agentic VQA. There is growing interest in moving VQA from passive answer generation toward active evidence gathering [17,27,30, 48]. Several recent methods let vision-language models call external perception modules, break down visual queries, and iteratively collect information before committing to an answer [20, 38, 48]. In visually rich document understanding, closely related systems such as ARIAL [34] and AgenticOCR [44] treat document QA as an iterative process of locating and parsing evidence rather than relying on a fixed OCR transcript. Q-Guide shares this motivation but asks a more pointed question: which perceptual recovery actions actually help when conditioned on the question, and which ones just add overhead? 
+
+Agentic orchestration for document question answering. Recent doc-ument QA systems explore increasingly structured forms of orchestration, in-4 A.-I. Popa 
+
+cluding planning agents, multi-agent collaboration, retrieval modules, answer grounding, and iterative self-correction [8,12,14,15,19,29,34,41,42,46,50]. These systems show that decomposing document understanding into smaller actions can improve interpretability and robustness, especially for long or visually com-plex documents [18,33,45,51]. The downside is that heavier orchestration brings its own failure modes: planner errors, noisy intermediate summaries, repeated re-flection, and context that ends up distracting the reasoning model [52]. Q-Guide tests this trade-off head-on: rather than deeper orchestration, it uses a compact single-loop agent that directs perception toward question-relevant evidence and stops when the recovered modalities support an answer. 
+
+## 3 Q-Guide 
+
+The central idea is to make perception adaptive to the question. Rather than ap-plying a fixed processing pipeline, the model iteratively identifies what evidence is missing and recovers it through targeted tools. Figure 2 gives an overview. The loop is short: the unstructured multimodal content and the user question come in, the Q-Guide agent inspects the document and picks question-conditioned re-covery actions, the recovery tools extract the missing evidence, and the agent judges whether it now has enough to answer or needs another round. 
+
+3.1 Problem Formulation 
+
+Let D = {p1, . . . , p N } be a document of N page images and q the user question. Q-Guide answers q—or returns Unknown when the evidence is insufficient—by iteratively gathering evidence and testing whether it suffices, an interaction de-fined by the tuple (E, A, T , ϕ ).
+
+Evidence state. At turn t the agent holds an evidence state et = ( q, D, O t) ∈E, where Ot = ( o1, . . . , o kt ) is the sequence of observations gathered so far, start-ing empty. Each observation oi = ( ai, r i, y i) records the tool ai, the normalized region ri = ( l, t, r, b ) ∈ [0 , 1] 4 it read from, and the returned content yi. At-taching the source region ri to every observation ties each answer to the page location it was read from rather than to parametric priors. 
+
+Actions and transition. The action space A = Atool ∪ { submit } holds the five recovery tools (Section 3.3) and the answer submission. A single policy 
+
+π—the same LLM at every turn—proposes actions π(et) ⊆ A from the current evidence; the termination rule below arbitrates this proposal into the executed set at, whose tool actions append their observations to the state: 
+
+et+1 = T (et, at) = 
+
+
+
+q, D, O t ⊕ M
+
+> a∈at∩A tool
+
+execute (a)
+
+
+
+, (1) where ⊕ concatenates the new observations onto Ot and submit adds none. 
+
+Computational cost. Attaching a per-action cost κ(a) = ( τ (a), σ (a)) (time, space) makes the budget an explicit second axis: total cost is linear in the number Q-Guide 5
+
+of rounds T and in accumulated evidence, and independent of document length 
+
+N , since the agent encodes only the Pctx ≪ N pages it places in context rather than all N . Token use follows Tokens ≈ αP ctx +β P 
+
+> i
+
+|yi|+γT ; the full derivation is in the Appendix section, and Section 5 shows the measured cost is dominated by the tool-output term and scales with T while accuracy saturates by T ≈ 3.
+
+Sufficiency and termination. Whether to gather more or answer is gov-erned by the sufficiency predicate ϕ : E → { 0, 1}—the agent’s judgment of whether the evidence suffices—which we make explicit rather than leaving to an opaque call. On submission the policy emits a self-reported confidence level 
+
+σ(et) ∈ L = {low ≺ med ≺ high }. Rather than trust the label directly, we treat each level as a calibrated risk estimate : we measure its empirical reliability 
+
+ρ(ℓ) = Pr[ correct | σ = ℓ] (Section 5), which is monotone in ℓ, and gate on a reliability floor ρmin —equivalently a level threshold τ = min {ℓ : ρ(ℓ) ≥ ρmin }:
+
+ϕ(et) = ⊮[ policy submits ∧ σ(et) ⪰ τ ] , τ = med (default) , (2) with ⊮[·] the indicator ( 1 iff its argument holds) and ⪰ the order on L. Grounding 
+
+τ in the measured ρ makes it an empirically justified operating point , not a hand-set constant, and casts ϕ as a binary sufficiency classifier realized by the policy itself—not a separate critic. Each turn resolves as: 
+
+at =
+
+
+
+{submit (et)} if ϕ(et) = 1 ,
+
+{submit_unknown (et)} if ϕ(et) = 0 and t ≥ Tmax ,π(et) otherwise (gather more) .
+
+(3) The gate also drives conflict resolution: a below-threshold submission ( σ ≺ τ )does not answer directly but triggers a lightweight verification step that re-checks the candidate against the accumulated observations Ot, requiring the answer to be explicitly supported by some oi ∈ Ot and otherwise falling back to 
+
+Unknown . Because one model both selects actions and evaluates ϕ, Q-Guide needs no separate planner, router, or critic; it simply reasons over the accumulated evidence and decides what to perceive next. The calibration justifying τ = med 
+
+is in the Appendix: over committed answers, reliability is monotone and well-separated across levels ( high -confidence answers are ≈ 1.6× more reliable than 
+
+med ). At τ = med the gate admits 80 .3% of submissions directly and routes the remaining 19 .7% to verification, of which 89% abstain to Unknown —so the threshold is an active operating point, not a nominal one. 
+
+3.2 Architecture 
+
+Q-Guide instantiates the loop of Section 3.1 with three parts. First, the Q-Guide agent (an MLLM) is the single policy π: it receives the unstructured multimodal content and the question, and at each turn inspects the evidence state et, reasons about what perceptual evidence is still missing, and selects one or more recovery tools to fill the gap. Multiple operators can be invoked in a single turn for complementary evidence. The instructions are intention-ally minimal—short operator descriptions and answer-format guidance, with 6 A.-I. Popa  
+
+> Fig. 3: M109NC task example. For visualization, we show 3 of the 6 context pages (orange border) that reference the query character; the query page highlights the tar-get (red overlay). The task requires cross-page reasoning: reading Japanese dialogue, associating names with visual appearances, and matching the target’s identity across scenes.
+
+no explicit planning, category routing, or advisory hints. Second, the selected 
+
+question-conditioned recovery tools extract information that is difficult to perceive from the raw image alone—text, visual detail, spatial grounding, lay-out structure, and targeted region answers—each addressing a perceptual gap conditioned on the current question. Every call returns a grounded observation 
+
+oi = ( ai, r i, y i) that the transition T appends to the evidence state. Third, Q-Guide performs self-assessment : the same policy that directs perception also evaluates the sufficiency predicate ϕ over the accumulated observations, looping back for more evidence while ϕ = 0 and submitting once ϕ = 1 . Because the state grows one deliberate perception step at a time, this loop is where the model’s test-time compute is spent. Finally, the output follows Eq. 3: an evidence-based answer once ϕ(et) = 1 ,or Unknown when the agent exhausts its budget or a low-confidence answer fails verification. 
+
+3.3 Question-Conditioned Recovery Tools 
+
+The model has direct access to the full document, yet seeing is not reading: small text, dense tables, colored cells, spatial arrangements, and stylized fonts all degrade under direct visual inference, so active recovery is needed even though the pixels are already in context. Each tool below targets one such gap, and the Q-Guide 7
+
+agent decides which to fill next based on what the question demands and what it has gathered so far. Q-Guide exposes five evidence-recovery tools and one submission action, matching the tool groups in Figure 2. Each tool operates on a document page or on a region specified by normalized coordinates (l, t, r, b ) ∈ [0 , 1] 4. This allows the agent to move from a global view of the document to targeted local evidence. 
+
+Text elements recovery. This tool recovers text from a selected page or region. It supports text detection, reading-order recovery, and text recognition. It is useful for small text, scattered labels, dimensions, captions, form fields, and dense document regions. 
+
+Visual details recovery. This tool returns a high-resolution crop of a se-lected region. It does not perform OCR; instead, it gives the LLM a clearer view of the raw pixels. It is useful for color, shape, layout, relative position, chart appearance, and other details that may be lost in text extraction. 
+
+Targeted lookup. This tool asks a natural-language question over a selected region and returns a short answer with confidence. It is useful when the agent has already localized the relevant area and needs a precise value, such as a total, width, label, or table entry. 
+
+Spatial elements recovery. This tool provides grounding capabilities that anchor text and visual elements in the input coordinate space, recovering word-level positions, color distributions, and text along geometric corridors. It is useful for highlighted values, map-like layouts, or text arranged along a path. 
+
+Structure layout recovery. This tool recovers tables, forms, hierarchical text structure, and layout information. When needed, it also associates table cells with visual properties such as text color or background color. It is useful when the answer depends on both text and structure. 
+
+Submit answer. This action terminates the evidence acquisition loop. The agent submits a final answer, short reasoning, and confidence level. The output is either an evidence-based answer or Unknown when the evidence is insufficient. For long documents, we use a simple overlapping chunking strategy during evaluation. Each chunk j is processed by the same Q-Guide loop and returns an answer aj with confidence σj ; a lightweight adjudicator then combines the chunk-level answers by confidence-weighted majority, 
+
+ˆa = arg max 
+
+> v
+
+X  
+
+> j:aj=v
+
+w(σj ), w(low , med , high ) = (1 , 2, 3) , (4) falling back to an LLM arbitration over the candidate set only when (4) is tied. This proved more reliable than page-level retrieval for DocVQA2026, where many answers depend on nearby consecutive pages or cross-page context. We keep this fusion deliberately lightweight: the object of study is the per-question evidence loop, not long-document aggregation. A probabilistic multi-chunk ev-idence model and a question-aware retriever that selects relevant pages under a holistic view of the document are left to future work. Section 5.5 reports the accuracy behind this choice (chunking 65 .0% vs. page-level retrieval 50 .0% ). 8 A.-I. Popa      
+
+> Fig. 4: Q-Guide in action. A science-poster example where the answer depends on both table structure and color. The agent locates the relevant region, recovers the table and red cell values, and submits the answer only after the evidence supports it. Each evidence node eishows the observation oiadded at that step (Section 3.1); together they form the accumulated evidence state.
+
+## 4 Implementation Details 
+
+This section grounds the three parts from Section 3.2 in concrete components. The Q-Guide agent is a single MLLM (the LLM backbone below); the question-conditioned recovery tools are backed by off-the-shelf perception services ( tool backends ); and the self-assessment loop, including the low-confidence verification check, is realized as an explicit state machine ( agent execution ). 
+
+LLM backbone. We use Claude Opus 4.6 [5] as the multimodal reasoning backbone. The model receives unstructured multimodal content and the user question, decides which tools to call, and produces the final answer. We use deterministic decoding with temperature 0. Page images are resized to preserve readability while fitting within the context budget. 
+
+Tool backends. Structured text extraction, layout recovery, table/form parsing, and targeted region queries are implemented with Textract [2]. Spatial text detection uses a coordinate-aware text detector at word polygonal represen-tation level [35]. For visual text grounding, i.e. anchoring detected text elements to their spatial coordinates in the document, we use Qwen3.5-2B [37], which provides bounding-box-level localization of textual elements. Visual inspection returns image crops from the source document. Color sampling and corridor text reading are implemented with lightweight image-processing routines. Region crops include padding and are upscaled before OCR or query-based extraction. 
+
+Agent execution. The agent is implemented as a state machine using Lang-Graph [22], with nodes for initialization, agent reasoning, tool execution, answer extraction, low-confidence verification, and forced termination; this cleanly sep-arates decision logic from tool execution and supports reproducible multi-turn interactions. The evidence-gathering budget is Tmax = 3 turns, and multiple Q-Guide 9
+
+parallel tool calls in a single turn count as one turn. For long documents, we combine outputs from overlapping chunks via the confidence-weighted adjudica-tion of Eq. 4 (majority vote, with LLM arbitration on ties).                                                                               
+
+> Document Category Method Type Bus. Report Comics Eng. Draw. Infogr. Maps Sci. Paper Sci. Poster Slides Overall
+> Direct prompting baselines (single LLM call, no tools)
+> Visual Prompt Direct 20 .0% 40 .0% 20 .0% 20 .0% 20 .0% 30 .0% 40 .0% 30 .0% 27 .5%
+> OCR Prompt Direct 30 .0% 20 .0% 10 .0% 40 .0% 50 .0% 20 .0% 50 .0% 40 .0% 32 .5%
+> Visual+OCR Prompt Direct 40 .0% 20 .0% 20 .0% 50 .0% 30 .0% 50 .0% 50 .0% 50 .0% 38 .8%
+> Agentic baselines (multi-step, tool use)
+> ARIAL [34] Agentic 20 .0% 40 .0% 40 .0% 30 .0% 10 .0% 30 .0% 30 .0% 60 .0% 32 .5%
+> DocAgent [41] Agentic 30 .0% 40 .0% 40 .0% 30 .0% 30 .0% 40 .0% 50 .0% 60 .0% 40 .0%
+> MDocAgent [15] Agentic 30 .0% 40 .0% 30 .0% 40 .0% 40 .0% 50 .0% 60 .0% 30 .0% 40 .0%
+> Q-Guide Agentic 60 .0%60 .0%90 .0%60 .0%50 .0%50 .0%90 .0%60 .0%65 .0%
+
+Table 1: Results on the DocVQA2026 validation split (80 questions, 8 cate-gories). Q-Guide achieves the best overall accuracy, improving over the strongest di-rect prompting baseline by 26 .2 points and over the strongest agentic baselines by 25 .0
+
+points. The largest gains appear on engineering drawings and science posters, where precise local evidence is critical. Overall-column Wilson 95% CIs: Q-Guide [54 .1, 74 .5] ,Visual+OCR [28 .8, 49 .7] , DocAgent/MDocAgent [30 .0, 51 .0] ; both gaps are significant at p < 0.01 . Per-category cells ( n = 10 ) are reported for trends only. 
+
+## 5 Experiments 
+
+5.1 Datasets and Task Formulation 
+
+We evaluate Q-Guide on two settings that are deliberately complementary. The dataset DocVQA2026 stresses breadth : many document types, many layouts, and long documents, so the agent has to pick the right kind of perception across very different pages. M109NC stresses depth on one hard axis : a single task—naming a character—that forces cross-page identity matching from low-resource Japanese text plus visual appearance. Together they exercise different failure modes of the same framework. The first setting is DocVQA2026 [28], containing 80 questions across 8 document categories: business reports, comics, engineering drawings, infographics, maps, science papers, science posters, and slides. Documents range from 1 to 181 pages, and many questions require correlating entities across re-gions, matching labels to visual elements, reading table cells, and combining evidence from multiple pages. Although compact, DocVQA2026 is deliberately adversarial rather than easy: the eight categories mix dense tables, engineering dimensions, colored cells, and map topology, stressing a breadth of perception that far larger single-domain benchmarks do not probe. Its difficulty is evident in the numbers—the strongest direct-prompting baseline reaches only 38 .8% , and every prior agentic system we test stays at or below 40 .0% —so headroom here reflects genuine perceptual challenge, not annotation noise. 10 A.-I. Popa 
+
+The second setting is a character naming benchmark that we construct from Manga109 [1, 6], inspired by the multi-task comic understanding setup of CoMiX [43]. We call this task M109NC, for Manga109 Naming Characters. Given a set of context pages containing character names and a query page with a highlighted character (Figure 3), the system must produce the character’s canon-ical name. This requires active evidence acquisition beyond standard OCR: the model must read Japanese text from context pages, associate names with char-acter appearances, and match the highlighted character on a different page. We use Manga109-v2026 annotations, which provide character body and face boxes linked to a book-level character roster. For M109NC, we sample questions from 10 Manga109 books selected for di-versity and difficulty, yielding roughly 150 questions per book and 1,500 samples in total. Q-Guide is evaluated zero-shot, so no training on the remaining books is involved. For each book, we select a compact set of context pages via a greedy set-cover over character name mentions, then draw query samples from the non-context pages. We deliberately withhold the full book: the goal is to test whether the method can recover a character’s identity from a small evidence set where names and visual references are present but not trivially matched. Performance varies across volumes (per-book breakdown in the Appen mate-rial), tracking how visually distinctive and unambiguously named the characters are: Q-Guide is strongest on YoumaKourin and EienNoWith (unique hairstyles and clothing) and all methods struggle on Akuhamu, where many hamster char-acters share the same body shape. For both benchmarks, we use ANLS-based matching as the primary evaluation criterion, supplemented by strict match-ing for numeric and date answers and order-invariant matching for list answers on DocVQA2026. Unless otherwise stated, all methods use Claude Opus 4.6 as a fixed reasoning-capable backbone LLM so that the comparison isolates the evidence-acquisition strategy from differences in the underlying model. We ver-ify that Q-Guide’s gains generalize across backbones; results with Claude Sonnet 4.6 [4] and Claude Opus 4.5 [3] are reported in Section 5.4. 
+
+5.2 Main Results 
+
+Table 1 compares Q-Guide with direct prompting baselines and recent agentic document-understanding frameworks on the DocVQA2026 validation split. The direct baselines make a single LLM call with different input views: page images, OCR text, or both. The agentic baselines use multi-step tool-based reasoning but do not share Q-Guide’s compact evidence-recovery loop. On DocVQA2026, Q-Guide reaches 65 .0% . This improves over the strongest direct prompting baseline, Visual+OCR Prompt, by 26 .2 points, showing that simply giving the model both page images and OCR text is not enough. It also improves over DocAgent and MDocAgent by 25 .0 points. These agentic baselines represent recent multi-step frameworks: DocAgent [41] decomposes questions into sub-tasks with a planning agent, while MDocAgent [15] uses multi-agent collaboration with reader and synthesizer roles. The largest gains appear on engineering drawings and science posters, where Q-Guide reaches 90 .0% . These Q-Guide 11 
+
+categories often require precise local evidence such as dimensions, table cells, col-ored values, or chart entries, and in these cases targeted lookup, visual inspection, and structure recovery prove more effective than global document processing. Q-Guide also improves on maps, reaching 50 .0% , although map questions remain challenging because many require spatial or topological reasoning that is only partially captured. 
+
+Table 2: Character naming on M109NC (n = 504 ). Q-Guide ben-efits strongly from higher-quality text, with GT-OCR increasing accuracy to 
+
+53 .7% . Wilson 95% CIs: Q-Guide Claude-OCR [28 .4, 36 .5] , GT-OCR [49 .4, 58 .1] ;the improvement over the strongest agen-tic baseline is significant ( p < 0.01 , sup-plementary material).             
+
+> Text Source Method Claude-OCR GT-OCR
+> Direct prompting baselines
+> Visual Prompt 21 .8% 21 .8%
+> Visual+OCR Prompt 23 .1% 24 .9%
+> Agentic approaches
+> DocAgent [41] 24 .4% 29 .3%
+> MDocAgent [15] 25 .6% 27 .8%
+> Q-Guide 32 .4%53 .7%
+
+Figure 4 illustrates the process on a science-poster example: the agent locates the relevant table, recovers its structure and color, then veri-fies the answer before submitting. On M109NC, Q-Guide also improves over direct and agentic baselines (Table 2). With Claude-based OCR it reaches 
+
+32 .4% , improving over Visual+OCR Prompt ( 23 .1% ) by 9.3 points and over DocAgent ( 24 .4% ) by 8.0 points; with ground-truth OCR it reaches 53 .7% ,a 28 .8-point gain over Visual+OCR Prompt with GT-OCR (24 .9% ). Q-Guide’s tools are thus highly effec-tive when text is reliable, while imper-fect OCR limits its potential. Notably, Q-Guide with imperfect Claude-OCR (32 .4% ) already surpasses Visual+OCR Prompt with perfect GT-OCR ( 24 .9% ), suggesting that iterative tool use and cross-page visual matching add value be-yond better text extraction alone. One pattern holds across both benchmarks: visual input alone consistently trails structured multi-modal evidence (visual + text)—MLLMs reason better when evidence arrives already separated into com-plementary modalities than when they must decompose a scene internally. On M109NC this is especially striking, since the OCR is itself produced by Claude: the same model reads better when its own text extraction is surfaced as an explicit tool than end-to-end from pixels. 
+
+5.3 Ablation Studies 
+
+Our central claim is that closing the perception gap comes from pointing per-ception at the right place, not from heavier reasoning control. We ablate two axes this implies: orchestration strategy (does adding planning, routing, or ex-tra stages help?) and tool composition (which recovery modalities surface the missing evidence?). 
+
+Orchestration strategy. Figure 5 ( Left ) compares different ways of orga-nizing the reasoning process. Direct prompting baselines range from 27 .5% to 
+
+38 .8% , with Visual+OCR Prompt performing best among them. A simple two-12 A.-I. Popa                                    
+
+> Configuration Strategy Acc. ∆
+> Direct prompting baselines
+> Visual Prompt Direct Answer 27 .5% —OCR Prompt Direct Answer 32 .5% +5 .0
+> Visual+OCR Prompt Direct Answer 38 .8% +11 .3
+> Two-stage agentic: research for the answer
+> Extract-Synthesize Investigate →Answer 44 .3% +16 .8
+> Complex reasoning agentic
+> 3-Stage Research Plan →Gather →Answer 35 .7% +8 .2
+> Advisory Routing Category-aware routing 44 .3% +16 .8
+> Tool-focused agentic
+> Basic agentic Inspect ⟳OCR loop 50 .0% +22 .5
+> Q-Guide 5 recovery tools 65 .0%+37 .5
+
+Fig. 5: Orchestration and tool-use analysis. Left : Q-Guide performs best with a compact iterative tool-use loop, while heavier planning and routing do not improve accuracy. Right : tool usage changes naturally across document categories, showing that the agent adapts evidence acquisition without explicit category routing. 
+
+stage agentic setup, Extract-Synthesize, reaches 44 .3% , showing that separating investigation from answering already helps. Yet more structure does not always help. The 3-stage research pipeline reaches only 35 .7% —below the Visual+OCR baseline—and Advisory Routing ( 44 .3% )merely matches Extract-Synthesize: the bottleneck is not the absence of a plan. Extra planning produces brittle intermediate decisions, and category routing forces a fixed strategy even when the question needs different evidence. The strongest gains come from a simple iterative loop: Basic agentic reasoning reaches 
+
+50 .0% and Q-Guide 65 .0% , a 37 .5-point improvement over Visual Prompt— invest in perceptual recovery tools, not orchestration complexity. The test-time-compute reading is explicit (Fig. 8, appendix): accuracy scales with the per-ception budget, from 40 .0% at Tmax = 1 to 55 .0% at Tmax = 2 and ∼ 65% at 
+
+Tmax ≥ 3. A saturating fit acc( t) = A − B e −kt over Tmax = 1 . . . 6 (R2 = 0 .982 )realizes 90% of the attainable gain by t⋆ ≈ 3.2 rounds—a slow-thinking curve for perception, where a few deliberate rounds unlock most of the benefit. 
+
+Statistical significance. Treating the question set as the sample (decoding is deterministic), Q-Guide’s margins are significant at p < 0.01 : on DocVQA2026 (n = 80 ) over both the best direct baseline ( 65 .0% vs. 38 .8% , p ≈ 9×10 −4) and the best agentic baseline ( 65 .0% vs. 40 .0% ), and on M109NC ( n = 504 ) over the best agentic baseline ( p ≈ 5×10 −3); a paired McNemar test [32] agrees. Wilson intervals [47] and the full test methodology are in the supplementary material. 
+
+Tool composition. Figure 5 ( Right ) shows the agent is not a fixed pipeline: it reaches for text recovery on text-heavy documents, visual inspection when local detail matters, and structure or spatial recovery for specialized cases—the question directs perception toward the relevant modality gap. A leave-one-out ablation over the five tools (full table in the supplementary material) confirms their relative importance by accuracy drop: Visual Inspection ( −17 .2pp) and Targeted Query ( −16 .2) are most impactful, then Text Recovery ( −13 .1), with Structure and Spatial smaller ( −7.2, −3.9); the combined Visual+Query drop Q-Guide 13                                      
+
+> DocVQA2026 M109NC Method Opus 4.6 Sonnet 4.6 Opus 4.5 Opus 4.6 Sonnet 4.6 Opus 4.5
+> Direct prompting baselines
+> Visual Prompt 27 .5% 30 .0% 27 .1% 21 .8% 21 .8% 21 .8%
+> Visual+OCR Prompt 38 .8% 31 .4% 37 .1% 23 .1% 22 .9% 22 .9%
+> Agentic baselines
+> DocAgent 40 .0% 34 .3% 37 .1% 24 .4% 24 .2% 22 .5%
+> MDocAgent 40 .0% 31 .4% 31 .4% 25 .6% 23 .8% 25 .1%
+> Q-Guide 65 .0%62 .8%64 .2%32 .4%32 .2%31 .5%
+
+Table 3: Accuracy across MLLM backbones. Q-Guide consistently achieves the best accuracy regardless of the underlying model. On M109NC, direct prompting base-lines plateau around 22% irrespective of backbone, suggesting the bottleneck is the reasoning architecture rather than perceptual capability. 
+
+(−33 .4pp) exceeds Q-Guide’s total gain over the best baseline, marking question-conditioned extraction as the primary value driver. On Manga109, the +21 .3-point Claude-OCR-to-GT-OCR gap ( 32 .4% → 53 .7% )shows the payoff is largest when recovered text is reliable, yet Q-Guide still beats all baselines under imperfect OCR. Broken down by context-page count (supple-mentary material), Q-Guide leads at every context size and scales with available evidence, exceeding 50% with 12 or more naming pages, whereas the baselines stay nearly flat. 
+
+5.4 LLM Backbone Versatility 
+
+To check that Q-Guide’s gains generalize beyond one backbone, we re-run all methods with Claude Sonnet 4.6 [4] and Claude Opus 4.5 [3]; Table 3 reports the results. Q-Guide improves over every baseline regardless of the model, so the gains come from the evidence-acquisition strategy rather than a specific model’s capability. Stronger backbones amplify its DocVQA2026 advantage, but weaker ones still recover substantially with its tools. On M109NC the direct baselines are flat across models ( ∼22%) while Q-Guide holds ∼32%, so charac-ter naming benefits more from structured evidence acquisition than from raw perceptual capability. MDocAgent, by contrast, degrades on DocVQA2026 with weaker backbones ( 40 .0% → 31 .4% ): its multi-agent orchestration is fragile under reduced capability, while Q-Guide’s simpler loop stays robust. 
+
+5.5 Failure Cases and Discussion 
+
+Q-Guide’s primary weakness is on map questions. This is not a localization error—Q-Guide emits no coordinates or graph, so coordinate-offset metrics do not apply—but information extraction under topological cues : reading a value that depends on a route, adjacency, or orientation the model must follow visually. 14 A.-I. Popa 
+
+The tools recover local text and detail but do not represent the map as a naviga-ble structure; a dedicated map-to-graph tool is the clearest fix and would license a topological error metric. For long documents, fixed-window chunking with cross-chunk adjudication ( 65 .0% ) beats page-level retrieval ( 50 .0% ), as many answers span consecutive pages. 
+
+OCR sensitivity. Treating our three text conditions as a text-quality axis 
+
+x ∈ [0 , 1] —image-only ( x = 0 , 21 .8% ), image + Claude-OCR, image + GT text (x = 1 , 53 .7% )—accuracy on M109NC fits acc( x) ≈ 21 .8%+31 .9x; Claude-OCR’s 
+
+32 .4% places its effective text quality at x ≈ 0.33 , isolating how much residual error is OCR-noise rather than reasoning. 
+
+Cross-page matching. On M109NC the policy resolves character identity by an implicit weighted similarity, which we make explicit: for a query crop and candidate roster entry c,
+
+score( c) = wv sim vis (query , c ) + wt sim txt 
+
+ mentions( c), ctx ,
+
+\identity = arg max  
+
+> c
+
+score( c), (5) combining visual-appearance similarity with textual name-mention evidence across context pages. Our design deliberately lets the MLLM evaluate sim vis and sim txt 
+
+natively from tool-surfaced evidence rather than through a separate face-/frame-embedding pipeline; an explicit embedding-distance matcher (e.g. cosine over face crops) is a natural baseline we leave to future work. 
+
+Error decomposition (M109NC). Categorizing every Q-Guide error ( 341 
+
+over 504 ), the dominant failure is perceptual visual-matching ( 64 .5% , 95% CI 
+
+[59 .3, 69 .4] ), then abstention ( 32 .0% , [27 .3, 37 .1] ), with dialogue-coreference rare (3.5% , [2 .0, 6.0] )— sharpening the paper’s thesis that the bottleneck is percep-tion, not language-level coreference. Finally, single-call methods hit a ceiling regardless of context size, while Q-Guide breaks through by spending tokens on active tool use rather than passive input expansion (Fig. 8, appendix). 
+
+## 6 Conclusion 
+
+Q-Guide is a compact agent that spends test-time compute deciding what to perceive, directing recovery tools toward the evidence a question needs. It out-performs both single-pass (System-1) prompting and heavier multi-agent orches-tration across three backbones and two visually distinct domains, with accuracy scaling with the perception budget—most of the gain arriving within 2–3 rounds. For document VQA, slow thinking is thus most useful applied to perception it-self, not only to language-level reasoning. Complexity linear in the perception budget, a confidence gate grounded in measured reliability, and residual failures that are overwhelmingly perceptual (not linguistic) together indicate the lever for further progress is richer perception , not deeper control logic. The remaining failure modes on maps and manga point the same way, and transferring the loop to open-weight backbones is a natural next step. Q-Guide 15 
+
+## References 
+
+1. Aizawa, K., Fujimoto, A., Otsubo, A., Ogawa, T., Matsui, Y., Tsubota, K., Ikuta, H.: Building a manga dataset “manga109” with annotations for multimedia appli-cations. IEEE Multimedia 27 (2), 72–80 (2020) 2. Amazon Web Services: Amazon textract documentation. https://docs.aws. amazon.com/textract/ (2026), developer documentation. Accessed: 2026-06-02 3. Anthropic: Claude opus 4.5 model card. https://www.anthropic.com/research/ claude-opus-4-5-system-card (2025), accessed: 2026-06-01 4. Anthropic: Claude sonnet 4.6 model card. https : / / www . anthropic . com / research/claude-sonnet-4-6-system-card (2025), accessed: 2026-06-01 5. Anthropic: Introducing claude opus 4.6. https://www.anthropic.com/news/ claude-opus-4-6 (2026), model release announcement. Accessed: 2026-06-02 6. Baek, J., Miyai, A., Onohara, S., Ikuta, H., Aizawa, K.: Manga109-v2026: Revisit-ing Manga109 Annotations for Modern Manga Understanding. In: ICML Workshop (2026) 7. Bai, S., Chen, K., Liu, X., Wang, J., Ge, W., Song, S., Dang, K., Wang, P., Wang, S., Tang, J., et al.: Qwen2.5-vl technical report. arXiv preprint arXiv:2502.13923 (2025) 8. Cho, J., Mahata, D., Irsoy, O., He, Y., Bansal, M.: M3docrag: Multi-modal retrieval is what you need for multi-page multi-document understanding. arXiv preprint arXiv:2411.04952 (2024) 9. Cui, C., Sun, T., Liang, S., Gao, T., Zhang, Z., Liu, J., Wang, X., Zhou, C., Liu, H., Lin, M., Zhang, Y., Zhang, Y., Zheng, H., Zhang, J., Zhang, J., Liu, Y., Yu, D., Ma, Y.: Paddleocr-vl: Boosting multilingual document parsing via a 0.9b ultra-compact vision-language model. arXiv preprint arXiv:2510.14528 (2025) 10. Dietterich, T.G.: Approximate statistical tests for comparing supervised classifica-tion learning algorithms. Neural Computation 10 (7), 1895–1923 (1998) 11. Ding, Y., et al.: A survey on mllm-based visually rich document understanding. arXiv preprint arXiv:2507.09861 (2026) 12. Dong, K., Chang, Y., Huang, S., Wang, Y., Tang, R., Liu, Y.: Benchmark-ing retrieval-augmented multimodal generation for document question answering. arXiv preprint arXiv:2505.16470 (2025) 13. Efron, B., Tibshirani, R.J.: An Introduction to the Bootstrap. No. 57 in Mono-graphs on Statistics and Applied Probability, Chapman & Hall/CRC, New York (1993) 14. Faysse, M., Sibille, H., Wu, T., Omrani, B., Viaud, G., Hudelot, C., Colombo, P.: Colpali: Efficient document retrieval with vision language models. arXiv preprint arXiv:2407.01449 (2024) 15. Han, S., et al.: Mdocagent: A multi-modal multi-agent framework for document understanding. arXiv preprint arXiv:2503.13964 (2025) 16. Hu, A., Xu, H., Zhang, L., Ye, J., Yan, M., Zhang, J., Jin, Q., Huang, F., Zhou, J.: mplug-docowl2: High-resolution compressing for ocr-free multi-page document understanding. arXiv preprint arXiv:2409.03420 (2024) 17. Hu, Y., Shi, W., Fu, X., Roth, D., Ostendorf, M., Zettlemoyer, L., Smith, N.A., Krishna, R.: Visual sketchpad: Sketching as a visual chain of thought for multi-modal language models. In: Advances in Neural Information Processing Systems (2024) 18. Indrehus, K., et al.: Towards self-explainable document visual question answering. arXiv preprint arXiv:2605.06058 (2026) 16 A.-I. Popa 19. Jain, C., Wu, Y., Zeng, Y., Liu, J., Dai, S., Shao, Z., Wu, Q., Wang, H.: Simpledoc: Multi-modal document understanding with dual-cue page retrieval and iterative refinement. arXiv preprint arXiv:2506.14035 (2025) 20. Jiang, B., Zhuang, Z., Shivakumar, S.S., Roth, D., Taylor, C.J.: Multi-agent vqa: Exploring multi-agent foundation models in zero-shot visual question answering. arXiv preprint arXiv:2403.14783 (2024) 21. Krubiński, M., Matcovici, S., Grigore, D., Voinea, D., Popa, A.I.: Watermark text pattern spotting in document images (2024), https://arxiv.org/abs/2401.05167 
+
+22. LangChain: Langgraph: Build resilient language agents as graphs (2024), https: //github.com/langchain-ai/langgraph 
+
+23. Leotescu, G., Popa, A.I., Grigore, D.N.N., Voinea, D., Perona, P.: Self-supervised incremental learning of object representations from arbitrary image sets. In: Pro-ceedings of the Winter Conference on Applications of Computer Vision (WACV). pp. 8133–8143 (February 2025) 24. Leotescu, G., Voinea, D., Popa, A.I.: Bidirectional long-range parser for sequential data understanding (2024), https://arxiv.org/abs/2404.05210 
+
+25. Liao, W., Wang, J., Li, H., Wang, C., Huang, J., Jin, L.: Doclayllm: An efficient and effective multi-modal extension of large language models for text-rich document understanding. arXiv preprint arXiv:2408.15045 (2024) 26. Liu, Y., Yang, B., Liu, Q., Li, Z., Ma, Z., Zhang, S., Bai, X.: Textmonkey: An ocr-free large multimodal model for understanding document. arXiv preprint arXiv:2403.04473 (2024) 27. Liu, Z., Dong, Y., Rao, Y., Zhou, J., Lu, J.: Chain-of-spot: Interactive reasoning improves large vision-language models. arXiv preprint arXiv:2403.12966 (2024) 28. Llabrés, A., Serra Ortega, M., Ockier, T., Singh, A., Georgakilas, C., Barsky, A., Valveny, E., Karatzas, D.: DocVQA2026: ICDAR2026 competition on multi-modal reasoning over documents in multiple domains. https://www.docvqa.org/ challenges/2026 (2026), cVC-UAB. Accessed: 2026-05-25 29. López, E., Llabrés, A., Valveny, E.: Enhancing document vqa models via retrieval-augmented generation. arXiv preprint arXiv:2508.18984 (2025) 30. Luan, B., Feng, H., Chen, H., Wang, Y., Zhou, W., Li, H.: Textcot: Zoom in for enhanced multimodal text-rich image understanding. arXiv preprint arXiv:2404.09797 (2024) 31. Matcovici, S., Voinea, D., Popa, A.I.: k − NN embeded space conditioning for enhanced few-shot object detection. In: 2023 IEEE/CVF Winter Conference on Applications of Computer Vision Workshops (WACVW). pp. 401–410 (2023). 
+
+https://doi.org/10.1109/WACVW58289.2023.00044 
+
+32. McNemar, Q.: Note on the sampling error of the difference between correlated proportions or percentages. Psychometrika 12 (2), 153–157 (1947) 33. Mo, Y., Shao, Z., Ye, K., Mao, X., Zhang, B., Xing, H., Ye, P., Huang, G., Chen, K., Huan, Z., Yan, Z., Zhou, S.: Doc-cob: Enhancing multi-modal document un-derstanding with visual chain-of-boxes reasoning. arXiv preprint arXiv:2505.18603 (2025) 34. Mohammadshirazi, A., et al.: Arial: An agentic framework for document vqa with precise answer localization. arXiv preprint arXiv:2511.18192 (2025) 35. Paruchuri, V., Datalab: Surya: Ocr, layout analysis, reading order, and table recog-nition. https://github.com/datalab- to/surya (2024), software package. Ac-cessed: 2026-06-02 36. Qin, Y., Wei, B., Ge, J., Kallidromitis, K., Fu, S., Darrell, T., Wang, X.: Chain-of-visual-thought: Teaching vlms to see and think better with continuous visual tokens. arXiv preprint arXiv:2511.19418 (2025) Q-Guide 17 37. Qwen Team: Qwen3.5: Towards native multimodal agents (February 2026), https: //qwen.ai/blog?id=qwen3.5 
+
+38. Reddy, N.D., Snyder, D., Kiragu, L., Mohin, M., Bin Amin, S., Pillai, S.: Orion: A unified visual agent for multimodal perception, advanced visual reasoning and execution. arXiv preprint arXiv:2511.14210 (2025) 39. Rodriguez, J.A., Jian, X., Panigrahi, S.S., Vazquez, D., Rajeswar, S., et al.: Big-docs: An open dataset for training multimodal models on document and code tasks. In: Proceedings of ICLR (2025) 40. Sandu, I.C., Voinea, D., Popa, A.I.: Large sequence representation learning via multi-stage latent transformers. In: COLING. International Committee on Com-putational Linguistics, Gyeongju, Republic of Korea (Oct 2022) 41. Sun, L., et al.: Docagent: An agentic framework for multi-modal long-context doc-ument understanding. In: Proceedings of EMNLP (2025) 42. Tanaka, R., Iki, T., Hasegawa, T., Nishida, K., Saito, K., Suzuki, J.: Vdocrag: Retrieval-augmented generation over visually-rich documents. arXiv preprint arXiv:2504.09795 (2025) 43. Vivoli, E., Bertini, M., Karatzas, D.: Comix: A comprehensive benchmark for multi-task comic understanding. arXiv preprint arXiv:2407.03550 (2024) 44. Wang, Z., Ma, D., Zhong, H., Li, J., Zhang, W., Wang, B., He, C.: Agenticocr: Parsing only what you need for efficient retrieval-augmented generation. arXiv preprint arXiv:2602.24134 (2026) 45. Wang, Z., Guan, T., Fu, P., et al.: Marten: Visual question answering with mask generation for multi-modal document understanding. In: Proceedings of CVPR (2025) 46. Wen, S., Zhang, Z., Bian, X., Zhu, H., He, L., Shama, L., Ergu, D., Cai, Y.: Ocr-agent: Agentic ocr with capability and memory reflection. arXiv preprint arXiv:2602.21053 (2026) 47. Wilson, E.B.: Probable inference, the law of succession, and statistical inference. Journal of the American Statistical Association 22 (158), 209–212 (1927) 48. Yin, S., et al.: Toolvqa: A dataset for multi-step reasoning vqa with external tools. In: Proceedings of ICCV (2025) 49. Yin, S., Fu, C., Zhao, S., Li, K., Sun, X., Xu, T., Chen, E.: A survey on multi-modal large language models. National Science Review (2024), also available as arXiv:2306.13549 50. Yu, S., Tang, C., Xu, B., Cui, J., Ran, J., Yan, Y., Liu, Z., Wang, S., Han, X., Liu, Z., Sun, M.: Visrag: Vision-based retrieval-augmented generation on multi-modality documents. In: Proceedings of ICLR (2025) 51. Yu, W., Chen, W., Qi, G., Li, W., Li, Y., Sha, L., Xia, D., Huang, J.: Bbox docvqa: A large scale bounding box grounded dataset for enhancing reasoning in document visual question answer. arXiv preprint arXiv:2511.15090 (2025) 52. Zhang, S., Yin, M., Zhang, J., Liu, J., Han, Z., Zhang, J., Li, B., Wang, C., Wang, H., Chen, Y., Wu, Q.: Which agent causes task failures and when? on automated failure attribution of LLM multi-agent systems. In: Forty-second International Conference on Machine Learning (2025), https://openreview.net/forum?id= GazlTYxZss 
+
+53. Zhang, T., Popa, A.I., Xu, Y., Song, R., Dimitriadis, D.: Pivot: Bridging planning and execution in llm agents via trajectory refinement (2026), https://arxiv.org/ abs/2605.11225 18 A.-I. Popa 
+
+## A M109NC Stratified Results 
+
+Figures 6 and 7 give the stratified M109NC breakdowns referenced in Section 5 of the main paper. Accuracy by context-page count (Figure 6) shows Q-Guide lead-ing at every context size and scaling with the available evidence, exceeding 50% 
+
+with 12 or more naming pages, while single-call baselines stay flat. The per-book radar (Figure 7) shows Q-Guide covering the largest area across diverse manga styles, with performance tracking how visually distinctive and unambiguously named each volume’s characters are. 
+
+Fig. 6: M109NC accuracy by context page count. Q-Guide consistently outper-forms baselines across all context sizes. The gap is largest when more naming pages are available, showing that Q-Guide’s tools effectively leverage additional evidence that single-call methods cannot exploit. C3KA EienNoWith Youma DollGun Touta HS Kimen. Seisinki JijiBaba HealingPl. Akuhamu 
+
+> 10% 20% 30% 40% 50%
+> Visual Only Visual+Text DocAgent MDocAgent Q-Guide
+
+Fig. 7: Per-book accuracy on M109NC. Q-Guide (red) covers the largest area, indicating consistent gains across diverse manga styles. Q-Guide 19 
+
+## B Tool-Importance Ablation on DocVQA2026 
+
+Table 4 reports the full leave-one-out ablation summarized in Section 5.3 of the main paper, removing one tool family at a time from the complete five-tool Q-Guide. Visual Inspection ( −17 .2pp) and Targeted Query ( −16 .2pp) are the most impactful, followed by Text Recovery ( −13 .1pp); Structure ( −7.2pp) and Spa-tial Recovery ( −3.9pp) contribute smaller but consistent gains. The combined Visual +Query drop ( −33 .4pp) exceeds Q-Guide’s total gain over the strongest baseline, identifying question-conditioned extraction as the primary value driver.                                                             
+
+> Table 4: Tool importance on DocVQA2026. Leave-one-out over the five recovery tools (T: Text, V: Visual Inspection, Q: Targeted Query, S: Structure, P: Spatial). Visual Inspection and Targeted Query are the most impactful.
+> Configuration TVQSPAcc. Drop
+> Q-Guide (full) ✓✓✓✓✓65 .0% —
+> −Text Recovery ×✓✓✓✓52 .6% ↓13 .1%
+> −Visual Inspection ✓×✓✓✓48 .5% ↓17 .2%
+> −Targeted Query ✓✓×✓✓49 .5% ↓16 .2%
+> −Structure Recovery ✓✓✓×✓58 .5% ↓7.2%
+> −Spatial Recovery ✓✓✓✓×61 .8% ↓3.9%
+
+## C Time and Space Complexity of the Evidence Loop 
+
+We derive the cost of the interaction defined in Section 3.1 of the main paper. Recall the evidence state et = ( q, D, O t) with Ot = ( o1, . . . , o kt ), and let each action a ∈ A carry a cost κ(a) = ( τ (a), σ (a)) , where τ (a) is wall-clock/compute time and σ(a) is the space (context tokens) its observation occupies. 
+
+Single round. At turn t the policy is invoked once, at cost Cπ (|et|), which is dominated by attending over the current context of size |et| = |q| + Pctx · spage +
+
+|Ot|, where Pctx is the number of page images in context and spage their per-page token cost. It then executes mt = |at ∩ A tool | tool calls. A tool reading a normalized region r = ( l, t, r, b ) of area A(r) costs τ (a) = O(A(r)) for pixel-level operations (OCR, layout, color sampling) and O(1) for crop extraction. Hence the per-round time is 
+
+Tround (t) = Cπ (|et|) + X
+
+> a∈at∩A tool
+
+τ (a) = O Cπ (|et|) + mt ¯A, (6) with ¯A the mean queried region area. Parallel tool calls within a round are independent and may be dispatched concurrently, in which case the additive tool term becomes max a τ (a).20 A.-I. Popa 
+
+Multi-round accumulation. Observations are appended and the full history is re-fed each turn, so after T rounds 
+
+|OT | =
+
+> T
+
+X
+
+> t=1
+
+kt ≤ T · kmax , Ctotal =
+
+> T
+
+X
+
+> t=1
+
+
+
+Cπ (|et|) + P 
+
+> a
+
+τ (a)
+
+
+
+. (7) Since |et| grows only by the appended observations and not with the document length N once Pctx pages are fixed in context, the loop is O(T ) in rounds and 
+
+O(|OT |) in accumulated evidence. Crucially there is no O(N ) term: the agent never encodes all N pages, only the Pctx ≪ N it places in context. This is the formal statement of why targeted recovery is cheaper than uniform whole-document encoding, which pays O(N s page ) regardless of the question. 
+
+Pages ↔ tool calls ↔ tokens. Collecting the dominant terms, total token con-sumption is well-approximated by the affine relation 
+
+Tokens ≈ α P ctx 
+
+| {z } 
+
+> pages
+
++ βX
+
+> i
+
+|yi|
+
+| {z }
+
+> tool outputs
+
++ γ T 
+
+|{z} 
+
+> turns
+
+, (8) where α is the per-page image cost, β scales recovered-evidence length, and γ
+
+the fixed per-turn reasoning overhead. 
+
+Measured token cost. Table 5 reports mean per-question token usage on M109NC (50 questions per method, same backbone). Three facts confirm the analysis. First, Q-Guide’s cost is overwhelmingly input -side ( 9,668 of 10 ,351 tokens, 93% ): the loop’s expense is surfacing recovered evidence into context—the β P 
+
+> i
+
+|yi|
+
+term—not longer generation. Second, Q-Guide spends 2.5× the tokens of the strongest agentic baseline (DocAgent, 4,055 ) and 2.4× Visual+Text ( 4,364 ); this is the price of active recovery, and it is what buys the large accuracy gains re-ported in the main paper. Third, output tokens are small and comparable across agentic methods ( 603 –683 ), so the cost difference is evidence acquisition, not reasoning verbosity. Combined with the iteration-budget analysis (Appendix F), the practical reading is that cost grows linearly with the perception budget T
+
+while accuracy saturates by T ≈ 3, so a small budget captures most of the benefit at bounded cost. 
+
+## D Significance-Testing Methodology 
+
+All accuracy cells are single proportions over the evaluation set, so we treat the question set as the sample (decoding is deterministic at temperature 0, so run-to-run variance is not the relevant source of uncertainty). We report: 
+
+– Wilson score intervals [47] for each accuracy p = k/n : the 95% interval is  p + z2 
+
+> 2n
+
+± zpp(1 − p)/n + z2/4n2/(1 + z2/n ) with z = 1 .96 . Wilson is preferred over the normal approximation at our small n and near-boundary rates. Q-Guide 21 
+
+Table 5: Measured per-question token cost on M109NC (mean over 50 ques-tions, Claude Opus 4.6). Q-Guide’s overhead is input-dominated ( 93% ) and ∼ 2.5× the strongest agentic baseline—the cost of active evidence recovery. 
+
+Method Input Output Total 
+
+Visual Only 2,336 166 2,502 
+
+Visual+Text 3,941 422 4,364 
+
+DocAgent 3,452 603 4,055 
+
+Q-Guide 9,668 683 10 ,351 
+
+– Two-proportion tests on the headline Q-Guide-vs-baseline gaps, evaluated at the reported operating points. 
+
+– Paired McNemar tests [32] on per-question outcomes over the shared question set: with discordant counts b, c (one method correct where the other is wrong), the two-sided p is computed from the exact binomial Bin( b +
+
+c, 12 ). Pairing removes cross-question difficulty variance and is markedly more powerful than the unpaired test at n = 70 –80 . Our use of paired tests for comparing classifiers on a shared test set follows standard practice [10], and interval estimates are cross-checked with the bootstrap [13]. Under both the unpaired and the paired analyses, Q-Guide’s improvement over every direct-prompting and prior-agentic baseline is significant at p < 0.01 
+
+on DocVQA2026 and at p < 0.001 on M109NC. Per-category DocVQA cells (n = 10 ) are individually wide and we do not claim per-category significance; all significance statements are made on the aggregate ( n = 80 ) and on M109NC (n = 504 ). 0 2000 4000 6000 8000 10000 12000 
+
+> Tokens per Sample
+> 010 20 30 40 50 60
+> Accuracy (%)
+> Projected MLLM ~27%
+> MLLM Visual MLLM Visual + Text Q-Guide
+> +26pp gain from agentic tools
+> MLLM scaling trend (diminishing returns)
+
+Fig. 8: Cost and budget analysis. Left: accuracy vs. token cost on M109NC; Q-Guide breaks above the MLLM scaling ceiling (dashed, +26pp) by spending tokens on active investigation rather than context stuffing. Right: accuracy vs. iteration budget (Tmax ) on DocVQA2026; most gain is captured within 2–3 rounds, with diminishing returns beyond Tmax = 3 .22 A.-I. Popa 
+
+## E Confidence–Accuracy Calibration for the ϕ-Gate 
+
+The sufficiency predicate ϕ (main paper Section 3.1) gates submission on a re-liability floor over the self-reported confidence level σ ∈ L = {low ≺ med ≺
+
+high }. This is only principled if the empirical reliability ρ(ℓ) = Pr[ correct | σ =
+
+ℓ] is (i) monotone in ℓ and (ii) separates the levels, so that a floor ρmin induces a meaningful threshold τ . Since the gate depends only on the ordering of ρ across levels, we report relative reliability, normalizing ρ(high ) = 1 .The result is a clean, monotone separation (Table 6): among committed answers, med -confidence responses are correct at ≈ 0.63 × the rate of high -confidence ones—equivalently, high answers are ≈ 1.6× more reliable than med .This ordering is what licenses gating at τ = med : raising the floor from med 
+
+to high trades coverage for precision along a genuinely monotone reliability curve. The low level is qualitatively different and is not a calibration point: the large majority of its responses are the model’s own Unknown abstentions rather than committed answers, and the verification step (Eq. 3) rewrites the few unsupported low-confidence answers to Unknown . We therefore treat low as abstention behavior (the safety branch), not an accuracy estimate.                     
+
+> Table 6: Confidence calibration on M109NC (Q-Guide, Claude Opus 4.6). Rela-tive reliability across confidence levels, normalized to ρ(high ) = 1 . Reliability is mono-tone and well-separated across the committed levels high /med , justifying the gate
+> ρ(σ)≥ρmin (τ=med ). low is predominantly self-abstention (the safety branch), not a committed-accuracy estimate.
+> σRelative reliability ρ/ρ (high )Role
+> high 1.00 committed
+> med ≈0.63 committed
+> low —abstention (safety branch)
+
+## F Iteration-Budget Convergence Fit 
+
+We fit a saturating exponential acc( t) = A − B e −kt to the accuracy across iteration budgets Tmax ∈ { 1, . . . , 6} by least squares. The fit gives A ≈ 0.659 ,
+
+B ≈ 0.738 , k ≈ 1.036 with R2 = 0 .982 , reproducing the observed 40 .0% →
+
+55 .0% → 65 .0% rise and a plateau near the asymptote A ≈ 66% . Defining the saturation point t⋆ as the round at which 90% of the attainable gain over a single pass is realized, e−kt ⋆
+
+= (1 − 0.90) e−k yields t⋆ ≈ 3.2. Marginal accuracy per additional round falls to +2 .1 points at Tmax = 4 and below one point beyond, quantifying the “plateau after 2–3 rounds” claim as a continuous law with an explicit threshold.
