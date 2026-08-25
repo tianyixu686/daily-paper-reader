@@ -6,77 +6,82 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-24
-- 运行时间：2026-08-24 20:55:32 UTC
+- 最新运行日期：2026-08-25
+- 运行时间：2026-08-25 20:59:22 UTC
 - 运行状态：成功
-- 本次总论文数：19
-- 精读区：7
+- 本次总论文数：20
+- 精读区：8
 - 速读区：12
 
 ### 今日简报（AI）
-今日共筛读19篇论文，精读7篇、速读12篇，覆盖长文档问答、持续预训练与视频理解等方向。最值得关注的是高分论文《EnSI-RAG》（9.0/10），提出实体结构索引增强长文档问答；以及《When to Review》（8.0/10），用间隔重复优化语言模型持续预训练。建议普通读者优先精读这两篇，再按兴趣浏览速读列表中的视频时序推理与触觉表征学习工作。
-- 详情：[/202608/24/README](/202608/24/README)
+今日20篇论文聚焦知识型视觉问答与多模态检索增强生成，精读8篇、速读12篇。  
+最值得关注两篇9分工作：结构化上下文推理提升VQA，以及引用增强型多模态RAG可靠性优化。  
+建议普通读者优先精读这两篇高分论文，把握知识推理与可信生成的最新方向。
+- 详情：[/202608/25/README](/202608/25/README)
 
 ### 精读区论文标签
-1. [EnSI-RAG: Entity-Structure-Indexed Retrieval-Augmented Generation for Long-Document Question Answering](/202608/24/2608.21252v1-ensi-rag-entity-structure-indexed-retrieval-augmented-generation-for-long-document-question-answering)  
+1. [Boosting Knowledge-based Visual Question Answering with Structured Context Reasoning](/202608/25/2608.21431v1-boosting-knowledge-based-visual-question-answering-with-structured-context-reasoning)  
    标签：评分：9.0/10、query:mr
-   evidence：提出面向长文档问答的RAG框架，显式支持跨实体的多跳推理
-2. [When to Review: Spaced Repetition for Continual Pre-Training of Language Models](/202608/24/2608.17530v1-when-to-review-spaced-repetition-for-continual-pre-training-of-language-models)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：提出自适应的间隔重复调度方法，用于语言模型持续预训练
-3. [VisDocAgentBench: Benchmarking Agents for Visually Rich Document Retrieval](/202608/24/2608.17889v1-visdocagentbench-benchmarking-agents-for-visually-rich-document-retrieval)  
-   标签：评分：8.0/10、query:mr
-   evidence：针对富视觉文档检索的智能体基准，涉及跨模态证据与多步证据获取
-4. [From Inference to Adaptation: A Unified Optimal Transport View of Vision Language Model](/202608/24/2608.18339v1-from-inference-to-adaptation-a-unified-optimal-transport-view-of-vision-language-model)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：面向视觉语言模型的分布偏移下测试时适配
-5. [Vis-Poison: Poisoning Visual Knowledge in Multimodal Retrieval-Augmented Generation](/202608/24/2608.20756v1-vis-poison-poisoning-visual-knowledge-in-multimodal-retrieval-augmented-generation)  
-   标签：评分：8.0/10、query:mr
-   evidence：针对多模态RAG系统的视觉知识投毒攻击
-6. [EviRank: Structured Relevance Evidence for Multimodal Image Re-ranking](/202608/24/2608.20886v1-evirank-structured-relevance-evidence-for-multimodal-image-re-ranking)  
-   标签：评分：8.0/10、query:mr
-   evidence：面向组合查询的多模态图像重排序的结构化相关性证据
-7. [Re$^3$Cap: Retrieval-Guided Refinement for Image Captioning Enhancement via Reinforcement Learning](/202608/24/2608.21305v1-re3cap-retrieval-guided-refinement-for-image-captioning-enhancement-via-reinforcement-learning)  
-   标签：评分：8.0/10、query:mr
-   evidence：多模态检索作为推理信号指导图像描述优化，并使用强化学习
+   evidence：用于知识型视觉问答的多模态检索增强生成与结构上下文推理
+2. [MCite-RL: Towards Reliable Multimodal RAG via Citation-enhanced Agentic Reinforcement Learning](/202608/25/2608.21808v1-mcite-rl-towards-reliable-multimodal-rag-via-citation-enhanced-agentic-reinforcement-learning)  
+   标签：评分：9.0/10、query:mr
+   evidence：面向可靠多模态检索增强生成的引用增强智能体强化学习
+3. [GTA-RAG: Graph-Trajectory-Augmented Reinforcement Learning for Multi-Turn Retrieval-Augmented Reasoning](/202608/25/2608.22479v1-gta-rag-graph-trajectory-augmented-reinforcement-learning-for-multi-turn-retrieval-augmented-reasoning)  
+   标签：评分：9.0/10、query:mr
+   evidence：面向多跳问题的多轮检索增强推理强化学习
+4. [Learning Sample-wise Rank-aware Interpolation Weights for Composed Visual Data Retrieval](/202608/25/2608.22500v1-learning-sample-wise-rank-aware-interpolation-weights-for-composed-visual-data-retrieval)  
+   标签：评分：9.0/10、query:mr
+   evidence：融合参考图像和文本查询的复合视觉数据检索
+5. [Beyond Factual Knowledge: Benchmarking and Learning Step-Level Procedural Rule Reasoning in Large Language Models](/202608/25/2608.22753v1-beyond-factual-knowledge-benchmarking-and-learning-step-level-procedural-rule-reasoning-in-large-language-models)  
+   标签：评分：9.0/10、query:mr
+   evidence：面向步骤级程序规则推理的基准与方法，包含多跳场景
+6. [Adaptive Hierarchical Representation Alliance for Multimodal Learning](/202608/25/2608.22863v1-adaptive-hierarchical-representation-alliance-for-multimodal-learning)  
+   标签：评分：9.0/10、query:post-multi
+   evidence：直接提出一种面向多模态学习的分层共享-私有专家方法
+7. [Training-Free Pseudo-Fusion for Composed Image Retrieval with Diffusion Models and Multimodal Large Language Models](/202608/25/2608.23102v1-training-free-pseudo-fusion-for-composed-image-retrieval-with-diffusion-models-and-multimodal-large-language-models)  
+   标签：评分：9.0/10、query:mr
+   evidence：组合图像检索结合参考图像与文本进行跨模态检索
+8. [Evaluating Modern RAG: Textual, Multimodal, Dense, and Late Interaction Pipelines](/202608/25/2608.23176v1-evaluating-modern-rag-textual-multimodal-dense-and-late-interaction-pipelines)  
+   标签：评分：9.0/10、query:mr
+   evidence：直接评估包括多模态和稠密检索的现代RAG流水线
 
 ### 速读区论文标签
-1. [Enhancing Localized Reasoning for Long Video Understanding via Efficient Segment-to-Video Supervision](/202608/24/2608.20814v1-enhancing-localized-reasoning-for-long-video-understanding-via-efficient-segment-to-video-supervision)  
+1. [Beyond Visual Similarity: Entity-Aligned Retrieval for Knowledge-Based Visual Question Answering](/202608/25/2608.21450v1-beyond-visual-similarity-entity-aligned-retrieval-for-knowledge-based-visual-question-answering)  
+   标签：评分：8.0/10、query:mr
+   evidence：面向知识型视觉问答的MLLM嵌入检索器，实现实体级跨模态检索
+2. [SAFE-G: Structure-aware Faithful Evidence-guided Generation for Knowledge-based Visual Question Answering](/202608/25/2608.21796v1-safe-g-structure-aware-faithful-evidence-guided-generation-for-knowledge-based-visual-question-answering)  
+   标签：评分：8.0/10、query:mr
+   evidence：面向多模态视觉问答的结构化外部知识检索与忠实生成
+3. [Decoupled Physical Modeling and Execution for Physics Reasoning](/202608/25/2608.22126v1-decoupled-physical-modeling-and-execution-for-physics-reasoning)  
    标签：评分：8.0/10、query:post-multi
-   evidence：通过高效片段到视频监督增强长视频MLLM的局部化推理，属于多模态训练方法
-2. [COMET: Contrastive Motion-Enhanced Temporal Reasoning for Video Multimodal Large Language Models](/202608/24/2608.21030v1-comet-contrastive-motion-enhanced-temporal-reasoning-for-video-multimodal-large-language-models)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：通过对比运动增强训练提升视频多模态大模型的时间推理，属于多模态学习方法
-3. [VT-MUSE: Multimodal Unified Sequential Visuotactile Representation Learning for Manipulation](/202608/24/2608.21290v1-vt-muse-multimodal-unified-sequential-visuotactile-representation-learning-for-manipulation)  
-   标签：评分：8.0/10、query:post-multi
-   evidence：针对视觉触觉数据的两阶段多模态表示学习，直接对应多模态学习方法
-4. [OTel: Building Domain-Specialized Telecom LLM Foundations for Intelligent Networks](/202608/24/2608.15436v1-otel-building-domain-specialized-telecom-llm-foundations-for-intelligent-networks)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：开源电信领域AI资源，包含指令微调数据集和30个后训练基线模型
-5. [Polaris: Learning to Generate Table Descriptions from Retrieval Feedback](/202608/24/2608.17171v1-polaris-learning-to-generate-table-descriptions-from-retrieval-feedback)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：使用检索反馈的DPO微调训练LLM生成表格描述
-6. [Multi-turn Conversational AI from Text to Multimodal Interaction: Data, Models, Evaluation, and Open Challenges](/202608/24/2608.17605v1-multi-turn-conversational-ai-from-text-to-multimodal-interaction-data-models-evaluation-and-open-challenges)  
-   标签：评分：7.0/10、query:post-multi
-   evidence：多模态对话AI与工具增强智能体的最新进展综述
-7. [From Storage to Access: Verifiable Activation of Parametric Knowledge in LLMs via Explicit Priming and Implicit Reasoning](/202608/24/2608.18581v1-from-storage-to-access-verifiable-activation-of-parametric-knowledge-in-llms-via-explicit-priming-and-implicit-reasoning)  
+   evidence：采用监督微调与强化学习的两阶段后训练
+4. [SSE-Bio: A Structured Self-Evolving Agent with Agentic Retrieval Policy for Multi-Hop Biomedical Reasoning](/202608/25/2608.22132v1-sse-bio-a-structured-self-evolving-agent-with-agentic-retrieval-policy-for-multi-hop-biomedical-reasoning)  
+   标签：评分：8.0/10、query:mr
+   evidence：多跳推理结合智能体检索策略，结构化状态与模板编辑
+5. [Text-Guided Visual Dependency Graph Learning with Cross-Modal Attention Priors](/202608/25/2608.21443v1-text-guided-visual-dependency-graph-learning-with-cross-modal-attention-priors)  
    标签：评分：7.0/10、query:mr
-   evidence：检索增强问答中参数知识的可验证激活
-8. [Pretraining Reusable Inference Across Views with Synthetic Task Priors](/202608/24/2608.19115v1-pretraining-reusable-inference-across-views-with-synthetic-task-priors)  
+   evidence：利用跨模态注意力从图文特征学习依赖图，与多模态知识图谱相关
+6. [From Association to Causation: Improving Retrieval Precision of Retrieval-Augmented Generation via Causal Relations and an Attention Mechanism](/202608/25/2608.21702v1-from-association-to-causation-improving-retrieval-precision-of-retrieval-augmented-generation-via-causal-relations-and-an-attention-mechanism)  
+   标签：评分：7.0/10、query:mr
+   evidence：通过因果关系与注意力机制提升RAG检索精度，与RAG方法强相关
+7. [LëtzCross: A Cross-Lingual Page-Level Benchmark for Multimodal Retrieval over Luxembourgish Documents](/202608/25/2608.21714v1-ltzcross-a-cross-lingual-page-level-benchmark-for-multimodal-retrieval-over-luxembourgish-documents)  
+   标签：评分：7.0/10、query:mr
+   evidence：面向PDF多模态检索与RAG的跨语言页面级基准数据集
+8. [The Chase Is the Curriculum, the Capture Anchors the Credit: Pursuit-Evasion Self-Play for Zero-Data LLM Reasoning](/202608/25/2608.21871v1-the-chase-is-the-curriculum-the-capture-anchors-the-credit-pursuit-evasion-self-play-for-zero-data-llm-reasoning)  
    标签：评分：7.0/10、query:post-multi
-   evidence：跨异质视图的可复用推断，属于多模态学习方法
-9. [Margin-Regularized Structured Semantic Alignment for Brain-Language Correspondence](/202608/24/2608.16975v1-margin-regularized-structured-semantic-alignment-for-brain-language-correspondence)  
+   evidence：基于强化学习的语言模型推理后训练，无需人工数据集
+9. [ARASH: Adaptive Retrieval And Shot Selection for Tabular Prediction](/202608/25/2608.17856v1-arash-adaptive-retrieval-and-shot-selection-for-tabular-prediction)  
    标签：评分：6.0/10、query:mr
-   evidence：将大脑嵌入与文本嵌入对齐，实现基于检索的跨模态解码
-10. [Cross-Model Memory Transfer via Target-Side Reader Adaptation](/202608/24/2608.17050v1-cross-model-memory-transfer-via-target-side-reader-adaptation)  
+   evidence：面向LLM上下文学习的自适应检索与示例选择
+10. [ReFrame: Evidence-Guided Test-Time Safety Alignment in Multimodal Large Language Models](/202608/25/2608.21100v1-reframe-evidence-guided-test-time-safety-alignment-in-multimodal-large-language-models)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：面向多模态大语言模型的免训练测试时安全对齐，属于多模态与对齐主题
+11. [Semantic Compression Trees: Multi-Resolution Knowledge Retrieval via Hierarchical Semantic Residuals](/202608/25/2608.21610v1-semantic-compression-trees-multi-resolution-knowledge-retrieval-via-hierarchical-semantic-residuals)  
    标签：评分：6.0/10、query:mr
-   evidence：与检索和外部知识架构相关的跨模型内存迁移研究
-11. [Routing Before Looking: Query-Adaptive Evidence Acquisition for Long-form Video Understanding](/202608/24/2608.20805v1-routing-before-looking-query-adaptive-evidence-acquisition-for-long-form-video-understanding)  
-   标签：评分：6.0/10、query:mr
-   evidence：通过多模态语义检索进行查询自适应的证据获取
-12. [When Generated Images Look Right and Retrieve Wrong: Coverage-Guided Cross-Scale Re-Indexing for Knowledge-Faithful Generative Perception](/202608/24/2608.20810v1-when-generated-images-look-right-and-retrieve-wrong-coverage-guided-cross-scale-re-indexing-for-knowledge-faithful-generative-perception)  
-   标签：评分：6.0/10、query:mr
-   evidence：闭环多模态索引框架，解决生成图像的查询-概念检索
+   evidence：面向RAG的分层语义检索索引，可迁移到多模态RAG
+12. [From Solver Feedback to Faithful Plans: Multi-Role Reinforcement Learning for Symbolic Planning](/202608/25/2608.21897v1-from-solver-feedback-to-faithful-plans-multi-role-reinforcement-learning-for-symbolic-planning)  
+   标签：评分：6.0/10、query:post-multi
+   evidence：用求解器反馈进行多角色强化学习以训练LLM符号规划
 
 
 <div class="dpr-home-promo-card">
