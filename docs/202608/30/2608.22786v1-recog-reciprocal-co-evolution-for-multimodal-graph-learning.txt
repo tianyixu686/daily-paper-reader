@@ -1,0 +1,1414 @@
+Title: ReCoG: Reciprocal Co-Evolution for Multimodal Graph Learning
+
+URL Source: https://arxiv.org/pdf/2608.22786v1
+
+Published Time: Tue, 25 Aug 2026 02:00:36 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# ReCoG: Reciprocal Co-Evolution for Multimodal Graph Learning 
+
+Rui Xue & Tianfu Wu 
+
+Department of Electrical and Computer Engineering (ECE) North Carolina State University, Raleigh, NC 27695, USA 
+
+{rxue,twu19}@ncsu.edu 
+
+## Abstract 
+
+Multimodal graph learning requires jointly training over graph structure and het-erogeneous node attributes, yet existing methods largely decouple these processes: prior multimodal graph neural networks (GNNs) focus on aligning modalities in a shared embedding space while operating on fixed or weakly adapted graph structures, and graph structure learning approaches infer topology from unimodal node representations without accounting for multimodal interactions. This separa-tion fundamentally limits the ability of GNNs to capture semantically meaningful relationships in multimodal settings, where observed edges are often noisy, incom-plete, or misaligned with underlying semantics. We propose ReCoG (Reciprocal Co-Evolution for Multimodal Graph Learning), a new learning paradigm that tightly couples graph structure learning and multimodal representation learning through end-to-end reciprocal interaction . Concretely, ReCoG integrates (i) 
+
+a multimodal graph refiner that infers and corrects edges using cross-modal semantic evidence, and (ii) a coupled cross-modal message passing mechanism 
+
+that performs joint intra- and inter-modality propagation over the refined graph. This unified design yields greater expressiveness than decoupled or two-stage formulations and allows dynamic interaction between topology and representation learning. Across diverse benchmarks for node classification and link prediction, ReCoG consistently outperforms strong multimodal graph structure learning base-lines, including graph foundation models. Our results demonstrate that reciprocal co-evolution of structure and semantics is important for effective multimodal graph learning , challenging the prevailing separation between topology and repre-sentation learning. 
+
+## 1 Introduction 
+
+Graph neural networks (GNNs) have become a dominant paradigm for learning over relational data, achieving strong performance across applications such as recommendation systems, social networks, and scientific modeling [22, 21, 5, 27, 35, 13, 6, 23, 25, 29, 30]. While most existing GNNs assume 
+
+unimodal node attributes, real-world graphs are inherently multimodal , where nodes are described by heterogeneous signals such as text, images, and metadata. These modalities provide complementary semantic views, making multimodal graph learning an important step toward more realistic and expressive representation learning. Despite recent progress, existing approaches to multimodal graph learning remain fundamentally limited by a decoupled design . On one hand, multimodal GNNs typically focus on aligning representations across modalities—often through separate encoders or late fusion—while operating on 
+
+fixed or weakly adapted graph structures . On the other hand, prior work on graph structure learning (e.g., IDGL [2], SLAPS [4], Pro-GNN [12], NodeFormer [26]) iteratively refines topology jointly with representations, but operates in the unimodal setting and does not model cross-modal evidence 
+
+> 40th Conference on Neural Information Processing Systems (NeurIPS 2026). arXiv:2608.22786v1 [cs.LG] 24 Aug 2026
+
+Figure 1: Overview of the proposed ReCoG framework. Left: The input multimodal graph with text and vision features. Center-top: The Structure Refiner module with two variants: a similarity-based version, and a residual MLP-based version. Center-bottom: Cross-modal coupled message passing over L layers, where each layer performs intra-modal neighbor aggregation and cross-modal injection. 
+
+Right: Modality fusion followed by a task-specific head. The entire pipeline is trained end-to-end. 
+
+Best viewed in magnification. See text for detail. in either the refinement signal or the propagation rule. As a result, these methods fail to capture the tight interplay between structure and semantics that is essential in multimodal settings, where observed edges are often noisy, incomplete, or misaligned with multimodal semantic relationships. We argue that graph structure and multimodal representations should not be treated as indepen-dent components, but rather as mutually dependent variables that must be learned jointly . In multimodal graphs, better representations provide stronger semantic signals for identifying mean-ingful connections, while improved graph structure enables more effective cross-modal information propagation. To realize this idea, we propose ReCoG (Reciprocal Co-Evolution for Multimodal Graph Learning, Fig. 1), a unified framework that tightly couples graph structure learning and multimodal representa-tion learning through end-to-end reciprocal interaction . ReCoG consists of two interdependent components: • A multimodal graph refiner leverages cross-modal semantic signals to denoise and augment the observed topology, correcting spurious edges and recovering missing but semantically meaningful connections (Fig. 2 and Appendix F). • A cross-modal message passing mechanism performs joint intra- and inter-modality propagation over the evolving graph, enabling fine-grained interaction between modalities at every layer. Importantly, these components are optimized jointly: updated representations iteratively guide topology refinement, while the refined graph directly shapes subsequent cross-modal propagation. We evaluate ReCoG on nine multimodal graph benchmarks spanning node classification and link prediction tasks. Across diverse encoder configurations, ReCoG consistently outperforms strong multimodal, and graph foundation model baselines, often by significant margins. These results demonstrate that jointly evolving graph structure and multimodal semantics is important for effective multimodal graph learning. Our contributions. We provide details of related work positioning our proposed ReCoG in Ap-pendix B. It makes three main contributions as follows: • A unified multimodal graph learning framework. We propose ReCoG, which integrates a multimodal graph refiner with a coupled cross-modal message passing mechanism, enabling iterative interaction between structure and semantics throughout training, and challenging the conventional separation between topology and feature learning. • Spectral and contraction analysis of coupled propagation. We give a supergraph reformulation of the coupled update that admits a closed-form spectral characterization of the modality coupling coefficients, and prove a depth-wise contraction bound that motivates our shared-weight design. 2• Strong empirical performance. We demonstrate consistent improvements over state-of-the-art multimodal GNNs and graph structure learning methods across nine benchmarks for node classification and link prediction. 
+
+## 2 Methodology 
+
+We now describe the three components of ReCoG (Fig. 1): (1) a multimodal graph refiner that refines the observed topology (Sec. 2.1), (2) a cross-modal message passing module that propagates information over the refined graph (Sec. 2.2), and (3) an adaptive modality fusion layer that integrates modality-specific representations (Sec. 2.3). These components are optimized end-to-end, forming a closed loop between topology refinement and representation learning. 
+
+2.1 Graph Refinement via Multimodal Semantics 
+
+We refine the observed topology using multimodal semantic evidence that adapts dynamically as representations evolve. We first state the refinement problem in general, then present two comple-mentary instantiations: a cosine similarity refiner that is efficient and interpretable, and a residual refiner that provides greater expressive power. 
+
+Problem formulation. Given the multimodal graph G = ( V, E) with adjacency Aorig and multi-modal node features {xti, xvi }i∈V , the refiner produces a refined adjacency Arefine ∈ [0 , 1] |V|×|V| by combining the original topology with a learned multimodal edge score. 
+
+Mini-batch target-centric candidates. Large-scale GNN training typically uses neighbor sampling. Let VB denote the sampled subgraph and B ⊆ V B the set of target nodes, with |B| = B and 
+
+|V B| = NB. Since only target nodes receive direct supervision [31], we restrict refinement to target-centric pairs: 
+
+P = (i, j ) : i ∈ B , j ∈ V B \ { i} = SE ∪ S cand , (1) where SE ⊂ E contains original edges to be re-scored ( denoising ) and Scand (Scand ∩ E = ∅) contains candidate non-edges to be discovered ( recovery ). This reduces candidate complexity from O(N 2
+
+> B
+
+) to 
+
+O(BN B) We provide a full analysis in Appendix G. 
+
+2.1.1 Cosine Similarity Refiner 
+
+This variant provides a simple and interpretable mechanism based on pretrained feature geometry. 
+
+Multimodal similarity scoring. We compute modality-specific cosine similarities and combine them via a learnable convex combination to obtain s(i, j ).
+
+s(i, j ) = λ S V (i, j ) + (1 − λ) ST (i, j ), with ST (i, j ) = cos( xti, xtj ), S V (i, j ) = cos( xvi , xvj ), (2) where λ = σ(λlogit ) ∈ (0 , 1) is learned. Textual similarity captures contextual alignment, visual similarity captures perceptual resemblance, and λ lets the model balance the two on a per-task basis. We mask self-loops and clamp negative similarities to zero to prevent anti-semantic edges. 
+
+Semantic neighbor selection. For each target node i ∈ B , we select the top-k neighbors by similarity: 
+
+Nsem (i) = TopK j∈V B {s(i, j )}, |N sem (i)| = k. (3) where k is a hyperparameter in training. This produces a set of candidate semantic edges, each associated with a similarity score. And we set s(i, j ) = 0 , j / ∈ N sem (i).
+
+Topology integration. We combine original and semantic edges via a convex combination: 
+
+Arefine (i, j ) = Clamp 
+
+
+
+α · Aorig (i, j ) + (1 − α) · s(i, j ), 0, 1
+
+
+
+, ∀(i, j ) ∈ P , (4) where α = σ(αlogit ) ∈ (0 , 1) is a learnable coefficient controlling the trade-off between observed topology and semantic edges. This design preserves the original graph as a structural prior while introducing new edges only when supported by strong multimodal similarity. However, because 
+
+s(i, j ) ≥ 0, this rule can only add or strengthen edges relative to Aorig .
+
+2.1.2 Residual Refiner 
+
+The cosine similarity refiner relies on a fixed functional form and collapses feature interactions into a scalar. To capture richer, task-dependent relationships, we introduce a more expressive residual refinement mechanism. 3Pairwise feature and residual scoring. For each pair (i, j ), we construct a pairwise feature that preserves dimension-wise interaction patterns: 
+
+φ(i, j ) = [ xti, xtj , xvi , xvj , xti ⊙ xtj , xvi ⊙ xvj , |xti − xtj |, |xvi − xvj |], (5) combining individual node features, multiplicative interactions, and modality-specific differences rather than collapsing them into a scalar. We pass the pairwise feature through a learned MLP scorer 
+
+fθ to produce a residual edge score r(i, j ) ∈ (−1, 1) , which indicates the strength and direction of the predicted topological correction: 
+
+r(i, j ) = tanh  fθ (φ(i, j )) . (6) A positive r(i, j ) encourages edge addition or strengthening, while a negative value signals edge removal or weakening. 
+
+Coarse-to-fine candidate selection. The complexity O(BN B) can be still expensive when NB is large in conjuction with the high-dim of φ(i, j ). We therefore adopt a coarse-to-fine strategy: (i) Coarse filtering. We project each node into a low-dimensional embedding: hi = Wc[xti; xvi ],
+
+where Wc ∈ Rdh×(dt+dv ) and dh ≪ dt + dv . For each target node i ∈ B , we compute the cosine similarity ˜S(i, j ) = cos( hi, hj ) over all j ∈ V B and retain the top-c candidates, where c = ηk with overselection ratio η > 1.
+
+(ii) Fine scoring. We apply the MLP scorer to candidate pairs (i, j ) with j ∈ C (i) and select the final top-k neighbors. Formally: 
+
+Coarse: C(i) = TopK j∈V B
+
+˜S(i, j ), Fine: Nsem (i) = TopK j∈C (i)r(i, j ). (7) 
+
+Topology integration. We then integrate the MLP-based scores into the original topology as a residual signal: 
+
+Arefine (i, j ) = Clamp  Aorig (i, j ) + δ · r(i, j ), 0, 1, (8) where δ = σ(δlogit ) ∈ (0 , 1) is a learnable scalar that controls the refinement magnitude. Because 
+
+r(i, j ) is signed, this rule supports both edge denoising and semantic edge recovery — a strict capability gain over Eq. (4). Proposition 1 shows that the family of Arefine functions induced by Eq. (8) strictly contains those induced by Eq. (4). 
+
+Proposition 1 (Strict Generalization of Residual Refinement ). On a fixed candidate set C ⊆ V ×V ,let Fsim denote the family of edge-scoring functions induced by the similarity refiner (Eqn. (2) ), and let Fres denote the family induced by the residual refiner (Eq. (6) ). Assume the similarity refiner’s correction magnitude is bounded by δ on C. Then Fsim ⊊ Fres .
+
+Remark 1. Proposition 1 characterizes expressiveness , not generalization. The inclusion follows from a universal-approximation argument on the residual MLP, and strictness from dimension-wise interactions (e.g., xti ⊙ xtj ) that cosine similarity collapses to a scalar. Whether this additional capacity translates to better task performance depends on the learning context: Sec. 4.3 show that the residual refiner’s advantage emerges only when coupled with cross-modal propagation. 
+
+2.1.3 Effects of Graph Refinement 
+
+Figure 2: Topology–semantics alignment before and after refinement. Left : distribution of multimodal co-sine similarity for connected and disconnected node pairs in the original graph (RedditM). Right : similarity distribution of edges added by the cosine refiner com-pared to disconnected pairs. To validate the effect of topology refine-ment, we compare the semantic similarity distribution of edges before and after re-finement. As shown in Fig. 2, the original graph exhibits substantial overlap between connected and disconnected node pairs, in-dicating noisy and missing edges. In con-trast, the edges introduced by the refiner are concentrated in the high-similarity region, with significantly reduced overlap. This demonstrates that the refiner selectively recovers semantically meaningful connec-tions while avoiding spurious links, leading to a cleaner and more informative graph structure. This shift in distribution provides direct evidence that ReCoG improves topology quality by increasing semantic consistency of graph edges. More detailed analysis is provided in Appendix F. 42.2 Semantic Alignment via Cross-Modal Message Passing 
+
+Given the refined graph Arefine , we propagate information jointly across modalities and graph structure. We first present the propagation rule directly through its supergraph formulation, which exposes its spectral and alignment properties (Sec. 3), and then show that it admits an efficient per-modality implementation. We first project modality-specific features into a common latent space of dimension dh:
+
+hm, (0)  
+
+> i
+
+= Proj (xmi ; ϕm), m ∈ { t, v }, (9) where ϕm parametrizes the projection (a linear layer followed by layer normalization (LN) and the GELU nonlinearity with dropout). This ensures dimensional alignment and stabilizes subsequent cross-modal interaction. We then adopt symmetric normalization of Arefine with self-loops. 
+
+Coupled propagation on a modality-augmented supergraph. We define the stacked representation 
+
+H(ℓ) = [ Ht, (ℓ); Hv, (ℓ)] and the supergraph adjacency 
+
+Asup =
+
+ Arefine γI + ρArefine 
+
+γI + ρArefine Arefine 
+
+
+
+, (10) where γ, ρ ∈ (0 , 1) are learnable coupling scalars (parameterized via sigmoid). Propagation then takes the standard form 
+
+H(ℓ+1) = σ Asup H(ℓ)W(ℓ), (11) with a single shared weight matrix W(ℓ) acting on both modality blocks. Two design choices are central: (1) The symmetric block construction (identical diagonals and off-diagonals) places the two modalities on equal footing and enables decomposition into symmetric and anti-symmetric eigenmodes (Corollary 1). (2) Sharing W(ℓ) across modalities is what enables the cross-modal contraction guarantee in Theorem 2; a separate-weight variant would introduce a residual term proportional to ∥W(ℓ) 
+
+> T
+
+− W(ℓ) 
+
+> V
+
+∥ that does not vanish even when the two modalities have aligned. 
+
+Per-modality view. Expanding the block product in Eq. (11) recovers an explicit per-modality update. For the textual stream: 
+
+ht, (ℓ+1)  
+
+> i
+
+= σ W(ℓ) ·
+
+ X 
+
+> j∈N (i)
+
+Aij ht, (ℓ)
+
+> j
+
+| {z }
+
+> intra-modal aggregation
+
++ γ · hv, (ℓ)
+
+> i
+
+| {z }
+
+> cross-modal self-injection
+
++ ρ · X 
+
+> j∈N (i)
+
+Aij hv, (ℓ)
+
+> j
+
+| {z }
+
+> cross-modal neighbor aggregation
+
+!
+
+,
+
+(12) where Aij = Arefine (i, j ) (Eqn. (4) or (8)) and N (i) is the top-k semantic neighbors (Eqn. (3) or Eqn. (7)). The visual update hv, (ℓ+1)  
+
+> i
+
+is defined symmetrically. Each term has a distinct role: intra-modal aggregation propagates within a stream, self-injection mixes the node’s own counterpart-modality representation, and cross-modal neighbor aggregation propagates counterpart-modality signals over the refined graph. Importantly, this formulation reduces the number of nodes by half and decreases the number of edges from 4E + 2 N in Eq. (11) to 2E, making it more efficient. 
+
+Complexity optimization. The per-modality view above avoids materializing Asup , but still requires four GNN calls per layer (two per modality: one for intra-modal and one for cross-modal neighbor aggregation). By exploiting linearity of aggregation, 
+
+X
+
+> j
+
+Aij (htj + ρhvj ) = X
+
+> j
+
+Aij htj + ρ X
+
+> j
+
+Aij hvj , (13) we merge intra-modal and cross-modal neighbor aggregation into a single GNN call per modality: 
+
+˜ht, (ℓ) 
+
+> i
+
+= GNN (ht, (ℓ) 
+
+> j
+
++ ρ hv, (ℓ) 
+
+> j
+
+, Arefine ), ˜hv, (ℓ) 
+
+> i
+
+= GNN (hv, (ℓ) 
+
+> j
+
++ ρ ht, (ℓ) 
+
+> j
+
+, Arefine ), (14) followed by the self-injection term: 
+
+ht, (ℓ+1)  
+
+> i
+
+= σ
+
+
+
+LN  ˜ht, (ℓ) 
+
+> i
+
++ γ W(ℓ)hv, (ℓ)
+
+> i
+
+
+
+, hv, (ℓ+1)  
+
+> i
+
+= σ
+
+
+
+LN  ˜hv, (ℓ) 
+
+> i
+
++ γ W(ℓ)ht, (ℓ)
+
+> i
+
+
+
+. (15) This reduces the cost from four to two calls per layer and is exactly equivalent to Eq. (11) for any linear aggregation operator. A detailed complexity optimization analysis is provided in Appendix E. 
+
+Closed loop with the refiner. Combined with the graph refiner of Sec. 2.1, the propagation step closes a loop: at each training step, refined representations sharpen the topology produced by Eq. (4)/(8), and the updated topology in turn shapes the next round of cross-modal propagation. This is the reciprocal co-evolution formalized in Proposition 2: fixed refiners (i.e., not jointly optimized with the 5GNN) are recovered as special cases, while ReCoG additionally allows task gradients to update the topology refiner, strictly enlarging the feasible optimization space. 
+
+Proposition 2 (Joint Optimization Contains Non-Reciprocal Alternatives ). Let J (θref , θ gnn ) = 
+
+ℓ(fθgnn (X, A refine (θref )) , Y ) denote the end-to-end task objective. Then the joint optimization space contains any fixed or frozen refiner as a special case: 
+
+inf  
+
+> θref , θ gnn
+
+J (θref , θ gnn ) ≤ inf 
+
+> θgnn
+
+J (θfix ref , θ gnn ), (16) 
+
+for any fixed θfix ref , including the identity refiner Arefine = Aorig when it belongs to the refiner parameter space, and any frozen two-stage refiner. 
+
+2.3 Adaptive Modality Fusion 
+
+After L layers of coupled message passing, we obtain modality-specific node representations 
+
+zti = ht, (L) 
+
+> i
+
+and zvi = hv, (L) 
+
+> i
+
+. While the two modalities have been progressively aligned through shared propagation and cross-modal interaction, they may still carry complementary or unevenly informative signals. We therefore fuse them into a unified representation through a node-adaptive gating mechanism . Specifically, we compute a node-specific scalar gate: 
+
+gi = σ
+
+
+
+MLP  [zti ; zvi ]
+
+∈ (0 , 1) , (17) where σ(·) is the sigmoid function and [·; ·] denotes concatenation. The final representation is: 
+
+zi = LN 
+
+
+
+gi · zti + (1 − gi) · zvi
+
+
+
+. (18) 
+
+Relation to coupled propagation. Unlike early or late fusion strategies, this design separates two roles: (i) Cross-modal message passing aligns and propagates multimodal information across the graph, and (ii) Adaptive fusion performs final integration based on node-specific relevance. This separation allows ReCoG to first establish structurally grounded cross-modal representations and then perform flexible, task-adaptive combination. This final adaptive fusion ensures that the benefits of reciprocal co-evolution are translated into task-specific representations. 
+
+## 3 Theoretical Analysis 
+
+We provide formal justifications for the design choices in ReCoG from two complementary perspec-tives: the representational benefit of coupled cross-modal propagation, and the cross-modal alignment guarantee of shared-weight design. All proofs including propositions are deferred to Appendix H- L. 
+
+Theorem 1 (Layerwise Cross-Modal Information Flow ). Define a multimodal GNN as decoupled 
+
+if each modality stream’s update at layer ℓ depends only on that stream’s representations from layer ℓ − 1 and the graph A, with arbitrary per-modality weight matrices W (ℓ) 
+
+> T
+
+, W (ℓ) 
+
+> V
+
+. Then the cross-modal Jacobian satisfies: 
+
+∂ H (ℓ)
+
+> T
+
+∂ H (0) 
+
+> V
+
+=
+
+(0 for any decoupled model , ∀ ℓ ≥ 0,̸
+
+= 0 (generically) for the coupled model with ρ > 0 or γ > 0, ∀ ℓ ≥ 1. (19) 
+
+Coupled propagation enables layerwise cross-modal information flow that is structurally impossible in any decoupled architecture, regardless of per-modality parameterization or model capacity. This distinguishes per-layer cross-modal coupling from late fusion (e.g., MMGCN), which cannot refine one modality using the graph neighbors of the other during propagation. 
+
+The supergraph interpretation (Eq. (10)) enables an explicit spectral characterization of how the coupling coefficients reshape the effective frequency response. 
+
+Corollary 1 (Spectral Characterization of Coupled Propagation ). Let μ1 ≥ μ2 ≥ · · · ≥ μN be the eigenvalues of Arefine . Then the 2N eigenvalues of Asup are 
+
+λ+ 
+
+> i
+
+= (1 + ρ) μi + γ, λ− 
+
+> i
+
+= (1 − ρ) μi − γ, i = 1 , . . . , N, (20) 
+
+where λ+ 
+
+> i
+
+correspond to eigenmodes in which text and vision components are aligned, and λ− 
+
+> i
+
+to eigenmodes in which they oppose. Intuitively, ρ and γ act as a learned spectral filter that amplify symmetric modes and attenuate anti-symmetric modes. 
+
+Theorem 2 (Shared-Weight Cross-Modal Consistency ). Consider one coupled layer with shared weight W (ℓ) and 1-Lipschitz activation σ(·). Define the cross-modal discrepancy ∆(ℓ) = H(ℓ) 
+
+> T
+
+−H(ℓ) 
+
+> V
+
+.
+
+6Table 1: Node classification accuracy (%) on the MM-Graph [39]. Best and runner-up are highlighted.                                                                                                                                                                                                                                  
+
+> Ele-fashion Goodreads-NC Model CLIP T5+ViT IBind T5+DINO CLIP T5+ViT IBind T5+DINO MMGCN 86.10 ±0.50 82.39 ±0.30 86.21 ±0.94 85.53 ±0.33 83.29 ±0.20 81.85 ±0.22 80.58 ±1.08 82.44 ±0.11 MGAT 84.66 ±0.29 84.01 ±0.08 86.12 ±0.08 84.54 ±0.27 76.48 ±0.59 75.43 ±0.76 69.45 ±6.25 74.98 ±1.23 GCN 79.83 ±0.03 79.63 ±0.07 80.35 ±0.02 79.37 ±0.04 81.61 ±0.01 81.67 ±0.03 78.91 ±0.04 81.71 ±0.03 SAGE 87.10 ±0.02 84.41 ±0.09 87.71 ±0.13 85.31 ±0.09 83.30 ±0.02 83.03 ±0.04 80.39 ±0.21 82.99 ±0.08 MLP 85.16 ±0.03 84.98 ±0.05 88.73 ±0.01 84.87 ±0.01 72.29 ±0.02 67.82 ±0.07 58.75 ±0.05 68.83 ±0.03
+> sim  ReCoG-GCN 88.56 ±0.05 87.25 ±0.08 89.01 ±0.03 87.70 ±0.06 90.43 ±0.09 88.18 ±0.10 89.26 ±0.08 89.21 ±0.12 ReCoG-SAGE 89.01 ±0.05 88.02 ±0.07 89.31 ±0.10 88.21 ±0.10 90.51 ±0.08 88.24 ±0.11 89.31 ±0.09 89.30 ±0.10
+> res  ReCoG-GCN 88.60 ±0.08 87.99 ±0.09 89.06 ±0.10 88.28 ±0.08 90.68 ±0.06 90.98 ±0.03 90.05 ±0.03 90.19 ±0.06 ReCoG-SAGE 88.92 ±0.07 88.04 ±0.06 89.51 ±0.03 88.34 ±0.06 90.66 ±0.11 90.07 ±0.11 90.25 ±0.03 90.08 ±0.05
+
+Table 2: Node classification accuracy (%) on the MAGB datasets [34].                                                                                                               
+
+> Movies Toys Grocery Reddit-S Reddit-M Model L+C QWen LLaVL L+C QWen LLaVL L+C QWen LLaVL L+C QWen LLaVL L+C QWen LLaVL GCN 53.98 55.19 54.92 81.59 80.95 81.57 84.64 82.96 84.17 89.77 90.88 91.13 71.42 72.96 75.64 SAGE 56.08 58.01 57.39 82.35 81.45 82.35 86.65 85.55 86.81 91.08 92.57 92.94 80.84 81.23 85.61
+> sim  ReCoG-GCN 56.97 57.72 57.51 81.98 81.20 82.19 85.89 83.46 85.03 97.20 96.98 97.26 90.55 90.24 90.87 ReCoG-SAGE 56.94 58.92 60.00 82.58 82.27 82.75 86.86 86.24 89.05 96.76 96.38 96.73 88.75 89.18 90.11
+> res  ReCoG-GCN 57.45 60.12 58.62 82.07 82.27 82.27 86.18 86.39 86.56 96.89 96.82 96.73 87.28 87.31 87.42 ReCoG-SAGE 57.93 60.84 60.45 82.68 82.36 83.18 86.92 86.56 87.53 96.89 96.48 97.17 89.18 89.71 89.86
+> †
+
+Following the MAGB benchmark protocol [34], we report the average over 10 random seeds for node classification. 
+
+Then 
+
+∆(ℓ+1) ≤ W (ℓ) 
+
+(1 − ρ) Arefine + γ
+
+
+
+∆(ℓ) . (21) 
+
+Consequently, after L layers: 
+
+∆(L) ≤
+
+> L−1
+
+Y
+
+> ℓ=0
+
+W (ℓ) 
+
+(1 − ρ) Arefine + γ
+
+
+
+· ∆(0) . (22) 
+
+When the per-layer factor ∥W (ℓ)∥ (1 −ρ)∥Arefine ∥+γ < 1, the discrepancy contracts exponentially with depth, ensuring that text and vision embeddings converge to a shared representation space. 
+
+## 4 Experiments 
+
+Datasets. We evaluate ReCoG on two tasks: node classification (NC) and link prediction (LP) across 
+
+nine multimodal graph datasets spanning diverse domains. For NC, we consider two product-review graphs, Ele-Fashion and Goodreads-NC [39], and five datasets from the MAGB benchmark [34], including three e-commerce graphs ( Movies , Toys , Grocery ) and two social-interaction graphs (Reddit-S , Reddit-M ). For LP, we use two Amazon co-purchase graphs, Amazon-Sports and 
+
+Amazon-Cloth [39]. Each node is associated with a text description and an image, from which pretrained encoders extract modality-specific feature vectors. Detailed dataset statistics are provided in Table 8 in the Appendix. All experiments were conducted on a single NVIDIA A100 GPU. 
+
+Encoders. To ensure fair and comprehensive evaluation, we follow benchmark protocols and consider multiple encoder configurations. For Ele-Fashion, Goodreads-NC, and LP datasets, we use four combinations: CLIP , T5+ViT , ImageBind , and T5+DINOv2 . CLIP and ImageBind produce aligned multimodal embeddings, while ViT/DINOv2 serve as vision encoders and T5 as the text encoder. For MAGB datasets, we adopt three configurations: L+C (LLaMA-3.1-8B + CLIP), QWen (QWen2-VL-7B), and LLaVL (LLaMA-3.2-11B-Vision). A key distinction is that QWen and LLaVL baselines directly use jointly pretrained multimodal embeddings , where text and image representations are inherently aligned. In contrast, ReCoG treats text and image features as separate streams and learns cross-modal alignment during training. As shown in our results, this learned alignment consistently matches or surpasses encoder-level alignment, highlighting the effectiveness of our architecture. 
+
+Baselines. Our baselines fall into two groups: (i) multimodal GNNs that operate on fixed graphs (MMGCN and MGAT [39] with late fusion, GCN [13]/SAGE [8]/MLP on concatenated features), and (ii) recent multimodal graph models, including NSG-MoE [36], LION [16], PLANET [18], and 7Table 3: Comparison with recent multimodal graph methods. R-S = Reddit-S, R-M = Reddit-M.                                                                  
+
+> Node Classification (Acc. %) Link Pred. (MRR %) Model Fashion GoodReads Movies Toys Grocery R-S R-M Sports Cloth NSG-MoE 88.42 —53.98 80.92 86.28 95.93 85.03 34.39 24.10 LION —78.54 58.61 —88.30 94.80 ———PLANET 87.37 84.16 57.06 81.22 85.16 96.62 —27.51 20.25 UniGraph2 87.91 81.97 *52.92 *79.49 *85.24 *93.50 *70.19 31.61 25.01
+> ReCoG-sim 89.31 90.51 60.00 82.75 89.05 97.26 90.87 38.53 28.30
+> ReCoG-res 89.51 90.98 60.84 83.18 87.53 97.17 89.86 38.57 28.73
+> *Results were not reported in the original paper, we use the numbers from [36, 16]. “—” indicates the method was not evaluated on that dataset.
+
+UniGraph2 [9]. Note that, following the settings of major baselines and benchmarks [39, 34], we focus on multimodal-aware baselines, as most structure learning methods are designed to enhance single-modality graphs without semantic consideration and would require nontrivial adaptation to handle cross-modal evidence fairly. 
+
+Evaluation. We evaluate two variants of our model: ReCoG-sim (similarity refiner) and ReCoG-res 
+
+(residual refiner), both using the same cross-modal message passing backbone. Each variant is tested with both GCN-style and SAGE-style convolutions. We follow the same data splits and experimental settings as prior work, including multiple runs with different random seeds. For fair comparison, we reproduce results for MMGCN , MMGAT , and MLP , while reporting official results for recent state-of-the-art methods. For models with substantially different architectures (e.g., UniGraph2 ), we use the best reported results from their original papers. 
+
+4.1 Node Classification Results 
+
+Tables 1 and 2 report node classification accuracy across all datasets and encoder configurations. Table 3 compares the best performance between our ReCoG and SOTA multimodal graph models. 
+
+Overall performance. ReCoG consistently outperforms all baselines across datasets, encoders, and backbone architectures. The improvements are particularly significant on large and structurally complex graphs, indicating that jointly refining topology and representations is especially beneficial when the observed graph is noisy or incomplete. 
+
+Key observations. (i) Strong gains on large scale datasets. On Goodreads-NC, ReCoG-res achieves 
+
+90 .98% , outperforming the strongest recent baseline (PLANET, 84 .16% ) by a large margin. On Reddit-M, ReCoG improves over GCN by more than 15% , demonstrating substantial robustness. We attribute this to the fact that large-scale interaction graphs tend to contain a higher proportion of semantically irrelevant edges, and the refiner mitigates this issue by down-weighting noisy edges and introducing semantically coherent ones. (ii) Consistent improvements across encoders. ReCoG improves performance under all encoder configurations, including CLIP, ImageBind, and VLM-based encoders (QWen, LLaVL), indicating that the gains are not tied to a specific feature extractor. (iii) 
+
+Graph-level alignment surpasses encoder-level alignment. Even when using VLM embeddings that are already aligned (e.g., QWen, LLaVL), ReCoG still achieves significant gains (e.g., +6 .10% 
+
+on Reddit-S and +17 .28% on Reddit-M). 
+
+Remark. These results highlight two key advantages of ReCoG. First, the graph refiner improves topology by introducing semantically meaningful connections and removing noisy edges. Second, cross-modal message passing enables information exchange during propagation rather than relying on static encoder alignment. Together, these components produce representations that are better aligned with both graph structure and multimodal semantics. 
+
+Effect of refiner variants. The residual refiner generally achieves the best performance, suggesting that its expressive edge scoring better captures complex multimodal relationships. However, the similarity refiner remains competitive and sometimes preferable when pretrained embedding geometry is already informative, due to its strong inductive bias and lower risk of overfitting. 
+
+4.2 Link Prediction Results 
+
+Table 5 (in the Appendix due to space limit) reports link prediction performance on Amazon-Sports and Amazon-Cloth, evaluated using MRR, Hits@1, and Hits@10. ReCoG consistently outperforms 8all baselines across both datasets and all encoder configurations, demonstrating robust improvements in LP quality. 
+
+Key observations. First , ReCoG achieves substantial gains in MRR. On Amazon-Sports with CLIP features, ReCoG-res (GCN) reaches 38.57% MRR, compared to 33.83% from the strongest baseline (SAGE). On Amazon-Cloth, ReCoG-res (GCN) achieves 28.73% MRR, outperforming SAGE (25.20%) by nearly 3 points. Second , improvements are particularly pronounced in Hits@10. For example, on Amazon-Sports with ImageBind features, ReCoG-res (GCN) achieves 75.60% H@10 versus 65.61% for GCN. This suggests that the refined topology is especially effective at expanding the set of high-quality candidate links. 
+
+Variant comparison. The two refiner variants show similar trends to node classification but with smaller differences. ReCoG-sim performs slightly better on Amazon-Sports across most encoders, while ReCoG-res shows marginal advantages on Amazon-Cloth. This reduced gap indicates that, in link prediction, performance is more sensitive to the quality of the learned representations than to the specific refinement mechanism, since the decoder directly operates on embedding similarities. 
+
+4.3 Ablation Studies Synergistic Effect. We analyze the contribution of each component in ReCoG by comparing the full model with variants that remove (i) the graph refiner, (ii) cross-modal message passing, or (iii) both. The variant without both components reduces to independent modality-specific GNNs with late fusion. Experiments are conducted on three datasets using GCN as the backbone. We use CLIP features for Ele-Fashion, and CLIP+LLaMA for Movies and Reddit-S. Results are reported in Table 4. 
+
+Overall effect of components. Removing either component consistently degrades performance, while removing both leads to the largest drop. This confirms that both topology refinement and cross-modal interaction are essential, and their combination provides the strongest gains. Table 4: Ablation study on node classification accuracy (%). 
+
+† MMGCN uses separate GCNs for each modality with late fusion.                          
+
+> Configuration Fashion (Clip) Movies (L+C) Reddit-S (L+C)
+> MMGCN †(w/o both) 86.10 54.18 91.13 sim  w/o Cross-Modal 86.83 55.16 94.28 w/o Refiner 87.09 56.19 95.97 Full Model 88.56 56.97 97.20 res  w/o Cross-Modal 86.41 55.74 92.74 w/o Refiner 87.09 56.19 95.97 Full Model 88.60 57.45 96.89
+
+Synergistic interaction. A key obser-vation is that the benefit of the refiner depends on whether cross-modal mes-sage passing is present. When cross-modal coupling is removed, the simi-larity refiner performs comparably to, or slightly better than, the residual re-finer. However, once cross-modal in-teraction is enabled, the residual re-finer consistently achieves the best performance. 
+
+Analysis. This behavior reflects the interaction between topology learning and representation learning. The residual refiner constructs a joint multimodal topology based on pairwise features φ(i, j ) that combine text and vision signals. When the two modality streams are processed independently, this unified topology becomes suboptimal, as the optimal neighborhood structure may differ across modalities. In addition, the absence of cross-modal interaction weakens the supervision signal for learning expressive edge scoring functions. In contrast, the similarity refiner relies on cosine similarity with a learnable modality weight, which provides a strong inductive bias. When one modality dominates, this bias allows it to produce a robust topology even without cross-modal interaction. When cross-modal coupling is introduced, the downstream GNN aggregates mixed-modality information at each layer. In this setting, a jointly learned topology becomes better aligned with the propagation mechanism, and the residual refiner can fully exploit its higher expressive power. The enriched cross-modal gradients further improve its learning dynamics, enabling it to surpass the similarity-based variant. 
+
+Takeaway. These results highlight that topology refinement and cross-modal propagation are not independent : the effectiveness of a more expressive refiner is unlocked only when coupled with cross-modal message passing, supporting the design of reciprocal co-evolution in ReCoG. 
+
+Top-K Selection (Eqns. (3) , (7) ). Table 6 examines the sensitivity of both refiners to the number of candidate K. The results show that our model’s performance changes slightly within a reasonable range of K, demonstrating the stability of our design. A detailed analysis is provided in Appendix D. 95 Conclusion 
+
+We propose ReCoG, a co-evolution framework that jointly refines graph topology and learns cross-modal node representations end-to-end for multimodal attributed graphs. Unlike prior methods that treat topology as fixed or perform modality fusion only at the final stage, ReCoG enables the refined structure and learned embeddings to mutually reinforce each other throughout training, via a configurable Multimodal Graph Refiner and a Cross Modal Message Passing. Extensive experiments on nine datasets spanning node classification and link prediction demonstrate consistent improvements over both classical and recent state-of-the-art baselines. Moreover, our approach is parallelizable to standard GNN training pipelines and shows that learned cross-modal coupling can complement, and in some cases substitute for, the alignment quality of jointly pretrained VLMs. 
+
+## References 
+
+[1] Jinze Bai, Shuai Bai, Yunfei Chu, Zeyu Cui, Kai Dang, Xiaodong Deng, Yang Fan, Wenbin Ge, Yu Han, Fei Huang, et al. 2023. Qwen technical report. arXiv preprint arXiv:2309.16609 
+
+(2023). [2] Yu Chen, Lingfei Wu, and Mohammed J. Zaki. 2020. Iterative Deep Graph Learning for Graph Neural Networks: Better and Robust Node Embeddings. In Advances in Neural Information Processing Systems (NeurIPS) .[3] Eli Chien, Wei-Cheng Chang, Cho-Jui Hsieh, Hsiang-Fu Yu, Jiong Zhang, Olgica Milenkovic, and Inderjit S Dhillon. 2022. Node Feature Extraction by Self-Supervised Multi-scale Neigh-borhood Prediction. In ICLR .[4] Bahare Fatemi, Layla El Asri, and Seyed Mehran Kazemi. 2021. SLAPS: Self-Supervision Improves Structure Learning for Graph Neural Networks. In Advances in Neural Information Processing Systems (NeurIPS) .[5] Alex Fout, Jonathon Byrd, Basir Shariat, and Asa Ben-Hur. 2017. Protein interface prediction using graph convolutional networks. Advances in neural information processing systems 30 (2017). [6] Johannes Gasteiger, Aleksandar Bojchevski, and Stephan Günnemann. 2019. Combining Neural Networks with Personalized PageRank for Classification on Graphs. In International Conference on Learning Representations . https://openreview.net/forum?id=H1gL-2A9Ym 
+
+[7] Rohit Girdhar, Alaaeldin El-Nouby, Zhuang Liu, Mannat Singh, Kalyan Vasudev Alwala, Armand Joulin, and Ishan Misra. 2023. Imagebind: One embedding space to bind them all. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition .15180–15190. [8] Will Hamilton, Zhitao Ying, and Jure Leskovec. 2017. Inductive representation learning on large graphs. Advances in neural information processing systems 30 (2017). [9] Yufei He, Yuan Sui, Xiaoxin He, Yue Liu, Yifei Sun, and Bryan Hooi. 2025. Unigraph2: Learning a unified embedding space to bind multimodal graphs. In Proceedings of the ACM on Web Conference 2025 . 1759–1770. [10] Ziniu Hu, Yuxiao Dong, Kuansan Wang, and Yizhou Sun. 2020. Heterogeneous graph trans-former. In Proceedings of the web conference 2020 . 2704–2710. [11] Chao Jia, Yinfei Yang, Ye Xia, Yi-Ting Chen, Zarana Parekh, Hieu Pham, Quoc Le, Yun-Hsuan Sung, Zhen Li, and Tom Duerig. 2021. Scaling up visual and vision-language representation learning with noisy text supervision. In International conference on machine learning . PMLR, 4904–4916. [12] Wei Jin, Yao Ma, Xiaorui Liu, Xianfeng Tang, Suhang Wang, and Jiliang Tang. 2020. Graph Structure Learning for Robust Graph Neural Networks. In Proceedings of the 26th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining (KDD) . 66–74. 10 [13] Thomas N Kipf and Max Welling. 2016. Semi-supervised classification with graph convolutional networks. arXiv preprint arXiv:1609.02907 (2016). [14] Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi. 2023. Blip-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. In International conference on machine learning . PMLR, 19730–19742. [15] Junnan Li, Dongxu Li, Caiming Xiong, and Steven Hoi. 2022. Blip: Bootstrapping language-image pre-training for unified vision-language understanding and generation. In International conference on machine learning . PMLR, 12888–12900. [16] Xunkai Li, Zhengyu Wu, Zekai Chen, Henan Sun, Daohan Su, Guang Zeng, Hongchao Qin, Rong-Hua Li, and Guoren Wang. 2026. LION: A Clifford Neural Paradigm for Multimodal-Attributed Graph Learning. arXiv preprint arXiv:2601.21453 (2026). [17] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. 2023. Visual instruction tuning. 
+
+Advances in neural information processing systems 36 (2023), 34892–34916. [18] Sicheng Liu, Xunkai Li, Daohan Su, Ru Zhang, Hongchao Qin, Ronghua Li, and Guoren Wang. 2026. Toward Effective Multimodal Graph Foundation Model: A Divide-and-Conquer Based Approach. arXiv preprint arXiv:2602.04116 (2026). [19] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. 2021. Learning transferable visual models from natural language supervision. In International conference on machine learning . PmLR, 8748–8763. [20] Ladislav Rampášek, Michael Galkin, Vijay Prakash Dwivedi, Anh Tuan Luu, Guy Wolf, and Dominique Beaini. 2022. Recipe for a general, powerful, scalable graph transformer. Advances in Neural Information Processing Systems 35 (2022), 14501–14515. [21] Aravind Sankar, Yozen Liu, Jun Yu, and Neil Shah. 2021. Graph neural networks for friend ranking in large-scale social platforms. In Proceedings of the Web Conference 2021 . 2535–2546. [22] Xianfeng Tang, Yozen Liu, Neil Shah, Xiaolin Shi, Prasenjit Mitra, and Suhang Wang. 2020. Knowing your fate: Friendship, action and temporal explanations for user engagement prediction on social apps. In Proceedings of the 26th ACM SIGKDD international conference on knowledge discovery & data mining . 2269–2279. [23] Petar Veliˇ ckovi´ c, Guillem Cucurull, Arantxa Casanova, Adriana Romero, Pietro Lio, and Yoshua Bengio. 2017. Graph attention networks. arXiv preprint arXiv:1710.10903 (2017). [24] Xiao Wang, Houye Ji, Chuan Shi, Bai Wang, Yanfang Ye, Peng Cui, and Philip S Yu. 2019. Heterogeneous graph attention network. In The world wide web conference . 2022–2032. [25] Felix Wu, Amauri Souza, Tianyi Zhang, Christopher Fifty, Tao Yu, and Kilian Weinberger. 2019. Simplifying graph convolutional networks. In International conference on machine learning .PMLR, 6861–6871. [26] Qitian Wu, Wentao Zhao, Zenan Li, David P. Wipf, and Junchi Yan. 2022. NodeFormer: A Scalable Graph Structure Learning Transformer for Node Classification. In Advances in Neural Information Processing Systems (NeurIPS) .[27] Shiwen Wu, Fei Sun, Wentao Zhang, Xu Xie, and Bin Cui. 2022. Graph neural networks in recommender systems: a survey. Comput. Surveys 55, 5 (2022), 1–37. [28] Rui Xue. 2025. VISAGNN: Versatile Staleness-Aware Efficient Training on Large-Scale Graphs. 
+
+arXiv preprint arXiv:2511.12434 (2025). [29] Rui Xue, Haoyu Han, MohamadAli Torkamani, Jian Pei, and Xiaorui Liu. 2023. Lazygnn: Large-scale graph neural networks via lazy propagation. In International Conference on Machine Learning . PMLR, 38926–38937. 11 [30] Rui Xue, Haoyu Han, Tong Zhao, Neil Shah, Jiliang Tang, and Xiaorui Liu. 2023. Large-Scale Graph Neural Networks: The Past and New Frontiers. In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining (Long Beach, CA, USA) 
+
+(KDD ’23) . Association for Computing Machinery, New York, NY, USA, 5835–5836. doi: 10. 1145/3580305.3599565 
+
+[31] Rui Xue, Xipeng Shen, Ruozhou Yu, and Xiaorui Liu. 2023. Efficient large language models fine-tuning on graphs. arXiv preprint arXiv:2312.04737 (2023). [32] Rui Xue and Tianfu Wu. 2025. H3 GNNs: Harmonizing Heterophily and Homophily in GNNs via Joint Structural Node Encoding and Self-Supervised Learning. arXiv preprint arXiv:2504.11699 (2025). [33] Rui Xue, Tong Zhao, Neil Shah, and Xiaorui Liu. 2024. Haste Makes Waste: A Simple Approach for Scaling Graph Neural Networks. arXiv preprint arXiv:2410.05416 (2024). [34] Hao Yan, Chaozhuo Li, Jun Yin, Zhigang Yu, Weihao Han, Mingzheng Li, Zhengxin Zeng, Hao Sun, and Senzhang Wang. 2025. When graph meets multimodal: benchmarking and meditating on multimodal attributed graph learning. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 2 . 5842–5853. [35] Jiahao Zhang, Rui Xue, Wenqi Fan, Xin Xu, Qing Li, Jian Pei, and Xiaorui Liu. 2024. Linear-Time Graph Neural Networks for Scalable Recommendations. In Proceedings of the ACM on Web Conference 2024 . 3533–3544. [36] Yihan Zhang and Ercan E Kuruoglu. 2026. Modality as Heterogeneity: Node Splitting and Graph Rewiring for Multimodal Graph Learning. arXiv preprint arXiv:2602.00067 (2026). [37] Jianan Zhao, Meng Qu, Chaozhuo Li, Hao Yan, Qian Liu, Rui Li, Xing Xie, and Jian Tang. 2022. Learning on large-scale text-attributed graphs via variational inference. arXiv preprint arXiv:2210.14709 (2022). [38] Jiong Zhu, Yujun Yan, Lingxiao Zhao, Mark Heimann, Leman Akoglu, and Danai Koutra. 2020. Beyond homophily in graph neural networks: Current limitations and effective designs. 
+
+Advances in neural information processing systems 33 (2020), 7793–7804. [39] Jing Zhu, Yuhang Zhou, Shengyi Qian, Zhongmou He, Tong Zhao, Neil Shah, and Danai Koutra. 2025. Mosaic of modalities: A comprehensive benchmark for multimodal graph learning. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition . 14215– 14224. 12 A Broader Impacts 
+
+Our proposed ReCoG advances multimodal graph learning by enabling joint refinement of graph structure and cross-modal representations, which can improve performance in applications such as recommendation systems, social networks, and scientific discovery. By leveraging multimodal semantic signals to infer graph connectivity, the proposed approach can better capture meaningful relationships in complex data. However, these capabilities also introduce risks. Since ReCoG actively modifies graph topology, it may introduce spurious or biased connections when multimodal features are noisy or misaligned, potentially amplifying existing biases in pretrained encoders or datasets. In applications involving user data, such as social or e-commerce graphs, this may lead to unfair recommendations or unintended profiling. Additionally, the ability to infer latent relationships from multimodal signals raises privacy concerns, as the model may uncover sensitive or hidden connections between entities. Misuse in surveillance or user behavior modeling contexts is also possible. Future work should explore bias mitigation, robustness to noisy modalities, and privacy-preserving mechanisms to ensure responsible deployment. 
+
+## B Related Work 
+
+Graph Neural Networks. Graph Neural Networks (GNNs) have become a dominant paradigm for representation learning on graph-structured data. Early spectral and spatial methods, such as GCN [13], GraphSAGE [8], GAT [23], and SGC [25], learn node representations by recursively aggregating information from local neighborhoods. These models have achieved strong performance on node classification, link prediction, and graph classification tasks by exploiting graph topology as an inductive bias. Subsequent studies further extend GNNs to heterogeneous/heterophilic graphs, graph transformers, and scalable graph learning settings [10, 24, 20, 38, 33, 32, 28]. Despite their success, most conventional GNNs assume that the observed topology is reliable and that node attributes are uni-modal. This assumption is often violated in practical graphs, where edges may be noisy or incomplete with respect to multimodal semantics, and node attributes come from various modalities such as text and vision. Directly applying standard GNNs to concatenated multimodal features or fixed graph structures may therefore propagate modality-specific noise and fail to capture cross-modal dependencies during message passing. 
+
+Multimodal Representation Learning. Multimodal representation learning has been a central topic in recent years. It aims to encode signals from different modalities, such as text, images, audio, and video, into semantically aligned embedding spaces. Contrastive vision-language models, such as CLIP [19] and ALIGN [11], learn transferable representations by aligning paired images and texts through large-scale contrastive pre-training. Later models further improve multimodal understanding and generation through stronger vision encoders, language models, cross-attention modules, and instruction tuning, including BLIP [15, 14], ImageBind [7], LLaVA [17], and Qwen-VL [1]. These models provide powerful feature extractors and have been widely used to initialize multimodal node features. However, most multimodal representation learning methods focus on instance-level alignment and do not explicitly model graph topology. As a result, their pretrained embeddings are usually static, task-agnostic, and insensitive to downstream graph structures. In multimodal graphs, semantic relationships between nodes are jointly determined by modality content and graph connectivity. Therefore, simply using pretrained multimodal embeddings is insufficient: the model should further adapt modality alignment and information propagation according to graph topology and task supervision. 
+
+Multimodal Graph Learning. Most previous works primarily focus on a single modality, such as text-attributed graphs [3, 37, 31]. Recntly, multimodal graph learning extends graph representation learning to graphs whose nodes or edges are associated with multiple modalities. A straightforward solution is to concatenate multimodal features and feed them into conventional GNNs, or to encode each modality with separate GNN branches followed by late fusion. Representative multimodal graph methods, such as MMGCN and MGAT [39], exploit modality-specific representations and attention-based fusion to combine heterogeneous signals. More recent studies attempt to build more general multimodal graph learning frameworks. UniGraph2 [9] builds a graph foundation modal to 13 learn a unified embedding space for multimodal graphs using modality-specific encoders, GNNs, and mixture-of-experts alignment across domains and modalities. NSG-MoE [36] treats modality as heterogeneity by splitting each node into modality-specific sub-nodes and routing heterogeneous message flows through structured experts. LION [16] introduces a Clifford-algebra-based paradigm to perform modality alignment and adaptive holographic aggregation on multimodal-attributed graphs. PLANET [18] further studies multimodal graph foundation models and proposes topology-aware modality interaction and alignment through embedding-wise domain gating and discretized semantic representation spaces. These methods demonstrate the importance of multimodal interaction and alignment in graph learning. However, many existing approaches either rely on fixed observed topology, perform modality interaction after independent propagation, or emphasize representation alignment without explicitly modeling the reciprocal relationship between graph structure and multimodal semantics, thereby limiting the effectiveness of graph-modality fusion and cross-modal alignment. 
+
+Positioning of ReCoG. Different from prior work, our approach treats multimodal graph learning as a coupled topology-semantics co-evolution problem. First, we introduce a multimodal graph refiner that adaptively reweights original edges and adds semantic neighbors using joint textual and visual evidence, addressing the topology–semantics mismatch in the original graph. Second, we perform iterative cross-modal message passing over the refined topology, allowing textual and visual representations to align and exchange information during propagation rather than only at the final fusion stage. This design jointly improves graph structure and multimodal representations in an end-to-end manner, providing a more task-adaptive alternative to fixed-topology GNNs, static multimodal encoders, and late-fusion multimodal graph models. 
+
+## C Results for Link Prediction 
+
+We provide the full link prediction results in Table 5. A comprehensive analysis is presented in Section 4.2. 
+
+## D Top-K Selection (Eqns. (3) and (7) ). 
+
+Table 6 examines the sensitivity of both the Residual and Cosine refiners to the number of candidate neighbors K. We use CLIP as the encoder and GCN as the backbone for all experiments. Across all datasets and both refiners, we observe a consistent pattern: performance improves as K increases from 1 to around 3–5, and then gradually degrades when K = 12 .When K = 1 , the refiner has too few candidates to meaningfully adjust the graph topology, leading to weaker performance. Conversely, an overly large K may introduce semantically distant nodes as candidates, injecting noise into the refined adjacency and diluting the quality of the added edges. Notably, performance remains relatively stable in the range of K = 3 to K = 5 , where the candidate pool is large enough to capture missing semantic neighbors while remaining small enough to avoid spurious connections. Based on these results, we set K = 3 or K = 5 as the default in all experiments for simplicity. 
+
+## E Complexity Optimization of Cross Modal Message Passing 
+
+We describe two successive optimizations that reduce computational cost without altering the output. 
+
+E.1 Optimization I: Supergraph Reformulation 
+
+Directly constructing Asup requires 2N nodes and 4E + 2 N edges. By computing each term in Eq. (12) independently, we avoid constructing the supergraph entirely. This decomposition requires four conv calls (two per modality), each operating on N nodes and E edges, plus two lin calls at 
+
+O(N · d2
+
+> h
+
+) each. The total per-layer cost is: 
+
+4 × O(E · dh + N · d2
+
+> h
+
+)
+
+| {z }
+
+> conv
+
++2 × O(N · d2
+
+> h
+
+)
+
+| {z }
+
+> lin
+
+(23) compared to the supergraph cost of O((4 E + 2 N ) · dh + 2 N · d2
+
+> h
+
+) for a single conv over 2N nodes. The decomposed version halves the node count per call and eliminates the overhead of constructing 14 Table 5: Link prediction performance on Amazon-Sports and Amazon-Cloth. [39]. The Best and runner-up are highlighted. 
+
+Encoder Amazon-Sports Amazon-Cloth MRR H@1 H@10 MRR H@1 H@10 MMGCN 
+
+CLIP 31.96 ± 0.10 16.35 ± 0.11 68.46 ± 0.08 22.20 ± 0.05 10.76 ± 0.10 46.62 ± 0.12 ViT+T5 30.33 ± 0.08 15.01 ± 0.05 66.41 ± 0.11 19.45 ± 0.34 9.22 ± 0.20 40.49 ± 0.61 ImageBind 31.74 ± 0.21 16.45 ± 0.13 67.39 ± 0.74 24.72 ± 0.19 12.47 ± 0.09 51.32 ± 0.56 DINO+T5 30.04 ± 0.27 14.98 ± 0.07 64.56 ± 0.56 21.77 ± 0.23 10.47 ± 0.12 45.81 ± 0.52 
+
+MGAT 
+
+CLIP 27.56 ± 0.30 13.55 ± 0.29 60.21 ± 0.21 21.38 ± 0.23 10.39 ± 0.22 44.60 ± 0.36 ViT+T5 30.15 ± 0.34 15.28 ± 0.34 64.84 ± 0.41 20.59 ± 0.41 9.79 ± 0.30 43.44 ± 0.76 ImageBind 30.15 ± 0.12 15.50 ± 0.05 64.20 ± 0.43 22.13 ± 0.27 10.96 ± 0.15 45.84 ± 0.57 DINO+T5 28.91 ± 0.09 14.47 ± 0.18 62.11 ± 0.22 21.42 ± 0.13 10.38 ± 0.13 44.11 ± 0.50 
+
+GCN 
+
+CLIP 31.38 ± 0.08 16.58 ± 0.13 66.14 ± 0.08 22.28 ± 0.05 11.83 ± 0.04 43.52 ± 0.10 ViT+T5 30.83 ± 0.07 16.31 ± 0.08 64.76 ± 0.15 21.60 ± 0.05 11.37 ± 0.05 42.29 ± 0.14 ImageBind 31.67 ± 0.09 17.07 ± 0.14 65.61 ± 0.10 22.81 ± 0.02 12.27 ± 0.05 44.28 ± 0.09 DINO+T5 30.42 ± 0.02 16.02 ± 0.03 64.02 ± 0.06 21.19 ± 0.04 11.09 ± 0.06 41.46 ± 0.16 
+
+SAGE 
+
+CLIP 33.83 ± 0.08 17.57 ± 0.14 71.90 ± 0.07 24.58 ± 0.13 12.16 ± 0.11 51.12 ± 0.09 ViT+T5 32.01 ± 0.10 15.94 ± 0.17 69.84 ± 0.21 23.11 ± 0.05 11.10 ± 0.04 48.89 ± 0.09 ImageBind 34.32 ± 0.11 17.87 ± 0.23 73.04 ± 0.15 25.20 ± 0.09 12.63 ± 0.05 52.53 ± 0.21 DINO+T5 32.20 ± 0.12 16.19 ± 0.20 69.98 ± 0.32 22.98 ± 0.01 11.12 ± 0.04 48.28 ± 0.11 
+
+MLP 
+
+CLIP 28.22 ± 0.09 14.54 ± 0.16 59.40 ± 0.08 21.10 ± 0.04 10.70 ± 0.05 42.77 ± 0.05 ViT+T5 24.81 ± 0.05 11.63 ± 0.05 54.78 ± 0.04 17.65 ± 0.06 8.14 ± 0.04 36.77 ± 0.06 ImageBind 30.45 ± 0.14 15.91 ± 0.10 64.10 ± 0.07 22.18 ± 0.02 11.42 ± 0.04 44.86 ± 0.06 DINO+T5 24.81 ± 0.16 11.62 ± 0.18 54.97 ± 0.22 17.53 ± 0.11 8.07 ± 0.09 36.53 ± 0.26 
+
+ReCoG-sim 
+
+(GCN) CLIP 38.53 ± 0.03 21.90 ± 0.05 75.11 ± 0.02 28.30 ± 0.03 15.64 ± 0.06 54.96 ± 0.05 ViT+T5 36.82 ± 0.05 20.49 ± 0.03 73.36 ± 0.05 24.66 ± 0.05 12.94 ± 0.09 49.19 ± 0.05 ImageBind 38.36 ± 0.02 21.95 ± 0.03 74.68 ± 0.09 28.60 ± 0.06 15.89 ± 0.08 55.71 ± 0.08 DINO+T5 37.16 ± 0.05 21.29 ± 0.03 73.31 ± 0.02 27.10 ± 0.06 14.51 ± 0.06 54.02 ± 0.16 
+
+ReCoG-sim 
+
+(SAGE) CLIP 35.34 ± 0.03 18.66 ± 0.12 74.23 ± 0.08 27.02 ± 0.09 14.14 ± 0.18 54.38 ± 0.08 ViT+T5 34.55 ± 0.18 18.31 ± 0.18 71.11 ± 0.10 25.38 ± 0.11 12.99 ± 0.09 51.78 ± 0.08 ImageBind 36.90 ± 0.08 20.41 ± 0.06 75.03 ± 0.08 27.08 ± 0.06 14.48 ± 0.11 54.03 ± 0.12 DINO+T5 35.36 ± 0.10 19.13 ± 0.11 72.40 ± 0.03 26.36 ± 0.03 14.00 ± 0.05 53.05 ± 0.03 
+
+ReCoG-res 
+
+(GCN) CLIP 38.57 ± 0.03 22.04 ± 0.05 75.37 ± 0.02 28.35 ± 0.06 15.64 ± 0.08 54.60 ± 0.05 ViT+T5 37.28 ± 0.03 20.89 ± 0.03 74.06 ± 0.06 27.86 ± 0.05 15.32 ± 0.09 54.35 ± 0.05 ImageBind 38.42 ± 0.09 21.73 ± 0.05 75.60 ± 0.03 28.73 ± 0.05 15.75 ± 0.08 55.85 ± 0.08 DINO+T5 37.39 ± 0.06 21.29 ± 0.03 74.89 ± 0.01 27.78 ± 0.06 15.11 ± 0.05 54.54 ± 0.03 
+
+ReCoG-res 
+
+(SAGE) CLIP 36.22 ± 0.03 19.92 ± 0.12 73.74 ± 0.08 27.37 ± 0.09 14.49 ± 0.12 55.37 ± 0.02 ViT+T5 35.07 ± 0.10 18.64 ± 0.18 73.40 ± 0.10 26.55 ± 0.10 13.72 ± 0.09 54.19 ± 0.05 ImageBind 36.13 ± 0.08 19.86 ± 0.06 73.97 ± 0.12 27.62 ± 0.06 14.76 ± 0.11 55.37 ± 0.06 DINO+T5 35.60 ± 0.05 18.81 ± 0.10 73.19 ± 0.05 25.95 ± 0.08 13.96 ± 0.05 54.08 ± 0.03 
+
+the supergraph edge index (node ID offsets, feature concatenation, and additional 2N cross-modal identity edges). 
+
+E.2 Optimization II: Linear Merging of Terms 1 and 3 
+
+For GNN layers whose aggregation operator is linear in the input features, Terms 1 and 3 can be merged into a single conv call: 
+
+conv (h(l) 
+
+> t
+
+, A) + ρ · conv (h(l) 
+
+> v
+
+, A) = conv  h(l) 
+
+> t
+
++ ρ · h(l) 
+
+> v
+
+, A (24) Without merging, computing Terms 1 and 3 for one modality requires two conv calls: 
+
+conv (h(l) 
+
+> t
+
+, A)
+
+| {z }
+
+> Term 1
+
++ρ · conv (h(l) 
+
+> v
+
+, A)
+
+| {z }
+
+> Term 3
+
+⇒ 2 × O(E · dh) + 2 × O(N · d2
+
+> h
+
+) (25) 15 Table 6: Ablation study on the number of candidate neighbors K in the graph refiner. Refiner K Node Classification (%) Link Prediction (MRR %) Ele-Fashion Goodreads Amazon-Sports Amazon-Clothing sim 1 87.60 ± 0.05 89.65 ± 0.05 36.72 ± 0.11 27.07 ± 0.10 3 88.17 ± 0.03 90.43 ± 0.09 37.81 ± 0.06 27.93 ± 0.07 5 88.56 ± 0.05 90.31 ± 0.05 38.53 ± 0.03 28.30 ± 0.03 8 88.53 ± 0.05 90.16 ± 0.06 38.32 ± 0.09 28.01 ± 0.06 12 87.95 ± 0.06 89.43 ± 0.10 37.23 ± 0.10 26.68 ± 0.05 res 1 87.88 ± 0.08 89.65 ± 0.08 37.36 ± 0.09 27.37 ± 0.07 3 88.30 ± 0.06 90.68 ± 0.06 38.51 ± 0.05 28.35 ± 0.03 5 88.60 ± 0.08 90.59 ± 0.05 38.57 ± 0.03 28.25 ± 0.02 8 88.38 ± 0.03 90.66 ± 0.03 38.51 ± 0.08 28.02 ± 0.05 12 87.85 ± 0.08 90.07 ± 0.05 37.70 ± 0.08 26.91 ± 0.06 After merging, the cost reduces to a single element-wise addition followed by one conv call: 
+
+h(l) 
+
+> t
+
++ ρ · h(l)
+
+> v
+
+| {z } 
+
+> O(N·dh)
+
+−→ conv ( · , A)
+
+| {z } 
+
+> O(E·dh+N·d2
+> h)
+
+(26) The O(N · dh) addition is negligible compared to the conv cost, so merging effectively halves both the aggregation and linear transformation costs per modality. The complete per-layer update becomes: 
+
+h(l+1)  
+
+> t
+
+= LN 
+
+
+
+conv  h(l) 
+
+> t
+
++ ρ h(l) 
+
+> v
+
+, A + γ · lin (h(l) 
+
+> v
+
+)
+
+
+
+(27) 
+
+h(l+1)  
+
+> v
+
+= LN 
+
+
+
+conv  h(l) 
+
+> v
+
++ ρ h(l) 
+
+> t
+
+, A + γ · lin (h(l) 
+
+> t
+
+)
+
+
+
+(28) requiring two conv calls and two lin calls per layer, yielding the total per-layer cost of O(E · dh +
+
+N · d2
+
+> h
+
+) reported in Table 7. 
+
+Applicability. The merging in Eq. (24) requires linearity of the aggregation operator and holds for GCN, GraphSAGE-mean, and other linear-aggregation GNNs. For attention-based architectures such as GAT, where the aggregation weights depend nonlinearly on the input features, the merging does not hold exactly. In this case, we fall back to the decomposed implementation (four conv calls), which still avoids constructing the supergraph. 
+
+## F Topology–semantics Misalignment 
+
+Let the observed multimodal graph be denoted as G = ( V, E), where V is the node set and E is the observed edge set. Each node i ∈ V is associated with multimodal features xi = [ xti ∥ xvi ], where 
+
+xti ∈ Rdt and xvi ∈ Rdv denote textual and visual features, respectively. Denote by Aorig the original adjacency matrix, Aorig (i, j ) = 1 if (i, j ) ∈ E , 0 otherwise. A fundamental challenge in multimodal graphs is that the observed topology is only partially aligned with multimodal semantics. To examine this issue, we analyze the multimodal semantic similarity distributions on Reddit-M (see Sec. 2.1.3) and Movies [34]. For a node pair (i, j ), we compute the textual and visual cosine similarities as 
+
+ST (i, j ) = cos( xti, xtj ), SV (i, j ) = cos( xvi , xvj ), (29) For simplicity, we plot the multimodal semantic similarity as the average 
+
+SM M (i, j ) = 12
+
+ ST (i, j ) + SV (i, j ), (30) where the encoded features are obtained from CLIP. As shown on the left side of both Fig. 2 and Fig. 3, we compare the SM M distributions of connected and disconnected node pairs in the original graph. Connected pairs generally exhibit higher multi-modal similarity, indicating that the original topology provides useful structural priors. However, the two distributions show considerable overlap, revealing two types of topology–semantics discrepancy: 
+
+(i) some connected pairs have low multimodal similarity, suggesting the presence of noisy edges; (ii) 
+
+some disconnected pairs have high multimodal similarity, indicating missing semantic neighbors. 16 Figure 3: Topology–semantics alignment. The right side of both Fig. 2 (Cosine Similarity Refiner) and Fig. 3 (Residual Refiner) illustrates the effect of the refiner. The newly added edges concentrate in a higher similarity range compared to the original connected pairs, and their overlap with the disconnected distribution is substantially reduced. This confirms that the refiner selectively recovers semantically meaningful missing edges without introducing topological noise. These observations motivate a topology refinement mechanism that preserves the observed connectiv-ity as a structural prior while adaptively suppressing noisy edges and recovering missing semantic neighbors based on joint textual and visual evidence. 
+
+## G Complexity Analysis. 
+
+We analyze the per-batch computational complexity of ReCoG (Table 7). Let N denote the number of nodes in the sampled subgraph, B the number of seed nodes, E the number of edges, k the number of new edges per seed, r the candidate ratio, d = dt + dv the raw feature dimension, dh the hidden dimension in the projection at coarse filtering, and L the number of GNN layers. Table 7: Per-batch computational complexity of ReCoG major components. 
+
+Component Complexity 
+
+Cosine similarity ( ST , SV ) O(BN d )
+
+Original edge scoring (MLP) O(E · d · dh)
+
+Coarse filtering O(BN d h)
+
+Fine scoring (MLP) O(Brk · d · dh)
+
+Cross-modal message passing ( ×L) O(L(E · dh + N · d2
+
+> h
+
+)) 
+
+## H Proof of Proposition 1 (Strict Generalization of Residual Refinement) 
+
+We prove Fsim ⊊ Fres by establishing inclusion and then strictness. Recall that the similarity refiner induces the edge-scoring family 
+
+gsim (i, j ) = α A orig (i, j ) + (1 − α)λ S V (i, j ) + (1 − λ) ST (i, j ), (i, j ) ∈ C , (31) with global coefficients α, λ ∈ [0 , 1] , while the residual refiner induces 
+
+gres (i, j ) = Aorig (i, j ) + δ · tanh  fθ (ϕ(i, j )) , (i, j ) ∈ C , (32) where ϕ(i, j ) is the multimodal pair feature (Eq. (5)) and fθ is an MLP with sufficient width. 
+
+Part 1: Fsim ⊆ F res . Take any gsim ∈ F sim . For each (i, j ) ∈ C , define the target value 
+
+u(i, j ) = arctanh 
+
+ gsim (i,j )−Aorig (i,j )
+
+> δ
+
+
+
+. (33) By the range assumption and |gsim (i, j ) − Aorig (i, j )| < δ , the argument of arctanh lies in (−1, 1) ,so u(i, j ) is well-defined and finite for every (i, j ) ∈ C .17 The similarity-based score depends continuously on (ST (i, j ), S V (i, j )) , which are themselves continuous functions of the pair features ϕ(i, j ) on the fixed candidate set C. Since arctanh is continuous on (−1, 1) , the composite map ϕ(i, j ) 7 → u(i, j ) is continuous on C.By the universal approximation theorem for MLPs with sufficient width, there exists an MLP fθ such that 
+
+fθ (ϕ(i, j )) − u(i, j ) < ϵ, ∀(i, j ) ∈ C , (34) for any ϵ > 0. Substituting into the residual scorer: 
+
+gres (i, j ) = Aorig (i, j ) + δ · tanh  fθ (ϕ(i, j ))  (35) 
+
+≈ Aorig (i, j ) + δ · tanh  u(i, j ) (36) 
+
+= Aorig (i, j ) + δ · gsim (i, j ) − Aorig (i, j )
+
+δ (37) 
+
+= gsim (i, j ). (38) Since the approximation error can be made arbitrarily small, every function in Fsim can be realized (or approximated to arbitrary precision) by a function in Fres , establishing Fsim ⊆ F res .
+
+Part 2: Strictness ( Fsim ̸ = Fres ). Every function in Fsim depends on a node pair (i, j ) only through the two scalars (ST (i, j ), S V (i, j )) , combined via a global linear rule with shared coefficients α and 
+
+λ. Therefore, for any two pairs (i, j ) and (u, v ) satisfying 
+
+ST (i, j ) = ST (u, v ), SV (i, j ) = SV (u, v ), Aorig (i, j ) = Aorig (u, v ),
+
+every gsim ∈ F sim must assign them the same score: 
+
+gsim (i, j ) = gsim (u, v ). (39) Now consider the residual scorer. Its input is the full pair feature ϕ(i, j ) (Eq. (5)), which includes concatenated raw features, element-wise Hadamard products xti⊙xtj , xvi ⊙xvj , and absolute differences 
+
+|xti − xtj |, |xvi − xvj |.We construct a concrete counterexample. Let dt = 2 and consider two node pairs: Pair 1: xti = (1 , 0) , xtj = (0 , 1) , (40) Pair 2: xtu = 1√2 (1 , 1) , xtv = 1√2 (1 , −1) . (41) Both pairs have unit-norm vectors with ST = xti · xtj = 0 and ST = xtu · xtv = 0 . Assigning identical vision features to both pairs ensures SV is also equal. However, the Hadamard products differ: 
+
+xti ⊙ xtj = (0 , 0) , (42) 
+
+xtu ⊙ xtv = 12 (1 , −1) , (43) so ϕ(i, j )̸ = ϕ(u, v ). Since an MLP can realize non-linear, dimension-weighted functions of ϕ, there exists gres ∈ F res such that 
+
+gres (i, j )̸ = gres (u, v ), (44) which is impossible for any gsim ∈ F sim by Eq. (39). Therefore Fsim ⊊ Fres .
+
+Remark 2. Proposition 1 characterizes expressiveness , not generalization. The inclusion follows from a universal-approximation argument on the residual MLP, and strictness from dimension-wise interactions (e.g., xti ⊙ xtj ) that cosine similarity collapses to a scalar. Whether this additional capacity translates to better task performance depends on the learning context: our ablations (Sec. 4.3) show that the residual refiner’s advantage emerges only when coupled with cross-modal propagation. 
+
+## I Proof of Proposition 2 (Joint Optimization Contains Non-Reciprocal Alternatives) 
+
+Let Θref and Θgnn denote the parameter spaces of the refiner and the GNN, respectively. Any fixed refiner θfix ref restricts the optimization to the slice {θfix ref } × Θgnn , which is a subset of the full feasible set Θref × Θgnn . Therefore, the infimum over the full joint space cannot exceed the infimum over 18 this restricted slice: 
+
+inf   
+
+> (θref , θ gnn )∈Θref ×Θgnn
+
+J (θref , θ gnn ) ≤ inf 
+
+> θgnn ∈Θgnn
+
+J (θfix ref , θ gnn ). (45) This includes the identity refiner Arefine = Aorig when it belongs to the refiner parameter space, as well as any frozen two-stage refiner. 
+
+## J Proof of Theorem 1 (Cross-Modal Information Accessibility) 
+
+We prove both parts for the text stream; the vision stream follows by symmetry. 
+
+Part (i): Decoupled model — zero cross-modal Jacobian. A decoupled multimodal GNN updates each modality stream independently, with arbitrary per-modality weights: 
+
+H(ℓ+1)  
+
+> T
+
+= σ A H (ℓ) 
+
+> T
+
+W (ℓ)
+
+> T
+
+, H(ℓ+1)  
+
+> V
+
+= σ A H (ℓ) 
+
+> V
+
+W (ℓ)
+
+> V
+
+, (46) where W (ℓ) 
+
+> T
+
+and W (ℓ) 
+
+> V
+
+may differ. We prove ∂H (ℓ)
+
+> T
+> ∂H (0)
+> V
+
+= 0 for all ℓ ≥ 0 by induction. 
+
+Base case ( ℓ = 0 ). H(0)  
+
+> T
+
+is the projected text input, which is independent of H(0)  
+
+> V
+
+by construction. 
+
+Inductive step. Suppose ∂H (ℓ)
+
+> T
+> ∂H (0)
+> V
+
+= 0 . Since A and W (ℓ) 
+
+> T
+
+are independent of H(0)  
+
+> V
+
+, and H(ℓ+1)  
+
+> T
+
+=
+
+σ(A H (ℓ) 
+
+> T
+
+W (ℓ) 
+
+> T
+
+) depends on H(0)  
+
+> V
+
+only through H(ℓ) 
+
+> T
+
+, by the chain rule: 
+
+∂H (ℓ+1) 
+
+> T
+
+∂H (0) 
+
+> V
+
+= ∂H (ℓ+1) 
+
+> T
+
+∂H (ℓ)
+
+> T
+
+· ∂H (ℓ)
+
+> T
+
+∂H (0) 
+
+> V
+
+= ∂H (ℓ+1) 
+
+> T
+
+∂H (ℓ)
+
+> T
+
+· 0 = 0 . (47) Note that this holds for any choice of per-modality weights W (ℓ) 
+
+> T
+
+, W (ℓ) 
+
+> V
+
+, any activation σ, and any graph A. The result is a structural consequence of the decoupled update rule, not a property of specific parameters. 
+
+Part (ii): Coupled model — non-zero cross-modal Jacobian. The coupled text-stream update is: 
+
+H(ℓ+1)  
+
+> T
+
+= σ
+
+
+
+W (ℓ) A H (ℓ) 
+
+> T
+
++ γ H (ℓ) 
+
+> V
+
++ ρ A H (ℓ)
+
+> V
+
+
+
+. (48) We show that ∂H (ℓ)
+
+> T
+> ∂H (0)
+> V
+
+̸ = 0 for all ℓ ≥ 1 when ρ > 0 or γ > 0.
+
+Layer ℓ = 1 . From Eq. (48) with ℓ = 0 :
+
+H(1)  
+
+> T
+
+= σ
+
+
+
+W (0)  A H (0)  
+
+> T
+
++ γ H (0)  
+
+> V
+
++ ρ A H (0) 
+
+> V
+
+
+
+. (49) Let Z = W (0)  A H (0)  
+
+> T
+
++ γ H (0)  
+
+> V
+
++ ρ A H (0) 
+
+> V
+
+ denote the pre-activation. By the chain rule: 
+
+∂H (1) 
+
+> T
+
+∂H (0) 
+
+> V
+
+= diag  σ′(Z) · W (0) · (γI + ρ A ). (50) When γ > 0 or ρ > 0, the factor (γI + ρ A )̸ = 0 . The diagonal matrix diag( σ′(Z)) is non-zero for generic inputs (i.e., except on a measure-zero set where all pre-activations are at non-differentiable points of σ). Hence ∂H (1) 
+
+> T
+> ∂H (0)
+> V
+
+̸ = 0 generically. 
+
+Deeper layers ( ℓ ≥ 2). By the chain rule and the multivariate dependency structure (where H(ℓ)
+
+> T
+
+depends on H(0)  
+
+> V
+
+both directly through the coupling terms and indirectly through H(k) 
+
+> V
+
+for k < ℓ ), the Jacobian ∂H (ℓ)
+
+> T
+> ∂H (0)
+> V
+
+accumulates contributions from all cross-modal paths through layers 1, . . . , ℓ . Since the layer-1 contribution (50) is generically non-zero and subsequent layers compose via non-singular weight matrices, the Jacobian remains generically non-zero at all depths. 19 K Proof of Corollary 1 (Spectral Characterization) 
+
+Since Asup is a 2 × 2 block matrix with commuting blocks (all blocks are polynomials of Arefine ), we can diagonalize it via the block eigendecomposition. Let vi be an eigenvector of Arefine with eigenvalue μi. Consider the two 2N -dimensional vectors: 
+
+q+ 
+
+> i
+
+= 1
+
+√2
+
+vi
+
+vi
+
+
+
+, q− 
+
+> i
+
+= 1
+
+√2
+
+ vi
+
+−vi
+
+
+
+. (51) 
+
+Symmetric mode. 
+
+Asup q+ 
+
+> i
+
+= 1
+
+√2
+
+Arefine vi + ( γI + ρ A refine ) vi
+
+(γI + ρ A refine ) vi + Arefine vi
+
+
+
+= 1
+
+√2
+
+μi vi + γ vi + ρμ i vi
+
+γ vi + ρμ i vi + μi vi
+
+
+
+= (1 + ρ)μi + γ q+ 
+
+> i
+
+. (52) 
+
+Anti-symmetric mode. 
+
+Asup q− 
+
+> i
+
+= 1
+
+√2
+
+Arefine vi + ( γI + ρ A refine ) ( −vi)(γI + ρ A refine ) vi + Arefine (−vi)
+
+
+
+= 1
+
+√2
+
+μi vi − γ vi − ρμ i vi
+
+γ vi + ρμ i vi − μi vi
+
+
+
+= 1
+
+√2
+
+ [(1 − ρ)μi − γ] vi
+
+−[(1 − ρ)μi − γ] vi
+
+
+
+= (1 − ρ)μi − γ q− 
+
+> i
+
+. (53) Since {v1, . . . , vN } form a complete eigenbasis for Arefine , the 2N vectors 
+
+{q+1 , . . . , q+ 
+
+> N
+
+, q− 
+
+> 1
+
+, . . . , q− 
+
+> N
+
+} form a complete eigenbasis for Asup , with eigenvalues 
+
+{(1 + ρ)μi + γ}Ni=1 ∪ { (1 − ρ)μi − γ}Ni=1 .
+
+Interpretation. The spectral decomposition reveals how ρ and γ jointly shape the coupled propaga-tion: • Symmetric amplification. Cross-modal coupling amplifies graph spectral components in the sym-metric subspace by a factor (1 + ρ) relative to the decoupled case ( ρ = 0 ). The self-injection 
+
+γ provides an additional frequency-independent boost to symmetric modes. For homophilic 
+
+graphs, where low-frequency components (large μi) carry the dominant class signal, this ampli-fication strengthens the informative spectral components and accelerates convergence to useful representations. • Anti-symmetric attenuation. Anti-symmetric modes are attenuated by factor (1 − ρ) and shifted by 
+
+−γ. When ρ and γ are large, the model aggressively suppresses cross-modal disagreement, which is beneficial when the two modalities carry consistent semantic signals. • Adaptivity to graph heterophily. For heterophilic graphs where high-frequency components (small or negative μi) carry discriminative signal, the model can learn small ρ and γ, preserving high-frequency components in both symmetric and anti-symmetric subspaces. Since ρ = σ(ρlogit ) and 
+
+γ = σ(γlogit ) are learnable, the spectral filter adapts to the homophily/heterophily characteristics of the data without manual tuning. 
+
+## L Proof of Theorem 2 (Shared-Weight Cross-Modal Consistency) 
+
+The coupled update rules are: 
+
+H(ℓ+1)  
+
+> T
+
+= σ
+
+
+
+W (ℓ) Arefine H(ℓ) 
+
+> T
+
++ γ H (ℓ) 
+
+> V
+
++ ρ A refine H(ℓ)
+
+> V
+
+
+
+, (54) 
+
+H(ℓ+1)  
+
+> V
+
+= σ
+
+
+
+W (ℓ) Arefine H(ℓ) 
+
+> V
+
++ γ H (ℓ) 
+
+> T
+
++ ρ A refine H(ℓ)
+
+> T
+
+
+
+. (55) 
+
+Step 1: Express the pre-activation difference. Define the pre-activation inputs: 
+
+uT = Arefine H(ℓ) 
+
+> T
+
++ γ H (ℓ) 
+
+> V
+
++ ρ A refine H(ℓ) 
+
+> V
+
+, (56) 
+
+uV = Arefine H(ℓ) 
+
+> V
+
++ γ H (ℓ) 
+
+> T
+
++ ρ A refine H(ℓ) 
+
+> T
+
+. (57) 20 Their difference is: 
+
+uT − uV = Arefine 
+
+ H(ℓ) 
+
+> T
+
+− H(ℓ)
+
+> V
+
+ + γ H(ℓ) 
+
+> V
+
+− H(ℓ)
+
+> T
+
+ + ρ A refine 
+
+ H(ℓ) 
+
+> V
+
+− H(ℓ)
+
+> T
+
+
+
+= Arefine ∆(ℓ) − γ ∆(ℓ) − ρ A refine ∆(ℓ)
+
+= (1 − ρ) Arefine ∆(ℓ) − γ ∆(ℓ). (58) 
+
+Step 2: Apply the Lipschitz bound. Taking the difference of Eqs. (54)–(55): 
+
+∆(ℓ+1) = H(ℓ+1)  
+
+> T
+
+− H(ℓ+1)  
+
+> V
+
+= σ W (ℓ)uT
+
+ − σ W (ℓ)uV
+
+. (59) Since σ(·) is 1-Lipschitz (e.g., ReLU, sigmoid): 
+
+∆(ℓ+1) ≤ W (ℓ)(uT − uV ) ≤ W (ℓ) · ∥ uT − uV ∥. (60) 
+
+Step 3: Bound the pre-activation difference. From Eq. (58) and the triangle inequality: 
+
+∥uT − uV ∥ ≤ ∥ (1 − ρ) Arefine ∆(ℓ)∥ + ∥γ ∆(ℓ)∥
+
+= (1 − ρ) ∥Arefine ∥ ∥ ∆(ℓ)∥ + γ ∥∆(ℓ)∥, (61) where |1 − ρ| = 1 − ρ since ρ = σ(ρlogit ) ∈ (0 , 1) .
+
+Step 4: Combine and telescope. Substituting Eq. (61) into Eq. (60): 
+
+∆(ℓ+1) ≤ W (ℓ) 
+
+(1 − ρ) ∥Arefine ∥ + γ
+
+
+
+∆(ℓ) . (62) Telescoping over ℓ = 0 , 1, . . . , L − 1:
+
+∆(L) ≤
+
+> L−1
+
+Y
+
+> ℓ=0
+
+W (ℓ) 
+
+(1 − ρ) ∥Arefine ∥ + γ
+
+
+
+· ∆(0) . (63) 
+
+## M Dataset Statistics 
+
+Table 8: Dataset statistics. Datasets marked with † are from the MAGB benchmark [34]; those marked with ‡ are from MM-Graph [39]. NC = node classification, LP = link prediction. 
+
+Dataset #Nodes #Edges #Classes Task 
+
+Ele-fashion ‡ 97,766 199,602 12 NC Goodreads-NC ‡ 685,294 7,235,084 10 NC Movies † 16,672 218,390 20 NC Toys † 20,695 126,886 18 NC Grocery † 17,074 171,340 20 NC Reddit-S † 15,894 566,160 20 NC Reddit-M † 99,638 1,167,188 50 NC Amazon-Sports ‡ 50,250 356,202 — LP Amazon-Cloth ‡ 125,839 951,271 — LP 
+
+## N Hyperparameters 
+
+We provide the major hyperparameter search space: • K: {1, 3, 5, 8, 12 }.• Learning rate : {0.005 , 0.003 , 0.001 }.• Dropout: {0.1, 0.3, 0.5, 0.7, 0.8}.• GNN layers: {1, 2, 3}.• GNN hidden dimension of tokens: {256 , 512 , 1024 }.• Batch Size: {256 , 512 , 1024 }.• Weight Decay: {0, 1e − 05 , 5e − 05 , 1e − 04 }.21

@@ -1,0 +1,333 @@
+Title: Action-Aligned Retrieval with Pairwise Multimodal Reranking for Text-Based Person Anomaly Search
+
+URL Source: https://arxiv.org/pdf/2608.23503v1
+
+Published Time: Tue, 25 Aug 2026 02:22:36 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# Action-Aligned Retrieval with Pairwise Multimodal Reranking for Text-Based Person Anomaly Search 
+
+Thanh-Khoi Nguyen 1,2† , Thanh-Nhan Vo 1,2† , Trong-Thuan Nguyen 1,2 ,and Minh-Triet Tran 1,2 
+
+> 1
+
+University of Science, VNU-HCM, Vietnam  
+
+> 2
+
+Vietnam National University, Ho Chi Minh City, Vietnam 
+
+{ntkhoi,vtnhan,ntthuan}@selab.hcmus.edu.vn tmtriet@fit.hcmus.edu.vn 
+
+> †
+
+These authors contributed equally. 
+
+Abstract. Text-based person anomaly search requires distinguishing in-dividuals based on fine-grained, context-dependent behaviors rather than mere appearance. Existing methods struggle to capture these context-conditioned actions, frequently relying on isolated skeletal geometry, discarding raw query details during reformulation, or utilizing absolute pointwise scoring for multimodal verification. To address these limita-tions, we propose ActPair , a unified three-stage coarse-to-fine frame-work that combines action-aligned retrieval with pairwise multimodal reranking to bridge the pose-semantic gap. First, we fine-tune a vision-language model (VLM) with an action-aligned multi-task objective that encourages the representations to encode action-discriminative seman-tics. Second, we perform parallel late-fusion retrieval using the original query and a large language model (LLM)-generated context-grounded rewrite, retaining complementary details from both semantic views. Fi-nally, we propose an efficient off-the-shelf reranking module that lever-ages a pivot-promote algorithm to perform direct pairwise visual compar-isons, mitigating residual spatial and compositional ambiguities without the prohibitive inference costs of exhaustive evaluation. Extensive exper-iments demonstrate that our framework achieves the best results among the compared methods on the Pedestrian Anomaly Behavior (PAB) pub-lic test and and transfers effectively to an unseen, non-anomaly-specific dataset. 
+
+Keywords: Text-based person anomaly search · Vision-language re-trieval · Action-aligned representation learning · Pairwise multimodal reranking 
+
+## 1 Introduction 
+
+Text-based person search retrieves individuals using natural language but is largely limited to routine activities, overlooking abnormal behaviors critical in arXiv:2608.23503v1 [cs.CV] 24 Aug 2026 2 Thanh-Khoi Nguyen et al. 
+
+surveillance. Recent work extends this to text-based person anomaly search, where individuals may share similar appearance and can only be distinguished by fine-grained actions described in the query. These actions are often entan-gled with implicit scene context, requiring representations that capture identity-independent behavior and context, rather than relying on appearance alone. While recent advances have pushed the boundaries of text-based person re-trieval, existing methods still exhibit critical limitations when applied to the highly nuanced task of person anomaly search. First, prior pose-aware frame-works (e.g., Cross-Modal Pose-aware (CMP) [23]) predominantly rely on iso-lated skeletal geometry as a supervisory signal for human action. However, in static image retrieval, where temporal dynamics are absent, skeletal posture is inherently ambiguous; a physical pose resolves into definitive action seman-tics only when explicitly coupled with its surrounding environmental context. Second, although recent methods explore query reformulation (e.g., MVR [26], ReCQR [3], PlugIR [8], MRA [22]), they typically replace the original query entirely. They lack a parallel late-fusion mechanism capable of synergizing the unadulterated fine-grained details of the raw query with a canonical, context-grounded rewrite, thereby inadvertently discarding complementary semantic ev-idence. Third, global dense embeddings exhibit a well-documented vulnerability to the compositional binding problem. While highly proficient at recognizing iso-lated semantic concepts, they frequently fail to accurately bind these attributes to their correct subjects within a unified interaction graph. In anomaly search, distinguishing events rarely relies on the mere presence of objects, but rather on precise spatial interactions (e.g., "a man falling off a bicycle" versus "a man standing next to a fallen bicycle"). Consequently, cosine similarity metrics over compressed representations struggle with final fine-grained localization. To mit-igate this, contemporary generative methods (e.g., AnomalyLMM [6], IRRA [4] reranking) introduce multimodal large language model (MLLM)-based rerank-ing, but they typically rely on independent caption generation or absolute point-wise scoring. This isolated assessment forces models to maintain globally cali-brated scales. However, it overlooks a fundamental intuition: assessing subtle visual differences is inherently easier and more reliable when directly compar-ing two highly similar candidates side-by-side, rather than attempting to com-pute an absolute relevance score for a single image in isolation. Finally, cur-rent architectures (e.g., SSDC [19], RaSa [21], APTM [24], CAMeL [25]) remain fragmented, lacking a unified coarse-to-fine framework tailored for fine-grained person anomaly search. To overcome these limitations, we propose ActPair , an action-aligned re-trieval framework with pairwise multimodal reranking, designed as a unified three-stage coarse-to-fine pipeline to bridge the pose-semantic gap in text-based person anomaly search. First, we establish a robust dense retrieval foundation by fine-tuning a VLM via an action-aligned multi-task learning objective and cross-modal consistency to capture rich, context-conditioned action semantics. Second, to address the contextual ambiguity of free-form natural language, we employ a parallel late-fusion retrieval strategy that harmonizes the original query ActPair 3
+
+with an LLM-synthesized, context-grounded rewrite, maximizing candidate re-call while preserving fine-grained raw details. Finally, to alleviate residual spatial and compositional ambiguities that global dense embeddings inherently strug-gle to capture, we utilize an efficient off-the-shelf multimodal reranking module. By using an MLLM as a direct pairwise comparator within the pivot-promote procedure, our framework performs targeted reranking over the top-ranked can-didates rather than constructing a complete pairwise ordering. The procedure reduces the number of comparisons in the evaluated top-10 setting, although its worst-case complexity remains quadratic. Our main contributions are as follows: 
+
+– We propose action-aligned multi-task representation learning for a VLM that combines contrastive image-text alignment with explicit action-tag supervi-sion and cross-modal consistency. 
+
+– We propose context-grounded query rewriting with parallel late-fusion re-trieval, enriching queries with action and scene cues while fusing comple-mentary semantic views to improve recall. 
+
+– We propose an efficient off-the-shelf pairwise multimodal reranking with a pivot-promote strategy. Under a matched Qwen3.5-9B comparison, direct candidate comparison improves R@1 and mAP over pointwise scoring. 
+
+## 2 Related Work 
+
+2.1 Pose-Aware and Action-Semantic Representation for Person Anomaly Search 
+
+Conventional text-based person retrieval primarily learns cross-modal represen-tations for identity-related appearance descriptions. Recent methods strengthen fine-grained alignment through implicit visual-textual relation reasoning [4], relation-aware supervision, and sensitivity to meaningful textual variations [21]. However, they are mainly designed to distinguish identities by appearance rather than behaviors that determine normal or anomalous retrieval targets. The PAB benchmark introduces person anomaly search, where visually sim-ilar pedestrians must be distinguished by their behaviors [23]. Its CMP frame-work incorporates human-pose patterns and identity-based hard negatives to capture structural behavioral variations. Nevertheless, similar skeletal configu-rations may correspond to different actions. SSDC formalizes this limitation as the pose-semantic gap and combines pose-aware retrieval with MLLM-based se-mantic verification [19], although semantic reasoning is applied mainly after the initial structure-guided stage. Studies in human-object interaction and action recognition further show that action semantics depend on interacting objects and scene context, rather than body geometry alone [10, 18]. At the same time, background context must be modeled carefully to avoid spurious scene shortcuts [9]. Motivated by these ob-servations, our approach directly optimizes the SigLIP2 embedding space [17] using explicit action supervision and cross-modal action consistency, enabling context-conditioned action representations before retrieval. 4 Thanh-Khoi Nguyen et al. 
+
+2.2 Multimodal Reranking for Fine-Grained Retrieval 
+
+Learning-to-rank methods construct rankings via pointwise, pairwise, or listwise relevance modeling [1, 2]. Recent language and multimodal models extend these approaches beyond dense-encoder similarity scores. In text-based person anomaly search, SSDC verifies each retrieved image with an MLLM and fuses image-specific semantic evidence with pose-aware re-trieval [19], while AnomalyLMM independently interprets candidates through masked action and color descriptions before LLM-based ranking [6]. Both pro-cess candidates independently before assessing relative relevance. Pairwise rank-ing prompting instead directly compares candidates, avoiding independently cali-brated relevance scores [12], but exhaustive pairwise comparison incurs quadratic multimodal inference cost [29]. We therefore compare only a small top-ranked candidate pool using a pivot-promote procedure, enabling fine-grained relative reasoning without exhaustive all-pairs evaluation. 
+
+2.3 Query Reformulation and Multi-View Retrieval 
+
+Recent vision-language retrieval methods reformulate or enrich textual queries at inference time to reduce ambiguity. PlugIR converts dialogue-form contexts into self-contained queries and generates candidate-aware clarification questions for interactive text-to-image retrieval [8]. ReCQR similarly rewrites long or under-specified conversational histories into concise, semantically complete queries [3]. Relevance-feedback methods instead refine the query using top-ranked images, synthetic captions, or learned multimodal feedback [7]. MVR mitigates expression drift by generating keyword-preserving, seman-tically equivalent reformulations and aggregating their textual features. It also reformulates VLM-generated gallery descriptions for visual-semantic compen-sation [26]. In contrast, our method generates a single action-scene-grounded rewrite for person anomaly search while retaining the original caption as a com-plementary retrieval view. The rewrite emphasizes behavioral context, whereas the original preserves instance-specific details. We combine these two views through late-fusion retrieval rather than aggregating multiple reformulations. 
+
+## 3 Proposed Method 
+
+3.1 Problem Formulation 
+
+Let G = {Ii}Ni=1 denote an image gallery of N candidate pedestrian images, and let Q be a natural language query describing a target pedestrian’s appearance and behavior. The goal of text-based person anomaly search is to retrieve the image as formulated in Eq. (1). 
+
+I∗ = arg max  
+
+> I∈G
+
+sim  Q, I , (1) such that I∗ depicts the pedestrian engaged in the exact normal or anomalous behavior specified by Q. We seek a ranking function as defined in Eq. (2). 
+
+F(Q, G) → ˆG, (2) ActPair 5Original caption q  
+
+> A person moves beside
+> a decorated tree...
+> Rewrite
+> LLM rewrite q'
+> A dark-clothed person
+> steps near a tree...
+> Gallery
+> Text Encoder
+> Text Encoder
+> Image
+> Encoder
+> Similarity
+> Similarity
+> Top-100
+> Top-100
+> Candidate Union
+> Score Averaging
+> candidate pairs
+> vs
+> 1
+> 2
+> 3
+> 4⋮
+> reranked gallery
+> Qwen3.5
+
+Fig. 1: Overview of ActPair . An action-aligned dual encoder retrieves candidates from the original query and a context-grounded rewrite. Their rankings are fused before pairwise multimodal reranking with pivot-promote. 
+
+that produces a sorted candidate list ˆG minimizing the rank position of the ground-truth image I∗. Given the scale of real-world galleries, F is instantiated in practice as a composition of a high-recall retrieval stage over G followed by a fine-grained scoring stage restricted to a small candidate subset, though the formulation above remains agnostic to this decomposition. 
+
+Overview. As illustrated in Fig. 1, ActPair consists of three stages: action-aligned representation learning, dual-view retrieval using the original and context-grounded queries, and pairwise multimodal reranking with pivot-promote. 
+
+3.2 Offline Action and Scene Tag Extraction 
+
+We utilize the action and scene tags provided by training set PAB [23] as the basis for constructing a fixed behavioral vocabulary. Let Ract and Rscene denote the sets of raw, free-form action and scene tags in the training annotations, and let c(r) denote the occurrence count of a raw tag r. Owing to the heavy-tailed distribution of tag frequency, we retain only the top-K most frequent tags in each category according to Eq. (3). 
+
+RKact = top - Kr∈R act c(r), RKscene = top - Kr∈R scene c(r). (3) This together accounts for the large majority of dataset occurrences while discarding rare, noisy, near-duplicate phrasings. The retained tags, together with their frequencies, are provided to a LLM Mtag , which induces a fixed set of nact 
+
+and nscene canonical categories and produces a mapping in Eq. (4). 
+
+ϕ : RKact ∪ R Kscene → T act ∪ T scene , (4) Mitigating synonymy and surface-level variation between raw tags that de-scribe the same underlying action or scene. The resulting lookup tables Tact 
+
+and Tscene standardize the raw annotations into a fixed vocabulary, which sup-plies the ground-truth labels yact for action supervision (Sec. 3.3) and the tag vocabulary used for query rewriting (Sec. 3.4). 6 Thanh-Khoi Nguyen et al. Joint action-aware learning 
+
+> Image Encoder
+> Caption
+> A person in dark clothing
+> moves beside a tree...
+> Action label
+> Text Encoder
+> MLP
+> SigLIP loss
+> Image Logits
+> Text Logits
+> Action loss
+
+Fig. 2: Action-aligned representation learning. Image and text embeddings are opti-mized by the SigLIP2 objective, shared action supervision, and cross-modal action consistency. 
+
+3.3 Multi-Task Representation Learning 
+
+Figure 2 illustrates the joint image-text alignment and action-supervision ar-chitecture. The effectiveness of our overall framework depends on the quality of the underlying dense retrieval model, which must produce a highly accurate initial candidate pool before any downstream contextualization or reranking can take place. Relying on an out-of-the-box VLM often yields suboptimal results, as such models can exhibit insufficient sensitivity when evaluating images with high pixel overlap (e.g., identical backgrounds and subjects), failing to distin-guish subtle kinematic variations. To optimize the base SigLIP2 encoder for fine-grained anomaly retrieval, we propose a multi-task fine-tuning objective. Let Eimg and Etxt represent the normalized image and text embeddings, and 
+
+s(i, j ) = E(i) 
+
+> img
+
+· E(j) 
+
+> txt
+
+denote their cosine similarity. The total training objective is formulated as Eq. (5). 
+
+Ltotal = Lsiglip + λaction Laction  (5) where Lsiglip is the native SigLIP2 pairwise sigmoid loss utilized to maintain global, memory-efficient image-text alignment across the batch. 
+
+Action Supervision and Semantic Consistency: To reduce the visual en-coder’s reliance on dominant background cues, we propose an auxiliary classifi-cation head over predefined action tags. This encourages the model to allocate representational capacity to action-discriminative visual evidence beyond scene context alone. Let pimg = softmax( Wact Eimg ) and ptxt = softmax( Wact Etxt ) de-note the predicted distributions over the action-tag set Tact , produced from the image and text embeddings by the shared classification head Wact . We define the action supervision objective as Eq. (6b). 
+
+Lcons = 12 [DKL (pimg ∥ ptxt ) + DKL (ptxt ∥ pimg )] , (6a) 
+
+Laction = 12 [CE( pimg , y act ) + CE( ptxt , y act )] + Lcons . (6b) Here, yact is the class index, equivalently a one-hot target, of the canonical ac-tion assigned to the target pedestrian. The auxiliary task is therefore formulated ActPair 7
+
+as single-label multi-class classification over Tact . The consistency term Lcons is the symmetric Kullback-Leibler (KL) divergence between pimg and ptxt . It en-courages both modalities to agree on the action semantics of each image-text pair, thereby reducing their reliance on spurious background correlations. 
+
+3.4 Query Rewriting and Parallel Late-Fusion Retrieval 
+
+In static text-to-image retrieval, the original query Qorig often lacks structural alignment, leaving actions ambiguous without temporal dynamics. To reduce this cross-modal ambiguity prior to retrieval, we propose an offline context-grounded query enrichment mechanism that explicitly conditions actions on the surrounding environment. 
+
+Query Rewriting. Given a query Qorig , we assign it the action and scene tags 
+
+τact , τ scene - extracted via LLM inference over the canonical vocabulary - most relevant to its content from the canonical vocabulary obtained during offline tag extraction (Sec. 3.2), and use an LLM Mllm to rewrite Qorig into a fixed template: 
+
+“The image shows [person description] wearing [clothing] [action]. The background features [scene details].” 
+
+This process produces the rewritten query Qrew = Mllm (Qorig ⊕τact ⊕τscene )
+
+where τact ∈ T act , and τscene ∈ T scene . By explicitly injecting action and scene tags, Qrew produces a context-grounded textual representation to ground the described behavior within its specific scene, mitigating the inherent ambiguities of the original caption. 
+
+Parallel Late-Fusion Retrieval. While the enriched query Qrew mitigates spatial ambiguity, we treat the original caption Qorig and its rewrite Qrew as two complementary semantic views of the same retrieval intent. Specifically, Qrew 
+
+provides the necessary structural grounding of action and background, whereas 
+
+Qorig retains the raw, unadulterated fine-grained constraints (e.g., specific cloth-ing colors or secondary object interactions) that might be inadvertently altered or omitted during LLM synthesis. To leverage both perspectives, we employ a parallel late-fusion retrieval strategy. Let E denote the fine-tuned dual-encoder (SigLIP2 [17]) that projects both textual queries and images into a shared d-dimensional embedding space. We in-dependently execute two retrieval branches across the entire image gallery G. The first branch computes cosine similarity scores Sorig using Qorig , while the second computes Srew using Qrew . From these independent distributions, we extract the top-K candidate subsets, denoted Corig and Crew . To maximize candidate recall before the computationally expensive reranking stage, we construct a union can-didate pool Cunion = Corig ∪ C rew , preserving the visual evidence retrieved by either semantic view. For each candidate image Ii ∈ C union , we compute a fused similarity score Sf inal (Ii) as the arithmetic mean of its corresponding scores from both branches, as formulated in Eq. (7). 
+
+Sf inal (Ii) = 12
+
+
+
+Sorig (Ii) + Srew (Ii)
+
+
+
+. (7) 8 Thanh-Khoi Nguyen et al. 
+
+Algorithm 1 Pivot-Promote Pairwise Reranking                                                    
+
+> Require: Query Q;ranked candidates R=[I1, . . . , I M];pairwise comparator
+> C(Q, I a, I b)∈ { a, b, tie }
+> Ensure: Reranked candidates 1: function PivotPromote (Q, R)2: if |R| ≤ 1then
+> 3: return R
+> 4: end if
+> 5: Ia← R [1] ,I+←[ ] ,I−←[ ]
+> 6: for Ib∈ R [2:] do
+> 7: append Ibto I+if C(Q, I a, I b) = b; otherwise to I−
+> 8: end for
+> 9: return PivotPromote (Q, I+)⊕[Ia]⊕ I −
+> 10: end function
+
+Finally, the union pool Cunion is re-sorted in descending order based on Sf inal ,and a highly probable top-M candidate subset CM (where M < K ) is isolated and forwarded to the multimodal reranking module in Sec. 3.5. 
+
+3.5 Pairwise Multimodal Reranking Pairwise Comparison as a Verification Signal. Rather than prompting a VLM to assign an absolute scalar score to each image-text pair, we cast reranking as a sequence of pairwise comparisons. We leverage Qwen3.5 [16] as a pairwise comparator Mcmp , and empirically validate this design choice against a point-wise scoring baseline in Sec. 5.3. Given the original query caption Qorig and a candidate pair (Ia, I b), Mcmp 
+
+is prompted to compare the two images along a fixed set of fine-grained criteria, namely the primary action, target person, clothing, object interaction, secondary people, scene and background, and spatial relationships, together with any ex-plicit contradictions or missing details relative to Qorig . The comparator returns a single decision as defined in Eq. (8). 
+
+w = Mcmp (Qorig , I a, I b) ∈ { a, b, tie }, (8) indicating whether Ia, Ib, or neither is better supported by the query. 
+
+Pivot-Promote Reranking. The complete reranking procedure is summarized in Algorithm 1. Operating on the highly probable candidate subset CM (where 
+
+M < K ≪ N ) retrieved from the late-fusion stage, we employ a pivot-promote reranking procedure that recursively processes candidates preferred to the cur-rent pivot while preserving the prior order of the remaining candidates. An initial pivot candidate Ia ∈ C M , determined by the prior dense retrieval score, is com-pared against each remaining candidate Ij ∈ C M \{ Ia} using Mcmp , partitioning 
+
+CM \ { Ia} into the two subsets defined in Eq. (9). 
+
+Cbetter = {Ij : w = b}, Cworse = {Ij : w ∈ { a, tie }} . (9) ActPair 9
+
+If |C better | > 1, the algorithm recurses on Cbetter , selecting a new pivot from within this subset and repeating the partitioning step; candidates in Cworse retain their relative order from the prior stage. The final ranking is obtained by concate-nating the recursively sorted Cbetter , the pivot Ia, and Cworse , which rapidly ele-vates the ground-truth image toward the top of the ranking. Since pivot-promote recursively processes only candidates preferred to the current pivot, it has ex-pected linear comparison complexity under a uniformly distributed pivot-rank assumption, while its worst-case complexity remains quadratic. In practice, the candidates are already approximately ordered by the preceding retrieval stages, typically yielding smaller recursive subsets and fewer comparisons. 
+
+## 4 Experiment 
+
+4.1 Experimental Setup Datasets and Baselines. To comprehensively evaluate our framework, we uti-lize the PAB dataset [23] and the RSTPReid benchmark [28]. PAB is specifically constructed for person anomaly search, containing over 1 million image-text pairs spanning 1,600 anomalous and 1,000 normal behaviors. We use its augmented version from the AI City Challenge Track 4 3 to test model robustness in real-world surveillance scenarios. Additionally, we use RSTPReid (20,505 images of 4,101 persons across 15 cameras) to validate generalization in non-anomaly-specific environments featuring complex transformations. We compare our ap-proach against the PAB-specific CMP baseline [23], which explicitly integrates pose patterns to distinguish actions. Furthermore, we benchmark against gen-eral VLM (CLIP [13], X-VLM [27]) and state-of-the-art appearance-matching architectures (IRRA [4], APTM [24], RaSa [21], WoRA [15], MRA [22], and CAMeL [25]). These models are primarily developed for appearance-oriented person retrieval and may therefore be less sensitive to fine-grained behavioral distinctions. 
+
+Implementation Details. We use Qwen3.5-9B [16] to canonicalize the raw annotations into action and scene tags. The retriever is initialized from SigLIP2-Patch16-256 [17] and fine-tuned on the PAB training set using the proposed ob-jective with  λaction = 0 .2. At inference, we retrieve the top-K = 100  candidates for each query view, fuse their scores, and retain the top-M = 10  candidates for pairwise reranking with Qwen3.5-9B. All Qwen inference uses deterministic decoding with temperature  = 0  and seed  = 0 .
+
+Evaluation Metrics. We adopt standard evaluation metrics widely used in cross-modal retrieval tasks to assess the model’s performance. Specifically, we report Recall@K (R@1, R@5, R@10) and mean Average Precision (mAP). Re-call@K measures the percentage of natural language queries where the ground-truth matching image is successfully located within the top-K retrieved can-didates. The mAP metric evaluates the overall area under the precision-recall curve, providing a comprehensive assessment of the model’s global ranking qual-ity across all queries.                                                                                                      
+
+> 3https://www.aicitychallenge.org/2026-track4/ 10 Thanh-Khoi Nguyen et al.
+> Table 1: Quantitative comparison on the original PAB test protocol under training-free and PAB fine-tuning settings.
+> Training-free Fine-tuned on PAB Method Venue R@1 R@5 R@10 mAP R@1 R@5 R@10 mAP
+> MRA [22] PR’26 9.91 23.66 31.45 17.15 70.53 94.69 97.47 81.59 RaSa [21] IJCAI’23 21.74 27.30 27.96 24.35 80.79 98.89 99.65 89.20 WoRA [15] WWW’25 22.25 45.91 53.54 33.39 74.47 96.82 98.48 84.60 APTM [24] MM’23 22.90 45.80 52.38 33.56 72.14 95.30 97.17 82.78 CAMeL [25] TIFS’25 24.47 50.00 58.75 36.75 74.30 96.79 98.84 84.20 IRRA [4] CVPR’23 30.59 59.61 68.91 44.41 76.39 97.62 99.14 86.33 CLIP [13] ICML’21 47.57 81.55 89.03 62.73 77.60 98.84 99.75 87.35 X-VLM [27] ICML’22 71.94 97.78 98.99 83.96 81.95 98.84 99.19 89.86 CMP [23] ICCV’25 ––––84.93 99.09 99.75 91.66 SSDC [19] ACL’26 ––––87.21 99.09 99.75 92.87
+> ActPair (Ours) ECCVW’26 ––––88.62 99.75 99.85 93.97
+
+4.2 Quantitative Results Main Results on PAB. ActPair achieves the best results among the com-pared published baselines on the original PAB test under the reported eval-uation protocol, obtaining 88.62% R@1 and 93.97% mAP, as shown in Ta-ble 1. In the training-free setting without domain-specific adaptation, conven-tional appearance-oriented architectures, including IRRA [4], RaSa [21], and APTM [24], struggle to capture fine-grained behavioral anomalies, with the strongest of these methods reaching only 44.41% mAP. Foundational VLMs per-form considerably better, with X-VLM [27] achieving 83.96% mAP, yet still remain below methods explicitly adapted to the PAB domain. Under the PAB fine-tuning setting, ActPair consistently outperforms both general-purpose person retrieval methods and PAB-specific baselines. Compared with the pose-aware CMP [23], our method improves R@1 and mAP by 3.69 and 2.31 percentage points, respectively. It also surpasses the stronger cascade-based SSDC [19] baseline by 1.41 points in R@1 and 1.10 points in mAP. Notably, the improvements are most pronounced at rank 1 and in overall ranking quality, while R@5 and R@10 are already close to saturation. This suggests that ActPair primarily improves the fine-grained ordering of highly similar candidates, rather than merely increasing coarse candidate recall. 
+
+Main Results on RSTPReid To assess the robustness and transferabil-ity of the learned representations in general, non-anomaly-specific environments, Table 2 reports the performance on the RSTPReid dataset [28]. The evaluation is divided into supervised fine-tuning and cross-dataset evaluation scenarios. Un-der the cross-dataset setting, where models are evaluated without utilizing any RSTPReid [28] samples for training or domain adaptation, ActPair substantially improves over the same-source CMP baseline. Specifically, when transferring di-rectly from the PAB dataset to RSTPReid using the full pipeline with pairwise ActPair 11 
+
+Table 2: Comparison on RSTPReid under supervised fine-tuning and cross-dataset transfer. In the zero-shot setting, IVT, IRRA, CFine, APTM, and RaSa are trained on ICFG-PEDES, while CMP and Ours are trained on PAB. “–” denotes unavailable results. 
+
+Method Venue Supervised Zero-shot Transfer R@1 R@5 R@10 R@1 R@5 R@10 
+
+DSSL [28] MM’21 32.43 55.08 63.19 – – –IVT [14] ECCVW’22 46.70 70.00 78.80 43.70 65.10 75.55 CFine [20] TIP’23 50.55 72.50 81.60 47.40 70.60 79.35 IRRA [4] CVPR’23 60.20 81.30 88.20 45.10 69.20 78.75 RDE [11] CVPR’24 65.35 83.95 89.90 – – –APTM [24] MM’23 67.50 85.70 91.45 52.50 75.15 81.70 
+
+RaSa [21] IJCAI’23 – – – 55.00 73.65 81.55 CMP [23] ICCV’25 – – – 29.15 50.40 60.75 
+
+ActPair (Ours) ECCVW’26 – – – 55.25 69.05 73.75 #1 #2 #3 #4 #5 #1 #2 #3 #4 #5          
+
+> #1 #2 #3 #4 #5 #1 #2 #3 #4 #5
+
+Query 1 #10 → #9 → #1 
+
+> On a grass field, a group of people are playing lacrosse. The players are wearing sports uniforms: two in a red shirt and…
+
+Query 2 #24 → #8 → #1 
+
+> The picture depicts two people on a pavement. One individual, clad in a white blouse and pale blue trousers, is standing…
+
+Query 3 #57 → #6 → #1 
+
+> In the quiet expanse of snow, two figures are present. One lies sprawled upon the white ground, skis firmly strapped to…
+
+Query 4 #1 → #2 → #6 
+
+> On the right, a snowboarder in a helmet is getting ready to do a trick over water, while on the left, a bunch of spectators…
+
+Fig. 3: Qualitative top-5 retrieval results across the three stages. The numbers indi-cate the ground-truth ranks after action-aligned retrieval, dual-view query fusion, and pairwise reranking. Queries 1–3 are successful cases, while Query 4 illustrates a failure on complex spatial and action-state constraints. 
+
+reranking, our approach yields a Recall@1 of 55.25%, a Recall@5 of 69.05%, and a Recall@10 of 73.75%. This constitutes a substantial improvement over the baseline CMP model [23], which attains only 29.15% Recall@1 under identical zero-shot transfer conditions; since reranking only reorders the top-10, the lower Recall@5/@10 relative to CFine, APTM, and IRRA reflects the retrieval stage’s coverage rather than a reranking limitation. While RSTPReid predominantly relies on appearance rather than behavioral anomalies, ActPair substantially improves over the same-source CMP baseline without using RSTPReid annotations or domain adaptation. This suggests that the action-aligned representations learned on PAB retain useful cross-domain information, particularly for top-1 retrieval. 12 Thanh-Khoi Nguyen et al.                              
+
+> Table 3: Progressive evaluation on the AI City 2026 challenge test and the original PAB test.
+> Method Challenge Set Public Test R@1 R@5 R@10 mAP R@1 R@5 R@10 mAP
+> CMP [23] 69.41 89.43 91.91 –84.93 99.09 99.75 91.66 Action-Aligned Retriever 72.14 92.77 95.50 81.68 84.98 99.29 99.60 91.73 + Dual-View Query 75.73 94.99 97.27 84.48 85.95 99.34 99.85 92.30 + Pairwise Reranking 84.88 96.36 97.27 90.14 88.62 99.75 99.85 93.97
+
+4.3 Qualitative Analysis 
+
+Figure 3 shows representative retrieval results across the three stages. For queries 1–3, dual-view fusion improves candidate discovery while pairwise reranking pro-motes the ground-truth image to rank 1; Query 3 illustrates this clearly, moving from rank 57 to 6 to 1 across the three stages. Query 4 presents a failure case: although the correct image is initially ranked first, it is demoted by the later stages. This suggests that the model may still struggle with long compositional descriptions involving action phases, multiple people, and precise spatial rela-tions. 
+
+## 5 Ablation Study 
+
+5.1 Contribution of Each Stage 
+
+Table 3 presents a progressive evaluation of the framework’s components on the Challenge and PAB Public Test sets. The baseline configuration, employ-ing the action-supervised SigLIP2 dual-encoder, establishes a strong foundation with a Recall@1 of 72.14% on the Challenge Set and 84.98% on the Public Test set. This configuration outperforms the pose-aware CMP baseline, indicating higher initial retrieval accuracy under the evaluated setting. Building upon the action-aligned retriever, dual-view query fusion preserves fine-grained query de-tails while leveraging the context-grounded rewrite. This parallel retrieval strat-egy captures complementary semantic evidence, improving Recall@1 to 75.73% and 85.95% on the respective test sets. Finally, incorporating the training-free pairwise multimodal reranking further improves top-rank retrieval among the top-10 candidates. This complete framework delivers the most substantial per-formance gain, elevating the Challenge Set Recall@1 to 84.88% and achieving a final Recall@1 of 88.62% alongside a 93.97% mAP on the Public Test set. These progressive improvements demonstrate the complementary contribution of each stage in isolating fine-grained behavioral anomalies. 
+
+5.2 Action versus Pose Supervision 
+
+Table 4 isolates the effectiveness of explicit action supervision relative to skeletal pose signals. Incorporating pose information into the CMP baseline yields only ActPair 13                            
+
+> Table 4: Controlled comparison of pose- and action-based supervision on the challenge set. The SigLIP2 [17] comparison keeps the backbone and training configuration fixed, isolating the effect of the supervision signal.
+> Backbone Supervision R@1 R@5 R@10
+> Effect of pose information in CMP [23]
+> CMP RGB and text 68.60 87.51 89.64 CMP RGB, text, and pose 69.41 89.43 91.91
+> Controlled comparison under the same SigLIP2 backbone [17]
+> SigLIP2 Pose-based supervision 67.95 91.20 94.74 SigLIP2 Action-based supervision 72.14 92.77 95.50
+> ∆Action −Pose Paired bootstrap 95% CI +4.19 +1.57 +0.76
+> [+ 2.38 , + 6.07 ] [+ 0.51 , + 2.63 ] [ −0.10 , + 1.62 ]
+
+a modest improvement, increasing Recall@1 from 68.60% to 69.41%. However, under a controlled comparison using the same SigLIP2 backbone [17], pose-based supervision remains less effective than our explicit action supervision. Employing human pose extracted via RTMPose [5] as the primary training signal proved suboptimal, achieving only 67.95% Recall@1. This empirically highlights the pose-semantic gap: isolated skeletal structures fail to uniquely define actions without environmental context. Conversely, applying explicit action-tag supervi-sion to the SigLIP2 backbone significantly enhances retrieval accuracy, yielding 72.14% Recall@1, 92.77% Recall@5, and 95.50% Recall@10. Paired bootstrap analysis confirms a statistically significant improvement of +4.19% in Recall@1 (95% CI: [+2.38, +6.07]) for action-based over pose-based supervision. These results demonstrate that optimizing for context-conditioned action semantics is substantially more discriminative for anomaly search than relying on geometric constraints. 
+
+5.3 Pointwise versus Pairwise Reranking 
+
+Table 5 evaluates the proposed pairwise reranking strategy against a pointwise scoring baseline using the identical Qwen3.5-9B model and candidate pool. As-signing an absolute, independently calibrated scalar score (pointwise) requires the model to maintain a consistent scale across unrelated queries. In contrast, pairwise comparison simplifies the reasoning objective by tasking the model solely with determining which of two simultaneously observed candidates better satisfies the specific query criteria. Empirically, while pointwise VLM reranking improves the initial dense re-trieval baseline (increasing Recall@1 from 75.73% to 80.13%), the pairwise strat-egy is substantially more discriminative. It achieves 84.88% Recall@1 and 90.14% mAP, outperforming the pointwise approach by absolute margins of +4.75% and +2.44%, respectively (95% CI for Recall@1: [+3.08, +6.42]). Specifically, this ranking effectiveness substantially reduces the number of comparisons rela-tive to exhaustive all-pairs reranking. Under our top-10 configuration, pairwise 14 Thanh-Khoi Nguyen et al. 
+
+Table 5: Comparison of pointwise and pairwise VLM reranking on the challenge set. Both variants use the same Qwen3.5-9B model [16] and candidate pool. Requests denote the average number of VLM calls per query. 
+
+Reranking strategy R@1 ↑ R@5 ↑ R@10 ↑ mAP ↑ Req./Q ↓
+
+No VLM reranking 75.73 94.99 97.27 84.48 0.00 Qwen3.5 [16] pointwise 80.13 96.41 97.27 87.70 10.00 
+
+Qwen3.5 [16] pairwise 84.88 96.36 97.27 90.14 9.09 
+
+Pairwise − Pointwise +4.75 −0.05 0.00 +2.44 −0.91     
+
+> Paired bootstrap 95% CI [+ 3.08 , + 6.42 ] [ −0.61 , + 0.51 ][0, 0] [+ 1.45 , + 3.43 ]
+
+–
+
+reranking uses an average of 9.09 model calls per query, compared with 10.00 calls for the pointwise implementation. 
+
+## 6 Conclusion 
+
+In this paper, we propose a three-stage framework for text-based person anomaly search that bridges the pose-semantic gap via action-aligned representation learn-ing, context-grounded query fusion, and training-free pairwise multimodal rerank-ing. ActPair achieves the best performance among the compared published base-lines on the original PAB test and substantially improves over the same-source CMP baseline in cross-dataset transfer to RSTPReid. Beyond pedestrian anomaly search, ActPair may support other context-grounded retrieval tasks, such as dis-tinguishing similar actions in sports. We view our framework as a step toward such broader context-grounded retrieval tasks. 
+
+Limitations and Future Work : Constructing canonical vocabularies ( Tact 
+
+and Tscene ) currently requires dataset-specific annotations, limiting scalability in unannotated domains. Future work will eliminate this dependency by utilizing an unsupervised MLLM pipeline to dynamically parse raw captions into action and scene clusters. 
+
+Acknowledgement. This work was supported by Saigon AI Hub, jointly established by VNG Group JSC and Vietnam National University Ho Chi Minh City (VNU-HCM), which provided computing infrastructure, research resources, and a collaborative research environment. Trong-Thuan Nguyen was funded by the PhD Scholarship Programme of Vingroup Innovation Foundation (VINIF), VinUniversity, code VINIF.2025.TS63. 
+
+## References 
+
+1. Burges, C., Shaked, T., Renshaw, E., Lazier, A., Deeds, M., Hamilton, N., Hul-lender, G.: Learning to rank using gradient descent. In: Proceedings of the 22nd international conference on Machine learning. pp. 89–96 (2005) 2. Cao, Z., Qin, T., Liu, T.Y., Tsai, M.F., Li, H.: Learning to rank: from pairwise approach to listwise approach. In: Proceedings of the 24th international conference on Machine learning. pp. 129–136 (2007) ActPair 15 3. Hu, Y., Cao, Z., Li, P., Zhu, Q.: Recqr: Incorporating conversational query rewrit-ing to improve multimodal image retrieval. arXiv preprint arXiv:2603.26669 (2026) 4. Jiang, D., Ye, M.: Cross-modal implicit relation reasoning and aligning for text-to-image person retrieval. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 2787–2797 (2023) 5. Jiang, T., Lu, P., Zhang, L., Ma, N., Han, R., Lyu, C., Li, Y., Chen, K.: Rtm-pose: Real-time multi-person pose estimation based on mmpose. arXiv preprint arXiv:2303.07399 (2023) 6. Ju, H., Zhang, H., Zheng, Z.: Anomalylmm: Bridging generative knowledge and discriminative retrieval for text-based person anomaly search. arXiv preprint arXiv:2509.04376 (2025) 7. Khaertdinov, B., Popa, M., Tintarev, N.: A little more like this: Text-to-image retrieval with vision-language models using relevance feedback. In: Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision. pp. 3825–3834 (2026) 8. Lee, S., Yu, S., Park, J., Yi, J., Yoon, S.: Interactive text-to-image retrieval with large language models: A plug-and-play approach. In: Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers). pp. 791–809 (2024) 9. Li, H., Liu, Y., Zhang, H., Li, B.: Mitigating and evaluating static bias of ac-tion representations in the background and the foreground. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 19911–19923 (2023) 10. Luo, J., Ren, W., Jiang, W., Chen, X., Wang, Q., Han, Z., Liu, H.: Discovering syntactic interaction clues for human-object interaction detection. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 28212–28222 (2024) 11. Qin, Y., Chen, Y., Peng, D., Peng, X., Zhou, J.T., Hu, P.: Noisy-correspondence learning for text-to-image person re-identification. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 27197– 27206 (2024) 12. Qin, Z., Jagerman, R., Hui, K., Zhuang, H., Wu, J., Yan, L., Shen, J., Liu, T., Liu, J., Metzler, D., et al.: Large language models are effective text rankers with pairwise ranking prompting. In: Findings of the Association for Computational Linguistics: NAACL 2024. pp. 1504–1518 (2024) 13. Radford, A., Kim, J.W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G., Askell, A., Mishkin, P., Clark, J., et al.: Learning transferable visual models from natural language supervision. In: International conference on machine learning. pp. 8748–8763. PmLR (2021) 14. Shu, X., Wen, W., Wu, H., Chen, K., Song, Y., Qiao, R., Ren, B., Wang, X.: See finer, see more: Implicit modality alignment for text-based person retrieval. In: European Conference on Computer Vision. pp. 624–641. Springer (2022) 15. Sun, J., Fei, H., Ding, G., Zheng, Z.: From data deluge to data curation: A filtering-wora paradigm for efficient text-based person search. In: Proceedings of The Web Conference (WWW) (2025) 16. Team, Q.: Qwen3.5: Accelerating productivity with native multimodal agents (February 2026), https://qwen.ai/blog?id=qwen3.5 
+
+17. Tschannen, M., Gritsenko, A., Wang, X., Naeem, M.F., Alabdulmohsin, I., Parthasarathy, N., Evans, T., Beyer, L., Xia, Y., Mustafa, B., et al.: Siglip 2: Multilingual vision-language encoders with improved semantic understanding, lo-calization, and dense features. arXiv preprint arXiv:2502.14786 (2025) 16 Thanh-Khoi Nguyen et al. 18. Wang, T., Anwer, R.M., Khan, M.H., Khan, F.S., Pang, Y., Shao, L., Laaksonen, J.: Deep contextual attention for human-object interaction detection. In: Proceed-ings of the IEEE/CVF international conference on computer vision. pp. 5694–5702 (2019) 19. Xie, Z., Luo, G., Wang, C., Cai, S., Jin, T., Zhao, Z., Tang, Y.: Bridging the pose-semantic gap: A cascade framework for text-based person anomaly search. In: Findings of the Association for Computational Linguistics: ACL 2026. pp. 4040– 4049 (2026) 20. Yan, S., Dong, N., Zhang, L., Tang, J.: Clip-driven fine-grained text-image person re-identification. IEEE Transactions on Image Processing 32 , 6032–6046 (2023) 21. Yang, B., Min, C., Daming, G., Ziqiang, C., Chen, C., Zhenfeng, F., Liqiang, N., Min, Z.: Rasa: Relation and sensitivity aware representation learning for text-based person search. In: Proceedings of the International Joint Conference on Artificial Intelligence (IJCAI) (2023) 22. Yang, S., Wang, Y., Li, Y., Zhu, L., Zheng, Z.: Minimizing the pretraining gap: Domain-aligned text-based person retrieval. Pattern Recognition p. 113511 (2026) 23. Yang, S., Wang, Y., Zhu, L., Zheng, Z.: Beyond walking: A large-scale image-text benchmark for text-based person anomaly search. In: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) (2025) 24. Yang, S., Zhou, Y., Zheng, Z., Wang, Y., Zhu, L., Wu, Y.: Towards unified text-based person retrieval: A large-scale multi-attribute and language search bench-mark. In: Proceedings of the 31st ACM international conference on multimedia. pp. 4492–4501 (2023) 25. Yu, H., Wen, J., Zheng, Z.: Camel: cross-modality adaptive meta-learning for text-based person retrieval. IEEE Transactions on Information Forensics and Security (2025) 26. Yuan, C., Zhao, Y., Xu, H., Niu, G.: Towards robust text-to-image person retrieval: Multi-view reformulation for semantic compensation. arXiv preprint arXiv:2604.18376 (2026). https://doi.org/10.48550/arXiv.2604.18376 , https: //arxiv.org/abs/2604.18376 
+
+27. Zeng, Y., Zhang, X., Li, H.: Multi-grained vision language pre-training: Aligning texts with visual concepts. In: International Conference on Machine Learning. pp. 25994–26009. PMLR (2022) 28. Zhu, A., Wang, Z., Li, Y., Wan, X., Jin, J., Wang, T., Hu, F., Hua, G.: Dssl: Deep surroundings-person separation learning for text-based person retrieval. In: Proceedings of the 29th ACM international conference on multimedia. pp. 209–217 (2021) 29. Zhuang, S., Zhuang, H., Koopman, B., Zuccon, G.: A setwise approach for effective and highly efficient zero-shot ranking with large language models. In: Proceedings of the 47th International ACM SIGIR Conference on Research and Development in Information Retrieval. pp. 38–47 (2024)
